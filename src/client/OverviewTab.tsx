@@ -17,7 +17,6 @@ import { absoluteTime, timeAgo } from './time'
 interface OverviewProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
-  readonly refreshKey: number
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -33,7 +32,7 @@ interface BranchTree {
   tags: readonly GitBranch[]
 }
 
-export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Element {
   const [tree, setTree] = useState<BranchTree | null>(null)
   const [authors, setAuthors] = useState<readonly string[]>([])
   const [commits, setCommits] = useState<readonly GraphCommit[]>([])
@@ -51,10 +50,12 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
   const listRef = useRef<HTMLDivElement>(null)
 
   const loadTree = useCallback(async () => {
-    const [branches, tags, auth] = await Promise.all([
+    // Branches + tags gate the left column; fetch them together and render as
+    // soon as they land. Authors walks up to 2000 commits and only feeds the
+    // filter dropdown, so it is fetched separately and never blocks the tree.
+    const [branches, tags] = await Promise.all([
       remote.query({ sessionId, query: { kind: 'branches' } }),
       remote.query({ sessionId, query: { kind: 'tags' } }),
-      remote.query({ sessionId, query: { kind: 'authors' } }),
     ])
     setTree({
       current: branches.ok && branches.value.kind === 'branches' ? branches.value.current : null,
@@ -63,7 +64,9 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
       remote: branches.ok && branches.value.kind === 'branches' ? branches.value.remote : [],
       tags: tags.ok && tags.value.kind === 'tags' ? tags.value.tags : [],
     })
-    setAuthors(auth.ok && auth.value.kind === 'authors' ? auth.value.authors : [])
+    void remote.query({ sessionId, query: { kind: 'authors' } }).then((auth) => {
+      setAuthors(auth.ok && auth.value.kind === 'authors' ? auth.value.authors : [])
+    })
   }, [remote, sessionId])
 
   const loadPage = useCallback(async (skip: number, f: typeof filter) => {
@@ -88,7 +91,15 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
     setTotal(res.value.total)
   }, [remote, sessionId])
 
-  useEffect(() => { void loadTree() }, [loadTree, refreshKey])
+  // Load the branch tree once per activation. It rarely changes, so a snapshot
+  // poll (refreshKey bump) must not re-fetch it and stall the column; an
+  // explicit Fetch action reloads it via onFetch below.
+  const treeLoaded = useRef(false)
+  useEffect(() => {
+    if (treeLoaded.current) return
+    treeLoaded.current = true
+    void loadTree()
+  }, [loadTree])
 
   // Filter changes → reload from scratch.
   useEffect(() => {
@@ -107,15 +118,32 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
     return () => clearTimeout(timer)
   }, [searchInput])
 
+  // Commit-detail cache: `show` is immutable per hash, so a re-selection (or a
+  // scroll back to an earlier commit) resolves from memory instead of another
+  // round trip. Bounded to the most recent entries.
+  const detailCache = useRef(new Map<string, { commit: GitCommit | null; body: string; stats: readonly GitFileStat[] }>())
   const select = useCallback(async (commit: GraphCommit) => {
     selectedHash.current = commit.hash
     setSelected(commit)
-    setDetail(null)
     setDetailError(false)
+    const cached = detailCache.current.get(commit.hash)
+    if (cached !== undefined) { setDetail(cached); return }
+    setDetail(null)
     const res = await remote.query({ sessionId, query: { kind: 'show', ref: commit.hash } })
     if (selectedHash.current !== commit.hash) return
-    if (res.ok && res.value.kind === 'show') setDetail({ commit: res.value.commit, body: res.value.body, stats: res.value.stats })
-    else setDetailError(true)
+    if (res.ok && res.value.kind === 'show') {
+      const detail = { commit: res.value.commit, body: res.value.body, stats: res.value.stats }
+      const cache = detailCache.current
+      cache.set(commit.hash, detail)
+      while (cache.size > 50) {
+        const first = cache.keys().next().value
+        if (first === undefined) break
+        cache.delete(first)
+      }
+      setDetail(detail)
+    } else {
+      setDetailError(true)
+    }
   }, [remote, sessionId])
 
   const searching = filter.search !== ''

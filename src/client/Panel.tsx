@@ -62,8 +62,17 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       return h('div', { className: 'gp-empty' }, view.error.code === 'not-a-git-repo' ? t('error.notARepo') : t('pill.unavailable'))
     }
     if (view.state === 'cold' || view.state === 'loading') return h('div', { className: 'gp-empty' }, t('common.loading'))
-    if (tab === 'overview') return h(OverviewTab, { remote, sessionId, refreshKey, t })
-    return h(ChangesTab, { remote, sessionId, snapshot: view.snapshot, refreshKey, onAction, t })
+    // Both tabs stay mounted; visibility toggles. Switching tabs then keeps the
+    // Overview's loaded commits/tree/detail cache instead of re-fetching, and
+    // preserves the Changes selection/scroll — the same state-retention idiom
+    // an IDE Git tool uses.
+    const snapshot = view.snapshot
+    return h('div', { style: { display: 'contents' } }, [
+      h('div', { key: 'overview', style: tab === 'overview' ? { display: 'contents' } : { display: 'none' } },
+        h(OverviewTab, { remote, sessionId, t })),
+      h('div', { key: 'changes', style: tab === 'changes' ? { display: 'contents' } : { display: 'none' } },
+        h(ChangesTab, { remote, sessionId, snapshot, refreshKey, onAction, t })),
+    ])
   })()
 
   return h('div', { className: 'gp-panel' }, [
