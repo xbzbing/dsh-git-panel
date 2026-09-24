@@ -1,0 +1,66 @@
+/**
+ * dsh-git-panel build script (self-contained; also runs as `prepare`).
+ *
+ * 1. Host half: tsc emits `lib/host/` (ESM + d.ts). Never minified.
+ * 2. Client half: esbuild bundles `src/client/index.ts` into one file
+ *    `lib/client.js` wrapped in the `window.__ModuleLoader__.load({id,factory})`
+ *    closure the web shell materializes. Platform modules (react, @deepseek-ai/*)
+ *    stay external and resolve through the loader-provided `require`; ordinary
+ *    libraries (zod) are inlined.
+ */
+import { spawnSync } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import * as esbuild from 'esbuild'
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)))
+
+/** Platform modules the browser loader provides; must stay external. */
+const PLATFORM_MODULES = [
+  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
+  '@deepseek-ai/cordis',
+]
+
+/** Host externals: dsh installation provides @deepseek-ai/*; node builtins auto-external. */
+const HOST_EXTERNALS = ['@deepseek-ai/*']
+
+function run(cmd, args) {
+  const result = spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit', encoding: 'utf8' })
+  if (result.status !== 0) process.exit(result.status ?? 1)
+}
+
+// ── Host half: tsc + esbuild bundle (never minified) ─────────────────────
+run('npx', ['tsc', '-p', 'tsconfig.build.json'])
+await esbuild.build({
+  entryPoints: [resolve(ROOT, 'src/host/index.ts')],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2024',
+  external: HOST_EXTERNALS,
+  minify: false,
+  sourcemap: false,
+  outfile: resolve(ROOT, 'lib/host/index.js'),
+  logLevel: 'info',
+})
+
+// ── Client half: single-file ModuleLoader bundle ─────────────────────────
+await esbuild.build({
+  entryPoints: [resolve(ROOT, 'src/client/index.ts')],
+  bundle: true,
+  format: 'cjs',
+  platform: 'browser',
+  target: 'es2022',
+  jsx: 'automatic',
+  external: PLATFORM_MODULES,
+  minify: true,
+  sourcemap: false,
+  outfile: resolve(ROOT, 'lib/client.js'),
+  logLevel: 'info',
+  banner: {
+    js: 'window.__ModuleLoader__.load({ id: "dsh-git-panel", factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;',
+  },
+  footer: {
+    js: 'return module.exports;\n} });',
+  },
+})

@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+lib/
+*.tsbuildinfo
+
+# Local-only docs (design notes, scratch, not for the repo)
+docs/local/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# E2E vendored artifacts (copied at test time)
+test/e2e/client.js
+test/e2e/react*.js
+test/e2e/react-dom*.js
