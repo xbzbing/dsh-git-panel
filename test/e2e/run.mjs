@@ -14,8 +14,12 @@ import { dirname, resolve } from 'node:path'
 const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
 
+// A synthetic repository root for the mock snapshot; only its basename is
+// ever displayed. Not a real filesystem path.
+const FIXTURE_ROOT = 'fixture-repo'
+
 const SNAP = {
-  root: '/tmp/gp-test', branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
+  root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
   staged: 0, modified: 2, untracked: 1, ahead: 0, behind: 0, lastCommit: null,
   changes: [
     { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },

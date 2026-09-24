@@ -10,9 +10,13 @@ import { dirname, resolve } from 'node:path'
 const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
 
+// Synthetic values for the mock snapshot; only basenames are displayed.
+const FIXTURE_ROOT = 'fixture-repo'
+const NON_GIT_DIR = 'some-dir/scratch'
+
 function cleanSnap() {
   return {
-    root: '/tmp/gp-test', branch: 'main', head: 'de54fc0', unborn: false, dirty: false,
+    root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: false,
     staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, lastCommit: null,
     changes: [], truncated: false, refreshIntervalMs: 0, checkedAt: Date.now(),
   }
@@ -25,7 +29,7 @@ page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
 await page.goto(harness)
 await page.addScriptTag({ path: resolve(DIR, 'client.js') })
 
-const out = await page.evaluate(async (snap) => {
+const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const result = {}
   const entry = window.__getLoaded()
 
@@ -65,7 +69,7 @@ const out = await page.evaluate(async (snap) => {
 
   // Case 2: not-a-git-repo → marker shows only the dir name, no error text.
   const notGitConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
-    ? { ok: true, value: { ok: false, error: { code: 'not-a-git-repo', cwd: '/home/me/scratch' } } }
+    ? { ok: true, value: { ok: false, error: { code: 'not-a-git-repo', cwd: nonGitDir } } }
     : { ok: true, value: { ok: true, value: { kind: 'branches', current: null, defaultBranch: null, local: [], remote: [] } } } } }
   entry.apply(mkCtx(notGitConn))
   const pill2 = registered['conversation.input.left']
@@ -76,16 +80,18 @@ const out = await page.evaluate(async (snap) => {
   result.notGitPlain = plain !== null
   result.notGitText = plain ? plain.textContent : null
   return result
-}, cleanSnap())
+}, { snap: cleanSnap(), nonGitDir: NON_GIT_DIR })
 
 await browser.close()
+
+const expectedNonGitName = NON_GIT_DIR.split('/').pop()
 
 try {
   assert.equal(out.hasSynced, true, 'clean repo pill uses the green synced class')
   assert.equal(out.hasDirty, false, 'clean repo pill is not orange')
   assert.equal(out.jumpClicked, true, 'pill click activates the Git tab button')
   assert.equal(out.notGitPlain, true, 'non-git directory renders a plain marker')
-  assert.equal(out.notGitText, 'scratch', 'non-git marker shows only the directory name')
+  assert.equal(out.notGitText, expectedNonGitName, 'non-git marker shows only the directory name')
   assert.equal(errors.length, 0, 'no page errors: ' + JSON.stringify(errors))
   console.log('e2e run2.mjs: PASS', JSON.stringify(out))
 } catch (e) {
