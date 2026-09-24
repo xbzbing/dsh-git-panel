@@ -45,6 +45,8 @@ export const zh = {
   'overview.noResults': '没有匹配的提交',
   'overview.loadFailed': '加载失败',
   'overview.detailFailed': '详情加载失败',
+  'overview.diffFailed': '差异加载失败',
+  'overview.openFileDiff': '查看该文件在此提交中的变更',
   'overview.fetch': '拉取远程',
   // changes
   'changes.title': '本地变更',
@@ -136,6 +138,8 @@ export const en: Record<GitKey, string> = {
   'overview.noResults': 'No matching commits',
   'overview.loadFailed': 'Load failed',
   'overview.detailFailed': 'Failed to load details',
+  'overview.diffFailed': 'Failed to load diff',
+  'overview.openFileDiff': 'View this file’s changes in this commit',
   'overview.fetch': 'Fetch',
   'changes.title': 'Local changes',
   'changes.groupStaged': 'Staged changes',

@@ -9,10 +9,11 @@ import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import type { GitBranch, GitCommit, GitFileStat, GraphCommit } from './types'
 import type { GitKey } from './locales'
-import { BranchIcon, ChevronIcon, CommitIcon, RefreshIcon, TagIcon } from './icons'
+import { BranchIcon, ChevronIcon, CloseIcon, CommitIcon, RefreshIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
 import { absoluteTime, timeAgo } from './time'
+import { DiffView, diffSummary, type DiffMode } from './DiffView'
 
 interface OverviewProps {
   readonly remote: GitPanelRemote
@@ -42,6 +43,12 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   const [selected, setSelected] = useState<GraphCommit | null>(null)
   const [detail, setDetail] = useState<{ commit: GitCommit | null; body: string; stats: readonly GitFileStat[] } | null>(null)
   const [detailError, setDetailError] = useState(false)
+  /** Full-width file-diff overlay (click a changed file in the right column). */
+  const [fileDiff, setFileDiff] = useState<{ path: string; hash: string; shortHash: string } | null>(null)
+  const [fileDiffText, setFileDiffText] = useState<string | null>(null)
+  const [fileDiffError, setFileDiffError] = useState(false)
+  const [fileDiffMode, setFileDiffMode] = useState<DiffMode>('split')
+  const fileDiffSeq = useRef(0)
   const [filter, setFilter] = useState<{ ref: string | null; search: string; author: string; since: string }>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
@@ -126,6 +133,11 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
     selectedHash.current = commit.hash
     setSelected(commit)
     setDetailError(false)
+    // Selecting a different commit drops any open file-diff overlay.
+    fileDiffSeq.current += 1
+    setFileDiff(null)
+    setFileDiffText(null)
+    setFileDiffError(false)
     const cached = detailCache.current.get(commit.hash)
     if (cached !== undefined) { setDetail(cached); return }
     setDetail(null)
@@ -146,6 +158,33 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
     }
   }, [remote, sessionId])
 
+  /** Open the full-width diff overlay for a file within the selected commit. */
+  const openFileDiff = useCallback(async (path: string, hash: string, shortHash: string) => {
+    const seq = ++fileDiffSeq.current
+    setFileDiff({ path, hash, shortHash })
+    setFileDiffText(null)
+    setFileDiffError(false)
+    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash } })
+    if (seq !== fileDiffSeq.current) return
+    if (res.ok && res.value.kind === 'diff') setFileDiffText(res.value.text)
+    else setFileDiffError(true)
+  }, [remote, sessionId])
+
+  const closeFileDiff = useCallback(() => {
+    fileDiffSeq.current += 1
+    setFileDiff(null)
+    setFileDiffText(null)
+    setFileDiffError(false)
+  }, [])
+
+  // Esc closes the overlay.
+  useEffect(() => {
+    if (fileDiff === null) return
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') closeFileDiff() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [fileDiff, closeFileDiff])
+
   const searching = filter.search !== ''
   const rows: GraphRow[] = useMemo(() => (searching ? commits.map((c) => ({ commit: c, lane: 0, color: 0, edges: [], merge: false })) : layoutGraph(commits)), [commits, searching])
   const laneCount = useMemo(() => (searching ? 0 : graphWidth(rows)), [rows, searching])
@@ -163,6 +202,21 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   const fileTree = useMemo(() => (detail === null ? [] : buildFileTree(detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail])
 
   return h('div', { className: 'gp-overview' }, [
+    // full-width file-diff overlay (rendered above the columns when active)
+    fileDiff !== null ? h('div', { key: 'overlay', className: 'gp-overlay' }, [
+      h('div', { key: 'bar', className: 'gp-overlay__bar' }, [
+        h('button', { key: 'back', type: 'button', className: 'gp-icon-btn', title: t('common.close'), onClick: closeFileDiff }, h(CloseIcon, { size: 14 })),
+        h('span', { key: 'hash', className: 'gp-overlay__hash' }, fileDiff.shortHash),
+        h('span', { key: 'path', className: 'gp-overlay__path', title: fileDiff.path }, fileDiff.path),
+        fileDiffText !== null && fileDiffText !== '' ? (() => { const s = diffSummary(fileDiffText); return h('span', { key: 'sum', className: 'gp-stats__item' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), ' ', h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null,
+        h('div', { key: 'seg', className: 'gp-seg' }, (['split', 'before', 'after'] as DiffMode[]).map((m) =>
+          h('button', { key: m, type: 'button', className: `gp-seg__btn${fileDiffMode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => setFileDiffMode(m) }, t(`diff.${m}` as GitKey)))),
+      ]),
+      h('div', { key: 'scroll', className: 'gp-diff__scroll' },
+        fileDiffText === null
+          ? h('div', { className: 'gp-empty' }, fileDiffError ? t('overview.diffFailed') : t('common.loading'))
+          : h(DiffView, { text: fileDiffText, mode: fileDiffMode, t })),
+    ]) : null,
     // left: branches
     h('div', { key: 'left', className: 'gp-col gp-col--left' }, renderBranchList(tree, filter.ref, closedSections, {
       onFilter: (ref) => setFilter((prev) => ({ ...prev, ref })),
@@ -212,7 +266,11 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
           h('div', { key: 'files', className: 'gp-detail__files' },
             detail === null
               ? h('div', { className: 'gp-empty' }, detailError ? t('overview.detailFailed') : t('common.loading'))
-              : renderFileTree(fileTree)),
+              : renderFileTree(fileTree, {
+                activePath: fileDiff?.path ?? null,
+                openTitle: t('overview.openFileDiff'),
+                onOpen: (path) => { if (selected !== null) void openFileDiff(path, selected.hash, selected.shortHash) },
+              })),
           h('div', { key: 'msg', className: 'gp-detail__msg' }, [
             h('div', { key: 'subj', className: 'gp-detail__subject' }, selected.subject),
             h('div', { key: 'meta', className: 'gp-detail__meta' }, [
@@ -310,7 +368,13 @@ function renderGraphCell(row: GraphRow, laneCount: number): JSX.Element {
   return h('svg', { className: 'gp-graph-svg', width: w, height: ROW_H }, els)
 }
 
-function renderFileTree(nodes: ReturnType<typeof buildFileTree>): JSX.Element {
+interface FileTreeCbs {
+  activePath: string | null
+  openTitle: string
+  onOpen: (path: string) => void
+}
+
+function renderFileTree(nodes: ReturnType<typeof buildFileTree>, cb: FileTreeCbs): JSX.Element {
   const rows: JSX.Element[] = []
   const walk = (list: ReturnType<typeof buildFileTree>, depth: number): void => {
     for (const node of list) {
@@ -322,7 +386,14 @@ function renderFileTree(nodes: ReturnType<typeof buildFileTree>): JSX.Element {
         walk(node.children, depth + 1)
       } else {
         const status = String(node.meta ?? 'modified')
-        rows.push(h('div', { key: node.path, className: 'gp-tree-row', style: { paddingLeft: 10 + depth * 14 }, title: node.path }, [
+        const active = cb.activePath === node.path
+        rows.push(h('div', {
+          key: node.path,
+          className: `gp-tree-row${active ? ' gp-tree-row--active' : ''}`,
+          style: { paddingLeft: 10 + depth * 14 },
+          title: cb.openTitle,
+          onClick: () => cb.onOpen(node.path),
+        }, [
           h('span', { key: 'st', className: `gp-status-badge gp-status--${status}` }, (status[0] ?? 'M').toUpperCase()),
           h('span', { key: 'n', className: 'gp-tree-name' }, node.name),
         ]))

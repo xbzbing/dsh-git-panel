@@ -4,7 +4,7 @@
  */
 
 const CSS = `
-.gp-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px}
+.gp-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px;position:relative}
 .gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;transition:background .12s ease,color .12s ease}
 .gp-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -127,6 +127,14 @@ const CSS = `
 .gp-diff-row--del{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}
 .gp-diff-row--hunk{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary)}
 .gp-feedback{padding:6px 10px;font-size:12px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);display:flex;align-items:center;gap:8px}
+
+/* commit file-diff overlay (overview → click a file): full-width panel over
+ * the graph + detail columns, slid in from the right. */
+.gp-overlay{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);animation:gp-slide-in .16s ease}
+@keyframes gp-slide-in{from{transform:translateX(2%);opacity:.4}to{transform:translateX(0);opacity:1}}
+.gp-overlay__bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+.gp-overlay__hash{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary);flex:none}
+.gp-overlay__path{font-size:12px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 
 /* input-bar pill (zsh style) — repo cyan, git:(branch) green when synced /
  * orange when dirty, matching a zsh git prompt theme. */

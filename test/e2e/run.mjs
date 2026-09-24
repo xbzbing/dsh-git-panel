@@ -106,6 +106,20 @@ const out = await page.evaluate(async (snap) => {
   result.hasBranchList = document.querySelector('.gp-branch-group') !== null
   result.commitRows = document.querySelectorAll('.gp-commit-row').length
   result.hasGraph = document.querySelector('.gp-graph-svg') !== null
+
+  // Select the first commit → its changed-file tree appears on the right.
+  const firstCommit = document.querySelector('.gp-commit-row')
+  if (firstCommit) { firstCommit.click(); await new Promise((r) => setTimeout(r, 400)) }
+  const fileRow = document.querySelector('.gp-detail__files .gp-tree-row')
+  result.hasDetailFileRow = fileRow !== null
+  // Click a changed file → the full-width diff overlay opens.
+  if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.hasOverlay = document.querySelector('.gp-overlay') !== null
+  result.overlayHasDiff = document.querySelector('.gp-overlay .gp-diff__side') !== null
+  // Close it.
+  const closeBtn = document.querySelector('.gp-overlay__bar .gp-icon-btn')
+  if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
+  result.overlayClosed = document.querySelector('.gp-overlay') === null
   return result
 }, SNAP)
 
@@ -124,6 +138,10 @@ try {
   assert.equal(out.hasBranchList, true, 'branch list rendered on overview')
   assert.equal(out.commitRows, 2, 'two commit rows')
   assert.equal(out.hasGraph, true, 'commit graph svg rendered')
+  assert.equal(out.hasDetailFileRow, true, 'selecting a commit lists its changed files')
+  assert.equal(out.hasOverlay, true, 'clicking a file opens the diff overlay')
+  assert.equal(out.overlayHasDiff, true, 'the overlay renders a side-by-side diff')
+  assert.equal(out.overlayClosed, true, 'the overlay closes on the back button')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {
