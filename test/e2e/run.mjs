@@ -1,11 +1,19 @@
+/**
+ * E2E: render the built client bundle in a headless Chromium against a mock
+ * connection RPC (a dirty repo snapshot), then assert the panel structure.
+ *
+ * Fully isolated — a local file:// harness, no dsh server, no touch of any
+ * running instance. Requires the e2e fixtures (run test/e2e/setup.mjs first,
+ * or `npm run test:e2e` which chains it).
+ */
 import { chromium } from 'playwright-core'
+import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
 
-// Fake snapshot + query responses served by the mock connection RPC.
 const SNAP = {
   root: '/tmp/gp-test', branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
   staged: 0, modified: 2, untracked: 1, ahead: 0, behind: 0, lastCommit: null,
@@ -25,15 +33,14 @@ page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
 await page.goto(harness)
 await page.addScriptTag({ path: resolve(DIR, 'client.js') })
 
-const result = await page.evaluate(async (snap) => {
-  const out = { steps: [] }
+const out = await page.evaluate(async (snap) => {
+  const result = { steps: [] }
   const entry = window.__getLoaded()
-  if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load', entry: String(entry) }
+  if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
-  // Mock connection RPC: respond to gitPanel/<method>.
   const connection = {
     rpc: {
-      call: async (channel, endpoint, payload) => {
+      call: async (_channel, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
         if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
         if (endpoint === 'gitPanel/query') {
@@ -46,7 +53,7 @@ const result = await page.evaluate(async (snap) => {
             { hash: 'd196623aaa', shortHash: 'd196623', subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString(), parents: ['de54fc0bbb'], refs: [{ kind: 'branch', name: 'feature', head: false }] },
             { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [{ kind: 'branch', name: 'main', head: true }] },
           ] } } }
-          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0,7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'c.txt', status: 'added' }] } } }
+          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'c.txt', status: 'added' }] } } }
           if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n' } } }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
         }
@@ -56,68 +63,67 @@ const result = await page.evaluate(async (snap) => {
     },
   }
 
-  // Slot registry capture.
   const registered = {}
   const services = { connection }
   const ctx = {
     get: (k) => services[k],
-    effect: (cb) => { try { cb() } catch (e) {} },
+    effect: (cb) => { try { cb() } catch (e) { /* ignore */ } },
     on: () => () => {},
-    inject: (deps, cb) => cb(ctx),
+    inject: (_deps, cb) => cb(ctx),
     slots: {
       inject: (name, provider) => provider(),
       register: (reg, component) => { registered[reg.name] = { reg, component }; return () => {} },
     },
-    locale: {
-      register: () => () => {},
-      bind: () => (key, params) => {
-        // Return the key so we can assert on structure; include params.
-        return params ? key + JSON.stringify(params) : key
-      },
-    },
+    locale: { register: () => () => {}, bind: () => (key) => key },
   }
-
   entry.apply(ctx)
-  out.steps.push('applied; registered slots: ' + Object.keys(registered).join(','))
+  result.slots = Object.keys(registered)
 
-  const React = window.React
   const ReactDOM = window.ReactDOM
-
-  // Render the pill.
   const pillEntry = registered['conversation.input.left']
-  if (!pillEntry) return { error: 'no pill slot', out }
-  const pillRoot = ReactDOM.createRoot(document.getElementById('pill'))
-  pillRoot.render(pillEntry.component({ sessionId: 'sess-1' }))
+  ReactDOM.createRoot(document.getElementById('pill')).render(pillEntry.component({ sessionId: 'sess-1' }))
   await new Promise((r) => setTimeout(r, 300))
-  out.pillHtml = document.getElementById('pill').innerHTML
+  result.pillHasDirty = document.querySelector('.gp-pill__git--dirty') !== null
 
-  // Render the panel.
   const viewEntry = registered['conversation.view']
-  if (!viewEntry) return { error: 'no view slot', out }
-  out.viewLabel = viewEntry.reg.label ? viewEntry.reg.label() : null
-  out.viewOrder = viewEntry.reg.order
-  const panelRoot = ReactDOM.createRoot(document.getElementById('panel'))
-  panelRoot.render(viewEntry.component({ sessionId: 'sess-1' }))
+  result.viewLabel = viewEntry.reg.label ? viewEntry.reg.label() : null
+  result.viewOrder = viewEntry.reg.order
+  ReactDOM.createRoot(document.getElementById('panel')).render(viewEntry.component({ sessionId: 'sess-1' }))
   await new Promise((r) => setTimeout(r, 500))
-  out.panelHtml = document.getElementById('panel').innerHTML.slice(0, 400)
-  out.hasTabbar = document.querySelector('.gp-tabbar') !== null
-  out.tabCount = document.querySelectorAll('.gp-tab').length
-  out.hasStats = document.querySelector('.gp-stats') !== null
-  out.hasCommitBox = document.querySelector('.gp-commitbox') !== null
-  out.hasChangeRows = document.querySelectorAll('.gp-file-row').length
-  out.hasAmend = document.querySelector('.gp-commitbox__amend') !== null
+  result.tabCount = document.querySelectorAll('.gp-tab').length
+  result.hasStats = document.querySelector('.gp-stats') !== null
+  result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
+  result.changeRows = document.querySelectorAll('.gp-file-row').length
+  result.hasAmend = document.querySelector('.gp-commitbox__amend') !== null
 
-  // Switch to overview tab.
   const tabs = [...document.querySelectorAll('.gp-tab')]
   const overviewTab = tabs.find((t) => (t.textContent || '').includes('tab.overview'))
   if (overviewTab) { overviewTab.click(); await new Promise((r) => setTimeout(r, 500)) }
-  out.hasBranchList = document.querySelector('.gp-branch-group') !== null
-  out.hasCommitRows = document.querySelectorAll('.gp-commit-row').length
-  out.hasGraph = document.querySelector('.gp-graph-svg') !== null
-
-  return out
+  result.hasBranchList = document.querySelector('.gp-branch-group') !== null
+  result.commitRows = document.querySelectorAll('.gp-commit-row').length
+  result.hasGraph = document.querySelector('.gp-graph-svg') !== null
+  return result
 }, SNAP)
 
-console.log(JSON.stringify(result, null, 2))
-console.log('\nCONSOLE ERRORS:', errors.length ? errors : 'none')
 await browser.close()
+
+try {
+  assert.equal(out.error, undefined, out.error)
+  assert.deepEqual(out.slots.sort(), ['conversation.input.left', 'conversation.view'])
+  assert.equal(out.pillHasDirty, true, 'dirty pill shows the orange git class')
+  assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
+  assert.equal(out.tabCount, 2, 'two sub-tabs')
+  assert.equal(out.hasStats, true, 'stats bar rendered')
+  assert.equal(out.hasCommitBox, true, 'commit box rendered')
+  assert.equal(out.hasAmend, true, 'amend checkbox present')
+  assert.equal(out.changeRows, 3, 'three change rows')
+  assert.equal(out.hasBranchList, true, 'branch list rendered on overview')
+  assert.equal(out.commitRows, 2, 'two commit rows')
+  assert.equal(out.hasGraph, true, 'commit graph svg rendered')
+  assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
+  console.log('e2e run.mjs: PASS', JSON.stringify(out))
+} catch (e) {
+  console.error('e2e run.mjs: FAIL', e.message)
+  console.error(JSON.stringify(out, null, 2))
+  process.exit(1)
+}

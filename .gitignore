@@ -18,7 +18,13 @@ docs/local/
 coverage/
 .nyc_output/
 
-# E2E vendored artifacts (copied at test time)
+# E2E vendored artifacts (copied at test time by test/e2e/setup.mjs)
 test/e2e/client.js
-test/e2e/react*.js
-test/e2e/react-dom*.js
+test/e2e/react.production.min.js
+test/e2e/react-dom.production.min.js
+test/e2e/react-jsx-runtime.js
+
+# Playwright browser cache / reports
+ms-playwright/
+playwright-report/
+test-results/
