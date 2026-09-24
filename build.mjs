@@ -64,3 +64,16 @@ await esbuild.build({
     js: 'return module.exports;\n} });',
   },
 })
+
+// ── Test kit: pure algorithms as a plain ESM bundle for `node --test` ─────
+await esbuild.build({
+  entryPoints: [resolve(ROOT, 'src/client/testkit.ts')],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2022',
+  minify: false,
+  sourcemap: false,
+  outfile: resolve(ROOT, 'lib/testkit.mjs'),
+  logLevel: 'info',
+})

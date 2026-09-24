@@ -28,6 +28,9 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node build.mjs && node --test --test-force-exit tests/parser.test.mjs tests/diff.test.mjs tests/file-tree.test.mjs tests/git-graph.test.mjs tests/actions.test.mjs tests/plugin-contract.test.mjs tests/host-integration.test.mjs",
+    "test:e2e": "node test/e2e/run.mjs && node test/e2e/run2.mjs",
+    "check": "npm run typecheck && npm test",
     "prepare": "node build.mjs"
   },
   "dsh": {
@@ -64,10 +67,11 @@
   "devDependencies": {
     "@types/node": "22.10.5",
     "@types/react": "18.3.18",
-    "@types/react-dom": "^18.3.5",
+    "@types/react-dom": "18.3.5",
     "esbuild": "0.24.2",
+    "playwright-core": "1.63.0",
     "react": "18.3.1",
-    "react-dom": "^18.3.1",
+    "react-dom": "18.3.1",
     "typescript": "5.7.3"
   }
 }
