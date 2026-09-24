@@ -1,9 +1,10 @@
 /**
  * dsh-git-panel client half — Cordis apply.
  *
- * Registers two slots:
- *   conversation.view (order 30)  → the Git panel (Overview / Changes tabs)
- *   conversation.input.left       → the zsh-style Git branch marker pill
+ * Registers three slots:
+ *   conversation.view (order 30)   → the Git panel (Overview / Changes tabs)
+ *   conversation.input.left        → the zsh-style Git branch marker pill
+ *   plugins.bundle.config          → the detail-page config form (showInputPill)
  * Bilingual dictionaries are registered under the `gitPanel` namespace; the
  * per-session snapshot controller registry is bound to this context.
  */
@@ -13,9 +14,12 @@ import { en, zh } from './locales'
 import { bindContext, disposeAll, resyncAll } from './registry'
 import { Panel } from './Panel'
 import { GitPill } from './GitPill'
+import { PillConfig } from './PillConfig'
 import type { ClientCtx } from './rpc'
 
 const NS = 'gitPanel'
+/** The bundle package name — the `plugins.bundle.config` slot key. */
+const BUNDLE_KEY = 'dsh-git-panel'
 
 export const inject = ['slots', 'locale', 'connection']
 
@@ -38,6 +42,14 @@ export function apply(ctx: ClientCtx): void {
   ctx.slots.inject('conversation.input.left', () => ctx.slots.register(
     { name: 'conversation.input.left', id: 'git-panel-pill', order: 100, locale: NS },
     (props: { sessionId?: string }) => h(GitPill, { sessionId: props.sessionId, t }),
+  ))
+
+  // Plugin detail page config form (the openviking-manager pattern): only an
+  // explicit `plugins.bundle.config` entry keyed by the package name gives the
+  // detail page a configuration section — `static Config` alone renders nothing.
+  ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
+    { name: 'plugins.bundle.config', key: BUNDLE_KEY, locale: NS },
+    (props: { view?: string }) => (props.view === 'summary' ? t('cfg.title') : h(PillConfig, { ctx, t })),
   ))
 
   // Refresh all controllers on connection reset; dispose on teardown.

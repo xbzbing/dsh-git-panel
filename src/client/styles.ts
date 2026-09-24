@@ -202,6 +202,20 @@ const CSS = `
 .gp-pill--plain .gp-pill__repo{color:var(--dsw-alias-label-secondary)}
 .gp-pill--degraded{color:var(--dsw-alias-label-tertiary);cursor:default;font-weight:500}
 
+/* plugin detail config form (plugins.bundle.config slot body) */
+.gp-cfg{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
+.gp-cfg__title{margin:0;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.gp-cfg__row{display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+.gp-cfg__switch{appearance:none;-webkit-appearance:none;flex:none;width:32px;height:18px;margin:0;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;transition:background .15s ease;cursor:pointer}
+.gp-cfg__switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s ease}
+.gp-cfg__switch:checked{background:var(--dsw-alias-state-business-primary)}
+.gp-cfg__switch:checked::after{transform:translateX(14px)}
+.gp-cfg__switch:disabled{opacity:.5;cursor:default}
+.gp-cfg__switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-cfg__text{font-size:13px;color:var(--dsw-alias-label-primary)}
+.gp-cfg__hint{margin:0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}
+.gp-cfg__err{margin:0;font-size:12px;color:var(--dsw-alias-state-error-primary)}
+
 /* status dot appended to the shell's Git view-tab button — shown only when the
  * input-bar marker is hidden; colour mirrors the pill branch (synced/dirty). */
 .gp-tab-dot{display:inline-block;width:7px;height:7px;margin-left:6px;border-radius:999px;vertical-align:middle;flex:none}

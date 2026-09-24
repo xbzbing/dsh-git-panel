@@ -105,6 +105,12 @@ export const zh = {
   'error.noCwd': '当前会话无工作目录',
   'error.localChangesBlock': '本地有未提交变更，无法切换',
   'error.emptyMessage': '提交信息不能为空',
+  // plugin detail config form
+  'cfg.title': '输入框分支标记',
+  'cfg.toggle': '显示输入框标记',
+  'cfg.hint': '开启时在输入框显示 zsh 风格的 <仓库名> (分支) 标记；关闭后改为在 Git 标签旁显示状态圆点。保存后立即生效。',
+  'cfg.notLoaded': '配置未加载：该配置由运行中的宿主提供，若长时间空白请重启 DSH 后重试。',
+  'cfg.saveFailed': '保存失败，请重试',
 }
 
 export type GitKey = keyof typeof zh
@@ -203,4 +209,9 @@ export const en: Record<GitKey, string> = {
   'error.noCwd': 'This session has no working directory',
   'error.localChangesBlock': 'Local changes block the checkout',
   'error.emptyMessage': 'Commit message cannot be empty',
+  'cfg.title': 'Input-bar branch marker',
+  'cfg.toggle': 'Show input-bar marker',
+  'cfg.hint': 'When on, the input bar shows the zsh-style <repo> (branch) marker; when off, a status dot appears beside the Git tab instead. Saved changes apply immediately.',
+  'cfg.notLoaded': 'Config not loaded: it is served by the running host. Restart DSH if this stays blank.',
+  'cfg.saveFailed': 'Save failed, please retry',
 }

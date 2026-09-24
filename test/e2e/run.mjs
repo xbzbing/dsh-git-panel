@@ -133,7 +133,7 @@ await browser.close()
 
 try {
   assert.equal(out.error, undefined, out.error)
-  assert.deepEqual(out.slots.sort(), ['conversation.input.left', 'conversation.view'])
+  assert.deepEqual(out.slots.sort(), ['conversation.input.left', 'conversation.view', 'plugins.bundle.config'])
   assert.equal(out.pillHasDirty, true, 'dirty pill shows the orange git class')
   assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
   assert.equal(out.tabCount, 2, 'two sub-tabs')

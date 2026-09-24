@@ -37,6 +37,36 @@ export interface ClientCtx {
   }
 }
 
+/** Structural faces of the settings `configForms` service (detail-page config form). */
+export interface ConfigFormSnapshot {
+  readonly status: string
+  readonly value?: Record<string, unknown>
+  readonly revision: number
+  readonly writable: boolean
+}
+
+export interface ConfigFormFace {
+  getSnapshot(): ConfigFormSnapshot
+  subscribe(listener: () => void): () => void
+  set(field: string, value: unknown): Promise<boolean>
+}
+
+export interface SettingsNamespaceView {
+  readonly ns: string
+  readonly schema: unknown
+}
+
+export interface ConfigDescribeFace {
+  getSnapshot(): { readonly status?: string; readonly view?: { readonly namespaces: readonly SettingsNamespaceView[] } }
+  subscribe(listener: () => void): () => void
+  ensure(): Promise<void>
+}
+
+export interface ConfigFormsFace {
+  describe(): ConfigDescribeFace
+  get(entryId: string): ConfigFormFace
+}
+
 function callerOf(ctx: ClientCtx): ((endpoint: string, payload: unknown, signal?: AbortSignal) => Promise<unknown>) | undefined {
   try {
     const rpc = (ctx.get('connection') as ConnectionFace | undefined)?.rpc
