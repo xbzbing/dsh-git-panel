@@ -1,0 +1,45 @@
+/** Minimal inline SVG icons (currentColor). */
+import { createElement as h } from 'react'
+import type { JSX } from 'react'
+
+interface IconProps { readonly size?: number }
+
+function svg(path: JSX.Element | JSX.Element[], size = 15): JSX.Element {
+  return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }, path)
+}
+
+export function CommitIcon({ size }: IconProps): JSX.Element {
+  return svg([h('circle', { key: 'c', cx: 8, cy: 8, r: 2.4 }), h('line', { key: 'l1', x1: 8, y1: 1.5, x2: 8, y2: 5.6 }), h('line', { key: 'l2', x1: 8, y1: 10.4, x2: 8, y2: 14.5 })], size)
+}
+
+export function DiffIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M4 2v8' }), h('path', { key: 'b', d: 'M2 4h4' }), h('circle', { key: 'c', cx: 4, cy: 12, r: 1.6 }), h('circle', { key: 'd', cx: 12, cy: 4, r: 1.6 }), h('path', { key: 'e', d: 'M12 6v4' }), h('path', { key: 'f', d: 'M10 12h4' })], size)
+}
+
+export function BranchIcon({ size }: IconProps): JSX.Element {
+  return svg([h('circle', { key: 'a', cx: 4, cy: 3, r: 1.6 }), h('circle', { key: 'b', cx: 4, cy: 13, r: 1.6 }), h('circle', { key: 'c', cx: 12, cy: 5, r: 1.6 }), h('path', { key: 'd', d: 'M4 4.6v6.8' }), h('path', { key: 'e', d: 'M12 6.6c0 3-4 2.4-8 4' })], size)
+}
+
+export function TagIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M2 7V3h4l8 8-4 4z' }), h('circle', { key: 'b', cx: 4.5, cy: 5.5, r: 0.8, fill: 'currentColor' })], size)
+}
+
+export function ChevronIcon({ size, open }: IconProps & { open?: boolean }): JSX.Element {
+  return svg([h('path', { key: 'a', d: open ? 'M3 6l5 5 5-5' : 'M6 3l5 5-5 5' })], size)
+}
+
+export function CloseIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M4 4l8 8M12 4l-8 8' })], size)
+}
+
+export function RefreshIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M13 8a5 5 0 1 1-1.5-3.5' }), h('path', { key: 'b', d: 'M13 2v3h-3' })], size)
+}
+
+export function FolderIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M2 4h4l1.5 1.5H14V13H2z' })], size)
+}
+
+export function FileIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
+}
