@@ -26,7 +26,9 @@ export function ChangeStats({ remote, sessionId, refreshKey, t }: StatsProps): J
     return () => { alive = false }
   }, [remote, sessionId, refreshKey])
 
-  if (stats === null) return null
+  // Reserve the bar's height while stats load asynchronously, so the layout
+  // does not collapse then jump once the first response arrives.
+  if (stats === null) return h('div', { className: 'gp-stats', 'aria-hidden': true })
   const now = Date.now()
 
   const items: JSX.Element[] = [

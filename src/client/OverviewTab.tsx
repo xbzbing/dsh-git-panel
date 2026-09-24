@@ -202,11 +202,12 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   const now = useMemo(() => Date.now(), [commits])
   const fileTree = useMemo(() => (detail === null ? [] : buildFileTree(detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail])
 
-  // Hover card: pointing at a commit subject shows its changed files without
-  // selecting it. Stats come from the same `show` cache the right pane uses,
-  // fetched lazily on hover; a short delay avoids a fetch storm while scanning.
+  // Hover card: pointing at a commit subject shows its full commit message
+  // (comment) without selecting it. The body comes from the same `show` cache
+  // the right pane uses, fetched lazily on hover; a short delay avoids a fetch
+  // storm while scanning.
   const [hover, setHover] = useState<{ commit: GraphCommit; x: number; y: number } | null>(null)
-  const [hoverStats, setHoverStats] = useState<readonly GitFileStat[] | null>(null)
+  const [hoverBody, setHoverBody] = useState<string | null>(null)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const hoverHash = useRef<string | null>(null)
 
@@ -216,14 +217,14 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
       hoverHash.current = commit.hash
       setHover({ commit, x, y })
       const cached = detailCache.current.get(commit.hash)
-      if (cached !== undefined) { setHoverStats(cached.stats); return }
-      setHoverStats(null)
+      if (cached !== undefined) { setHoverBody(cached.body); return }
+      setHoverBody(null)
       void remote.query({ sessionId, query: { kind: 'show', ref: commit.hash } }).then((res) => {
         if (hoverHash.current !== commit.hash) return
         if (res.ok && res.value.kind === 'show') {
           detailCache.current.set(commit.hash, { commit: res.value.commit, body: res.value.body, stats: res.value.stats })
-          setHoverStats(res.value.stats)
-        } else setHoverStats([])
+          setHoverBody(res.value.body)
+        } else setHoverBody('')
       })
     }, 260)
   }, [remote, sessionId])
@@ -232,7 +233,7 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
     if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
     hoverHash.current = null
     setHover(null)
-    setHoverStats(null)
+    setHoverBody(null)
   }, [])
 
   return h('div', { className: 'gp-overview' }, [
@@ -310,8 +311,8 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
             detail !== null && detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
           ]),
         ]),
-    // hover card: changed files of the pointed-at commit
-    renderHoverCard(hover, hoverStats, t),
+    // hover card: full commit message (comment) of the pointed-at commit
+    renderHoverCard(hover, hoverBody, t),
   ])
 }
 
@@ -319,10 +320,10 @@ interface HoverCardCbs {
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-/** Floating card listing a commit's changed files, anchored near the pointer. */
+/** Floating card showing a commit's full message (comment), anchored near the pointer. */
 function renderHoverCard(
   hover: { commit: GraphCommit; x: number; y: number } | null,
-  stats: readonly GitFileStat[] | null,
+  body: string | null,
   t: HoverCardCbs['t'],
 ): JSX.Element | null {
   if (hover === null || typeof document === 'undefined') return null
@@ -335,17 +336,11 @@ function renderHoverCard(
       h('span', { key: 'h', className: 'gp-commit-hash' }, hover.commit.shortHash),
       h('span', { key: 'a' }, hover.commit.author),
     ]),
-    stats === null
+    body === null
       ? h('div', { key: 'l', className: 'gp-hovercard__loading' }, t('common.loading'))
-      : stats.length === 0
+      : body === ''
         ? h('div', { key: 'e', className: 'gp-hovercard__loading' }, t('overview.noMessage'))
-        : h('div', { key: 'files', className: 'gp-hovercard__files' }, [
-          ...stats.slice(0, 20).map((s) => h('div', { key: s.path, className: 'gp-hovercard__file' }, [
-            h('span', { key: 'st', className: `gp-status-badge gp-status--${s.status}` }, (s.status[0] ?? 'M').toUpperCase()),
-            h('span', { key: 'p', className: 'gp-hovercard__path' }, s.path),
-          ])),
-          stats.length > 20 ? h('div', { key: 'more', className: 'gp-hovercard__loading' }, `… +${stats.length - 20}`) : null,
-        ]),
+        : h('pre', { key: 'body', className: 'gp-hovercard__body' }, body),
   ])
   return createPortal(card, document.body, 'commit-hovercard')
 }

@@ -118,7 +118,7 @@ const CSS = `
 .gp-file-row:hover .gp-file-row__actions{visibility:visible}
 
 /* stats bar */
-.gp-stats{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
+.gp-stats{display:flex;align-items:center;gap:14px;padding:8px 12px;min-height:33px;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
 .gp-stats__item{display:inline-flex;align-items:center;gap:5px}
 .gp-stats__add{color:var(--dsw-alias-state-success-primary)}
 .gp-stats__del{color:var(--dsw-alias-state-error-primary)}
@@ -165,9 +165,7 @@ const CSS = `
 .gp-hovercard__subject{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-hovercard__meta{display:flex;gap:8px;font-size:11px;color:var(--dsw-alias-label-tertiary);margin-bottom:8px}
 .gp-hovercard__loading{font-size:11px;color:var(--dsw-alias-label-tertiary)}
-.gp-hovercard__files{display:flex;flex-direction:column;gap:2px;overflow-y:auto;min-height:0}
-.gp-hovercard__file{display:flex;align-items:center;gap:6px;min-width:0}
-.gp-hovercard__path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary)}
+.gp-hovercard__body{margin:0;font-family:inherit;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;word-break:break-word;overflow-y:auto;min-height:0}
 
 /* input-bar pill (zsh style) — repo cyan, (branch) green when synced /
  * orange when dirty. Fully-rounded (999px) to match the dsh-openviking-manager
