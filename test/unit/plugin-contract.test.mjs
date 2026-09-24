@@ -13,7 +13,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
-import * as host from '../lib/host/index.js'
+import * as host from '../../lib/host/index.js'
 
 test('host bundle exports the GitPanelService + endpoints', () => {
   const Service = host.default ?? host.GitPanelService
@@ -27,10 +27,13 @@ test('host bundle exports the GitPanelService + endpoints', () => {
   assert.equal(typeof host.runAction, 'function')
   assert.equal(typeof host.runQuery, 'function')
   assert.equal(typeof host.snapshotForSession, 'function')
+  assert.equal(typeof host.readVersionInfo, 'function')
+  assert.equal(typeof host.checkLatestVersion, 'function')
+  assert.equal(typeof host.compareVersions, 'function')
 })
 
 function loadClient() {
-  const code = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const code = readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
   let handoff = null
   const sandbox = {
     window: { __ModuleLoader__: { load: (h) => { handoff = h } } },

@@ -62,6 +62,7 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
         }
         if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+        if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
     },
@@ -112,14 +113,19 @@ const out = await page.evaluate(async (snap) => {
   if (firstCommit) { firstCommit.click(); await new Promise((r) => setTimeout(r, 400)) }
   const fileRow = document.querySelector('.gp-detail__files .gp-tree-row')
   result.hasDetailFileRow = fileRow !== null
-  // Click a changed file → the full-width diff overlay opens.
+  // Click a changed file → the diff modal opens (portaled to document.body).
   if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
-  result.hasOverlay = document.querySelector('.gp-overlay') !== null
-  result.overlayHasDiff = document.querySelector('.gp-overlay .gp-diff__side') !== null
-  // Close it.
-  const closeBtn = document.querySelector('.gp-overlay__bar .gp-icon-btn')
+  result.hasModal = document.querySelector('.gp-modal') !== null
+  result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__side') !== null
+  // Esc closes it.
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await new Promise((r) => setTimeout(r, 200))
+  result.modalClosedByEsc = document.querySelector('.gp-modal') === null
+  // Reopen, then close via the close button.
+  if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  const closeBtn = document.querySelector('.gp-modal__bar .gp-icon-btn')
   if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
-  result.overlayClosed = document.querySelector('.gp-overlay') === null
+  result.modalClosedByBtn = document.querySelector('.gp-modal') === null
   return result
 }, SNAP)
 
@@ -139,9 +145,10 @@ try {
   assert.equal(out.commitRows, 2, 'two commit rows')
   assert.equal(out.hasGraph, true, 'commit graph svg rendered')
   assert.equal(out.hasDetailFileRow, true, 'selecting a commit lists its changed files')
-  assert.equal(out.hasOverlay, true, 'clicking a file opens the diff overlay')
-  assert.equal(out.overlayHasDiff, true, 'the overlay renders a side-by-side diff')
-  assert.equal(out.overlayClosed, true, 'the overlay closes on the back button')
+  assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
+  assert.equal(out.modalHasDiff, true, 'the modal renders a side-by-side diff')
+  assert.equal(out.modalClosedByEsc, true, 'Esc closes the modal')
+  assert.equal(out.modalClosedByBtn, true, 'the close button closes the modal')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {

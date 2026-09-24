@@ -6,13 +6,28 @@
 const CSS = `
 .gp-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px;position:relative}
 .gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+/* The shell floats the input composer over the view's bottom (composer-overlay
+ * mode). Reserve that height as bottom padding so the panel's own bottom rows
+ * (commit box / commit comment) stay above it instead of being covered. */
+.gp-body{flex:1;min-height:0;display:flex;overflow:hidden;padding-bottom:calc(var(--dsh-composer-height,140px) + 12px)}
+/* version + update-check cluster, pushed to the tab bar's trailing edge */
+.gp-verbar{margin-left:auto;display:inline-flex;align-items:center;gap:8px}
+.gp-verbar__tag{font-size:11px;color:var(--dsw-alias-label-tertiary);font-family:var(--dsw-font-mono,ui-monospace,monospace)}
+.gp-verbar__btn{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
+.gp-verbar__btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-verbar__btn:disabled{opacity:.6;cursor:default}
+.gp-verbar__status{font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-verbar__status--ok{color:var(--dsw-alias-state-success-primary)}
+.gp-verbar__status--new{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
+.gp-verbar__status--err{color:var(--dsw-alias-state-error-primary)}
+.gp-verbar__link{color:var(--dsw-alias-state-business-primary);font-size:11px;text-decoration:none;white-space:nowrap}
+.gp-verbar__link:hover{text-decoration:underline}
 .gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;transition:background .12s ease,color .12s ease}
 .gp-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
 /* Active tab: primary-tinted fill + primary text + medium weight + a soft ring.
  * Clear enough to spot at a glance, restrained enough not to shout. */
 .gp-tab--active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 32%,transparent)}
 .gp-tab__icon{display:inline-flex;width:15px;height:15px}
-.gp-body{flex:1;min-height:0;display:flex;overflow:hidden}
 .gp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px;text-align:center}
 .gp-toolbar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
@@ -43,7 +58,9 @@ const CSS = `
 
 /* history */
 .gp-history{display:flex;flex-direction:column;height:100%;min-height:0}
-.gp-history__list{flex:1;min-height:0;overflow-y:auto}
+/* overscroll-behavior:contain keeps a wheel gesture that reaches the top/bottom
+ * of the commit list from bubbling out and scrolling the whole conversation. */
+.gp-history__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .gp-commit-row{display:grid;align-items:center;gap:8px;height:30px;padding:0 10px;cursor:pointer;border-bottom:1px solid transparent}
 .gp-commit-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-commit-row--active{background:var(--dsw-alias-bg-layer-2)}
@@ -61,16 +78,18 @@ const CSS = `
 .gp-search:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-select{height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px}
 
-/* commit detail (right pane) */
+/* commit detail (right pane): the changed-file tree and the commit message
+ * split the column in half, each scrolling on its own. Equal halves keep the
+ * comment visible instead of the file tree pushing it below the fold. */
 .gp-detail{display:flex;flex-direction:column;min-height:0;height:100%}
-.gp-detail__files{flex:1;min-height:0;overflow-y:auto;padding:6px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.gp-detail__msg{flex:none;max-height:45%;overflow-y:auto;padding:10px}
+.gp-detail__files{flex:1 1 50%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:6px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-detail__msg{flex:1 1 50%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:10px}
 .gp-detail__subject{font-weight:600;margin-bottom:6px}
 .gp-detail__meta{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap}
 .gp-detail__body{white-space:pre-wrap;font-size:12px;color:var(--dsw-alias-label-secondary);margin:0;font-family:inherit}
 
-/* file tree */
-.gp-tree-row{display:flex;align-items:center;gap:6px;padding:3px 10px;cursor:pointer;font-size:12px;border-radius:4px}
+/* file tree — 13px to match the middle history list (was 12px, felt cramped) */
+.gp-tree-row{display:flex;align-items:center;gap:6px;padding:3px 10px;cursor:pointer;font-size:13px;border-radius:4px}
 .gp-tree-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-tree-row--active{background:var(--dsw-alias-bg-layer-2)}
 .gp-tree-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
@@ -81,11 +100,13 @@ const CSS = `
 .gp-status--untracked{color:var(--dsw-alias-label-tertiary)}
 .gp-status--renamed{color:var(--dsw-alias-state-business-primary)}
 
-/* changes page */
-.gp-changes{display:flex;width:100%;min-height:0}
+/* changes page — height:100% bounds the row to the panel so the right diff
+ * scrolls inside its own pane instead of growing and pushing the left commit
+ * box below the fold. */
+.gp-changes{display:flex;width:100%;height:100%;min-height:0}
 .gp-changes__left{width:380px;flex:none;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l2)}
 .gp-changes__right{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
-.gp-changes__list{flex:1;min-height:0;overflow-y:auto;padding:4px 0}
+.gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 .gp-check{width:14px;height:14px;flex:none;cursor:pointer}
 .gp-group-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
 .gp-file-row{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 20px;cursor:pointer;font-size:12px;border-radius:4px}
@@ -118,7 +139,7 @@ const CSS = `
 .gp-seg{display:inline-flex;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden}
 .gp-seg__btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:4px 8px;cursor:pointer}
 .gp-seg__btn--active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
-.gp-diff__scroll{flex:1;min-height:0;overflow:auto;font-family:var(--dsw-font-mono,monospace);font-size:12px}
+.gp-diff__scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px}
 .gp-diff__table{width:100%;border-collapse:collapse}
 .gp-diff__side{display:grid;grid-template-columns:44px 1fr 44px 1fr}
 .gp-diff-cell{padding:0 8px;white-space:pre-wrap;word-break:break-all;line-height:18px}
@@ -128,13 +149,25 @@ const CSS = `
 .gp-diff-row--hunk{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary)}
 .gp-feedback{padding:6px 10px;font-size:12px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);display:flex;align-items:center;gap:8px}
 
-/* commit file-diff overlay (overview → click a file): full-width panel over
- * the graph + detail columns, slid in from the right. */
-.gp-overlay{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);animation:gp-slide-in .16s ease}
-@keyframes gp-slide-in{from{transform:translateX(2%);opacity:.4}to{transform:translateX(0);opacity:1}}
-.gp-overlay__bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
-.gp-overlay__hash{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary);flex:none}
-.gp-overlay__path{font-size:12px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+/* commit file-diff modal (overview → click a file): a centered dialog over a
+ * dimmed backdrop, closed by Esc / backdrop click / the close button. */
+.gp-modal-backdrop{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:32px;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 55%,transparent);animation:gp-fade-in .12s ease}
+@keyframes gp-fade-in{from{opacity:0}to{opacity:1}}
+.gp-modal{display:flex;flex-direction:column;width:min(1080px,92vw);height:min(760px,88vh);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 12px 48px rgba(0,0,0,.28),0 2px 8px rgba(0,0,0,.16);overflow:hidden;animation:gp-modal-in .16s ease}
+@keyframes gp-modal-in{from{transform:translateY(8px) scale(.985);opacity:.4}to{transform:none;opacity:1}}
+.gp-modal__bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+.gp-modal__hash{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary);flex:none}
+.gp-modal__path{font-size:12px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.gp-modal__scroll{flex:1;min-height:0;overflow:auto;font-family:var(--dsw-font-mono,monospace);font-size:12px}
+
+/* commit hover card (middle column): pointer-anchored, lists changed files */
+.gp-hovercard{position:fixed;z-index:70;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 8px 28px rgba(0,0,0,.2),0 1px 3px rgba(0,0,0,.12);font-size:12px;pointer-events:none;max-height:60vh;overflow:hidden;display:flex;flex-direction:column}
+.gp-hovercard__subject{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-hovercard__meta{display:flex;gap:8px;font-size:11px;color:var(--dsw-alias-label-tertiary);margin-bottom:8px}
+.gp-hovercard__loading{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.gp-hovercard__files{display:flex;flex-direction:column;gap:2px;overflow-y:auto;min-height:0}
+.gp-hovercard__file{display:flex;align-items:center;gap:6px;min-width:0}
+.gp-hovercard__path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary)}
 
 /* input-bar pill (zsh style) — repo cyan, (branch) green when synced /
  * orange when dirty. Fully-rounded (999px) to match the dsh-openviking-manager

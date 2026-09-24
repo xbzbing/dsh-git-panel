@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildFileTree } from '../lib/testkit.mjs'
+import { buildFileTree } from '../../lib/testkit.mjs'
 
 test('nests files under directories, dirs before files, sorted', () => {
   const tree = buildFileTree([

@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { layoutGraph, graphWidth } from '../lib/testkit.mjs'
+import { layoutGraph, graphWidth } from '../../lib/testkit.mjs'
 
 function commit(hash, parents) {
   return { hash, shortHash: hash.slice(0, 7), subject: hash, author: 'A', dateIso: 'D', parents, refs: [] }

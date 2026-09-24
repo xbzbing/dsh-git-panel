@@ -1,0 +1,15 @@
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gpNode" x1="7" y1="5" x2="29" y2="31" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4E9BFF"/>
+      <stop offset="1" stop-color="#2F80ED"/>
+    </linearGradient>
+  </defs>
+  <!-- git graph: a trunk with one branch that merges back -->
+  <path d="M11 8 V28" stroke="#4E9BFF" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M11 13 C11 18 25 15 25 20" stroke="#2F9C80" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <path d="M25 20 C25 24 11 22 11 26" stroke="#2F9C80" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <circle cx="11" cy="8" r="3.4" fill="url(#gpNode)" stroke="#1F4B8F" stroke-width="1"/>
+  <circle cx="25" cy="20" r="3.4" fill="#2F9C80" stroke="#1C6B57" stroke-width="1"/>
+  <circle cx="11" cy="28" r="3.4" fill="url(#gpNode)" stroke="#1F4B8F" stroke-width="1"/>
+</svg>

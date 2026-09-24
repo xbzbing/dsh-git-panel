@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git 面板",
+    "description": "在 Web GUI 里提供 IDE 风格的 Git 面板：分支与提交历史总览、未提交变更的提交与 amend、差异统计，以及输入框上的 zsh 风格分支标记。"
+  }
+}

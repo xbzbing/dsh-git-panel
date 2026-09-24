@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent } from '../lib/testkit.mjs'
+import { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent } from '../../lib/testkit.mjs'
 
 const MODIFY = `diff --git a/a.txt b/a.txt
 index a29bdeb..c0d0fb4 100644

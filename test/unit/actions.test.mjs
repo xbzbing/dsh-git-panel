@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isSafePath, planAction } from '../lib/testkit.mjs'
+import { isSafePath, planAction } from '../../lib/testkit.mjs'
 
 test('isSafePath rejects absolute paths and .. traversal', () => {
   assert.equal(isSafePath('src/a.ts'), true)

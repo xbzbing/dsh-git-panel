@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
-import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG } from '../lib/host/index.js'
+import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG } from '../../lib/host/index.js'
 
 let repo
 const SID = 'test-session'

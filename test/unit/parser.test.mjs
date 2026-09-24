@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseStatus, parseGraphLog, parseBranches, parseNameStatus, sumNumstat, parseRefs } from '../lib/testkit.mjs'
+import { parseStatus, parseGraphLog, parseBranches, parseNameStatus, sumNumstat, parseRefs } from '../../lib/testkit.mjs'
 
 test('parseStatus splits a mixed XY into staged + unstaged sides', () => {
   const z = 'MM a.txt\0 M b.txt\0M  c.txt\0?? d.txt\0'

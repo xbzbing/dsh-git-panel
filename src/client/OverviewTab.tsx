@@ -5,6 +5,7 @@
  *  right  = selected commit's changed files + message (comment)
  */
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import type { GitBranch, GitCommit, GitFileStat, GraphCommit } from './types'
@@ -177,7 +178,7 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
     setFileDiffError(false)
   }, [])
 
-  // Esc closes the overlay.
+  // Esc closes the file-diff modal.
   useEffect(() => {
     if (fileDiff === null) return
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') closeFileDiff() }
@@ -201,22 +202,49 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   const now = useMemo(() => Date.now(), [commits])
   const fileTree = useMemo(() => (detail === null ? [] : buildFileTree(detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail])
 
+  // Hover card: pointing at a commit subject shows its changed files without
+  // selecting it. Stats come from the same `show` cache the right pane uses,
+  // fetched lazily on hover; a short delay avoids a fetch storm while scanning.
+  const [hover, setHover] = useState<{ commit: GraphCommit; x: number; y: number } | null>(null)
+  const [hoverStats, setHoverStats] = useState<readonly GitFileStat[] | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const hoverHash = useRef<string | null>(null)
+
+  const onHoverEnter = useCallback((commit: GraphCommit, x: number, y: number) => {
+    if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
+    hoverTimer.current = setTimeout(() => {
+      hoverHash.current = commit.hash
+      setHover({ commit, x, y })
+      const cached = detailCache.current.get(commit.hash)
+      if (cached !== undefined) { setHoverStats(cached.stats); return }
+      setHoverStats(null)
+      void remote.query({ sessionId, query: { kind: 'show', ref: commit.hash } }).then((res) => {
+        if (hoverHash.current !== commit.hash) return
+        if (res.ok && res.value.kind === 'show') {
+          detailCache.current.set(commit.hash, { commit: res.value.commit, body: res.value.body, stats: res.value.stats })
+          setHoverStats(res.value.stats)
+        } else setHoverStats([])
+      })
+    }, 260)
+  }, [remote, sessionId])
+
+  const onHoverLeave = useCallback(() => {
+    if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
+    hoverHash.current = null
+    setHover(null)
+    setHoverStats(null)
+  }, [])
+
   return h('div', { className: 'gp-overview' }, [
-    // full-width file-diff overlay (rendered above the columns when active)
-    fileDiff !== null ? h('div', { key: 'overlay', className: 'gp-overlay' }, [
-      h('div', { key: 'bar', className: 'gp-overlay__bar' }, [
-        h('button', { key: 'back', type: 'button', className: 'gp-icon-btn', title: t('common.close'), onClick: closeFileDiff }, h(CloseIcon, { size: 14 })),
-        h('span', { key: 'hash', className: 'gp-overlay__hash' }, fileDiff.shortHash),
-        h('span', { key: 'path', className: 'gp-overlay__path', title: fileDiff.path }, fileDiff.path),
-        fileDiffText !== null && fileDiffText !== '' ? (() => { const s = diffSummary(fileDiffText); return h('span', { key: 'sum', className: 'gp-stats__item' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), ' ', h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null,
-        h('div', { key: 'seg', className: 'gp-seg' }, (['split', 'before', 'after'] as DiffMode[]).map((m) =>
-          h('button', { key: m, type: 'button', className: `gp-seg__btn${fileDiffMode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => setFileDiffMode(m) }, t(`diff.${m}` as GitKey)))),
-      ]),
-      h('div', { key: 'scroll', className: 'gp-diff__scroll' },
-        fileDiffText === null
-          ? h('div', { className: 'gp-empty' }, fileDiffError ? t('overview.diffFailed') : t('common.loading'))
-          : h(DiffView, { text: fileDiffText, mode: fileDiffMode, t })),
-    ]) : null,
+    // file-diff modal (click a changed file in the right column)
+    renderFileDiffModal(fileDiff, {
+      text: fileDiffText,
+      error: fileDiffError,
+      mode: fileDiffMode,
+      onMode: setFileDiffMode,
+      onClose: closeFileDiff,
+      t,
+    }),
     // left: branches
     h('div', { key: 'left', className: 'gp-col gp-col--left' }, renderBranchList(tree, filter.ref, closedSections, {
       onFilter: (ref) => setFilter((prev) => ({ ...prev, ref })),
@@ -255,6 +283,7 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
             selected: selected?.hash === row.commit.hash,
             gridTpl, graphW, laneCount, searching, now,
             onSelect: () => void select(row.commit),
+            onHoverEnter, onHoverLeave,
             t,
           }))),
     ]),
@@ -281,7 +310,44 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
             detail !== null && detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
           ]),
         ]),
+    // hover card: changed files of the pointed-at commit
+    renderHoverCard(hover, hoverStats, t),
   ])
+}
+
+interface HoverCardCbs {
+  t: (key: GitKey, params?: Record<string, string | number>) => string
+}
+
+/** Floating card listing a commit's changed files, anchored near the pointer. */
+function renderHoverCard(
+  hover: { commit: GraphCommit; x: number; y: number } | null,
+  stats: readonly GitFileStat[] | null,
+  t: HoverCardCbs['t'],
+): JSX.Element | null {
+  if (hover === null || typeof document === 'undefined') return null
+  const maxW = 460
+  const left = Math.min(hover.x + 16, (typeof window !== 'undefined' ? window.innerWidth : 1200) - maxW - 12)
+  const top = hover.y + 14
+  const card = h('div', { className: 'gp-hovercard', style: { left, top, maxWidth: maxW } }, [
+    h('div', { key: 'subj', className: 'gp-hovercard__subject' }, hover.commit.subject),
+    h('div', { key: 'meta', className: 'gp-hovercard__meta' }, [
+      h('span', { key: 'h', className: 'gp-commit-hash' }, hover.commit.shortHash),
+      h('span', { key: 'a' }, hover.commit.author),
+    ]),
+    stats === null
+      ? h('div', { key: 'l', className: 'gp-hovercard__loading' }, t('common.loading'))
+      : stats.length === 0
+        ? h('div', { key: 'e', className: 'gp-hovercard__loading' }, t('overview.noMessage'))
+        : h('div', { key: 'files', className: 'gp-hovercard__files' }, [
+          ...stats.slice(0, 20).map((s) => h('div', { key: s.path, className: 'gp-hovercard__file' }, [
+            h('span', { key: 'st', className: `gp-status-badge gp-status--${s.status}` }, (s.status[0] ?? 'M').toUpperCase()),
+            h('span', { key: 'p', className: 'gp-hovercard__path' }, s.path),
+          ])),
+          stats.length > 20 ? h('div', { key: 'more', className: 'gp-hovercard__loading' }, `… +${stats.length - 20}`) : null,
+        ]),
+  ])
+  return createPortal(card, document.body, 'commit-hovercard')
 }
 
 interface BranchCbs {
@@ -325,6 +391,8 @@ interface RowCbs {
   searching: boolean
   now: number
   onSelect: () => void
+  onHoverEnter: (commit: GraphCommit, x: number, y: number) => void
+  onHoverLeave: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -335,6 +403,8 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
     className: `gp-commit-row${cb.selected ? ' gp-commit-row--active' : ''}`,
     style: { gridTemplateColumns: cb.gridTpl },
     onClick: cb.onSelect,
+    onMouseEnter: (e: { clientX: number; clientY: number }) => cb.onHoverEnter(c, e.clientX, e.clientY),
+    onMouseLeave: cb.onHoverLeave,
   }, [
     h('div', { key: 'g', className: 'gp-graph-cell' }, cb.searching ? null : renderGraphCell(row, cb.laneCount)),
     h('div', { key: 's', className: 'gp-commit-subject' }, [
@@ -402,4 +472,42 @@ function renderFileTree(nodes: ReturnType<typeof buildFileTree>, cb: FileTreeCbs
   }
   walk(nodes, 0)
   return h('div', {}, rows)
+}
+
+interface FileDiffModalCbs {
+  text: string | null
+  error: boolean
+  mode: DiffMode
+  onMode: (mode: DiffMode) => void
+  onClose: () => void
+  t: (key: GitKey, params?: Record<string, string | number>) => string
+}
+
+/** Centered dialog showing a file's diff within the selected commit. Portaled
+ * to document.body so it floats above the whole panel; Esc / backdrop click /
+ * the close button dismiss it (Esc is wired by the caller). */
+function renderFileDiffModal(
+  fileDiff: { path: string; hash: string; shortHash: string } | null,
+  cb: FileDiffModalCbs,
+): JSX.Element | null {
+  if (fileDiff === null || typeof document === 'undefined') return null
+  const { text, error, mode, onMode, onClose, t } = cb
+  const modal = h('div', {
+    className: 'gp-modal-backdrop',
+    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
+  }, h('div', { className: 'gp-modal', role: 'dialog', 'aria-modal': true }, [
+    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
+      h('span', { key: 'hash', className: 'gp-modal__hash' }, fileDiff.shortHash),
+      h('span', { key: 'path', className: 'gp-modal__path', title: fileDiff.path }, fileDiff.path),
+      text !== null && text !== '' ? (() => { const s = diffSummary(text); return h('span', { key: 'sum', className: 'gp-stats__item' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), ' ', h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null,
+      h('div', { key: 'seg', className: 'gp-seg' }, (['split', 'before', 'after'] as DiffMode[]).map((m) =>
+        h('button', { key: m, type: 'button', className: `gp-seg__btn${mode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => onMode(m) }, t(`diff.${m}` as GitKey)))),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 14 })),
+    ]),
+    h('div', { key: 'scroll', className: 'gp-modal__scroll' },
+      text === null
+        ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
+        : h(DiffView, { text, mode, t })),
+  ]))
+  return createPortal(modal, document.body, 'file-diff-modal')
 }

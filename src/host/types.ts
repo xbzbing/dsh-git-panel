@@ -211,3 +211,20 @@ export interface GitQueryRequest {
   readonly sessionId: string
   readonly query: GitQuery
 }
+
+// ── version (update check) ────────────────────────────────────────────────
+
+export interface GitVersionRequest {
+  /** True → query the GitHub releases API; false/absent → local view only. */
+  readonly check?: boolean
+}
+
+export interface GitVersionInfo {
+  readonly current: string
+  readonly repositoryUrl?: string
+  readonly latest?: string
+  readonly updateAvailable: boolean
+  readonly releaseUrl?: string
+  readonly checkedRemote: boolean
+  readonly error?: string
+}

@@ -13,18 +13,21 @@ import { createGitRunner, type SubprocessLike } from './git.ts'
 import { normalizeConfig, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.ts'
 import { runAction } from './actions.ts'
 import { runQuery } from './queries.ts'
-import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult } from './types.ts'
+import { checkLatestVersion, readVersionInfo } from './version.ts'
+import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitVersionInfo, GitVersionRequest } from './types.ts'
 
 export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats,
+  GitVersionRequest, GitVersionInfo,
 } from './types.ts'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts'
 export { createGitRunner } from './git.ts'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, sumNumstat } from './parser.ts'
 export { isSafePath, planAction, runAction } from './actions.ts'
 export { runQuery } from './queries.ts'
+export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.ts'
 
 /** Structural slice of the Cordis sessions store (live cwd). */
 interface SessionsService {
@@ -94,6 +97,11 @@ export class GitPanelService extends TypertRemoteService {
   @Remote('query')
   async query(request: GitQueryRequest, signal?: AbortSignal): Promise<GitQueryResponse> {
     return runQuery(this.withSignal(signal), this.config, request)
+  }
+
+  @Remote('version')
+  async version(request: GitVersionRequest): Promise<GitVersionInfo> {
+    return request.check === true ? checkLatestVersion() : readVersionInfo()
   }
 
   private withSignal(signal?: AbortSignal): SnapshotDeps {

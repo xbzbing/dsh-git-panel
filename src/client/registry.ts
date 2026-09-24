@@ -41,7 +41,7 @@ export function disposeAll(): void {
 
 function failingRemote(): GitPanelRemote {
   const fail = async () => ({ ok: false as const, error: { code: 'git-unavailable' as const } })
-  return { snapshot: fail as never, run: fail as never, query: fail as never }
+  return { snapshot: fail as never, run: fail as never, query: fail as never, version: fail as never }
 }
 
 /** Subscribe a component to a session's git view; kicks the controller on mount. */

@@ -26,7 +26,7 @@ Client 半 (React bundle, lib/client.js)
         ▼
 Host 半 (Cordis + typert, lib/host)
   - GitPanelService（命名空间 gitPanel）
-        - snapshot / run / query 三个 @Remote 端点
+        - snapshot / run / query / version 四个 @Remote 端点
         │ subprocess 服务（argv 数组、无 shell、cwd 锁仓库根、超时+输出上限）
         ▼
   git CLI
@@ -95,6 +95,7 @@ npx tsc --noEmit      # 类型检查
 
 - host 改动：`tsc --noEmit` 通过 + 端点逻辑单测。
 - client 改动：`node build.mjs` 产出 `lib/client.js` 成功，然后**刷新** `http://127.0.0.1:3082` 验证（当前无 dev:web watcher，client 改动不会热重载，必须重建 + 刷新页面）。
+- 测试放在 `test/` 下：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点），`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。
 - 提交前跑一次完整 `node build.mjs`，确保 host 与 client 均无错。
 
 ## 代码约定
@@ -109,5 +110,5 @@ npx tsc --noEmit      # 类型检查
 ## 目录与提交
 
 - `docs/local/` 是本地设计稿目录，已在 `.gitignore` 忽略，**不提交**。
-- `lib/`、`node_modules/` 均忽略，不提交构建产物。
+- `lib/` **提交入库**：这样 `dsh plugin add github:xbzbing/dsh-git-panel` 能直接安装已构建的树，无需在安装端跑构建。只有测试期生成的 `lib/testkit.mjs` 忽略（`npm run test:unit` 会重建）。`node_modules/` 不提交。
 - 只在用户明确要求时创建 commit；优先暂存具体文件而非 `git add .`。

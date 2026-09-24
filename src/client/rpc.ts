@@ -9,7 +9,7 @@
  */
 import type {
   GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse,
-  GitSnapshotRequest, GitSnapshotResult,
+  GitSnapshotRequest, GitSnapshotResult, GitVersionInfo, GitVersionRequest,
 } from './types'
 
 const API_CHANNEL = '/api'
@@ -64,6 +64,7 @@ export interface GitPanelRemote {
   snapshot(request: GitSnapshotRequest, signal?: AbortSignal): Promise<GitSnapshotResult>
   run(request: GitActionRequest, signal?: AbortSignal): Promise<GitActionResult>
   query(request: GitQueryRequest, signal?: AbortSignal): Promise<GitQueryResponse>
+  version(request: GitVersionRequest, signal?: AbortSignal): Promise<GitVersionInfo | { ok: false; error: { code: string; message?: string } }>
 }
 
 /** Build the remote face; a missing connection yields methods that resolve to typed failures. */
@@ -82,5 +83,6 @@ export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
     snapshot: (request, signal) => invoke<GitSnapshotResult>('snapshot', request, signal) as Promise<GitSnapshotResult>,
     run: (request, signal) => invoke<GitActionResult>('run', request, signal) as Promise<GitActionResult>,
     query: (request, signal) => invoke<GitQueryResponse>('query', request, signal) as Promise<GitQueryResponse>,
+    version: (request, signal) => invoke<GitVersionInfo>('version', request, signal),
   }
 }
