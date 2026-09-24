@@ -8,6 +8,7 @@
  */
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Context } from '@deepseek-ai/cordis'
+import Schema from '@deepseek-ai/schemastery'
 import { realpath, stat } from 'node:fs/promises'
 import { createGitRunner, type SubprocessLike } from './git.ts'
 import { normalizeConfig, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.ts'
@@ -42,11 +43,22 @@ interface SessionPersistenceLike {
 export class GitPanelService extends TypertRemoteService {
   static inject = ['subprocess', 'sessions', 'sessionPersistence']
 
+  /**
+   * Config schema surfaced on the plugin detail page. Only `showInputPill` is
+   * `.volatile()`, so the settings host renders it as a live-editable toggle;
+   * the operational limits stay profile-only and out of the UI form.
+   */
+  static Config = Schema.object({
+    showInputPill: Schema.boolean().default(true).volatile().description('显示输入框的 Git 分支标记'),
+  })
+
   private readonly deps: SnapshotDeps
-  private readonly config: GitPanelConfig
+  private config: GitPanelConfig
+  private readonly rawConfig: unknown
 
   constructor(ctx: Context, config: unknown) {
     super(ctx, 'gitPanel')
+    this.rawConfig = config
     this.config = normalizeConfig(config)
     this.deps = this.buildDeps(ctx, this.config)
   }
@@ -86,22 +98,28 @@ export class GitPanelService extends TypertRemoteService {
 
   @Remote('snapshot')
   async snapshot(request: GitSnapshotRequest, signal?: AbortSignal): Promise<GitSnapshotResult> {
-    return snapshotForSession(this.withSignal(signal), this.config, request.sessionId)
+    return snapshotForSession(this.withSignal(signal), this.liveConfig(), request.sessionId)
   }
 
   @Remote('run')
   async run(request: GitActionRequest, signal?: AbortSignal): Promise<GitActionResult> {
-    return runAction(this.withSignal(signal), this.config, request)
+    return runAction(this.withSignal(signal), this.liveConfig(), request)
   }
 
   @Remote('query')
   async query(request: GitQueryRequest, signal?: AbortSignal): Promise<GitQueryResponse> {
-    return runQuery(this.withSignal(signal), this.config, request)
+    return runQuery(this.withSignal(signal), this.liveConfig(), request)
   }
 
   @Remote('version')
   async version(request: GitVersionRequest): Promise<GitVersionInfo> {
     return request.check === true ? checkLatestVersion() : readVersionInfo()
+  }
+
+  /** Re-read config so a live-edited volatile field (showInputPill) is current. */
+  private liveConfig(): GitPanelConfig {
+    this.config = normalizeConfig(this.rawConfig)
+    return this.config
   }
 
   private withSignal(signal?: AbortSignal): SnapshotDeps {

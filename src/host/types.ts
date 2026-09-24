@@ -18,7 +18,7 @@ export type GitSnapshotResult =
 export type GitFailure =
   | { readonly code: 'session-not-found'; readonly sessionId: string }
   | { readonly code: 'cwd-unavailable'; readonly sessionId: string }
-  | { readonly code: 'not-a-git-repo'; readonly cwd?: string }
+  | { readonly code: 'not-a-git-repo'; readonly cwd?: string; readonly showInputPill?: boolean }
   | { readonly code: 'git-unavailable'; readonly detail: string }
   | { readonly code: 'timeout' }
 
@@ -45,6 +45,8 @@ export interface GitSnapshot {
   readonly truncated: boolean
   /** Polling interval the client should use after this snapshot (0 = off). */
   readonly refreshIntervalMs: number
+  /** Whether the input-bar git marker pill should render (user preference). */
+  readonly showInputPill: boolean
   /** Epoch millis of the snapshot. */
   readonly checkedAt: number
 }

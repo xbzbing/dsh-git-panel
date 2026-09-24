@@ -5,9 +5,17 @@ export interface GitPanelConfig {
     readonly maxBytes: number;
     readonly maxChanges: number;
     readonly refreshIntervalMs: number;
+    /** Whether the input-bar git marker pill is shown. */
+    readonly showInputPill: boolean;
 }
 export declare const DEFAULT_CONFIG: GitPanelConfig;
 export declare function normalizeConfig(raw: unknown): GitPanelConfig;
+/**
+ * Read a boolean config field, unwrapping a schemastery volatile reference
+ * (`{ get() }`) so a live-editable toggle reflects the latest value. Absent or
+ * unrecognized shapes fall back to the default.
+ */
+export declare function readBool(value: unknown, fallback: boolean): boolean;
 /** Host capabilities the snapshot needs, structurally injected. */
 export interface SnapshotDeps {
     readonly run: GitRunner;

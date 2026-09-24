@@ -59,6 +59,9 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
 
   if (view.state === 'cold' || view.state === 'loading' || view.state === 'no-cwd') return null
   if (view.state === 'error') {
+    // The user preference can hide the marker entirely (carried on the failure
+    // for the not-a-git-repo path too).
+    if (view.error.showInputPill === false) return null
     // Not a git repo: show only the directory name (no "not a git repo" text);
     // full path in the tooltip. Other errors: a dim degraded label.
     if (view.error.code === 'not-a-git-repo') {
@@ -74,6 +77,7 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   }
 
   const snap = view.snapshot
+  if (snap.showInputPill === false) return null
   const repo = basename(snap.root)
   const branch = snap.branch ?? `(${t('pill.detached')})`
   const dirty = snap.dirty

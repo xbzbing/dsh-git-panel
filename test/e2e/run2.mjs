@@ -18,7 +18,7 @@ function cleanSnap() {
   return {
     root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: false,
     staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, lastCommit: null,
-    changes: [], truncated: false, refreshIntervalMs: 0, checkedAt: Date.now(),
+    changes: [], truncated: false, refreshIntervalMs: 0, showInputPill: true, checkedAt: Date.now(),
   }
 }
 

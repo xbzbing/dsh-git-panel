@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
-import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG } from '../../lib/host/index.js'
+import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 
 let repo
 const SID = 'test-session'
@@ -88,6 +88,17 @@ test('snapshot reports branch, dirty, and the change set', async () => {
   const paths = s.changes.map((c) => c.path).sort()
   assert.deepEqual(paths, ['a.txt', 'd.txt'])
   assert.equal(s.changes.find((c) => c.path === 'd.txt').status, 'untracked')
+  assert.equal(s.showInputPill, true, 'pill preference defaults to shown')
+})
+
+test('showInputPill config flows into the snapshot and normalizes volatile refs', async () => {
+  // Default true; explicit false hides; a schemastery volatile ref is unwrapped.
+  assert.equal(normalizeConfig({}).showInputPill, true)
+  assert.equal(normalizeConfig({ showInputPill: false }).showInputPill, false)
+  assert.equal(normalizeConfig({ showInputPill: { get: () => false } }).showInputPill, false)
+  const hidden = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, showInputPill: false }, SID)
+  assert.equal(hidden.ok, true)
+  assert.equal(hidden.value.showInputPill, false)
 })
 
 test('worktree-stats totals files and +/- lines, plus times', async () => {

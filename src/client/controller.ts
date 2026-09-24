@@ -14,7 +14,7 @@ export type GitView =
   | { readonly state: 'loading' }
   | { readonly state: 'no-cwd' }
   | { readonly state: 'ready'; readonly snapshot: GitSnapshot }
-  | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string } }
+  | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string; readonly showInputPill?: boolean } }
 
 const TERMINAL_CODES: ReadonlySet<string> = new Set(['cwd-unavailable', 'session-not-found'])
 const DEFAULT_POLL_MS = 30_000
@@ -61,7 +61,8 @@ export class GitController {
           this.pollMs = NO_CWD_POLL_MS
           this.setView({ state: 'no-cwd' })
         } else if (result.error.code === 'not-a-git-repo') {
-          this.setView({ state: 'error', error: { code: 'not-a-git-repo', ...('cwd' in result.error && (result.error as { cwd?: string }).cwd ? { cwd: (result.error as { cwd?: string }).cwd } : {}) } })
+          const e = result.error as { cwd?: string; showInputPill?: boolean }
+          this.setView({ state: 'error', error: { code: 'not-a-git-repo', ...(e.cwd ? { cwd: e.cwd } : {}), ...(e.showInputPill !== undefined ? { showInputPill: e.showInputPill } : {}) } })
         } else {
           this.setView({ state: 'error', error: { code: result.error.code, ...('detail' in result.error ? { detail: (result.error as { detail?: string }).detail } : {}) } })
         }

@@ -26,7 +26,7 @@ const SNAP = {
     { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'd.txt', status: 'untracked', staged: false, isDirectory: false },
   ],
-  truncated: false, refreshIntervalMs: 0, checkedAt: Date.now(),
+  truncated: false, refreshIntervalMs: 0, showInputPill: true, checkedAt: Date.now(),
 }
 
 const browser = await chromium.launch()

@@ -11,6 +11,8 @@ export interface GitPanelConfig {
   readonly maxBytes: number
   readonly maxChanges: number
   readonly refreshIntervalMs: number
+  /** Whether the input-bar git marker pill is shown. */
+  readonly showInputPill: boolean
 }
 
 export const DEFAULT_CONFIG: GitPanelConfig = {
@@ -18,6 +20,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   maxBytes: 4 * 1024 * 1024,
   maxChanges: 1000,
   refreshIntervalMs: 30000,
+  showInputPill: true,
 }
 
 export function normalizeConfig(raw: unknown): GitPanelConfig {
@@ -28,7 +31,20 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     maxBytes: num(c.maxBytes, DEFAULT_CONFIG.maxBytes),
     maxChanges: num(c.maxChanges, DEFAULT_CONFIG.maxChanges),
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
+    showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
   }
+}
+
+/**
+ * Read a boolean config field, unwrapping a schemastery volatile reference
+ * (`{ get() }`) so a live-editable toggle reflects the latest value. Absent or
+ * unrecognized shapes fall back to the default.
+ */
+export function readBool(value: unknown, fallback: boolean): boolean {
+  const raw = value !== null && typeof value === 'object' && 'get' in value && typeof (value as { get: unknown }).get === 'function'
+    ? (value as { get(): unknown }).get()
+    : value
+  return typeof raw === 'boolean' ? raw : fallback
 }
 
 /** Host capabilities the snapshot needs, structurally injected. */
@@ -116,7 +132,15 @@ export async function snapshotForSession(
   sessionId: string,
 ): Promise<GitSnapshotResult> {
   const workspace = await resolveWorkspace(deps, sessionId)
-  if (!workspace.ok) return workspace.failure
+  if (!workspace.ok) {
+    // Surface the pill preference even on the not-a-git-repo path, where the
+    // client still renders the directory-name marker.
+    const failure = workspace.failure
+    if (failure.error.code === 'not-a-git-repo') {
+      return { ok: false, error: { ...failure.error, showInputPill: config.showInputPill } }
+    }
+    return failure
+  }
   const root = workspace.root
 
   const [branchRes, headRes, statusRes, aheadBehindRes, lastCommitRes] = await Promise.all([
@@ -184,6 +208,7 @@ export async function snapshotForSession(
     changes,
     truncated,
     refreshIntervalMs: config.refreshIntervalMs,
+    showInputPill: config.showInputPill,
     checkedAt: Date.now(),
   }
   return { ok: true, value: snapshot }
