@@ -97,10 +97,19 @@ export interface GitPanelRemote {
   version(request: GitVersionRequest, signal?: AbortSignal): Promise<GitVersionInfo | { ok: false; error: { code: string; message?: string } }>
 }
 
-/** Build the remote face; a missing connection yields methods that resolve to typed failures. */
+/**
+ * One remote facade per context: a stable identity so React effect deps don't
+ * refire every render, while each call re-resolves the connection (it may
+ * appear after first use).
+ */
+const remoteCache = new WeakMap<ClientCtx, GitPanelRemote>()
+
+/** Build (or reuse) the remote face; a missing connection yields typed failures. */
 export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
-  const caller = callerOf(ctx)
+  const cached = remoteCache.get(ctx)
+  if (cached !== undefined) return cached
   const invoke = async <T>(method: string, request: unknown, signal?: AbortSignal): Promise<T | { ok: false; error: { code: string; message?: string } }> => {
+    const caller = callerOf(ctx)
     if (caller === undefined) return { ok: false, error: { code: 'git-unavailable', message: 'no connection' } }
     try {
       const result = await caller(`${NS}/${method}`, { args: { request } }, signal)
@@ -109,10 +118,12 @@ export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
       return { ok: false, error: { code: 'git-unavailable', message: error instanceof Error ? error.message : String(error) } }
     }
   }
-  return {
+  const remote: GitPanelRemote = {
     snapshot: (request, signal) => invoke<GitSnapshotResult>('snapshot', request, signal) as Promise<GitSnapshotResult>,
     run: (request, signal) => invoke<GitActionResult>('run', request, signal) as Promise<GitActionResult>,
     query: (request, signal) => invoke<GitQueryResponse>('query', request, signal) as Promise<GitQueryResponse>,
     version: (request, signal) => invoke<GitVersionInfo>('version', request, signal),
   }
+  remoteCache.set(ctx, remote)
+  return remote
 }
