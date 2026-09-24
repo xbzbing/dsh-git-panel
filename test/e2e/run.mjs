@@ -20,11 +20,12 @@ const FIXTURE_ROOT = 'fixture-repo'
 
 const SNAP = {
   root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
-  staged: 0, modified: 2, untracked: 1, ahead: 0, behind: 0, lastCommit: null,
+  staged: 0, modified: 3, untracked: 1, ahead: 0, behind: 0, lastCommit: null,
   changes: [
     { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'd.txt', status: 'untracked', staged: false, isDirectory: false },
+    { path: 'img.png', status: 'modified', staged: false, isDirectory: false },
   ],
   truncated: false, refreshIntervalMs: 0, showInputPill: true, checkedAt: Date.now(),
 }
@@ -39,6 +40,8 @@ await page.addScriptTag({ path: resolve(DIR, 'client.js') })
 
 const out = await page.evaluate(async (snap) => {
   const result = { steps: [] }
+  // Valid 1×1 PNG, served as both image-diff sides by the mock.
+  const MOCK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
@@ -58,7 +61,12 @@ const out = await page.evaluate(async (snap) => {
             { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [{ kind: 'branch', name: 'main', head: true }] },
           ] } } }
           if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'c.txt', status: 'added' }] } } }
-          if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n' } } }
+          if (q.kind === 'diff') {
+            // An image path diffs as the binary marker, like real git.
+            if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n' } } }
+            return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n' } } }
+          }
+          if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
         }
         if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
@@ -101,6 +109,19 @@ const out = await page.evaluate(async (snap) => {
   result.changeRows = document.querySelectorAll('.gp-file-row').length
   result.hasAmend = document.querySelector('.gp-commitbox__amend') !== null
 
+  // Image compare: opening a binary image renders old/new panes (not the
+  // binary notice), and before/after modes collapse to a single labelled pane.
+  const imgRow = [...document.querySelectorAll('.gp-file-row')].find((r) => (r.textContent || '').includes('img.png'))
+  if (imgRow) { imgRow.click(); await new Promise((r) => setTimeout(r, 600)) }
+  result.imagePanes = document.querySelectorAll('.gp-imgcmp__pane').length
+  result.imageImgs = document.querySelectorAll('.gp-imgcmp img').length
+  result.imageSrcOk = [...document.querySelectorAll('.gp-imgcmp img')].every((i) => (i.src || '').startsWith('data:image/png;base64,'))
+  result.imageHeads = [...document.querySelectorAll('.gp-imgcmp__head')].map((e) => e.textContent)
+  const afterBtn = [...document.querySelectorAll('.gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.after')
+  if (afterBtn) { afterBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.imageSingle = document.querySelector('.gp-imgcmp--single') !== null
+  result.imageSingleHead = document.querySelector('.gp-imgcmp__head')?.textContent ?? null
+
   const tabs = [...document.querySelectorAll('.gp-tab')]
   const overviewTab = tabs.find((t) => (t.textContent || '').includes('tab.overview'))
   if (overviewTab) { overviewTab.click(); await new Promise((r) => setTimeout(r, 500)) }
@@ -140,7 +161,13 @@ try {
   assert.equal(out.hasStats, true, 'stats bar rendered')
   assert.equal(out.hasCommitBox, true, 'commit box rendered')
   assert.equal(out.hasAmend, true, 'amend checkbox present')
-  assert.equal(out.changeRows, 3, 'three change rows')
+  assert.equal(out.changeRows, 4, 'four change rows (three text + one image)')
+  assert.equal(out.imagePanes, 2, 'image diff renders both panes in split mode')
+  assert.equal(out.imageImgs, 2, 'both panes render an image')
+  assert.equal(out.imageSrcOk, true, 'panes carry data URL images')
+  assert.deepEqual(out.imageHeads, ['diff.before', 'diff.after'], 'pane labels before/after')
+  assert.equal(out.imageSingle, true, 'after-mode collapses to one pane')
+  assert.equal(out.imageSingleHead, 'diff.after', 'the single pane keeps its label')
   assert.equal(out.hasBranchList, true, 'branch list rendered on overview')
   assert.equal(out.commitRows, 2, 'two commit rows')
   assert.equal(out.hasGraph, true, 'commit graph svg rendered')

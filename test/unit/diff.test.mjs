@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent } from '../../lib/testkit.mjs'
+import { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent, isImagePath } from '../../lib/testkit.mjs'
 
 const MODIFY = `diff --git a/a.txt b/a.txt
 index a29bdeb..c0d0fb4 100644
@@ -69,4 +69,15 @@ test('isAddOnlyDiff / isDeleteOnlyDiff / isBinaryDiff classify correctly', () =>
 test('extract added / deleted content', () => {
   assert.equal(extractAddedContent(NEWFILE), 'alpha\nbeta')
   assert.equal(extractDeletedContent(DELFILE), 'alpha\nbeta')
+})
+
+test('isImagePath gates on the shared image extension list', () => {
+  assert.equal(isImagePath('docs/a.PNG'), true, 'case-insensitive')
+  assert.equal(isImagePath('dir/photo.jpeg'), true)
+  assert.equal(isImagePath('icon.svg'), true)
+  assert.equal(isImagePath('anim.tiff'), true)
+  assert.equal(isImagePath('notes.txt'), false)
+  assert.equal(isImagePath('no-extension'), false)
+  assert.equal(isImagePath('archive.png.bak'), false, 'extension must be the suffix')
+  assert.equal(isImagePath('png'), false)
 })

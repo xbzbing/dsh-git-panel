@@ -249,6 +249,8 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
       expanded: fileDiffExpanded,
       onExpand: (expand) => { if (fileDiff !== null) void openFileDiff(fileDiff.path, fileDiff.hash, fileDiff.shortHash, expand) },
       onClose: closeFileDiff,
+      remote,
+      sessionId,
       t,
     }),
     // left: branches
@@ -482,6 +484,8 @@ interface FileDiffModalCbs {
   expanded: boolean
   onExpand: (expand: boolean) => void
   onClose: () => void
+  remote: GitPanelRemote
+  sessionId: string
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -493,7 +497,7 @@ function renderFileDiffModal(
   cb: FileDiffModalCbs,
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
-  const { text, error, mode, onMode, expanded, onExpand, onClose, t } = cb
+  const { text, error, mode, onMode, expanded, onExpand, onClose, remote, sessionId, t } = cb
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
@@ -517,7 +521,7 @@ function renderFileDiffModal(
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       text === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : h(DiffView, { text, mode, path: fileDiff.path, t })),
+        : h(DiffView, { text, mode, path: fileDiff.path, remote, sessionId, imageSpec: { base: 'commit', commit: fileDiff.hash }, t })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }

@@ -9,7 +9,7 @@
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { realpath, stat } from 'node:fs/promises'
+import { readFile, realpath, rm, stat } from 'node:fs/promises'
 import { createGitRunner, type SubprocessLike } from './git.ts'
 import { normalizeConfig, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.ts'
 import { runAction } from './actions.ts'
@@ -70,7 +70,7 @@ export class GitPanelService extends TypertRemoteService {
     if (subprocess === undefined) {
       return {
         run: { run: async () => { throw new Error('subprocess service unavailable') } },
-        fs: { realpath, stat: async (p) => stat(p) },
+        fs: { realpath, stat: async (p) => stat(p), readFile, remove: async (p) => { await rm(p, { force: true }) } },
         sessions: { liveCwd: () => undefined, persistedMeta: async () => undefined },
         rootCache,
       }
@@ -79,7 +79,7 @@ export class GitPanelService extends TypertRemoteService {
     const persistence = get('sessionPersistence') as SessionPersistenceLike | undefined
     return {
       run: createGitRunner(subprocess, config.timeoutMs, config.maxBytes),
-      fs: { realpath, stat: async (p) => stat(p) },
+      fs: { realpath, stat: async (p) => stat(p), readFile, remove: async (p) => { await rm(p, { force: true }) } },
       sessions: {
         liveCwd: (id) => sessions?.get(id)?.header?.cwd,
         persistedMeta: async (id) => {

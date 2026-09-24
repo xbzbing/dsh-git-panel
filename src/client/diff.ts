@@ -3,6 +3,7 @@
  * no external diff library — a git unified diff is line-oriented and cheap
  * to walk.
  */
+import { imageMimeFor } from './types'
 
 export type RowKind = 'context' | 'add' | 'del' | 'hunk' | 'meta'
 
@@ -21,6 +22,11 @@ export interface SideRow {
 /** True when the diff is a binary-file marker. */
 export function isBinaryDiff(unified: string): boolean {
   return /^Binary files .* differ$/m.test(unified) || /^GIT binary patch$/m.test(unified)
+}
+
+/** True when the path is one of the image types image-diff serves. */
+export function isImagePath(path: string): boolean {
+  return imageMimeFor(path) !== null
 }
 
 /** True when the diff only adds lines (new file). */

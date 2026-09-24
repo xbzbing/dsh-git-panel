@@ -13,10 +13,11 @@ import { spawn as nodeSpawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { realpath, stat } from 'node:fs/promises'
+import { realpath, readFile, rm, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 
 let repo
+let repoImg
 const SID = 'test-session'
 
 /** child_process-backed subprocess service matching SubprocessLike. */
@@ -50,12 +51,16 @@ function runGit(cwd, args) {
   })
 }
 
-function deps() {
+function depsAt(dir) {
   return {
     run: createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes),
-    fs: { realpath, stat: (p) => stat(p) },
-    sessions: { liveCwd: () => repo, persistedMeta: async () => undefined },
+    fs: { realpath, stat: (p) => stat(p), readFile: (p) => readFile(p), remove: (p) => rm(p, { force: true }) },
+    sessions: { liveCwd: () => dir, persistedMeta: async () => undefined },
   }
+}
+
+function deps() {
+  return depsAt(repo)
 }
 
 before(async () => {
@@ -75,9 +80,26 @@ before(async () => {
   await runGit(repo, ['commit', '-qm', 'feat: add a'])
   writeFileSync(join(repo, 'a.txt'), base.replace('line10', 'line10-changed'))
   writeFileSync(join(repo, 'd.txt'), 'new\n')
+
+  // Image fixture repo: committed png (v1) then a worktree edit (v2) and an
+  // untracked png, kept separate so its staged counts never leak into the
+  // text-diff tests above.
+  repoImg = mkdtempSync(join(tmpdir(), 'gp-img-'))
+  await runGit(repoImg, ['init', '-q'])
+  await runGit(repoImg, ['config', 'user.email', 't@t.co'])
+  await runGit(repoImg, ['config', 'user.name', 'Tester'])
+  writeFileSync(join(repoImg, 'img.png'), Buffer.from('PNG-v1-bytes'))
+  writeFileSync(join(repoImg, 'notes.txt'), 'plain\n')
+  await runGit(repoImg, ['add', '.'])
+  await runGit(repoImg, ['commit', '-qm', 'img v1'])
+  writeFileSync(join(repoImg, 'img.png'), Buffer.from('PNG-v2-bytes'))
+  writeFileSync(join(repoImg, 'img2.png'), Buffer.from('PNG-untracked'))
 })
 
-after(() => { if (repo) rmSync(repo, { recursive: true, force: true }) })
+after(() => {
+  if (repo) rmSync(repo, { recursive: true, force: true })
+  if (repoImg) rmSync(repoImg, { recursive: true, force: true })
+})
 
 test('snapshot reports branch, dirty, and the change set', async () => {
   const res = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
@@ -167,4 +189,77 @@ test('stage then commit advances HEAD', async () => {
   assert.equal(committed.ok, true)
   const msg = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'last-commit-message' } })
   assert.equal(msg.value.message, 'chore: update a')
+})
+
+test('image-diff serves old/new data URLs per base', async () => {
+  const d = depsAt(repoImg)
+  const b64 = (s) => Buffer.from(s).toString('base64')
+  const url = (s) => `data:image/png;base64,${b64(s)}`
+  const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+
+  // worktree row: index (v1) vs working file (v2).
+  const wt = await query({ kind: 'image-diff', path: 'img.png', base: 'worktree' })
+  assert.equal(wt.ok, true)
+  assert.equal(wt.value.kind, 'image-diff')
+  assert.equal(wt.value.mime, 'image/png')
+  assert.equal(wt.value.old, url('PNG-v1-bytes'))
+  assert.equal(wt.value.new, url('PNG-v2-bytes'))
+
+  // untracked image: only the new side exists.
+  const un = await query({ kind: 'image-diff', path: 'img2.png', base: 'worktree' })
+  assert.equal(un.ok, true)
+  assert.equal(un.value.old, undefined)
+  assert.equal(un.value.new, url('PNG-untracked'))
+
+  // staged row: HEAD (v1) vs index (v2 after add).
+  await runGit(repoImg, ['add', 'img.png'])
+  const st = await query({ kind: 'image-diff', path: 'img.png', base: 'staged' })
+  assert.equal(st.ok, true)
+  assert.equal(st.value.old, url('PNG-v1-bytes'))
+  assert.equal(st.value.new, url('PNG-v2-bytes'))
+
+  // commit row: parent (v1) vs commit (v2).
+  await runGit(repoImg, ['commit', '-qm', 'img v2'])
+  const hist = await query({ kind: 'history', limit: 1, skip: 0 })
+  const hash = hist.value.commits[0].hash
+  const cm = await query({ kind: 'image-diff', path: 'img.png', base: 'commit', commit: hash })
+  assert.equal(cm.ok, true)
+  assert.equal(cm.value.old, url('PNG-v1-bytes'))
+  assert.equal(cm.value.new, url('PNG-v2-bytes'))
+})
+
+test('image-diff guards: non-image mime, missing side, invalid path', async () => {
+  const d = depsAt(repoImg)
+  const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+
+  // A non-image extension resolves mime: null so the client keeps the text path.
+  const txt = await query({ kind: 'image-diff', path: 'notes.txt', base: 'worktree' })
+  assert.equal(txt.ok, true)
+  assert.equal(txt.value.mime, null)
+  assert.equal(txt.value.old, undefined)
+
+  // Deleted file: the worktree side is gone (it was never indexed either).
+  const { unlinkSync } = await import('node:fs')
+  unlinkSync(join(repoImg, 'img2.png'))
+  const del = await query({ kind: 'image-diff', path: 'img2.png', base: 'worktree' })
+  assert.equal(del.ok, true)
+  assert.equal(del.value.new, undefined)
+  assert.equal(del.value.old, undefined)
+
+  // Path traversal is rejected before any git/fs work.
+  const bad = await query({ kind: 'image-diff', path: '../evil.png', base: 'worktree' })
+  assert.equal(bad.ok, false)
+  assert.equal(bad.error.code, 'invalid-path')
+})
+
+test('image-diff flags a side over the configured payload cap', async () => {
+  // The per-side cap rides config.maxBytes; a tiny cap makes any real file
+  // exceed it, so both sides resolve to tooLarge without a large fixture.
+  const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 8 }
+  const res = await runQuery(depsAt(repoImg), tinyCap, { sessionId: SID, query: { kind: 'image-diff', path: 'img.png', base: 'worktree' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.kind, 'image-diff')
+  assert.equal(res.value.tooLarge, true)
+  assert.equal(res.value.old, undefined)
+  assert.equal(res.value.new, undefined)
 })

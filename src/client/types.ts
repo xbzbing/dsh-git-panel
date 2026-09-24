@@ -9,3 +9,5 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats,
   GitVersionRequest, GitVersionInfo,
 } from '../host/types.ts'
+
+export { imageMimeFor } from '../host/types.ts'

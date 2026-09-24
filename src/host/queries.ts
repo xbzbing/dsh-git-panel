@@ -1,12 +1,14 @@
 /**
- * Read-only query endpoint: history / diff / show / branches / tags / authors
- * / last-commit-message / worktree-stats.
+ * Read-only query endpoint: history / diff / image-diff / show / branches /
+ * tags / authors / last-commit-message / worktree-stats.
  */
+import { join } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { maxChangeMtime, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath } from './actions.ts'
 import { parseBranches, parseGraphLog, parseNameStatus, sumNumstat } from './parser.ts'
 import type { GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, WorktreeStats } from './types.ts'
+import { imageMimeFor } from './types.ts'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -40,6 +42,7 @@ export async function runQuery(
     switch (q.kind) {
       case 'history': return await queryHistory(deps, root, q)
       case 'diff': return await queryDiff(deps, root, q)
+      case 'image-diff': return await queryImageDiff(deps, config, root, q)
       case 'show': return await queryShow(deps, root, q.ref)
       case 'branches': return await queryBranches(deps, root)
       case 'tags': return await queryTags(deps, root)
@@ -124,6 +127,115 @@ async function queryDiff(
     if ('run' in noIndex) text = noIndex.run.stdout
   }
   return { ok: true, value: { kind: 'diff', path: q.path, text } }
+}
+
+// ── image diff ─────────────────────────────────────────────────────────────
+
+/** One image side: base64 payload, an over-cap flag, or absent (no such side). */
+type ImageSide = { readonly data: string } | { readonly tooLarge: true } | undefined
+
+/**
+ * Old/new image sides for a binary image, mirroring the text diff's sources:
+ * worktree rows compare index vs working file, staged rows HEAD vs index,
+ * commit rows parent vs commit — so each pane matches the code pane's meaning.
+ * Each side is capped at `config.maxBytes` (profile-configurable): as base64
+ * inside one JSON envelope, two capped sides bound the RPC payload.
+ */
+async function queryImageDiff(
+  deps: SnapshotDeps,
+  config: GitPanelConfig,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'image-diff' }>,
+): Promise<GitQueryResponse> {
+  if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  const mime = imageMimeFor(q.path)
+  if (mime === null) return { ok: true, value: { kind: 'image-diff', path: q.path, mime } }
+
+  const oldSpec = q.base === 'staged' ? `HEAD:${q.path}` : q.base === 'commit' ? `${q.commit}^1:${q.path}` : `:${q.path}`
+  const newSpec = q.base === 'staged' ? `:${q.path}` : q.base === 'commit' ? `${q.commit}:${q.path}` : null
+  const [oldOid, newOid] = await Promise.all([
+    resolveOid(deps, root, oldSpec),
+    newSpec === null ? Promise.resolve(undefined) : resolveOid(deps, root, newSpec),
+  ])
+
+  const cap = config.maxBytes
+  const gitDir = oldOid !== undefined || newOid !== undefined ? await absoluteGitDir(deps, root) : ''
+  const [oldSide, newSide] = await Promise.all([
+    oldOid === undefined ? Promise.resolve(undefined) : blobSide(deps, gitDir, oldOid, cap),
+    newOid !== undefined
+      ? blobSide(deps, gitDir, newOid, cap)
+      : q.base === 'worktree' ? worktreeSide(deps, root, q.path, cap) : Promise.resolve(undefined),
+  ])
+  const sides = [oldSide, newSide]
+  if (sides.some((s) => s !== undefined && 'tooLarge' in s)) {
+    return { ok: true, value: { kind: 'image-diff', path: q.path, mime, tooLarge: true } }
+  }
+  const old64 = sides[0] !== undefined && !('tooLarge' in sides[0]) ? sides[0].data : undefined
+  const new64 = sides[1] !== undefined && !('tooLarge' in sides[1]) ? sides[1].data : undefined
+  return {
+    ok: true,
+    value: {
+      kind: 'image-diff', path: q.path, mime,
+      ...(old64 !== undefined ? { old: `data:${mime};base64,${old64}` } : {}),
+      ...(new64 !== undefined ? { new: `data:${mime};base64,${new64}` } : {}),
+    },
+  }
+}
+
+/** Resolve `<rev>:<path>` to a full object id; absent spec → undefined. */
+async function resolveOid(deps: SnapshotDeps, root: string, spec: string): Promise<string | undefined> {
+  const res = await runCommand(deps.run, ['git', 'rev-parse', '--verify', '--quiet', spec], root, 'image-oid', deps.signal)
+  if (!('run' in res) || res.run.exitCode !== 0) return undefined
+  const oid = res.run.stdout.trim()
+  return /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(oid) ? oid : undefined
+}
+
+async function absoluteGitDir(deps: SnapshotDeps, root: string): Promise<string> {
+  const res = await runCommand(deps.run, ['git', 'rev-parse', '--absolute-git-dir'], root, 'git-dir', deps.signal)
+  if (!('run' in res) || res.run.exitCode !== 0) throw new Error('git dir unavailable')
+  return res.run.stdout.trim()
+}
+
+/**
+ * Raw blob bytes: `unpack-file` writes the object to a temp file (stdout is a
+ * lossy utf8 decode and cannot carry binary), created in the git dir — which
+ * must be the cwd so the temp file never shows up as an untracked worktree
+ * entry. The printed name is charset-checked before it is joined and read.
+ */
+async function blobSide(deps: SnapshotDeps, gitDir: string, oid: string, cap: number): Promise<ImageSide> {
+  const sizeRes = await runCommand(deps.run, ['git', 'cat-file', '-s', oid], gitDir, 'image-size', deps.signal)
+  if (!('run' in sizeRes) || sizeRes.run.exitCode !== 0) return undefined
+  const size = Number(sizeRes.run.stdout.trim())
+  if (!Number.isFinite(size)) return undefined
+  if (size > cap) return { tooLarge: true }
+  const nameRes = await runCommand(deps.run, ['git', 'unpack-file', oid], gitDir, 'image-unpack', deps.signal)
+  if (!('run' in nameRes) || nameRes.run.exitCode !== 0) return undefined
+  const name = nameRes.run.stdout.trim()
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) return undefined
+  const file = join(gitDir, name)
+  try {
+    const buf = await deps.fs.readFile(file)
+    if (buf.length > cap) return { tooLarge: true }
+    return { data: buf.toString('base64') }
+  } catch {
+    return undefined
+  } finally {
+    await deps.fs.remove(file).catch(() => {})
+  }
+}
+
+/** The working-tree file (absent when deleted). */
+async function worktreeSide(deps: SnapshotDeps, root: string, path: string, cap: number): Promise<ImageSide> {
+  try {
+    const file = join(root, path)
+    const info = await deps.fs.stat(file)
+    if (info.size > cap) return { tooLarge: true }
+    const buf = await deps.fs.readFile(file)
+    if (buf.length > cap) return { tooLarge: true }
+    return { data: buf.toString('base64') }
+  } catch {
+    return undefined
+  }
 }
 
 async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise<GitQueryResponse> {

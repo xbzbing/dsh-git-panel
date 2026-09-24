@@ -1,21 +1,39 @@
 /** Side-by-side diff renderer with lazy syntax highlighting. */
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
-import { buildSideBySide, extractAddedContent, extractDeletedContent, isAddOnlyDiff, isBinaryDiff, isDeleteOnlyDiff, summarize, type SideRow } from './diff'
+import { buildSideBySide, extractAddedContent, extractDeletedContent, isAddOnlyDiff, isBinaryDiff, isDeleteOnlyDiff, isImagePath, summarize, type SideRow } from './diff'
 import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
+import { ImageCompare } from './ImageCompare'
+import type { GitPanelRemote } from './rpc'
+import type { GitQuery, GitQueryResult } from './types'
 import type { GitKey } from './locales'
 
 export type DiffMode = 'split' | 'before' | 'after'
+
+/** Which comparison the text diff shows — the image sides mirror it. */
+export interface ImageDiffSpec {
+  readonly base: 'worktree' | 'staged' | 'commit'
+  readonly commit?: string
+}
 
 interface DiffViewProps {
   readonly text: string
   readonly mode: DiffMode
   /** File path, used to pick a syntax-highlighting grammar. */
   readonly path?: string
+  /** Present with imageSpec → a binary image fetches old/new panes instead. */
+  readonly remote?: GitPanelRemote
+  readonly sessionId?: string
+  readonly imageSpec?: ImageDiffSpec
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-export function DiffView({ text, mode, path, t }: DiffViewProps): JSX.Element {
+type ImageDiffValue = Extract<GitQueryResult, { kind: 'image-diff' }>
+type ImageState =
+  | { readonly kind: 'idle' | 'loading' | 'failed' }
+  | { readonly kind: 'ready'; readonly res: ImageDiffValue }
+
+export function DiffView({ text, mode, path, remote, sessionId, imageSpec, t }: DiffViewProps): JSX.Element {
   const rows = useMemo(() => buildSideBySide(text), [text])
   const binary = isBinaryDiff(text)
   const addOnly = useMemo(() => isAddOnlyDiff(text), [text])
@@ -24,7 +42,23 @@ export function DiffView({ text, mode, path, t }: DiffViewProps): JSX.Element {
   const lang = useMemo(() => (path !== undefined ? languageForPath(path) : ''), [path])
   const hl = useHighlighter(lang)
 
-  if (binary) return h('div', { className: 'gp-empty' }, t('diff.binary'))
+  const imageable = binary && path !== undefined && isImagePath(path) && remote !== undefined && sessionId !== undefined && imageSpec !== undefined
+  const image = useImageDiff(imageable ? remote : undefined, imageable ? sessionId : undefined, imageable ? path : undefined, imageable ? imageSpec : undefined)
+
+  if (binary) {
+    if (imageable) {
+      if (image.kind === 'idle' || image.kind === 'loading') return h('div', { className: 'gp-empty' }, t('common.loading'))
+      if (image.kind === 'ready') {
+        const res = image.res
+        if (res.tooLarge === true) return h('div', { className: 'gp-empty' }, t('diff.tooLarge'))
+        if (res.mime !== null && (res.old !== undefined || res.new !== undefined)) {
+          return h(ImageCompare, { oldUrl: res.old, newUrl: res.new, mode, t })
+        }
+      }
+      // failed / unsupported / no sides → the plain binary notice below.
+    }
+    return h('div', { className: 'gp-empty' }, t('diff.binary'))
+  }
   if (text.trim() === '') return h('div', { className: 'gp-empty' }, t('diff.empty'))
 
   if (mode === 'before') return singleColumn(delOnly ? extractDeletedContent(text) : leftText(rows), lang, hl)
@@ -32,6 +66,39 @@ export function DiffView({ text, mode, path, t }: DiffViewProps): JSX.Element {
 
   // split
   return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, lang, hl)))
+}
+
+/**
+ * Fetch the old/new image sides for a binary image path. Identity-stable
+ * primitives only (the spec object may be rebuilt every render); a generation
+ * guard drops a response that a newer path/base took over.
+ */
+function useImageDiff(
+  remote: GitPanelRemote | undefined,
+  sessionId: string | undefined,
+  path: string | undefined,
+  spec: ImageDiffSpec | undefined,
+): ImageState {
+  const [state, setState] = useState<ImageState>({ kind: 'idle' })
+  const base = spec?.base
+  const commit = spec?.commit
+  useEffect(() => {
+    if (remote === undefined || sessionId === undefined || path === undefined || base === undefined) return
+    let alive = true
+    setState({ kind: 'loading' })
+    const query: GitQuery = base === 'commit' && commit !== undefined
+      ? { kind: 'image-diff', path, base: 'commit', commit }
+      : base === 'staged'
+        ? { kind: 'image-diff', path, base: 'staged' }
+        : { kind: 'image-diff', path, base: 'worktree' }
+    void remote.query({ sessionId, query }).then((res) => {
+      if (!alive) return
+      setState(res.ok && res.value.kind === 'image-diff' ? { kind: 'ready', res: res.value } : { kind: 'failed' })
+    }).catch(() => { if (alive) setState({ kind: 'failed' }) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote, sessionId, path, base, commit])
+  return state
 }
 
 /**

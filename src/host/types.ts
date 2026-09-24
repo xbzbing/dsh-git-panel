@@ -151,6 +151,8 @@ export type GitQuery =
   }
   | { readonly kind: 'diff'; readonly path: string; readonly base: 'worktree' | 'staged'; readonly context?: number }
   | { readonly kind: 'diff'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly context?: number }
+  | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'worktree' | 'staged' }
+  | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'commit'; readonly commit: string }
   | { readonly kind: 'show'; readonly ref: string }
   | { readonly kind: 'branches' }
   | { readonly kind: 'tags' }
@@ -192,6 +194,23 @@ export type GitQueryResult =
   | { readonly kind: 'history'; readonly commits: readonly GraphCommit[]; readonly total: number }
   | { readonly kind: 'diff'; readonly path: string; readonly text: string }
   | {
+    /**
+     * Old/new images for a binary image diff, as data URLs. The sides mirror
+     * what the text diff compares: worktree rows read index vs working file,
+     * staged rows read HEAD vs index, commit rows read parent vs commit.
+     */
+    readonly kind: 'image-diff'
+    readonly path: string
+    /** null → the extension is not a browser-renderable image. */
+    readonly mime: string | null
+    /** Pre-change image; absent when that side does not exist (added/untracked/root). */
+    readonly old?: string
+    /** Post-change image; absent when that side does not exist (deleted). */
+    readonly new?: string
+    /** A side exceeded the byte cap, so no URLs are returned. */
+    readonly tooLarge?: true
+  }
+  | {
     readonly kind: 'show'
     readonly ref: string
     readonly commit: GitCommit | null
@@ -212,6 +231,23 @@ export type GitQueryResponse =
 export interface GitQueryRequest {
   readonly sessionId: string
   readonly query: GitQuery
+}
+
+/**
+ * Extensions the image-diff query serves, mapped to MIME types. Part of the
+ * query's contract, so both halves gate on this one list and cannot drift.
+ */
+export const IMAGE_MIME: Readonly<Record<string, string>> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', svg: 'image/svg+xml',
+  ico: 'image/x-icon', tif: 'image/tiff', tiff: 'image/tiff',
+}
+
+/** MIME for a path's extension; null when it is not a served image type. */
+export function imageMimeFor(path: string): string | null {
+  const dot = path.lastIndexOf('.')
+  if (dot < 0) return null
+  return IMAGE_MIME[path.slice(dot + 1).toLowerCase()] ?? null
 }
 
 // ── version (update check) ────────────────────────────────────────────────

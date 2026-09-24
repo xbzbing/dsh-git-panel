@@ -8,6 +8,7 @@ import type { GitChange, GitCommit, GitSnapshot, GitSnapshotResult } from './typ
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
+  /** Per-command stdout cap; also the per-side image-diff payload cap. */
   readonly maxBytes: number
   readonly maxChanges: number
   readonly refreshIntervalMs: number
@@ -52,7 +53,11 @@ export interface SnapshotDeps {
   readonly run: GitRunner
   readonly fs: {
     realpath(path: string): Promise<string>
-    stat(path: string): Promise<{ mtimeMs: number }>
+    stat(path: string): Promise<{ mtimeMs: number; size: number }>
+    /** Raw bytes (no encoding) — image sides for the image-diff query. */
+    readFile(path: string): Promise<Buffer>
+    /** Best-effort unlink (force) — temp-blob cleanup. */
+    remove(path: string): Promise<void>
   }
   readonly sessions: {
     liveCwd(sessionId: string): string | undefined

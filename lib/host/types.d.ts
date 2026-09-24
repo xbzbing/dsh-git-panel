@@ -154,6 +154,15 @@ export type GitQuery = {
     readonly commit: string;
     readonly context?: number;
 } | {
+    readonly kind: 'image-diff';
+    readonly path: string;
+    readonly base: 'worktree' | 'staged';
+} | {
+    readonly kind: 'image-diff';
+    readonly path: string;
+    readonly base: 'commit';
+    readonly commit: string;
+} | {
     readonly kind: 'show';
     readonly ref: string;
 } | {
@@ -203,6 +212,22 @@ export type GitQueryResult = {
     readonly path: string;
     readonly text: string;
 } | {
+    /**
+     * Old/new images for a binary image diff, as data URLs. The sides mirror
+     * what the text diff compares: worktree rows read index vs working file,
+     * staged rows read HEAD vs index, commit rows read parent vs commit.
+     */
+    readonly kind: 'image-diff';
+    readonly path: string;
+    /** null → the extension is not a browser-renderable image. */
+    readonly mime: string | null;
+    /** Pre-change image; absent when that side does not exist (added/untracked/root). */
+    readonly old?: string;
+    /** Post-change image; absent when that side does not exist (deleted). */
+    readonly new?: string;
+    /** A side exceeded the byte cap, so no URLs are returned. */
+    readonly tooLarge?: true;
+} | {
     readonly kind: 'show';
     readonly ref: string;
     readonly commit: GitCommit | null;
@@ -242,6 +267,13 @@ export interface GitQueryRequest {
     readonly sessionId: string;
     readonly query: GitQuery;
 }
+/**
+ * Extensions the image-diff query serves, mapped to MIME types. Part of the
+ * query's contract, so both halves gate on this one list and cannot drift.
+ */
+export declare const IMAGE_MIME: Readonly<Record<string, string>>;
+/** MIME for a path's extension; null when it is not a served image type. */
+export declare function imageMimeFor(path: string): string | null;
 export interface GitVersionRequest {
     /** True → query the GitHub releases API; false/absent → local view only. */
     readonly check?: boolean;
