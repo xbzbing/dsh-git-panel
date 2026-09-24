@@ -12,7 +12,7 @@ import { controllerFor } from './registry'
 import { takeSubTab, type SubTab } from './jump'
 import { OverviewTab } from './OverviewTab'
 import { ChangesTab } from './ChangesTab'
-import { CommitIcon, DiffIcon, RefreshIcon } from './icons'
+import { CommitIcon, DiffIcon, GitHubIcon, RefreshIcon } from './icons'
 import type { GitAction, GitVersionInfo } from './types'
 import type { GitKey } from './locales'
 
@@ -157,5 +157,9 @@ function VersionBar({ remote, t }: VersionBarProps): JSX.Element {
       disabled: state.kind === 'checking',
       onClick: () => void check(),
     }, [h('span', { key: 'i', className: 'gp-tab__icon' }, h(RefreshIcon, { size: 12 })), t('version.check')]),
+    info?.repositoryUrl !== undefined ? h('a', {
+      key: 'gh', className: 'gp-icon-btn gp-verbar__gh', href: info.repositoryUrl,
+      target: '_blank', rel: 'noreferrer', title: t('version.openRepo'), 'aria-label': t('version.openRepo'),
+    }, h(GitHubIcon, { size: 15 })) : null,
   ])
 }

@@ -27,6 +27,7 @@ export const zh = {
   'version.viewRelease': '查看发布',
   'version.error': '检查失败',
   'version.noRepo': '未配置仓库地址',
+  'version.openRepo': '在 GitHub 上打开仓库',
   // overview
   'overview.branches': '分支',
   'overview.head': 'HEAD（当前分支）',
@@ -131,6 +132,7 @@ export const en: Record<GitKey, string> = {
   'version.viewRelease': 'View release',
   'version.error': 'Check failed',
   'version.noRepo': 'Repository not configured',
+  'version.openRepo': 'Open repository on GitHub',
   'overview.branches': 'Branches',
   'overview.head': 'HEAD (Current Branch)',
   'overview.local': 'Local',
