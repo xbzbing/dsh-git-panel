@@ -47,6 +47,7 @@ function bodyLines(unified: string): string[] {
     if (line.startsWith('@@')) { inHunk = true; continue }
     if (!inHunk) continue
     if (line.startsWith('diff ') || line.startsWith('index ')) { inHunk = false; continue }
+    if (line === '') continue
     out.push(line)
   }
   return out
