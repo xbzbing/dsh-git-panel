@@ -1,6 +1,6 @@
 /**
- * inputBar Git marker, zsh-theme style: `<repo> git:(<branch>)`.
- * repo = cyan, git:(branch) = green when synced / orange when dirty.
+ * inputBar Git marker, zsh-theme style: `<repo> (<branch>)`.
+ * repo = cyan, (branch) = green when synced / orange when dirty.
  * Hover shows a rounded tooltip panel with the full repository path; click
  * jumps to the Git panel (changes tab when dirty, overview when clean).
  */
@@ -93,7 +93,7 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
     }, [
       h('span', { key: 'repo', className: 'gp-pill__repo' }, repo),
       h('span', { key: 'git', className: `gp-pill__git ${gitClass}` }, [
-        'git:(',
+        '(',
         h('span', { key: 'b', className: 'gp-pill__branch' }, branch),
         ')',
       ]),

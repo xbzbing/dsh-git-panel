@@ -136,9 +136,9 @@ const CSS = `
 .gp-overlay__hash{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary);flex:none}
 .gp-overlay__path{font-size:12px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 
-/* input-bar pill (zsh style) — repo cyan, git:(branch) green when synced /
- * orange when dirty, matching a zsh git prompt theme. */
-.gp-pill{display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:12px;line-height:16px;cursor:pointer;white-space:nowrap;max-width:280px;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-weight:600}
+/* input-bar pill (zsh style) — repo cyan, (branch) green when synced /
+ * orange when dirty. Radius 7px to match dsh-openviking-manager controls. */
+.gp-pill{display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:12px;line-height:16px;cursor:pointer;white-space:nowrap;max-width:280px;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-weight:600}
 .gp-pill:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-pill__repo{color:var(--dsw-alias-state-business-primary,#5ac8fa);overflow:hidden;text-overflow:ellipsis}
 .gp-pill__git{margin-left:6px}
