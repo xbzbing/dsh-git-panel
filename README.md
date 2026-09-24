@@ -22,6 +22,8 @@ dsh plugin add github:xbzbing/dsh-git-panel
 - **语法高亮差异**：两处差异视图（总览 modal 与变更记录）都带懒加载的 highlight.js 语法高亮，按文件扩展名选择语法，高亮首次查看 diff 时才动态加载。
 - **展开未变更行**：差异工具栏提供「展开全部 / 折叠未变更」切换，展开后显示整个文件而不只是变更附近的上下文。
 - **对照模式**：差异支持「对照 / 变更前 / 变更后」三种视图切换。
+- **图片对照**：png、jpg 等图片文件的差异不显示二进制占位，改为「变更前 / 变更后」新旧双图并排对照（总览 modal 与变更记录同样生效）；新增或删除的图片在另一侧显示「不存在」。
+- **显示输入框标记开关**：插件详情页可切换输入框标记；关闭后输入框不再显示分支标记，改为在「Git」标签旁显示状态圆点（绿=已同步、橙色=有变更），两者互斥，保存后立即生效。
 - **输入框 Git 标记**：一个 zsh 主题风格的 `<仓库名> (<分支>)` 标记，仓库名青色，`(分支)` 在已同步时为绿色、有未提交变更时为橙色；悬停显示完整仓库路径，点击跳转面板（有未提交变更进入变更记录，否则进入 Git 总览）；当前目录不是 Git 仓库时只显示目录名，不报错。
 - **版本与仓库入口**：子标签行右侧显示插件版本号，旁边有「检查新版本」按钮（用户主动点击才比对 GitHub 最新发布）和一个跳转到 GitHub 仓库的图标。
 - UI 跟随 DSH 系统语言设置，支持简体中文和英文。
@@ -63,7 +65,7 @@ src/
     git.ts          subprocess → 带超时的 GitRunner
     core.ts         workspace 解析 + snapshotForSession
     actions.ts      GitAction → git 命令序列（commit / amend / stage 等）
-    queries.ts      history / diff / show / branches / tags / worktree-stats
+    queries.ts      history / diff / image-diff / show / branches / tags / worktree-stats
     parser.ts       git 输出解析为结构化数据
     version.ts      本包版本 + GitHub release 更新检查
   client/
@@ -75,7 +77,9 @@ src/
     DiffView.tsx    并排差异视图
     GitPill.tsx     输入框标记
     highlight.ts    diff 语法高亮的懒加载门面
-    git-graph.ts / file-tree.ts / diff.ts   自研纯算法
+    git-graph.ts    提交图车道布局
+    file-tree.ts    路径折树
+    diff.ts         unified diff → 并排行 + 统计
 ```
 
 ## 许可证

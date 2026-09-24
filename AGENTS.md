@@ -8,8 +8,9 @@
 
 - 工作区新增常驻面板 tab「Git」，位于「对话」「轨迹」之后，内部含两个子 tab：
   - **Git 总览**：左=分支列表，中=提交历史图（支持 commit id 等字段搜索），右=提交详情 + comment。
-  - **变更记录**：左=变更统计（文件数 / 增删行数 / 最近变更时间）+ 本地未提交变更列表（勾选、手动提交、Amend），右=选中文件差异对比。
-- inputBar 一个 zsh 风格 Git 标记：`<仓库名> git:(<分支>)`，绿色=已同步、橙色=有待提交；hover 显示完整路径；点击跳转面板（有未提交→变更记录，已提交→Git 总览）。
+  - **变更记录**：左=变更统计（文件数 / 增删行数 / 最近变更时间）+ 本地未提交变更列表（勾选、手动提交、Amend），右=选中文件差异对比（图片走 `image-diff` 新旧双图对照）。
+- inputBar 一个 zsh 风格 Git 标记：`<仓库名> (<分支>)`，绿色=已同步、橙色=有待提交；hover 显示完整路径；点击跳转面板（有未提交→变更记录，已提交→Git 总览）。插件详情页可隐藏该标记；隐藏时改为在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
+- 插件详情页配置区：「显示输入框标记」开关 = host `static Config` volatile 字段 + client 注册 `plugins.bundle.config` 表单（`PillConfig.tsx`），经 `configForms` 热写；写入被接受后客户端立即 `resyncAll()`，不等轮询。
 
 许可：MIT。
 
@@ -21,6 +22,7 @@
 Client 半 (React bundle, lib/client.js)
   - conversation.view (order 30)  → Panel 主面板（内部子 tab 路由）
   - conversation.input.left       → GitPill（zsh 风格标记）
+  - plugins.bundle.config         → PillConfig（详情页配置表单）
   - GitController                 → 每 session 轮询 snapshot，pill/变更页/统计共享
         │ RPC (typert)
         ▼
@@ -39,7 +41,7 @@ Host 半 (Cordis + typert, lib/host)
 - `git.ts`：把 `subprocess` 服务适配成带超时的 `GitRunner`。
 - `core.ts`：workspace（cwd→仓库根 realpath）解析 + `snapshotForSession`。
 - `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`）。
-- `queries.ts`：`history / diff / show / branches / tags / authors / last-commit-message / worktree-stats`。
+- `queries.ts`：`history / diff / image-diff / show / branches / tags / authors / last-commit-message / worktree-stats`。
 - `parser.ts`：`git status --porcelain` / `--numstat` / `log` 输出解析为结构化数据。
 - `version.ts`：读本包 `package.json` 版本 + 查 GitHub release 做更新检查，失败降级。
 
@@ -48,11 +50,14 @@ Host 半 (Cordis + typert, lib/host)
 - `rpc.ts`：`gitPanel` @Remote 端点的 client 面，走 `/api` 通道调 `gitPanel/<method>`；逐读加守卫，连接缺失或异常降级为类型化 failure。
 - `controller.ts`：`GitController`，每 session 的快照控制器（单航刷新 + `refreshIntervalMs` 轮询 + turn 完成边沿刷新 + `connection/reset` 重拉）。
 - `registry.ts`：per-session `GitController` 复用池 + 组件订阅入口。
-- `index.ts`：Cordis `apply` —— 挂 RPC 面、注册两个 slot（`conversation.view` / `conversation.input.left`）、注册 i18n。
+- `index.ts`：Cordis `apply` —— 挂 RPC 面、注册三个 slot（`conversation.view` / `conversation.input.left` / `plugins.bundle.config`）、注册 i18n。
 - `Panel.tsx`：主面板壳，内部子 tab 路由 + 焦点消费 + 版本条。
 - `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment），含 hover 卡片。
 - `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条、并排差异视图。
 - `GitPill.tsx`：inputBar 标记 + 跳转。
+- `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）。
+- `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
+- `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果）。
 - `jump.ts`：面板/子 tab 一次性焦点中继（模块级 per-session Map）。
 - `git-graph.ts` / `file-tree.ts` / `diff.ts`：自研纯算法（提交图车道布局、路径折树、unified diff 拆行）。
 - `locales.ts` / `icons.tsx` / `time.ts` / `types.ts`：中英文案、图标、时间格式化、client 侧类型别名。
@@ -60,7 +65,7 @@ Host 半 (Cordis + typert, lib/host)
 ## 数据流铁律
 
 - **快照单一来源**：pill、变更记录页、统计条共用同一 `GitController` 快照，禁止各自发起独立 snapshot，避免重复 git 命令。
-- **按需查询**：总览页 history/branches/show 走 `query` 端点，带分页、首页缓存、分代防竞态（新过滤请求接管、旧响应按代丢弃）。
+- **按需查询**：总览页 history/branches/show、图片 image-diff 走 `query` 端点，带分页、首页缓存、分代防竞态（新过滤请求接管、旧响应按代丢弃）。
 - **双层信封**：RPC 返回 `{ ok, value }` 是传输层结果，业务结果 `{ ok, value|error }` 在 `value` 内，两层都要判。
 - **选择集随快照修剪**：变更列表勾选的路径，若在新快照中消失必须移除，否则提交序列会中止。
 
