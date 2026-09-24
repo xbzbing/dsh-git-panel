@@ -34,25 +34,28 @@ Host 半 (Cordis + typert, lib/host)
 
 ### Host（`src/host/`）
 
-- `types.ts` 是 wire 数据模型的**唯一权威源**。client 侧的 zod schema 必须与之保持一致。
+- `types.ts` 是 wire 数据模型的**唯一权威源**，client 侧的 RPC 类型直接从它复用。
 - `index.ts`：`GitPanelService extends TypertRemoteService`，`inject = ['subprocess','sessions','sessionPersistence']`，仅做端点委托与生命周期接线。
 - `git.ts`：把 `subprocess` 服务适配成带超时的 `GitRunner`。
 - `core.ts`：workspace（cwd→仓库根 realpath）解析 + `snapshotForSession`。
 - `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`）。
-- `queries.ts`：`history / branches / tags / show / diff / last-commit-message / worktree-stats`。
+- `queries.ts`：`history / diff / show / branches / tags / authors / last-commit-message / worktree-stats`。
 - `parser.ts`：`git status --porcelain` / `--numstat` / `log` 输出解析为结构化数据。
+- `version.ts`：读本包 `package.json` 版本 + 查 GitHub release 做更新检查，失败降级。
 
 ### Client（`src/client/`）
 
-- `remote.ts`：typert Remote 贡献 + zod strict codec，逐字镜像 `host/types.ts`。
-- `controller.ts`：每 session 的快照控制器（单航刷新 + `refreshIntervalMs` 轮询 + turn 完成边沿刷新 + `connection/reset` 重拉）。
-- `index.ts`：Cordis `apply` —— 挂 Remote、注册两个 slot、注册 i18n。
-- `Panel.tsx`：主面板壳，内部 tab 路由 + 焦点消费。
-- `overview/`：Git 总览三栏（`BranchList` / `CommitGraph` / `CommitDetail`）。
-- `changes/`：变更记录（`ChangeList` / `ChangeStats` / `CommitBox` / `DiffView`）。
-- `pill/GitPill.tsx`：inputBar 标记 + 跳转。
+- `rpc.ts`：`gitPanel` @Remote 端点的 client 面，走 `/api` 通道调 `gitPanel/<method>`；逐读加守卫，连接缺失或异常降级为类型化 failure。
+- `controller.ts`：`GitController`，每 session 的快照控制器（单航刷新 + `refreshIntervalMs` 轮询 + turn 完成边沿刷新 + `connection/reset` 重拉）。
+- `registry.ts`：per-session `GitController` 复用池 + 组件订阅入口。
+- `index.ts`：Cordis `apply` —— 挂 RPC 面、注册两个 slot（`conversation.view` / `conversation.input.left`）、注册 i18n。
+- `Panel.tsx`：主面板壳，内部子 tab 路由 + 焦点消费 + 版本条。
+- `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment），含 hover 卡片。
+- `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条、并排差异视图。
+- `GitPill.tsx`：inputBar 标记 + 跳转。
 - `jump.ts`：面板/子 tab 一次性焦点中继（模块级 per-session Map）。
 - `git-graph.ts` / `file-tree.ts` / `diff.ts`：自研纯算法（提交图车道布局、路径折树、unified diff 拆行）。
+- `locales.ts` / `icons.tsx` / `time.ts` / `types.ts`：中英文案、图标、时间格式化、client 侧类型别名。
 
 ## 数据流铁律
 
@@ -67,27 +70,27 @@ MIT 协议下**优先用成熟开源实现，不重造轮子**：
 
 | 依赖 | 用途 |
 |---|---|
-| `zod` | wire 契约 strict 校验 |
-| `shiki` | diff / 代码语法高亮（懒加载语言） |
-| `markdown-it` | .md 渲染视图、提交正文富文本 |
-| `mermaid` | markdown 中 mermaid 代码块（动态 import 懒加载） |
+| `highlight.js` | diff 视图语法高亮（core + 精选语言，动态 `import()` 懒加载） |
 
 - 平台模块（`react` / `react-dom` / `@deepseek-ai/*`）一律 external，由宿主提供，不打包。
-- `shiki` / `mermaid` 体积大，仅在实际查看 diff / 图时动态 `import()`。
 - 只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行）才自研。
-- 新增依赖 pin 精确版本，写入 `package.json` `dependencies`。
+- `highlight.js` 体积大，只在首次查看 diff 时经 `highlight.ts` → 动态 `import('./highlight-impl')` 拉起，语言集在 `highlight-impl.ts` 里注册。
+- 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。
 
 ## 构建
 
-`build.mjs` 两步：
+`build.mjs` 用 esbuild 出三个产物 + tsc 出类型声明：
 
-1. `tsc -p tsconfig.build.json` 出 `lib/host/`（ESM + d.ts，**绝不压缩**——typert SRC 靠方法参数名反射校验参数，重命名会破坏 wire 契约）。
-2. esbuild 打 `src/client/index.ts` → `lib/client.js`（cjs + banner/footer 包成 `window.__ModuleLoader__.load({id,factory})`；`react`/`@deepseek-ai/*` external；client 可 minify）。
+1. `tsc -p tsconfig.build.json` 仅出 `lib/host/*.d.ts`（`emitDeclarationOnly`）。
+2. esbuild 把 `src/host/index.ts` 打成单文件 `lib/host/index.js`（ESM，`react`/`@deepseek-ai/*` external，**绝不压缩**——typert 靠方法参数名反射校验参数，重命名会破坏 wire 契约）。
+3. esbuild 把 `src/client/index.ts` 打成 `lib/client.js`（cjs + banner/footer 包成 `window.__ModuleLoader__.load({id,factory})`；平台模块 external；client 可 minify）。
+
+`lib/testkit.mjs` 由 esbuild 从 `src/client/testkit.ts` 单独打出，供单测消费；已 gitignore，`npm run test:unit` 会重建。
 
 命令：
 
 ```bash
-node build.mjs        # 全量构建 host + client
+node build.mjs        # 全量构建 host + client + testkit
 npx tsc --noEmit      # 类型检查
 ```
 
@@ -101,7 +104,7 @@ npx tsc --noEmit      # 类型检查
 ## 代码约定
 
 - TypeScript 严格模式，无隐式 any。
-- 数据模型改动从 `host/types.ts` 起，再同步 `client/remote.ts` 的 zod schema——两者不一致会在 wire 边界被 strict 解码拒绝。
+- 数据模型改动从 `host/types.ts` 起，client 侧的 RPC 类型直接从它复用——单一权威源，不存在需要手工同步的第二份定义。
 - 注释精简，只写最终实现意图，不写演进历史。
 - git 命令一律用 argv 数组经 subprocess 执行，禁止拼接 shell 字符串（注入防护 + cwd 锁定）。
 - 面向未提交变更的操作（commit / discard / stage）属破坏性或写操作，UI 需二次确认或明确入口，host 侧校验路径安全（拒绝仓库外路径、`..` 穿越）。

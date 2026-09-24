@@ -147,6 +147,16 @@ const CSS = `
 .gp-diff-row--add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}
 .gp-diff-row--del{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}
 .gp-diff-row--hunk{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary)}
+/* syntax highlighting (highlight.js token classes mapped to dsh theme vars) */
+.gp-hljs .hljs-comment,.gp-hljs .hljs-quote{color:var(--dsw-alias-label-tertiary);font-style:italic}
+.gp-hljs .hljs-keyword,.gp-hljs .hljs-selector-tag,.gp-hljs .hljs-literal,.gp-hljs .hljs-doctag,.gp-hljs .hljs-type,.gp-hljs .hljs-name,.gp-hljs .hljs-strong{color:var(--dsw-alias-state-business-primary)}
+.gp-hljs .hljs-string,.gp-hljs .hljs-regexp,.gp-hljs .hljs-addition,.gp-hljs .hljs-meta-string{color:var(--dsw-alias-state-success-primary)}
+.gp-hljs .hljs-number,.gp-hljs .hljs-symbol,.gp-hljs .hljs-bullet,.gp-hljs .hljs-link,.gp-hljs .hljs-deletion{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-error-primary))}
+.gp-hljs .hljs-title,.gp-hljs .hljs-title.function_,.gp-hljs .hljs-section,.gp-hljs .hljs-selector-id,.gp-hljs .hljs-selector-class{color:var(--dsw-alias-label-primary-bluish,var(--dsw-alias-state-business-primary))}
+.gp-hljs .hljs-attr,.gp-hljs .hljs-attribute,.gp-hljs .hljs-variable,.gp-hljs .hljs-template-variable,.gp-hljs .hljs-property,.gp-hljs .hljs-params{color:var(--dsw-alias-label-primary)}
+.gp-hljs .hljs-built_in,.gp-hljs .hljs-class .hljs-title,.gp-hljs .hljs-tag{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
+.gp-hljs .hljs-meta{color:var(--dsw-alias-label-tertiary)}
+.gp-hljs .hljs-emphasis{font-style:italic}
 .gp-feedback{padding:6px 10px;font-size:12px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);display:flex;align-items:center;gap:8px}
 
 /* commit file-diff modal (overview → click a file): a centered dialog over a

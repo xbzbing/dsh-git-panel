@@ -1,7 +1,7 @@
 /**
  * dsh-git-panel host wire data model — the authoritative type source.
- * The client half (src/client/remote.ts) mirrors these with zod schemas;
- * a divergence is rejected at the wire boundary by the strict codec.
+ * The client half (src/client/rpc.ts) reuses these types directly, so the
+ * wire contract has a single definition and cannot drift.
  */
 
 // ── snapshot ─────────────────────────────────────────────────────────────

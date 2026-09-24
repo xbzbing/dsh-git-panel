@@ -502,7 +502,7 @@ function renderFileDiffModal(
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       text === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : h(DiffView, { text, mode, t })),
+        : h(DiffView, { text, mode, path: fileDiff.path, t })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }
