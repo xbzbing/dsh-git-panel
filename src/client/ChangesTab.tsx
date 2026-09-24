@@ -44,6 +44,7 @@ export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, 
   const [diffPath, setDiffPath] = useState<{ path: string; base: 'worktree' | 'staged' } | null>(null)
   const [diffText, setDiffText] = useState<string | null>(null)
   const [diffMode, setDiffMode] = useState<DiffMode>('split')
+  const [expanded, setExpanded] = useState(false)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
 
   const staged = useMemo(() => snapshot.changes.filter((c) => c.staged).sort(byPath), [snapshot])
@@ -81,10 +82,11 @@ export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, 
     return () => { alive = false }
   }, [amend, amendPrefilled, message, remote, sessionId])
 
-  const showDiff = useCallback(async (path: string, base: 'worktree' | 'staged') => {
+  const showDiff = useCallback(async (path: string, base: 'worktree' | 'staged', expand = false) => {
     setDiffPath({ path, base })
     setDiffText(null)
-    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base } })
+    setExpanded(expand)
+    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: 100000 } : {}) } })
     if (res.ok && res.value.kind === 'diff') setDiffText(res.value.text)
     else setDiffText('')
   }, [remote, sessionId])
@@ -94,7 +96,7 @@ export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, 
     if (diffPath === null) return
     const stillThere = snapshot.changes.some((c) => c.path === diffPath.path)
     if (!stillThere) { setDiffPath(null); setDiffText(null); return }
-    void showDiff(diffPath.path, diffPath.base)
+    void showDiff(diffPath.path, diffPath.base, expanded)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot])
 
@@ -197,7 +199,15 @@ export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, 
               h('span', { key: 'a', className: 'gp-stats__add' }, `+${summary.add}`), ' ',
               h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${summary.del}`),
             ]) : null,
-            h('div', { key: 'seg', className: 'gp-seg', style: summary ? {} : { marginLeft: 'auto' } }, (['split', 'before', 'after'] as DiffMode[]).map((m) =>
+            h('button', {
+              key: 'expand', type: 'button',
+              className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
+              style: summary ? {} : { marginLeft: 'auto' },
+              disabled: diffMode !== 'split',
+              title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
+              onClick: () => void showDiff(diffPath.path, diffPath.base, !expanded),
+            }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
+            h('div', { key: 'seg', className: 'gp-seg' }, (['split', 'before', 'after'] as DiffMode[]).map((m) =>
               h('button', { key: m, type: 'button', className: `gp-seg__btn${diffMode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => setDiffMode(m) }, t(`diff.${m}` as GitKey)))),
           ]),
           h('div', { key: 'scroll', className: 'gp-diff__scroll' },

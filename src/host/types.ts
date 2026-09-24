@@ -147,8 +147,8 @@ export type GitQuery =
     /** Date lower bound (--since). */
     readonly since?: string
   }
-  | { readonly kind: 'diff'; readonly path: string; readonly base: 'worktree' | 'staged' }
-  | { readonly kind: 'diff'; readonly path: string; readonly base: 'commit'; readonly commit: string }
+  | { readonly kind: 'diff'; readonly path: string; readonly base: 'worktree' | 'staged'; readonly context?: number }
+  | { readonly kind: 'diff'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly context?: number }
   | { readonly kind: 'show'; readonly ref: string }
   | { readonly kind: 'branches' }
   | { readonly kind: 'tags' }

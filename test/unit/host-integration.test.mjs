@@ -64,13 +64,16 @@ before(async () => {
   await runGit(repo, ['config', 'user.email', 't@t.co'])
   await runGit(repo, ['config', 'user.name', 'Tester'])
   await runGit(repo, ['commit', '--allow-empty', '-qm', 'init: first commit'])
-  // one committed file, then modify it + add an untracked file
+  // one committed file with many lines, then modify a middle line + add an
+  // untracked file. The long committed body lets the diff-context test show
+  // the effect of expand-all (default 3 context lines vs the whole file).
   await runGit(repo, ['-c', 'core.autocrlf=false', 'stash'])
   const { writeFileSync } = await import('node:fs')
-  writeFileSync(join(repo, 'a.txt'), 'line1\n')
+  const base = Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join('\n') + '\n'
+  writeFileSync(join(repo, 'a.txt'), base)
   await runGit(repo, ['add', 'a.txt'])
   await runGit(repo, ['commit', '-qm', 'feat: add a'])
-  writeFileSync(join(repo, 'a.txt'), 'line1\nline2\n')
+  writeFileSync(join(repo, 'a.txt'), base.replace('line10', 'line10-changed'))
   writeFileSync(join(repo, 'd.txt'), 'new\n')
 })
 
@@ -118,10 +121,22 @@ test('branches lists the current branch', async () => {
 test('diff renders tracked change and synthesizes untracked via --no-index', async () => {
   const tracked = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'worktree' } })
   assert.equal(tracked.ok, true)
-  assert.match(tracked.value.text, /\+line2/)
+  assert.match(tracked.value.text, /\+line10-changed/)
   const untracked = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'd.txt', base: 'worktree' } })
   assert.equal(untracked.ok, true)
   assert.match(untracked.value.text, /\+new/)
+})
+
+test('diff context expansion shows more surrounding unchanged lines', async () => {
+  // With default context (3) only a window around line10 shows; expand-all
+  // (huge context) includes the far lines (line1 / line20) too.
+  const tight = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'worktree' } })
+  const wide = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'worktree', context: 100000 } })
+  assert.equal(tight.ok, true)
+  assert.equal(wide.ok, true)
+  assert.doesNotMatch(tight.value.text, /^ line1$/m, 'default context omits the first line')
+  assert.match(wide.value.text, /^ line1$/m, 'expand-all includes the first line')
+  assert.match(wide.value.text, /^ line20$/m, 'expand-all includes the last line')
 })
 
 test('show returns commit meta + changed files', async () => {

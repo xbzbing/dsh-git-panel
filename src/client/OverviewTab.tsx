@@ -10,7 +10,7 @@ import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import type { GitBranch, GitCommit, GitFileStat, GraphCommit } from './types'
 import type { GitKey } from './locales'
-import { BranchIcon, ChevronIcon, CloseIcon, CommitIcon, RefreshIcon, TagIcon } from './icons'
+import { BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, RefreshIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
 import { absoluteTime, timeAgo } from './time'
@@ -49,6 +49,7 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   const [fileDiffText, setFileDiffText] = useState<string | null>(null)
   const [fileDiffError, setFileDiffError] = useState(false)
   const [fileDiffMode, setFileDiffMode] = useState<DiffMode>('split')
+  const [fileDiffExpanded, setFileDiffExpanded] = useState(false)
   const fileDiffSeq = useRef(0)
   const [filter, setFilter] = useState<{ ref: string | null; search: string; author: string; since: string }>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
@@ -160,12 +161,13 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   }, [remote, sessionId])
 
   /** Open the full-width diff overlay for a file within the selected commit. */
-  const openFileDiff = useCallback(async (path: string, hash: string, shortHash: string) => {
+  const openFileDiff = useCallback(async (path: string, hash: string, shortHash: string, expand = false) => {
     const seq = ++fileDiffSeq.current
     setFileDiff({ path, hash, shortHash })
     setFileDiffText(null)
     setFileDiffError(false)
-    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash } })
+    setFileDiffExpanded(expand)
+    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash, ...(expand ? { context: 100000 } : {}) } })
     if (seq !== fileDiffSeq.current) return
     if (res.ok && res.value.kind === 'diff') setFileDiffText(res.value.text)
     else setFileDiffError(true)
@@ -176,6 +178,7 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
     setFileDiff(null)
     setFileDiffText(null)
     setFileDiffError(false)
+    setFileDiffExpanded(false)
   }, [])
 
   // Esc closes the file-diff modal.
@@ -243,6 +246,8 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
       error: fileDiffError,
       mode: fileDiffMode,
       onMode: setFileDiffMode,
+      expanded: fileDiffExpanded,
+      onExpand: (expand) => { if (fileDiff !== null) void openFileDiff(fileDiff.path, fileDiff.hash, fileDiff.shortHash, expand) },
       onClose: closeFileDiff,
       t,
     }),
@@ -474,6 +479,8 @@ interface FileDiffModalCbs {
   error: boolean
   mode: DiffMode
   onMode: (mode: DiffMode) => void
+  expanded: boolean
+  onExpand: (expand: boolean) => void
   onClose: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
@@ -486,18 +493,26 @@ function renderFileDiffModal(
   cb: FileDiffModalCbs,
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
-  const { text, error, mode, onMode, onClose, t } = cb
+  const { text, error, mode, onMode, expanded, onExpand, onClose, t } = cb
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
   }, h('div', { className: 'gp-modal', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, [
+      h('span', { key: 'fileicon', className: 'gp-modal__fileicon' }, h(FileIcon, { size: 15 })),
+      h('span', { key: 'path', className: 'gp-modal__path', title: fileDiff.path }, renderPathParts(fileDiff.path)),
       h('span', { key: 'hash', className: 'gp-modal__hash' }, fileDiff.shortHash),
-      h('span', { key: 'path', className: 'gp-modal__path', title: fileDiff.path }, fileDiff.path),
-      text !== null && text !== '' ? (() => { const s = diffSummary(text); return h('span', { key: 'sum', className: 'gp-stats__item' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), ' ', h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null,
+      text !== null && text !== '' ? (() => { const s = diffSummary(text); return h('span', { key: 'sum', className: 'gp-modal__sum' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null,
+      h('button', {
+        key: 'expand', type: 'button',
+        className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
+        disabled: mode !== 'split',
+        title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
+        onClick: () => onExpand(!expanded),
+      }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
       h('div', { key: 'seg', className: 'gp-seg' }, (['split', 'before', 'after'] as DiffMode[]).map((m) =>
         h('button', { key: m, type: 'button', className: `gp-seg__btn${mode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => onMode(m) }, t(`diff.${m}` as GitKey)))),
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 14 })),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       text === null
@@ -505,4 +520,14 @@ function renderFileDiffModal(
         : h(DiffView, { text, mode, path: fileDiff.path, t })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
+}
+
+/** Split a path into a dimmed directory prefix + emphasized file name. */
+function renderPathParts(path: string): JSX.Element[] {
+  const slash = path.lastIndexOf('/')
+  if (slash < 0) return [h('span', { key: 'n', className: 'gp-modal__name' }, path)]
+  return [
+    h('span', { key: 'd', className: 'gp-modal__dir' }, path.slice(0, slash + 1)),
+    h('span', { key: 'n', className: 'gp-modal__name' }, path.slice(slash + 1)),
+  ]
 }

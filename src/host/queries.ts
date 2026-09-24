@@ -101,14 +101,18 @@ async function queryDiff(
   q: Extract<GitQueryRequest['query'], { kind: 'diff' }>,
 ): Promise<GitQueryResponse> {
   if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  // Context lines around each change; a large value effectively shows the whole
+  // file (expand-all). Clamp to a sane ceiling to bound output.
+  const ctx = q.context !== undefined && Number.isFinite(q.context) ? Math.max(0, Math.min(100000, Math.floor(q.context))) : 3
+  const unified = `-U${ctx}`
   let args: string[]
   if (q.base === 'staged') {
-    args = ['git', 'diff', '--cached', '--', q.path]
+    args = ['git', 'diff', unified, '--cached', '--', q.path]
   } else if (q.base === 'commit') {
-    args = ['git', 'show', `${q.commit}`, '--', q.path]
+    args = ['git', 'show', unified, `${q.commit}`, '--', q.path]
   } else {
     // worktree: unstaged diff; for untracked files use --no-index against /dev/null.
-    args = ['git', 'diff', '--', q.path]
+    args = ['git', 'diff', unified, '--', q.path]
   }
   const res = await runCommand(deps.run, args, root, 'diff', deps.signal)
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
@@ -116,7 +120,7 @@ async function queryDiff(
   let text = res.run.stdout
   // Untracked file: `git diff` yields nothing; synthesize with --no-index.
   if (q.base === 'worktree' && text.trim() === '') {
-    const noIndex = await runCommand(deps.run, ['git', 'diff', '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
+    const noIndex = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
     if ('run' in noIndex) text = noIndex.run.stdout
   }
   return { ok: true, value: { kind: 'diff', path: q.path, text } }
