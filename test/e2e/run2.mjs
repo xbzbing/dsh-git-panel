@@ -58,6 +58,8 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   result.hasDirty = document.querySelector('.gp-pill__git--dirty') !== null
 
   // Fake tab bar → the pill click should click a role=tab button labeled panel.tab.
+  // The real shell wraps view tabs in [data-conversation-tabs]; mirror that here.
+  document.getElementById('tabbar').setAttribute('data-conversation-tabs', '')
   const fakeTab = document.createElement('button')
   fakeTab.setAttribute('role', 'tab'); fakeTab.textContent = 'panel.tab'; fakeTab.setAttribute('aria-selected', 'false')
   let clicked = false

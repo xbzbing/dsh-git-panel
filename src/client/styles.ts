@@ -202,6 +202,12 @@ const CSS = `
 .gp-pill--plain .gp-pill__repo{color:var(--dsw-alias-label-secondary)}
 .gp-pill--degraded{color:var(--dsw-alias-label-tertiary);cursor:default;font-weight:500}
 
+/* status dot appended to the shell's Git view-tab button — shown only when the
+ * input-bar marker is hidden; colour mirrors the pill branch (synced/dirty). */
+.gp-tab-dot{display:inline-block;width:7px;height:7px;margin-left:6px;border-radius:999px;vertical-align:middle;flex:none}
+.gp-tab-dot--synced{background:var(--dsw-alias-state-success-primary,#3fb950)}
+.gp-tab-dot--dirty{background:var(--dsw-alias-state-warn-primary,#e0982e)}
+
 /* pill wrapper + rounded hover tooltip panel (openviking-manager style):
  * soft radius, layered shadow, subtle border, portaled above the pill. */
 .gp-pill-wrap{display:inline-flex}

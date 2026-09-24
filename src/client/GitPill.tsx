@@ -4,11 +4,12 @@
  * Hover shows a rounded tooltip panel with the full repository path; click
  * jumps to the Git panel (changes tab when dirty, overview when clean).
  */
-import { createElement as h, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { useGitView } from './registry'
 import { activateGitTab, requestSubTab } from './jump'
+import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot'
 import type { GitKey } from './locales'
 
 interface PillProps {
@@ -56,6 +57,19 @@ function useTooltip(): {
 export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   const view = useGitView(sessionId)
   const tip = useTooltip()
+
+  // The tab-status dot mirrors the pill's inverse: it appears only when the
+  // input-bar marker is hidden, coloured like the pill's branch (green synced
+  // / orange dirty). Computed before any early return so the hook order holds.
+  const dotStatus: GitTabDotStatus =
+    view.state === 'ready' && view.snapshot.showInputPill === false
+      ? (view.snapshot.dirty ? 'dirty' : 'synced')
+      : null
+  const label = t('panel.tab')
+  useEffect(() => {
+    setGitTabDot(label, dotStatus)
+    return () => { clearGitTabDot() }
+  }, [label, dotStatus])
 
   if (view.state === 'cold' || view.state === 'loading' || view.state === 'no-cwd') return null
   if (view.state === 'error') {

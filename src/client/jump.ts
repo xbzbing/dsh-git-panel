@@ -7,6 +7,12 @@
 
 export type SubTab = 'overview' | 'changes'
 
+/** The conversation shell's view-tab bar and its buttons — one definition for
+ * both the pill jump and the tab status dot, so neither can match an unrelated
+ * `role="tab"` elsewhere on the page. */
+export const SHELL_TABLIST_SELECTOR = '[data-conversation-tabs]'
+export const SHELL_TAB_SELECTOR = '[data-conversation-tabs] button[role="tab"]'
+
 const pending = new Map<string, SubTab>()
 
 /** Record which sub-tab to reveal for a session — replaces any unconsumed request. */
@@ -29,7 +35,7 @@ export function takeSubTab(sessionId: string): SubTab | null {
  */
 export function activateGitTab(label: string): boolean {
   if (typeof document === 'undefined') return false
-  const tabs = document.querySelectorAll<HTMLButtonElement>('button[role="tab"]')
+  const tabs = document.querySelectorAll<HTMLButtonElement>(SHELL_TAB_SELECTOR)
   for (const tab of tabs) {
     if ((tab.textContent ?? '').trim() !== label) continue
     if (tab.getAttribute('aria-selected') !== 'true') tab.click()
