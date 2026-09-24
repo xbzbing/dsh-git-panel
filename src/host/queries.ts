@@ -61,17 +61,23 @@ async function queryHistory(
   const args = ['git', 'log', GRAPH_FORMAT, `--max-count=${q.limit}`, `--skip=${q.skip}`]
   const search = q.search?.trim() ?? ''
   const hexJump = search !== '' && isHexLike(search)
+  const countArgs = ['git', 'rev-list', '--count']
   if (!hexJump) {
-    if (q.ref !== undefined && q.ref !== '') args.push(q.ref)
-    else args.push('--all')
-    if (search !== '') args.push('-i', '-E', `--grep=${search}`)
-    if (q.author !== undefined && q.author !== '') args.push(`--author=${q.author}`)
-    if (q.since !== undefined && q.since !== '') args.push(`--since=${q.since}`)
+    if (q.ref !== undefined && q.ref !== '') { args.push(q.ref); countArgs.push(q.ref) }
+    else { args.push('--all'); countArgs.push('--all') }
+    if (search !== '') { args.push('-i', '-E', `--grep=${search}`); countArgs.push('-i', '-E', `--grep=${search}`) }
+    if (q.author !== undefined && q.author !== '') { args.push(`--author=${q.author}`); countArgs.push(`--author=${q.author}`) }
+    if (q.since !== undefined && q.since !== '') { args.push(`--since=${q.since}`); countArgs.push(`--since=${q.since}`) }
   } else {
     // Hash jump: log from the commit itself.
     args.push(search)
   }
-  const res = await runCommand(deps.run, args, root, 'history', deps.signal)
+  // Run the page log and the total count concurrently (the count is a second
+  // full history walk; serializing it roughly doubled the first-page latency).
+  const [res, countRes] = await Promise.all([
+    runCommand(deps.run, args, root, 'history', deps.signal),
+    hexJump ? Promise.resolve(null) : runCommand(deps.run, countArgs, root, 'history-count', deps.signal),
+  ])
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
   if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
   if (res.run.exitCode !== 0) {
@@ -79,22 +85,12 @@ async function queryHistory(
     return { ok: true, value: { kind: 'history', commits: [], total: 0 } }
   }
   const commits: GraphCommit[] = parseGraphLog(res.run.stdout)
-  // total: count only meaningful without hash-jump; cheap rev-list count.
   let total = -1
-  if (!hexJump) {
-    const countArgs = ['git', 'rev-list', '--count']
-    if (q.ref !== undefined && q.ref !== '') countArgs.push(q.ref)
-    else countArgs.push('--all')
-    if (search !== '') countArgs.push('-i', '-E', `--grep=${search}`)
-    if (q.author !== undefined && q.author !== '') countArgs.push(`--author=${q.author}`)
-    if (q.since !== undefined && q.since !== '') countArgs.push(`--since=${q.since}`)
-    const countRes = await runCommand(deps.run, countArgs, root, 'history-count', deps.signal)
-    if ('run' in countRes && countRes.run.exitCode === 0) {
-      const n = Number(countRes.run.stdout.trim())
-      if (Number.isFinite(n)) total = n
-    }
-  } else {
+  if (hexJump) {
     total = commits.length
+  } else if (countRes !== null && 'run' in countRes && countRes.run.exitCode === 0) {
+    const n = Number(countRes.run.stdout.trim())
+    if (Number.isFinite(n)) total = n
   }
   return { ok: true, value: { kind: 'history', commits, total } }
 }

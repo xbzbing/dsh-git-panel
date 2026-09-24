@@ -49,6 +49,7 @@ export class GitPanelService extends TypertRemoteService {
   }
 
   private buildDeps(ctx: Context, config: GitPanelConfig): SnapshotDeps {
+    const rootCache = new Map<string, string>()
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
     const subprocess = get('subprocess') as SubprocessLike | undefined
     if (subprocess === undefined) {
@@ -56,6 +57,7 @@ export class GitPanelService extends TypertRemoteService {
         run: { run: async () => { throw new Error('subprocess service unavailable') } },
         fs: { realpath, stat: async (p) => stat(p) },
         sessions: { liveCwd: () => undefined, persistedMeta: async () => undefined },
+        rootCache,
       }
     }
     const sessions = get('sessions') as SessionsService | undefined
@@ -75,6 +77,7 @@ export class GitPanelService extends TypertRemoteService {
           }
         },
       },
+      rootCache,
     }
   }
 

@@ -43,6 +43,13 @@ export interface SnapshotDeps {
     persistedMeta(sessionId: string): Promise<{ cwd?: string } | undefined>
   }
   readonly signal?: AbortSignal
+  /**
+   * Optional cwd→root cache, keyed by the resolved cwd. Resolving the work-tree
+   * root runs a `git rev-parse` + `realpath` on every call; sharing this map
+   * across a session's snapshot/query/run calls collapses that to one spawn per
+   * distinct cwd (a session's cwd is effectively stable).
+   */
+  readonly rootCache?: Map<string, string>
 }
 
 export type WorkspaceResolution =
@@ -59,6 +66,8 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   if (cwd === undefined || cwd === '') {
     return { ok: false, failure: { ok: false, error: { code: 'cwd-unavailable', sessionId } } }
   }
+  const cached = deps.rootCache?.get(cwd)
+  if (cached !== undefined) return { ok: true, root: cached }
   const top = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], cwd, 'toplevel', deps.signal)
   if ('failure' in top) {
     return { ok: false, failure: { ok: false, error: mapRunFailure(top.failure) } }
@@ -69,11 +78,14 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   }
   const raw = top.run.stdout.trim()
   if (raw === '') return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
+  let root = raw
   try {
-    return { ok: true, root: await deps.fs.realpath(raw) }
+    root = await deps.fs.realpath(raw)
   } catch {
-    return { ok: true, root: raw }
+    root = raw
   }
+  deps.rootCache?.set(cwd, root)
+  return { ok: true, root }
 }
 
 /** Run one git command; a spawn-level failure returns { failure }. */
