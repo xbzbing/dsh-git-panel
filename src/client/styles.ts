@@ -6,9 +6,11 @@
 const CSS = `
 .gp-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px}
 .gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
-.gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer}
+.gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;transition:background .12s ease,color .12s ease}
 .gp-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.gp-tab--active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+/* Active tab: primary-tinted fill + primary text + medium weight + a soft ring.
+ * Clear enough to spot at a glance, restrained enough not to shout. */
+.gp-tab--active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 32%,transparent)}
 .gp-tab__icon{display:inline-flex;width:15px;height:15px}
 .gp-body{flex:1;min-height:0;display:flex;overflow:hidden}
 .gp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px;text-align:center}
