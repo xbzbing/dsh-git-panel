@@ -38,10 +38,8 @@ Restart or refresh the Web GUI afterwards and the **Git** panel appears in the w
 | Overview | File-diff modal |
 | :---: | :---: |
 | ![Overview: branches, commit graph, commit detail, hover card](docs/assets/screenshots/1-git-panel-overview.png) | ![File-diff modal: syntax-highlighted side-by-side diff with on-demand gap expansion and word-level emphasis](docs/assets/screenshots/2-overview-tab.png) |
-
-The Changes page:
-
-![Changes: stats bar, uncommitted list, commit box, diff](docs/assets/screenshots/3-changes.png)
+| Changes | |
+| ![Changes: stats bar, uncommitted list, commit box, diff](docs/assets/screenshots/3-changes.png) | |
 
 ## Architecture
 
