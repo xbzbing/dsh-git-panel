@@ -45,6 +45,13 @@ export interface SnapshotDeps {
      * distinct cwd (a session's cwd is effectively stable).
      */
     readonly rootCache?: Map<string, string>;
+    /**
+     * Optional negative cache (cwd → expiry epoch ms) for non-repo cwds, so a
+     * session whose directory is not a git repo does not spawn `rev-parse` on
+     * every 30s poll. Short-lived (see NEG_CACHE_MS) so a repo created under the
+     * cwd is picked up soon after.
+     */
+    readonly rootNegCache?: Map<string, number>;
 }
 export type WorkspaceResolution = {
     readonly ok: true;

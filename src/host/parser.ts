@@ -67,14 +67,18 @@ export function parseGraphLog(stdout: string): GraphCommit[] {
   for (const record of stdout.split('\x1e')) {
     const rec = record.replace(/^\n+/, '')
     if (rec.trim() === '') continue
+    // Bounded split: the subject (last field) may itself contain a stray 0x1f
+    // from crafted commit metadata; capping at 7 pieces keeps every earlier
+    // field aligned and folds any extra separators back into the subject.
     const parts = rec.split('\x1f')
     if (parts.length < 7) continue
-    const [hash, shortHash, parentsRaw, author, dateIso, decoration, subject] = parts
+    const [hash, shortHash, parentsRaw, author, dateIso, decoration] = parts
+    const subject = parts.slice(6).join('\x1f')
     const parents = (parentsRaw ?? '').trim() === '' ? [] : parentsRaw!.trim().split(/\s+/)
     out.push({
       hash: hash ?? '',
       shortHash: shortHash ?? '',
-      subject: subject ?? '',
+      subject,
       author: author ?? '',
       dateIso: dateIso ?? '',
       parents,
@@ -128,25 +132,32 @@ export function parseBranches(stdout: string): GitBranch[] {
   return out
 }
 
-/** Parse `git show --name-status -z` file lines into stats. */
+/**
+ * Parse `git show --name-status -z` into stats with an explicit state machine:
+ * read a status token, then consume exactly the paths it owns (2 for R/C, 1
+ * otherwise). A malformed token stops the scan rather than silently shifting
+ * every later field, so one bad entry can't corrupt the whole list.
+ */
 export function parseNameStatus(stdout: string): GitFileStat[] {
   const out: GitFileStat[] = []
   const tokens = stdout.split('\0')
-  for (let i = 0; i < tokens.length; i++) {
+  let i = 0
+  while (i < tokens.length) {
     const tok = tokens[i]
-    if (tok === undefined || tok === '') continue
+    if (tok === undefined || tok === '') { i += 1; continue }
     const code = tok[0]
-    if (code === undefined || !/[AMDRCTU]/.test(code)) continue
-    // R/C carry a similarity number; the next token is old, the one after new.
+    if (code === undefined || !/[AMDRCTU]/.test(code)) break
     if (code === 'R' || code === 'C') {
-      const newPath = tokens[i + 2]
+      const newPath = tokens[i + 2] // R/C: status, old, new
+      if (newPath === undefined) break
+      out.push({ path: newPath, status: statusOf(code) })
+      i += 3
+    } else {
+      const path = tokens[i + 1]
+      if (path === undefined) break
+      if (path !== '') out.push({ path, status: statusOf(code) })
       i += 2
-      if (newPath) out.push({ path: newPath, status: statusOf(code) })
-      continue
     }
-    const path = tokens[i + 1]
-    i += 1
-    if (path) out.push({ path, status: statusOf(code) })
   }
   return out
 }

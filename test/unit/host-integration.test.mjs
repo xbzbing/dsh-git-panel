@@ -413,3 +413,64 @@ test('snapshot counts reflect the full change set even when the list is truncate
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('diff of a clean tracked file is empty, not an all-new file (N4)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-clean-diff-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'tracked.txt'), 'line1\nline2\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'add tracked'])
+    // A clean tracked path has no worktree diff; the --no-index synthesis must
+    // NOT kick in (that would render the whole file as an addition).
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'tracked.txt', base: 'worktree' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.text.trim(), '', 'clean tracked file yields an empty diff')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('history hash-jump ignores filters and returns total -1 (N5)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-hexjump-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'one'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'two'])
+    const all = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 10, skip: 0 } })
+    const head = all.value.commits[0].hash
+    const jump = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 10, skip: 0, search: head } })
+    assert.equal(jump.ok, true)
+    assert.equal(jump.value.total, -1, 'hash-jump reports -1 (page-by-fill), not a fixed count')
+    assert.ok(jump.value.commits.length >= 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('image-diff refuses a worktree symlink escaping the repo root (N6)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-symlink-'))
+  const secret = mkdtempSync(join(tmpdir(), 'gp-secret-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync, symlinkSync } = await import('node:fs')
+    writeFileSync(join(secret, 'secret.png'), 'SECRET-BYTES-OUTSIDE-REPO')
+    // A .png symlink in the worktree pointing outside the repo root.
+    symlinkSync(join(secret, 'secret.png'), join(dir, 'evil.png'))
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'image-diff', path: 'evil.png', base: 'worktree' } })
+    assert.equal(res.ok, true)
+    // The escaping side is refused → no bytes leak into the pane.
+    assert.equal(res.value.new, undefined, 'symlinked-out file is not read into the image pane')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(secret, { recursive: true, force: true })
+  }
+})

@@ -19,7 +19,12 @@ export declare function parseGraphLog(stdout: string): GraphCommit[];
 export declare function parseRefs(decoration: string): GitRef[];
 /** Parse `git for-each-ref` local/remote branch lines: `name\0shortHash\0track`. */
 export declare function parseBranches(stdout: string): GitBranch[];
-/** Parse `git show --name-status -z` file lines into stats. */
+/**
+ * Parse `git show --name-status -z` into stats with an explicit state machine:
+ * read a status token, then consume exactly the paths it owns (2 for R/C, 1
+ * otherwise). A malformed token stops the scan rather than silently shifting
+ * every later field, so one bad entry can't corrupt the whole list.
+ */
 export declare function parseNameStatus(stdout: string): GitFileStat[];
 /** Sum `git diff --numstat` output: { insertions, deletions }. Binary rows ("-") skipped. */
 export declare function sumNumstat(stdout: string): {

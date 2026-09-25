@@ -65,6 +65,7 @@ export class GitPanelService extends TypertRemoteService {
 
   private buildDeps(ctx: Context, config: GitPanelConfig): SnapshotDeps {
     const rootCache = new Map<string, string>()
+    const rootNegCache = new Map<string, number>()
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
     const fs: SnapshotDeps['fs'] = {
       realpath, stat: async (p) => stat(p), readFile, remove: async (p) => { await rm(p, { force: true }) },
@@ -93,6 +94,7 @@ export class GitPanelService extends TypertRemoteService {
         },
       },
       rootCache,
+      rootNegCache,
     }
   }
 

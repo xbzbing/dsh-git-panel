@@ -2,7 +2,7 @@
  * Read-only query endpoint: history / diff / image-diff / show / branches /
  * tags / authors / last-commit-message / worktree-stats.
  */
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
@@ -108,7 +108,10 @@ async function queryHistory(
   const commits: GraphCommit[] = parseGraphLog(res.run.stdout)
   let total = -1
   if (hexJump) {
-    total = commits.length
+    // Hash-jump ignores ref/author/since filters and starts the walk at the
+    // commit itself, so a total is meaningless; -1 tells the client to page by
+    // "did the last page fill" instead of a fixed count.
+    total = -1
   } else if (countRes !== null && 'run' in countRes && countRes.run.exitCode === 0) {
     const n = Number(countRes.run.stdout.trim())
     if (Number.isFinite(n)) total = n
@@ -141,10 +144,16 @@ async function queryDiff(
   if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
   if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
   let text = res.run.stdout
-  // Untracked file: `git diff` yields nothing; synthesize with --no-index.
+  // A truly untracked file produces no `git diff` output; synthesize one with
+  // --no-index. Gate on the file being untracked (ls-files --error-unmatch
+  // fails for it) so a clean *tracked* path isn't rendered as an all-new file.
   if (q.base === 'worktree' && text.trim() === '') {
-    const noIndex = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
-    if ('run' in noIndex) text = noIndex.run.stdout
+    const tracked = await runCommand(deps.run, ['git', 'ls-files', '--error-unmatch', '--', q.path], root, 'diff-tracked-probe', deps.signal)
+    const isUntracked = !('run' in tracked) || tracked.run.exitCode !== 0
+    if (isUntracked) {
+      const noIndex = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
+      if ('run' in noIndex) text = noIndex.run.stdout
+    }
   }
   return { ok: true, value: { kind: 'diff', path: q.path, text } }
 }
@@ -245,10 +254,15 @@ async function blobSide(deps: SnapshotDeps, gitDir: string, oid: string, cap: nu
   }
 }
 
-/** The working-tree file (absent when deleted). */
+/** The working-tree file (absent when deleted). A symlink whose realpath
+ * escapes the repository root is refused, so an untrusted clone cannot point
+ * `evil.png → ~/.ssh/id_rsa` and have its bytes base64'd into the image pane. */
 async function worktreeSide(deps: SnapshotDeps, root: string, path: string, cap: number): Promise<ImageSide> {
   try {
     const file = join(root, path)
+    const real = await deps.fs.realpath(file)
+    const rootReal = await deps.fs.realpath(root)
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) return undefined
     const info = await deps.fs.stat(file)
     if (info.size > cap) return { tooLarge: true }
     const buf = await deps.fs.readFile(file)
@@ -261,6 +275,9 @@ async function worktreeSide(deps: SnapshotDeps, root: string, path: string, cap:
 
 async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise<GitQueryResponse> {
   if (!isSafeRev(ref)) return { ok: false, error: { code: 'invalid-name', message: `unsafe ref: ${ref}` } }
+  // hash / short / subject / author / date / body — body last so a bounded
+  // split folds any stray 0x1f (crafted subject/metadata) back into the body,
+  // keeping the five leading fields aligned.
   const metaFormat = '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%b'
   const [metaRes, statRes] = await Promise.all([
     runCommand(deps.run, ['git', 'show', '-s', metaFormat, '--end-of-options', ref], root, 'show-meta', deps.signal),
@@ -283,7 +300,7 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
       author: parts[3] ?? '',
       dateIso: parts[4] ?? '',
     }
-    body = (parts[5] ?? '').trim()
+    body = parts.slice(5).join('\x1f').trim()
   }
   const stats: GitFileStat[] = 'run' in statRes && statRes.run.exitCode === 0
     ? parseNameStatus(statRes.run.stdout)

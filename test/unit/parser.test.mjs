@@ -85,6 +85,34 @@ test('parseNameStatus reads statuses and rename new-path', () => {
   assert.deepEqual(out.find((s) => s.path === 'new.txt'), { path: 'new.txt', status: 'renamed' })
 })
 
+test('parseNameStatus keeps paths with spaces and unicode intact (-z NUL split)', () => {
+  const z = 'A\0dir with spaces/файл.txt\0M\0mod.txt\0'
+  const out = parseNameStatus(z)
+  assert.deepEqual(out, [
+    { path: 'dir with spaces/файл.txt', status: 'added' },
+    { path: 'mod.txt', status: 'modified' },
+  ])
+})
+
+test('parseNameStatus stops on a malformed token instead of shifting later fields', () => {
+  // A valid A entry, then a garbage token: the scan stops rather than
+  // mis-pairing the rest.
+  const out = parseNameStatus('A\0good.txt\0garbage\0M\0mod.txt\0')
+  assert.deepEqual(out, [{ path: 'good.txt', status: 'added' }])
+})
+
+test('parseGraphLog keeps a 0x1f inside the subject in the subject field', () => {
+  const fmt = ['H', 'h', 'P', 'Alice', 'D', '', 'sub\x1fject'].join('\x1f') + '\x1e'
+  const commits = parseGraphLog(fmt)
+  assert.equal(commits[0].subject, 'sub\x1fject')
+  assert.equal(commits[0].author, 'Alice')
+})
+
+test('parseStatus keeps a space/unicode filename end to end', () => {
+  const out = parseStatus(' M path with space/файл.txt\0')
+  assert.deepEqual(out, [{ path: 'path with space/файл.txt', status: 'modified', staged: false, isDirectory: false }])
+})
+
 test('sumNumstat totals additions/deletions and skips binary rows', () => {
   const out = sumNumstat('3\t1\ta.txt\n10\t0\tb.txt\n-\t-\timage.png\n')
   assert.deepEqual(out, { insertions: 13, deletions: 1 })

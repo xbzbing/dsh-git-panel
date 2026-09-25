@@ -75,7 +75,17 @@ export interface SnapshotDeps {
    * distinct cwd (a session's cwd is effectively stable).
    */
   readonly rootCache?: Map<string, string>
+  /**
+   * Optional negative cache (cwd → expiry epoch ms) for non-repo cwds, so a
+   * session whose directory is not a git repo does not spawn `rev-parse` on
+   * every 30s poll. Short-lived (see NEG_CACHE_MS) so a repo created under the
+   * cwd is picked up soon after.
+   */
+  readonly rootNegCache?: Map<string, number>
 }
+
+/** Non-repo negative-cache lifetime; short so a freshly-created repo is seen. */
+const NEG_CACHE_MS = 15_000
 
 export type WorkspaceResolution =
   | { readonly ok: true; readonly root: string }
@@ -93,6 +103,11 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   }
   const cached = deps.rootCache?.get(cwd)
   if (cached !== undefined) return { ok: true, root: cached }
+  const negAt = deps.rootNegCache?.get(cwd)
+  if (negAt !== undefined) {
+    if (Date.now() < negAt) return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
+    deps.rootNegCache?.delete(cwd)
+  }
   const top = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], cwd, 'toplevel', deps.signal)
   if ('failure' in top) {
     return { ok: false, failure: { ok: false, error: mapRunFailure(top.failure) } }
@@ -100,10 +115,14 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   if (top.run.cancelled) return { ok: false, failure: { ok: false, error: { code: 'cancelled' } } }
   if (top.run.timedOut) return { ok: false, failure: { ok: false, error: { code: 'timeout' } } }
   if (top.run.exitCode !== 0) {
+    deps.rootNegCache?.set(cwd, Date.now() + NEG_CACHE_MS)
     return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
   }
   const raw = top.run.stdout.trim()
-  if (raw === '') return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
+  if (raw === '') {
+    deps.rootNegCache?.set(cwd, Date.now() + NEG_CACHE_MS)
+    return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
+  }
   let root = raw
   try {
     root = await deps.fs.realpath(raw)
@@ -168,11 +187,15 @@ export async function snapshotForSession(
   const head = unborn ? null : ('run' in headRes ? headRes.run.stdout.trim() || null : null)
 
   let allChanges: GitChange[] = []
+  let statusLossy = false
   if ('run' in statusRes && !statusRes.run.timedOut && statusRes.run.exitCode === 0) {
     allChanges = parseStatus(statusRes.run.stdout)
+    statusLossy = statusRes.run.stdoutLossy
   }
-  const truncated = allChanges.length > config.maxChanges
-  const changes = truncated ? allChanges.slice(0, config.maxChanges) : allChanges
+  // Truncated either because the list exceeded the cap or because the status
+  // stream itself was clipped (a lossy read may drop a trailing entry).
+  const truncated = allChanges.length > config.maxChanges || statusLossy
+  const changes = allChanges.length > config.maxChanges ? allChanges.slice(0, config.maxChanges) : allChanges
 
   // Counts and `dirty` reflect the full change set; only the `changes` list is
   // bounded. Counting the truncated slice would under-report on large repos.

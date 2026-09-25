@@ -101,11 +101,16 @@ export async function runAction(
   if ('error' in plan) return { ok: false, error: { code: plan.error, ...(plan.message ? { message: plan.message } : {}) } }
 
   let lastOutput = ''
-  for (const argv of plan.argv) {
+  // A per-path commit is two steps (add then commit); on failure include which
+  // argv failed so the caller isn't left guessing whether the add or the commit
+  // broke (the sequence is not atomic — the add may have staged already).
+  for (let step = 0; step < plan.argv.length; step += 1) {
+    const argv = plan.argv[step]!
     const outcome = await runCommand(deps.run, argv, root, 'action', deps.signal)
+    const where = plan.argv.length > 1 ? ` (step ${step + 1}/${plan.argv.length}: ${argv.join(' ')})` : ''
     if ('failure' in outcome) {
       const message = outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure)
-      return { ok: false, error: { code: 'git-unavailable', message } }
+      return { ok: false, error: { code: 'git-unavailable', message: message + where } }
     }
     if (outcome.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
     if (outcome.run.timedOut) return { ok: false, error: { code: 'timeout' } }
@@ -115,12 +120,12 @@ export async function runAction(
       // "nothing to commit" exits non-zero: report it as a git-error with the
       // repo's own message rather than a bare exit code.
       if (/nothing to commit|no changes added/i.test(stderr + lastOutput)) {
-        return { ok: false, error: { code: 'git-error', message: stderr.trim() || 'nothing to commit' } }
+        return { ok: false, error: { code: 'git-error', message: (stderr.trim() || 'nothing to commit') + where } }
       }
       if (/would be overwritten by checkout|local changes/i.test(stderr)) {
-        return { ok: false, error: { code: 'local-changes-block', message: stderr.trim() } }
+        return { ok: false, error: { code: 'local-changes-block', message: stderr.trim() + where } }
       }
-      return { ok: false, error: { code: 'git-error', message: stderr.trim() || `git exited ${outcome.run.exitCode}` } }
+      return { ok: false, error: { code: 'git-error', message: (stderr.trim() || `git exited ${outcome.run.exitCode}`) + where } }
     }
   }
 
