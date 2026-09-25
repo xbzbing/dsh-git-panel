@@ -42,6 +42,7 @@ Host 半 (Cordis + typert, lib/host)
 - `core.ts`：workspace（cwd→仓库根 realpath）解析 + `snapshotForSession`。
 - `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`）。
 - `queries.ts`：`history / diff / image-diff / show / branches / tags / authors / last-commit-message / worktree-stats`。
+- `validate.ts`：host 信任边界的输入校验（`isSafePath` / `isSafeRev` / `isSafeBranchName`）。经 RPC 到来的 path/ref/分支名是唯一不可信 argv 素材；凡会把它们放进选项位的 git 命令都在此拦截，并额外用 `--end-of-options` 殿后（拒 `-` 开头的 `--output=<file>` 任意写向量）。
 - `parser.ts`：`git status --porcelain` / `--numstat` / `log` 输出解析为结构化数据。
 - `version.ts`：读本包 `package.json` 版本 + 查 GitHub release 做更新检查，失败降级。
 

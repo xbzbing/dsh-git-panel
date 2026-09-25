@@ -1,18 +1,12 @@
 /**
  * GitAction → command sequence construction + execution.
  */
-import { isAbsolute, normalize } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
+import { isSafeBranchName, isSafePath } from './validate.ts'
 import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.ts'
 
-/** A repository-relative path is safe when it stays inside the work tree. */
-export function isSafePath(path: string): boolean {
-  if (path === '' || isAbsolute(path)) return false
-  const norm = normalize(path)
-  if (norm === '..' || norm.startsWith('../') || norm.startsWith('..\\')) return false
-  return true
-}
+export { isSafePath }
 
 interface CommandPlan {
   readonly argv: readonly (readonly string[])[]
@@ -61,7 +55,8 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       return { argv: [...staged.argv, commitCmd] }
     }
     case 'branch-checkout':
-      return { argv: [['git', 'checkout', action.name]] }
+      if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe branch name: ${action.name}` }
+      return { argv: [['git', 'checkout', '--end-of-options', action.name]] }
     case 'fetch':
       return { argv: [['git', 'fetch', '--all', '--prune']] }
   }

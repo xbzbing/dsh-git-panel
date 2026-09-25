@@ -263,3 +263,40 @@ test('image-diff flags a side over the configured payload cap', async () => {
   assert.equal(res.value.old, undefined)
   assert.equal(res.value.new, undefined)
 })
+
+// ── injection regression (C1/C2): a `-`-prefixed ref must never reach an
+//    option position; the classic vector `--output=<file>` writes outside the
+//    output cap. We assert the endpoint rejects it AND no file lands on disk.
+test('history rejects an option-injecting ref and writes no file', async () => {
+  const marker = join(repo, 'HIST_INJECT_MARKER')
+  const res = await runQuery(deps(), DEFAULT_CONFIG, {
+    sessionId: SID,
+    query: { kind: 'history', limit: 5, skip: 0, ref: `--output=${marker}` },
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'invalid-name')
+  await assert.rejects(stat(marker), 'no file was written by the injected --output')
+})
+
+test('show rejects an option-injecting ref', async () => {
+  const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref: '--output=/tmp/gp-show-inject' } })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'invalid-name')
+})
+
+test('commit-base diff rejects an option-injecting commit', async () => {
+  const marker = join(repo, 'DIFF_INJECT_MARKER')
+  const res = await runQuery(deps(), DEFAULT_CONFIG, {
+    sessionId: SID,
+    query: { kind: 'diff', path: 'a.txt', base: 'commit', commit: `--output=${marker}` },
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'invalid-name')
+  await assert.rejects(stat(marker), 'no file was written by the injected --output')
+})
+
+test('branch-checkout rejects a dash-prefixed name (would run git checkout -f)', async () => {
+  const res = await runAction(deps(), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-checkout', name: '-f' } })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'invalid-name')
+})

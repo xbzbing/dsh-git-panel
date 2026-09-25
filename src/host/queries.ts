@@ -5,7 +5,7 @@
 import { join } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { maxChangeMtime, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
-import { isSafePath } from './actions.ts'
+import { isSafePath, isSafeRev } from './validate.ts'
 import { parseBranches, parseGraphLog, parseNameStatus, sumNumstat } from './parser.ts'
 import type { GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, WorktreeStats } from './types.ts'
 import { imageMimeFor } from './types.ts'
@@ -65,15 +65,22 @@ async function queryHistory(
   const search = q.search?.trim() ?? ''
   const hexJump = search !== '' && isHexLike(search)
   const countArgs = ['git', 'rev-list', '--count']
+  // Untrusted ref/author filters must never reach an option position: reject a
+  // dash-prefixed / metacharacter ref (the `--output=` file-write vector) and
+  // pass the ref after `--end-of-options`, which git treats as a bare operand.
   if (!hexJump) {
-    if (q.ref !== undefined && q.ref !== '') { args.push(q.ref); countArgs.push(q.ref) }
-    else { args.push('--all'); countArgs.push('--all') }
     if (search !== '') { args.push('-i', '-E', `--grep=${search}`); countArgs.push('-i', '-E', `--grep=${search}`) }
     if (q.author !== undefined && q.author !== '') { args.push(`--author=${q.author}`); countArgs.push(`--author=${q.author}`) }
     if (q.since !== undefined && q.since !== '') { args.push(`--since=${q.since}`); countArgs.push(`--since=${q.since}`) }
+    if (q.ref !== undefined && q.ref !== '') {
+      if (!isSafeRev(q.ref)) return { ok: false, error: { code: 'invalid-name', message: `unsafe ref: ${q.ref}` } }
+      args.push('--end-of-options', q.ref); countArgs.push('--end-of-options', q.ref)
+    } else {
+      args.push('--all'); countArgs.push('--all')
+    }
   } else {
-    // Hash jump: log from the commit itself.
-    args.push(search)
+    // Hash jump: `search` is already constrained to [0-9a-f]{7,40} by isHexLike.
+    args.push('--end-of-options', search)
   }
   // Run the page log and the total count concurrently (the count is a second
   // full history walk; serializing it roughly doubled the first-page latency).
@@ -112,7 +119,8 @@ async function queryDiff(
   if (q.base === 'staged') {
     args = ['git', 'diff', unified, '--cached', '--', q.path]
   } else if (q.base === 'commit') {
-    args = ['git', 'show', unified, `${q.commit}`, '--', q.path]
+    if (!isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
+    args = ['git', 'show', unified, '--end-of-options', q.commit, '--', q.path]
   } else {
     // worktree: unstaged diff; for untracked files use --no-index against /dev/null.
     args = ['git', 'diff', unified, '--', q.path]
@@ -148,6 +156,7 @@ async function queryImageDiff(
   q: Extract<GitQueryRequest['query'], { kind: 'image-diff' }>,
 ): Promise<GitQueryResponse> {
   if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  if (q.base === 'commit' && !isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
   const mime = imageMimeFor(q.path)
   if (mime === null) return { ok: true, value: { kind: 'image-diff', path: q.path, mime } }
 
@@ -239,10 +248,11 @@ async function worktreeSide(deps: SnapshotDeps, root: string, path: string, cap:
 }
 
 async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise<GitQueryResponse> {
+  if (!isSafeRev(ref)) return { ok: false, error: { code: 'invalid-name', message: `unsafe ref: ${ref}` } }
   const metaFormat = '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%b'
   const [metaRes, statRes] = await Promise.all([
-    runCommand(deps.run, ['git', 'show', '-s', metaFormat, ref], root, 'show-meta', deps.signal),
-    runCommand(deps.run, ['git', 'show', '--name-status', '-z', '--format=', ref], root, 'show-stat', deps.signal),
+    runCommand(deps.run, ['git', 'show', '-s', metaFormat, '--end-of-options', ref], root, 'show-meta', deps.signal),
+    runCommand(deps.run, ['git', 'show', '--name-status', '-z', '--format=', '--end-of-options', ref], root, 'show-stat', deps.signal),
   ])
   if (!('run' in metaRes)) return { ok: false, error: { code: 'git-unavailable' } }
   if (metaRes.run.timedOut) return { ok: false, error: { code: 'timeout' } }
