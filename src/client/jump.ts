@@ -1,8 +1,8 @@
 /**
- * Panel/sub-tab focus relay. The pill records a one-shot sub-tab request per
- * session and activates the Git view tab; the Panel consumes the request once
- * mounted. Module-level per-session map, same life pattern as other plugins'
- * focus stores.
+ * Panel/sub-tab focus relay. The pill records a sub-tab request per session and
+ * activates the Git view tab. A mounted Panel receives the request live through
+ * a subscriber; a not-yet-mounted Panel takes the pending value on mount — so a
+ * pill click switches sub-tabs even when the panel is already visible.
  */
 
 export type SubTab = 'overview' | 'changes'
@@ -14,18 +14,38 @@ export const SHELL_TABLIST_SELECTOR = '[data-conversation-tabs]'
 export const SHELL_TAB_SELECTOR = '[data-conversation-tabs] button[role="tab"]'
 
 const pending = new Map<string, SubTab>()
+const subscribers = new Map<string, Set<(tab: SubTab) => void>>()
 
-/** Record which sub-tab to reveal for a session — replaces any unconsumed request. */
+/** Record a sub-tab request; deliver to live subscribers, else hold it pending. */
 export function requestSubTab(sessionId: string, tab: SubTab): void {
+  const subs = subscribers.get(sessionId)
+  if (subs !== undefined && subs.size > 0) {
+    for (const cb of subs) cb(tab)
+    return
+  }
   pending.set(sessionId, tab)
 }
 
-/** Take the pending sub-tab request, if any — one-shot. */
+/** Take the pending sub-tab request, if any — one-shot (mount path). */
 export function takeSubTab(sessionId: string): SubTab | null {
   const tab = pending.get(sessionId)
   if (tab === undefined) return null
   pending.delete(sessionId)
   return tab
+}
+
+/** Subscribe a mounted Panel to live sub-tab requests; returns an unsubscribe
+ * that also drops the session's subscriber set when empty (no leak). */
+export function subscribeSubTab(sessionId: string, cb: (tab: SubTab) => void): () => void {
+  let set = subscribers.get(sessionId)
+  if (set === undefined) { set = new Set(); subscribers.set(sessionId, set) }
+  set.add(cb)
+  return () => {
+    const s = subscribers.get(sessionId)
+    if (s === undefined) return
+    s.delete(cb)
+    if (s.size === 0) subscribers.delete(sessionId)
+  }
 }
 
 /**

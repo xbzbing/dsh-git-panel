@@ -19,6 +19,8 @@ import { DiffView, diffSummary, type DiffMode } from './DiffView'
 interface OverviewProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
+  /** Snapshot checkedAt; bumps drive a history/tree reload (commit landed / poll). */
+  readonly refreshKey: number
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -34,8 +36,9 @@ interface BranchTree {
   tags: readonly GitBranch[]
 }
 
-export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps): JSX.Element {
   const [tree, setTree] = useState<BranchTree | null>(null)
+  const [treeError, setTreeError] = useState(false)
   const [authors, setAuthors] = useState<readonly string[]>([])
   const [commits, setCommits] = useState<readonly GraphCommit[]>([])
   const [total, setTotal] = useState(0)
@@ -55,6 +58,7 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   const [searchInput, setSearchInput] = useState('')
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
   const seqRef = useRef(0)
+  const loadingRef = useRef(false)
   const selectedHash = useRef<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -62,15 +66,17 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
     // Branches + tags gate the left column; fetch them together and render as
     // soon as they land. Authors walks up to 2000 commits and only feeds the
     // filter dropdown, so it is fetched separately and never blocks the tree.
+    setTreeError(false)
     const [branches, tags] = await Promise.all([
       remote.query({ sessionId, query: { kind: 'branches' } }),
       remote.query({ sessionId, query: { kind: 'tags' } }),
     ])
+    if (!branches.ok || branches.value.kind !== 'branches') { setTreeError(true); return }
     setTree({
-      current: branches.ok && branches.value.kind === 'branches' ? branches.value.current : null,
-      defaultBranch: branches.ok && branches.value.kind === 'branches' ? branches.value.defaultBranch : null,
-      local: branches.ok && branches.value.kind === 'branches' ? branches.value.local : [],
-      remote: branches.ok && branches.value.kind === 'branches' ? branches.value.remote : [],
+      current: branches.value.current,
+      defaultBranch: branches.value.defaultBranch,
+      local: branches.value.local,
+      remote: branches.value.remote,
       tags: tags.ok && tags.value.kind === 'tags' ? tags.value.tags : [],
     })
     void remote.query({ sessionId, query: { kind: 'authors' } }).then((auth) => {
@@ -79,6 +85,8 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   }, [remote, sessionId])
 
   const loadPage = useCallback(async (skip: number, f: typeof filter) => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     const seq = seqRef.current
     setLoading(true)
     setListError(false)
@@ -92,6 +100,7 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
         ...(f.since ? { since: f.since } : {}),
       },
     })
+    loadingRef.current = false
     if (seq !== seqRef.current) return
     setLoading(false)
     if (!res.ok || res.value.kind !== 'history') { setListError(true); return }
@@ -100,26 +109,26 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
     setTotal(res.value.total)
   }, [remote, sessionId])
 
-  // Load the branch tree once per activation. It rarely changes, so a snapshot
-  // poll (refreshKey bump) must not re-fetch it and stall the column; an
-  // explicit Fetch action reloads it via onFetch below.
-  const treeLoaded = useRef(false)
+  // Reload the branch tree when the snapshot advances (commit landed / poll)
+  // and once on mount; the tree rarely changes but must not go stale after a
+  // commit the way it did before.
   useEffect(() => {
-    if (treeLoaded.current) return
-    treeLoaded.current = true
     void loadTree()
-  }, [loadTree])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
 
-  // Filter changes → reload from scratch.
+  // Reload history from scratch on a filter change or a snapshot advance. One
+  // effect owns page 0 so the two triggers can't race and discard each other.
   useEffect(() => {
     seqRef.current += 1
+    loadingRef.current = false
     setSelected(null)
     setDetail(null)
     selectedHash.current = null
     if (listRef.current) listRef.current.scrollTop = 0
     void loadPage(0, filter)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter])
+  }, [filter, refreshKey])
 
   // Search debounce.
   useEffect(() => {
@@ -198,7 +207,7 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
   const hasMore = total < 0 ? true : commits.length < total
   const onScroll = (): void => {
     const el = listRef.current
-    if (el === null || loading || !hasMore) return
+    if (el === null || loadingRef.current || !hasMore) return
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) void loadPage(commits.length, filter)
   }
 
@@ -239,6 +248,9 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
     setHoverBody(null)
   }, [])
 
+  // Clear a pending hover timer on unmount so it can't setState after teardown.
+  useEffect(() => () => { if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current) }, [])
+
   return h('div', { className: 'gp-overview' }, [
     // file-diff modal (click a changed file in the right column)
     renderFileDiffModal(fileDiff, {
@@ -254,9 +266,10 @@ export function OverviewTab({ remote, sessionId, t }: OverviewProps): JSX.Elemen
       t,
     }),
     // left: branches
-    h('div', { key: 'left', className: 'gp-col gp-col--left' }, renderBranchList(tree, filter.ref, closedSections, {
+    h('div', { key: 'left', className: 'gp-col gp-col--left' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
       onFilter: (ref) => setFilter((prev) => ({ ...prev, ref })),
       onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+      onRetry: () => { void loadTree() },
       t,
     })),
     // middle: history
@@ -355,10 +368,17 @@ function renderHoverCard(
 interface BranchCbs {
   onFilter: (ref: string | null) => void
   onToggle: (section: string) => void
+  onRetry: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-function renderBranchList(tree: BranchTree | null, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchCbs): JSX.Element {
+function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchCbs): JSX.Element {
+  if (treeError) {
+    return h('div', { className: 'gp-empty' }, [
+      h('span', { key: 'm' }, cb.t('overview.branchesError')),
+      h('button', { key: 'r', type: 'button', className: 'gp-btn', style: { marginTop: 8 }, onClick: cb.onRetry }, cb.t('common.retry')),
+    ])
+  }
   if (tree === null) return h('div', { className: 'gp-empty' }, cb.t('common.loading'))
   const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element, prefix = ''): JSX.Element =>
     h('div', { key, className: 'gp-branch-group' }, [

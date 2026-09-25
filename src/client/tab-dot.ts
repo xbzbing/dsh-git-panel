@@ -19,6 +19,10 @@ let observer: MutationObserver | undefined
 let observed: HTMLElement | null = null
 let currentLabel = ''
 let currentStatus: GitTabDotStatus = null
+// Owner token: with multiple shell panes two GitPill instances drive this
+// module. The last one to set an active dot owns it; a clear from a stale owner
+// (its unmount) must not erase the current owner's dot (last-writer-wins).
+let owner: symbol | undefined
 
 /** The shell view-tab button carrying the given label (dot text excluded). */
 function findTab(label: string): HTMLButtonElement | null {
@@ -63,20 +67,40 @@ function ensureObserver(): void {
   observer.observe(container, { childList: true, subtree: true })
 }
 
-/** Set the Git tab's status dot (null hides it). Idempotent + re-render safe. */
-export function setGitTabDot(label: string, status: GitTabDotStatus): void {
+function teardownObserver(): void {
+  observer?.disconnect()
+  observer = undefined
+  observed = null
+}
+
+/**
+ * Set the Git tab's status dot (null hides it). `who` identifies the caller so
+ * a later owner's clear can't be undone by an earlier instance. A null status
+ * releases ownership and detaches the observer instead of tracking the tab.
+ */
+export function setGitTabDot(who: symbol, label: string, status: GitTabDotStatus): void {
   if (typeof document === 'undefined') return
+  if (status === null) {
+    // Only the current owner (or an unclaimed dot) may clear.
+    if (owner !== undefined && owner !== who) return
+    owner = undefined
+    currentStatus = null
+    apply()
+    teardownObserver()
+    return
+  }
+  owner = who
   currentLabel = label
   currentStatus = status
   ensureObserver()
   apply()
 }
 
-/** Remove the dot and detach the observer (pill unmount / teardown). */
-export function clearGitTabDot(): void {
+/** Remove the dot on behalf of `who` (pill unmount). A stale owner is ignored. */
+export function clearGitTabDot(who: symbol): void {
+  if (owner !== undefined && owner !== who) return
+  owner = undefined
   currentStatus = null
   apply()
-  observer?.disconnect()
-  observer = undefined
-  observed = null
+  teardownObserver()
 }

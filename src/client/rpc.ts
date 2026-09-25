@@ -86,6 +86,9 @@ function unwrap<T>(result: unknown): T | { ok: false; error: { code: string; mes
     const err = r.error as { code?: unknown; message?: unknown } | undefined
     return { ok: false, error: { code: typeof err?.code === 'string' ? err.code : 'git-unavailable', message: typeof err?.message === 'string' ? err.message : undefined } }
   }
+  // A transport-ok envelope with no inner value is malformed: return a typed
+  // failure rather than `undefined`, which would trip `result.ok` downstream.
+  if (r.value === undefined) return { ok: false, error: { code: 'git-unavailable', message: 'missing value' } }
   return r.value as T
 }
 

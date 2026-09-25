@@ -2,7 +2,7 @@
  * Changes tab: stats bar + uncommitted change list (checkboxes) + commit box
  * (with Amend) on the left; the selected file's diff on the right.
  */
-import { createElement as h, useCallback, useEffect, useMemo, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import type { GitAction, GitChange, GitSnapshot } from './types'
@@ -15,7 +15,6 @@ interface ChangesTabProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
   readonly snapshot: GitSnapshot
-  readonly refreshKey: number
   readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
@@ -33,7 +32,7 @@ function statusClass(status: string): string {
   return 'gp-status--modified'
 }
 
-export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: ChangesTabProps): JSX.Element {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [amend, setAmend] = useState(false)
@@ -46,6 +45,7 @@ export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, 
   const [diffMode, setDiffMode] = useState<DiffMode>('split')
   const [expanded, setExpanded] = useState(false)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
+  const diffSeq = useRef(0)
 
   const staged = useMemo(() => snapshot.changes.filter((c) => c.staged).sort(byPath), [snapshot])
   const unstaged = useMemo(() => snapshot.changes.filter((c) => !c.staged && c.status !== 'untracked').sort(byPath), [snapshot])
@@ -83,10 +83,12 @@ export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, 
   }, [amend, amendPrefilled, message, remote, sessionId])
 
   const showDiff = useCallback(async (path: string, base: 'worktree' | 'staged', expand = false) => {
+    const seq = ++diffSeq.current
     setDiffPath({ path, base })
     setDiffText(null)
     setExpanded(expand)
     const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: 100000 } : {}) } })
+    if (seq !== diffSeq.current) return
     if (res.ok && res.value.kind === 'diff') setDiffText(res.value.text)
     else setDiffText('')
   }, [remote, sessionId])
@@ -112,10 +114,16 @@ export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, 
     if (busy) return false
     setBusy(true)
     setError(null)
-    const result = await onAction(action)
-    setBusy(false)
-    if (!result.ok) { setError(result.error ?? t('error.generic')); return false }
-    return true
+    try {
+      const result = await onAction(action)
+      if (!result.ok) { setError(result.error ?? t('error.generic')); return false }
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('error.generic'))
+      return false
+    } finally {
+      setBusy(false)
+    }
   }
 
   const commit = async (): Promise<void> => {
@@ -139,7 +147,7 @@ export function ChangesTab({ remote, sessionId, snapshot, refreshKey, onAction, 
   return h('div', { className: 'gp-changes' }, [
     // left
     h('div', { key: 'left', className: 'gp-changes__left' }, [
-      h(ChangeStats, { key: 'stats', remote, sessionId, refreshKey, t }),
+      h(ChangeStats, { key: 'stats', stats: snapshot.stats, t }),
       h('div', { key: 'toolbar', className: 'gp-toolbar' }, [
         h('button', { key: 'sa', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, onClick: () => void run({ kind: 'stage-all' }) }, t('changes.stageAll')),
         h('button', { key: 'ua', type: 'button', className: 'gp-btn', disabled: busy || snapshot.staged === 0, onClick: () => void run({ kind: 'unstage-all' }) }, t('changes.unstageAll')),

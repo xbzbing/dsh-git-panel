@@ -1,34 +1,17 @@
 /** Changes-page statistics bar: file count / line changes / last-change time. */
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h } from 'react'
 import type { JSX } from 'react'
-import type { GitPanelRemote } from './rpc'
 import type { WorktreeStats } from './types'
 import type { GitKey } from './locales'
 import { absoluteTime, timeAgo } from './time'
 
 interface StatsProps {
-  readonly remote: GitPanelRemote
-  readonly sessionId: string
-  /** Bumped whenever the snapshot changes (poll/action) to re-pull stats. */
-  readonly refreshKey: number
+  /** Stats ride the snapshot (single git source); no separate query. */
+  readonly stats: WorktreeStats
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-export function ChangeStats({ remote, sessionId, refreshKey, t }: StatsProps): JSX.Element | null {
-  const [stats, setStats] = useState<WorktreeStats | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    void remote.query({ sessionId, query: { kind: 'worktree-stats' } }).then((res) => {
-      if (!alive) return
-      if (res.ok && res.value.kind === 'worktree-stats') setStats(res.value.stats)
-    })
-    return () => { alive = false }
-  }, [remote, sessionId, refreshKey])
-
-  // Reserve the bar's height while stats load asynchronously, so the layout
-  // does not collapse then jump once the first response arrives.
-  if (stats === null) return h('div', { className: 'gp-stats', 'aria-hidden': true })
+export function ChangeStats({ stats, t }: StatsProps): JSX.Element {
   const now = Date.now()
 
   const items: JSX.Element[] = [

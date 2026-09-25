@@ -25,6 +25,7 @@ export class GitController {
   private readonly listeners = new Set<() => void>()
   private timer: ReturnType<typeof setTimeout> | undefined
   private inflight: Promise<void> | undefined
+  private pendingRefresh = false
   private disposed = false
   private pollMs = DEFAULT_POLL_MS
 
@@ -48,7 +49,7 @@ export class GitController {
   }
 
   refresh(): Promise<void> {
-    if (this.inflight !== undefined) return this.inflight
+    if (this.inflight !== undefined) { this.pendingRefresh = true; return this.inflight }
     if (this.disposed) return Promise.resolve()
     if (this.view.state === 'cold') this.setView({ state: 'loading' })
     this.inflight = this.remote.snapshot({ sessionId: this.sessionId })
@@ -57,6 +58,9 @@ export class GitController {
         if (result.ok) {
           this.pollMs = result.value.refreshIntervalMs || DEFAULT_POLL_MS
           this.setView({ state: 'ready', snapshot: result.value })
+        } else if (result.error.code === 'cancelled') {
+          // A caller-driven abort (navigation/reset) is not an error state:
+          // keep the current view; the next refresh replaces it.
         } else if (TERMINAL_CODES.has(result.error.code)) {
           this.pollMs = NO_CWD_POLL_MS
           this.setView({ state: 'no-cwd' })
@@ -73,7 +77,14 @@ export class GitController {
       })
       .finally(() => {
         this.inflight = undefined
-        this.schedulePoll()
+        // A resync arriving mid-flight is coalesced into one trailing refresh
+        // so the view can't be stale for a whole poll period.
+        if (this.pendingRefresh && !this.disposed) {
+          this.pendingRefresh = false
+          void this.refresh()
+        } else {
+          this.schedulePoll()
+        }
       })
     return this.inflight
   }
@@ -81,6 +92,15 @@ export class GitController {
   resync(): void {
     if (this.disposed) return
     void this.refresh()
+  }
+
+  /** Publish a snapshot the caller already has (e.g. an action's fresh
+   * snapshot), avoiding a redundant git round-trip; the poll timer restarts. */
+  accept(snapshot: GitSnapshot): void {
+    if (this.disposed) return
+    this.pollMs = snapshot.refreshIntervalMs || DEFAULT_POLL_MS
+    this.setView({ state: 'ready', snapshot })
+    this.schedulePoll()
   }
 
   private schedulePoll(): void {

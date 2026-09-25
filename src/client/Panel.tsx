@@ -3,13 +3,13 @@
  * conversation.view slot. Consumes the one-shot sub-tab focus request the
  * input-bar pill records.
  */
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { gitPanelRemoteOf, type ClientCtx } from './rpc'
 import type { GitPanelRemote } from './rpc'
 import { useGitView } from './registry'
 import { controllerFor } from './registry'
-import { takeSubTab, type SubTab } from './jump'
+import { takeSubTab, subscribeSubTab, type SubTab } from './jump'
 import { OverviewTab } from './OverviewTab'
 import { ChangesTab } from './ChangesTab'
 import { CommitIcon, DiffIcon, GitHubIcon, RefreshIcon } from './icons'
@@ -24,28 +24,40 @@ interface PanelProps {
 
 export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const [tab, setTab] = useState<SubTab>('overview')
-  const [refreshKey, setRefreshKey] = useState(0)
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
 
-  // Consume a pending focus request (pill click) on mount / session change.
+  // Consume a pending focus request (pill click) once per session, or fall to
+  // the dirty-aware default; a `ready` snapshot that arrives after mount (cold
+  // controller) is still consumed exactly once via the consumedFor guard.
+  const consumedFor = useRef<string | undefined>(undefined)
+  const dirty = view.state === 'ready' ? view.snapshot.dirty : false
   useEffect(() => {
     if (sessionId === undefined || sessionId === '') return
+    if (consumedFor.current === sessionId) return
     const pending = takeSubTab(sessionId)
-    if (pending !== null) setTab(pending)
-    else if (view.state === 'ready') setTab(view.snapshot.dirty ? 'changes' : 'overview')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (pending !== null) { consumedFor.current = sessionId; setTab(pending); return }
+    if (view.state === 'ready') { consumedFor.current = sessionId; setTab(dirty ? 'changes' : 'overview') }
+  }, [sessionId, view.state, dirty])
+
+  // While mounted, receive pill jumps live (a click when the panel is already
+  // visible must still switch sub-tabs, not sit in the pending map).
+  useEffect(() => {
+    if (sessionId === undefined || sessionId === '') return
+    return subscribeSubTab(sessionId, (t) => setTab(t))
   }, [sessionId])
 
-  // Poll: bump refreshKey when the snapshot's checkedAt advances.
-  const checkedAt = view.state === 'ready' ? view.snapshot.checkedAt : 0
-  useEffect(() => { setRefreshKey((k) => k + 1) }, [checkedAt])
+  // The snapshot's checkedAt drives child reloads directly (no extra state /
+  // first-mount bump): OverviewTab/ChangesTab reload when it advances.
+  const refreshKey = view.state === 'ready' ? view.snapshot.checkedAt : 0
 
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
     if (sessionId === undefined) return { ok: false, error: t('error.noCwd') }
     const result = await remote.run({ sessionId, action })
     if (result.ok) {
-      controllerFor(sessionId).resync()
+      // The run already returned a fresh snapshot; feed it to the controller
+      // instead of triggering another git round-trip.
+      controllerFor(sessionId).accept(result.snapshot)
       return { ok: true }
     }
     return { ok: false, error: errorText(result.error.code, result.error.message, t) }
@@ -63,16 +75,16 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       return h('div', { className: 'gp-empty' }, view.error.code === 'not-a-git-repo' ? t('error.notARepo') : t('pill.unavailable'))
     }
     if (view.state === 'cold' || view.state === 'loading') return h('div', { className: 'gp-empty' }, t('common.loading'))
-    // Both tabs stay mounted; visibility toggles. Switching tabs then keeps the
-    // Overview's loaded commits/tree/detail cache instead of re-fetching, and
-    // preserves the Changes selection/scroll — the same state-retention idiom
-    // an IDE Git tool uses.
+    // Both tabs stay mounted; visibility toggles. Keying on sessionId forces a
+    // fresh mount when the conversation changes, so per-session fetch state
+    // (Overview's tree/history caches, Changes' selection/message) can't bleed
+    // across sessions; within one session the display:none tab keeps its state.
     const snapshot = view.snapshot
     return h('div', { style: { display: 'contents' } }, [
       h('div', { key: 'overview', style: tab === 'overview' ? { display: 'contents' } : { display: 'none' } },
-        h(OverviewTab, { remote, sessionId, t })),
+        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, t })),
       h('div', { key: 'changes', style: tab === 'changes' ? { display: 'contents' } : { display: 'none' } },
-        h(ChangesTab, { remote, sessionId, snapshot, refreshKey, onAction, t })),
+        h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, t })),
     ])
   })()
 

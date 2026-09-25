@@ -1,5 +1,5 @@
 /** Side-by-side diff renderer with lazy syntax highlighting. */
-import { createElement as h, useEffect, useMemo, useState } from 'react'
+import { createElement as h, memo, useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import { buildSideBySide, extractAddedContent, extractDeletedContent, isAddOnlyDiff, isBinaryDiff, isDeleteOnlyDiff, isImagePath, summarize, type SideRow } from './diff'
 import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
@@ -33,7 +33,7 @@ type ImageState =
   | { readonly kind: 'idle' | 'loading' | 'failed' }
   | { readonly kind: 'ready'; readonly res: ImageDiffValue }
 
-export function DiffView({ text, mode, path, remote, sessionId, imageSpec, t }: DiffViewProps): JSX.Element {
+export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, imageSpec, t }: DiffViewProps): JSX.Element {
   const rows = useMemo(() => buildSideBySide(text), [text])
   const binary = isBinaryDiff(text)
   const addOnly = useMemo(() => isAddOnlyDiff(text), [text])
@@ -66,7 +66,7 @@ export function DiffView({ text, mode, path, remote, sessionId, imageSpec, t }: 
 
   // split
   return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, lang, hl)))
-}
+})
 
 /**
  * Fetch the old/new image sides for a binary image path. Identity-stable

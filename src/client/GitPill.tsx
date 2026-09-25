@@ -57,6 +57,8 @@ function useTooltip(): {
 export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   const view = useGitView(sessionId)
   const tip = useTooltip()
+  // Stable owner token for this pill instance (multi-pane shells run several).
+  const dotOwner = useRef(Symbol('gp-tab-dot'))
 
   // The tab-status dot mirrors the pill's inverse: it appears only when the
   // input-bar marker is hidden, coloured like the pill's branch (green synced
@@ -67,8 +69,9 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
       : null
   const label = t('panel.tab')
   useEffect(() => {
-    setGitTabDot(label, dotStatus)
-    return () => { clearGitTabDot() }
+    setGitTabDot(dotOwner.current, label, dotStatus)
+    const owner = dotOwner.current
+    return () => { clearGitTabDot(owner) }
   }, [label, dotStatus])
 
   if (view.state === 'cold' || view.state === 'loading' || view.state === 'no-cwd') return null
