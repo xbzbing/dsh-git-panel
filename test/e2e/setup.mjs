@@ -19,9 +19,11 @@ function need(path, hint) {
 need(resolve(ROOT, 'lib/client.js'), 'run `node build.mjs` first')
 copyFileSync(resolve(ROOT, 'lib/client.js'), resolve(DIR, 'client.js'))
 
-// React + ReactDOM UMD production builds.
-copyFileSync(need(resolve(ROOT, 'node_modules/react/umd/react.production.min.js'), 'install react'), resolve(DIR, 'react.production.min.js'))
-copyFileSync(need(resolve(ROOT, 'node_modules/react-dom/umd/react-dom.production.min.js'), 'install react-dom'), resolve(DIR, 'react-dom.production.min.js'))
+// React + ReactDOM UMD production builds. NOTE: React 19 removed the /umd
+// entrypoints; this fixture (and the pinned react 18.3.1 devDep) depends on
+// them, so bumping React past 18 requires vendoring these files instead.
+copyFileSync(need(resolve(ROOT, 'node_modules/react/umd/react.production.min.js'), 'install react (18.x; React 19 dropped /umd)'), resolve(DIR, 'react.production.min.js'))
+copyFileSync(need(resolve(ROOT, 'node_modules/react-dom/umd/react-dom.production.min.js'), 'install react-dom (18.x; React 19 dropped /umd)'), resolve(DIR, 'react-dom.production.min.js'))
 
 // Minimal jsx-runtime shim over React.createElement (UMD ships none).
 writeFileSync(resolve(DIR, 'react-jsx-runtime.js'), `(function(){

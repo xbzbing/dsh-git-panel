@@ -36,7 +36,9 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const bump = (): void => { setTick((n) => n + 1) }
 
   const forms = ctx.get('configForms') as ConfigFormsFace | undefined
-  const mirror = forms?.describe()
+  // Memoize the describe/get faces per source so a host that returns a fresh
+  // face each render doesn't tear down and re-open the subscriptions below.
+  const mirror = useMemo(() => forms?.describe(), [forms])
 
   useEffect(() => {
     if (mirror === undefined) return
@@ -49,7 +51,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   // only costly step and the namespaces rarely change identity.
   const view = mirror?.getSnapshot().view
   const ns = useMemo(() => (view === undefined ? undefined : findNamespace(view.namespaces)), [view])
-  const form = forms !== undefined && ns !== undefined ? forms.get(ns) : undefined
+  const form = useMemo(() => (forms !== undefined && ns !== undefined ? forms.get(ns) : undefined), [forms, ns])
 
   useEffect(() => {
     if (form === undefined) return

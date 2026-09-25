@@ -80,7 +80,7 @@ MIT 协议下**优先用成熟开源实现，不重造轮子**：
 
 - 平台模块（`react` / `react-dom` / `@deepseek-ai/*`）一律 external，由宿主提供，不打包。
 - 只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行）才自研。
-- `highlight.js` 体积大，只在首次查看 diff 时经 `highlight.ts` → 动态 `import('./highlight-impl')` 拉起，语言集在 `highlight-impl.ts` 里注册。
+- `highlight.js` 体积大：经 `highlight.ts` → 动态 `import('./highlight-impl')`，只在首次查看 diff 时才**求值**高亮实现，语言集在 `highlight-impl.ts` 里注册。注意 client 是单文件 bundle，highlight.js 已内联进 `lib/client.js`（约 220KB），动态 import 延迟的是执行而非下载/解析。
 - 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。
 
 ## 构建

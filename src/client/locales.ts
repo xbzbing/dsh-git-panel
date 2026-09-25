@@ -51,6 +51,8 @@ export const zh = {
   'changes.noChanges': '没有未提交的变更',
   'changes.stageAll': '全部暂存',
   'changes.unstageAll': '全部取消暂存',
+  'changes.stage': '暂存',
+  'changes.unstage': '取消暂存',
   'changes.discard': '放弃更改',
   'changes.discardConfirm': '再次点击以确认放弃',
   // stats
@@ -140,6 +142,8 @@ export const en: Record<GitKey, string> = {
   'changes.noChanges': 'No uncommitted changes',
   'changes.stageAll': 'Stage all',
   'changes.unstageAll': 'Unstage all',
+  'changes.stage': 'Stage',
+  'changes.unstage': 'Unstage',
   'changes.discard': 'Discard changes',
   'changes.discardConfirm': 'Click again to confirm discard',
   'stats.files': '{n} files',

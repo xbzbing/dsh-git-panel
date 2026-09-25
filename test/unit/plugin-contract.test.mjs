@@ -32,18 +32,33 @@ test('host bundle exports the GitPanelService + endpoints', () => {
   assert.equal(typeof host.compareVersions, 'function')
 })
 
+// N15: the config values hard-coded in cordis.patch.yml must match the host's
+// DEFAULT_CONFIG, or a default change silently drifts from the shipped row.
+test('cordis.patch.yml config matches DEFAULT_CONFIG', () => {
+  const patch = readFileSync(new URL('../../cordis.patch.yml', import.meta.url), 'utf8')
+  const num = (key) => Number(new RegExp(`${key}:\\s*(\\d+)`).exec(patch)?.[1])
+  for (const key of ['timeoutMs', 'maxBytes', 'maxChanges', 'refreshIntervalMs']) {
+    assert.equal(num(key), host.DEFAULT_CONFIG[key], `${key} in patch must equal DEFAULT_CONFIG`)
+  }
+})
+
+/** One React/react-dom stub, shared by every client-factory test. */
+function sandboxRequire() {
+  return (spec) => {
+    if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, memo: (c) => c, Fragment: 'fragment' }
+    if (spec === 'react-dom') return { createPortal: () => ({}) }
+    if (spec === 'react/jsx-runtime') return { jsx: () => ({}), jsxs: () => ({}), Fragment: 'fragment' }
+    throw new Error('unexpected require: ' + spec)
+  }
+}
+
 function loadClient() {
   const code = readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
   let handoff = null
   const sandbox = {
     window: { __ModuleLoader__: { load: (h) => { handoff = h } } },
     document: { querySelector: () => null, createElement: () => ({ dataset: {}, appendChild() {} }), head: { appendChild() {} } },
-    require: (spec) => {
-      if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, memo: (c) => c, Fragment: 'fragment' }
-      if (spec === 'react-dom') return { createPortal: () => ({}) }
-      if (spec === 'react/jsx-runtime') return { jsx: () => ({}), jsxs: () => ({}), Fragment: 'fragment' }
-      throw new Error('unexpected require: ' + spec)
-    },
+    require: sandboxRequire(),
     Object, Symbol, console, Array, JSON, Date, Set, Map,
   }
   vm.createContext(sandbox)
@@ -73,22 +88,12 @@ test('install identity is consistent across manifest, patch row, bundle id', () 
 
 test('client factory returns a plugin with apply + inject', () => {
   const handoff = loadClient()
-  const plugin = handoff.factory(handoff.__require ?? sandboxRequire())
+  const plugin = handoff.factory(sandboxRequire())
   assert.equal(typeof plugin.apply, 'function')
   assert.ok(Array.isArray(plugin.inject))
-  for (const dep of ['slots', 'locale', 'connection']) {
-    assert.ok(plugin.inject.includes(dep), `client inject must include ${dep}`)
-  }
+  // inject declares exactly the services apply() consumes — no more, no less.
+  assert.deepEqual([...plugin.inject].sort(), ['connection', 'locale', 'slots'])
 })
-
-function sandboxRequire() {
-  return (spec) => {
-    if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, memo: (c) => c, Fragment: 'fragment' }
-    if (spec === 'react-dom') return { createPortal: () => ({}) }
-    if (spec === 'react/jsx-runtime') return { jsx: () => ({}), jsxs: () => ({}), Fragment: 'fragment' }
-    throw new Error('unexpected require: ' + spec)
-  }
-}
 
 test('apply registers the conversation.view panel and input.left marker', () => {
   const handoff = loadClient()

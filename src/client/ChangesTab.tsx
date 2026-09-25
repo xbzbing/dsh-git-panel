@@ -11,6 +11,7 @@ import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { ChevronIcon } from './icons'
+import { statusChar, statusClass } from './status'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -21,17 +22,6 @@ interface ChangesTabProps {
 }
 
 type GroupKey = 'staged' | 'unstaged' | 'untracked'
-
-const statusChar: Record<string, string> = {
-  added: 'A', modified: 'M', deleted: 'D', renamed: 'R', untracked: 'U', conflicted: '!', typechange: 'T',
-}
-
-function statusClass(status: string): string {
-  if (status === 'added' || status === 'untracked') return 'gp-status--added'
-  if (status === 'deleted') return 'gp-status--deleted'
-  if (status === 'renamed') return 'gp-status--renamed'
-  return 'gp-status--modified'
-}
 
 export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: ChangesTabProps): JSX.Element {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -59,13 +49,15 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   ].filter((g) => g.items.length > 0)
 
   // Prune selection to living paths (avoid a stale path aborting a commit).
+  // Selection keys are `path:s`/`path:w`; a key survives only if a change with
+  // that path and side still exists.
   useEffect(() => {
     setSelected((prev) => {
       if (prev.size === 0) return prev
-      const alive = new Set(snapshot.changes.map((c) => c.path))
+      const alive = new Set(snapshot.changes.map((c) => c.path + (c.staged ? ':s' : ':w')))
       const next = new Set<string>()
       let changed = false
-      for (const p of prev) { if (alive.has(p)) next.add(p); else changed = true }
+      for (const k of prev) { if (alive.has(k)) next.add(k); else changed = true }
       return changed ? next : prev
     })
   }, [snapshot])
@@ -84,10 +76,12 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
     return () => { alive = false }
   }, [amend, amendPrefilled, message, remote, sessionId])
 
-  const showDiff = useCallback(async (path: string, base: 'worktree' | 'staged', expand = false) => {
+  const showDiff = useCallback(async (path: string, base: 'worktree' | 'staged', expand = false, keepPrevious = false) => {
     const seq = ++diffSeq.current
     setDiffPath({ path, base })
-    setDiffText(null)
+    // Only blank the pane on a user-initiated open; a background re-pull keeps
+    // the current text so a poll/snapshot tick doesn't flash "Loading".
+    if (!keepPrevious) setDiffText(null)
     setExpanded(expand)
     const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: 100000 } : {}) } })
     if (seq !== diffSeq.current) return
@@ -96,14 +90,19 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
     else setDiffText('')
   }, [remote, sessionId])
 
-  // Re-pull the open diff after snapshot changes (content may have shifted).
+  // Re-pull the open diff after snapshot changes (content may have shifted);
+  // keep the old text visible during the refetch to avoid a Loading flash.
   useEffect(() => {
     if (diffPath === null) return
     const stillThere = snapshot.changes.some((c) => c.path === diffPath.path)
     if (!stillThere) { setDiffPath(null); setDiffText(null); return }
-    void showDiff(diffPath.path, diffPath.base, expanded)
+    void showDiff(diffPath.path, diffPath.base, expanded, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot])
+
+  // Disarm a pending discard confirmation when the snapshot changes (the row
+  // may be gone) so the destructive "click again" state can't linger.
+  useEffect(() => { setArmedDiscard(null) }, [snapshot])
 
   const toggle = (path: string): void => {
     setSelected((prev) => {
@@ -132,7 +131,8 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   const commit = async (): Promise<void> => {
     const text = message.trim()
     if (text === '' && !amend) { setError(t('error.emptyMessage')); return }
-    const paths = selected.size > 0 ? [...selected] : undefined
+    // Selection keys carry a :s/:w side suffix; commit works on bare paths.
+    const paths = selected.size > 0 ? [...new Set([...selected].map((k) => k.replace(/:[sw]$/, '')))] : undefined
     const ok = await run({ kind: 'commit', message: text, ...(paths ? { paths } : {}), ...(amend ? { amend: true } : {}) })
     if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false) }
   }
@@ -164,20 +164,26 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
               h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) }),
               `${t(g.labelKey)} (${g.items.length})`,
             ]),
-            closed.has(g.key) ? null : g.items.map((c) => renderFileRow(c, {
-              selected: selected.has(c.path),
-              active: diffPath?.path === c.path,
-              busy,
-              armed: armedDiscard === c.path,
-              onToggle: () => toggle(c.path),
-              onOpen: () => void showDiff(c.path, c.staged ? 'staged' : 'worktree'),
-              onStage: () => void run(c.staged ? { kind: 'unstage', paths: [c.path] } : { kind: 'stage', paths: [c.path] }),
-              onDiscard: () => {
-                if (armedDiscard === c.path) { void run({ kind: 'discard', paths: [c.path] }); setArmedDiscard(null) }
-                else setArmedDiscard(c.path)
-              },
-              t,
-            })),
+            closed.has(g.key) ? null : g.items.map((c) => {
+              // A path staged AND modified appears in two rows; key selection /
+              // active / armed by path+side so acting on one row doesn't light
+              // up the other (React key on the row is already path+side).
+              const rowKey = c.path + (c.staged ? ':s' : ':w')
+              return renderFileRow(c, {
+                selected: selected.has(rowKey),
+                active: diffPath?.path === c.path && diffPath.base === (c.staged ? 'staged' : 'worktree'),
+                busy,
+                armed: armedDiscard === rowKey,
+                onToggle: () => toggle(rowKey),
+                onOpen: () => void showDiff(c.path, c.staged ? 'staged' : 'worktree'),
+                onStage: () => void run(c.staged ? { kind: 'unstage', paths: [c.path] } : { kind: 'stage', paths: [c.path] }),
+                onDiscard: () => {
+                  if (armedDiscard === rowKey) { void run({ kind: 'discard', paths: [c.path] }); setArmedDiscard(null) }
+                  else setArmedDiscard(rowKey)
+                },
+                t,
+              })
+            }),
           ]))),
       // commit box
       h('div', { key: 'box', className: 'gp-commitbox' }, [
@@ -251,7 +257,7 @@ function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
     h('span', { key: 'st', className: `gp-status-badge ${statusClass(c.status)}` }, statusChar[c.status] ?? '?'),
     h('span', { key: 'nm', className: 'gp-tree-name', title: c.path }, [name, dir ? h('span', { key: 'd', style: { color: 'var(--dsw-alias-label-tertiary)', marginLeft: 6, fontSize: 11 } }, dir) : null]),
     h('span', { key: 'act', className: 'gp-file-row__actions' }, [
-      h('button', { key: 'stg', type: 'button', className: 'gp-icon-btn', title: c.staged ? a.t('changes.unstageAll') : a.t('changes.stageAll'), disabled: a.busy, onClick: (e: Event) => { e.stopPropagation(); a.onStage() } }, c.staged ? '\u2212' : '+'),
+      h('button', { key: 'stg', type: 'button', className: 'gp-icon-btn', title: c.staged ? a.t('changes.unstage') : a.t('changes.stage'), disabled: a.busy, onClick: (e: Event) => { e.stopPropagation(); a.onStage() } }, c.staged ? '\u2212' : '+'),
       h('button', { key: 'dis', type: 'button', className: 'gp-icon-btn', title: a.armed ? a.t('changes.discardConfirm') : a.t('changes.discard'), style: a.armed ? { color: 'var(--dsw-alias-state-error-primary)' } : {}, disabled: a.busy, onClick: (e: Event) => { e.stopPropagation(); a.onDiscard() } }, '\u21ba'),
     ]),
   ])

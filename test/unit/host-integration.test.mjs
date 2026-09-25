@@ -72,7 +72,6 @@ before(async () => {
   // one committed file with many lines, then modify a middle line + add an
   // untracked file. The long committed body lets the diff-context test show
   // the effect of expand-all (default 3 context lines vs the whole file).
-  await runGit(repo, ['-c', 'core.autocrlf=false', 'stash'])
   const { writeFileSync } = await import('node:fs')
   const base = Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join('\n') + '\n'
   writeFileSync(join(repo, 'a.txt'), base)

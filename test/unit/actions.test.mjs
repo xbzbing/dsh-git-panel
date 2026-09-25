@@ -7,7 +7,11 @@ import assert from 'node:assert/strict'
 import { isSafePath, isSafeRev, isSafeBranchName, planAction } from '../../lib/testkit.mjs'
 
 test('isSafePath rejects absolute paths and .. traversal', () => {
+  // POSIX assumptions: dsh runs on POSIX, so `C:\x` is a relative name here
+  // (backslash is a normal path char) and passes; `.git/config` is in-repo and
+  // low-risk. The rules that matter — absolute, empty, `..` escape — are covered.
   assert.equal(isSafePath('src/a.ts'), true)
+  assert.equal(isSafePath('dir with spaces/файл.txt'), true)
   assert.equal(isSafePath(''), false)
   assert.equal(isSafePath('/etc/passwd'), false)
   assert.equal(isSafePath('../outside'), false)

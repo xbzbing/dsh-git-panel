@@ -15,6 +15,7 @@ import { BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, RefreshIcon, 
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
 import { absoluteTime, timeAgo } from './time'
+import { statusChar, statusClass } from './status'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
 
 interface OverviewProps {
@@ -493,7 +494,7 @@ function renderFileTree(nodes: ReturnType<typeof buildFileTree>, cb: FileTreeCbs
           title: cb.openTitle,
           onClick: () => cb.onOpen(node.path),
         }, [
-          h('span', { key: 'st', className: `gp-status-badge gp-status--${status}` }, (status[0] ?? 'M').toUpperCase()),
+          h('span', { key: 'st', className: `gp-status-badge ${statusClass(status)}` }, (statusChar[status] ?? status[0] ?? 'M').toUpperCase()),
           h('span', { key: 'n', className: 'gp-tree-name' }, node.name),
         ]))
       }
