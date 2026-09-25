@@ -10,10 +10,10 @@
 
 ```bash
 # npm（默认）
-dsh plugin add @xbzbing/dsh-git-panel
+dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
 # 或从 GitHub 仓库安装（仓库已提交构建产物，无需本地构建）
-dsh plugin add github:xbzbing/dsh-git-panel
+dsh plugin --profile web add github:xbzbing/dsh-git-panel
 ```
 
 安装后重启或刷新 Web GUI，工作区标签栏（「对话」「轨迹」之后）就会出现 **Git** 面板。

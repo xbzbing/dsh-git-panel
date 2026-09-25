@@ -10,10 +10,10 @@ The panel only reads the Git repository at the current session's working directo
 
 ```bash
 # npm (default)
-dsh plugin add @xbzbing/dsh-git-panel
+dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
 # or from the GitHub repository (the built tree is committed, no local build needed)
-dsh plugin add github:xbzbing/dsh-git-panel
+dsh plugin --profile web add github:xbzbing/dsh-git-panel
 ```
 
 Restart or refresh the Web GUI afterwards and the **Git** panel appears in the workspace tab bar (after Chat and Trajectory).
