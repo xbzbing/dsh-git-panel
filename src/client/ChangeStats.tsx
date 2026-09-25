@@ -25,12 +25,17 @@ export function ChangeStats({ stats, t }: StatsProps): JSX.Element {
   if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item' }, t('stats.staged', { n: stats.staged })))
   if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item' }, t('stats.modified', { n: stats.modified })))
   if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item' }, t('stats.untracked', { n: stats.untracked })))
+
+  // The two timestamps live in one wrap-together group so they always share a
+  // line instead of the last-commit time dropping to its own row.
+  const times: JSX.Element[] = []
   if (stats.lastChangeAt !== null) {
-    items.push(h('span', { key: 'lc', className: 'gp-stats__item', title: absoluteTime(stats.lastChangeAt) }, t('stats.lastChange', { time: timeAgo(stats.lastChangeAt, now, t) })))
+    times.push(h('span', { key: 'lc', className: 'gp-stats__item', title: absoluteTime(stats.lastChangeAt) }, t('stats.lastChange', { time: timeAgo(stats.lastChangeAt, now, t) })))
   }
   if (stats.headCommittedAt !== null) {
-    items.push(h('span', { key: 'hc', className: 'gp-stats__item', title: absoluteTime(stats.headCommittedAt) }, t('stats.lastCommit', { time: timeAgo(stats.headCommittedAt, now, t) })))
+    times.push(h('span', { key: 'hc', className: 'gp-stats__item', title: absoluteTime(stats.headCommittedAt) }, t('stats.lastCommit', { time: timeAgo(stats.headCommittedAt, now, t) })))
   }
+  if (times.length > 0) items.push(h('span', { key: 'times', className: 'gp-stats__times' }, times))
 
   return h('div', { className: 'gp-stats' }, items)
 }

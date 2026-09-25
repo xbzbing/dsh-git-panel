@@ -121,6 +121,8 @@ const CSS = `
 /* stats bar */
 .gp-stats{display:flex;align-items:center;gap:14px;padding:8px 12px;min-height:33px;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
 .gp-stats__item{display:inline-flex;align-items:center;gap:5px}
+/* The two timestamps wrap as one unit and never split across lines. */
+.gp-stats__times{display:inline-flex;align-items:center;gap:14px;flex-wrap:nowrap}
 .gp-stats__add{color:var(--dsw-alias-state-success-primary)}
 .gp-stats__del{color:var(--dsw-alias-state-error-primary)}
 
