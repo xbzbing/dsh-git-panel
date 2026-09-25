@@ -9,11 +9,14 @@
 ## 安装
 
 ```bash
-# 从 GitHub 仓库安装（仓库已提交构建产物，无需本地构建）
+# npm（默认）
+dsh plugin add @xbzbing/dsh-git-panel
+
+# 或从 GitHub 仓库安装（仓库已提交构建产物，无需本地构建）
 dsh plugin add github:xbzbing/dsh-git-panel
 ```
 
-安装后重启或刷新 Web GUI，工作区标签栏（「对话」「轨迹」之后）就会出现 **Git** 面板。也可以把插件加入 dsh web profile 的 `dsh.profile.bundles`，用 `file:` 依赖指向本目录，再 `node build.mjs` 构建后从本地源码安装。
+安装后重启或刷新 Web GUI，工作区标签栏（「对话」「轨迹」之后）就会出现 **Git** 面板。
 
 ## 功能
 
@@ -53,7 +56,7 @@ npm run test:e2e    # 隔离的 file:// 无头浏览器 e2e（不碰任何运行
 npm test            # 单测 + e2e
 ```
 
-host bundle 不做压缩：typert 网关靠方法参数名做参数校验，压缩会改名并破坏 wire 契约。client 改动没有热重载，需重新构建并刷新页面。`lib/` 作为构建产物随 git 提交入库，改动 `src/` 后必须重新构建并提交，否则从 GitHub 安装会加载到过期入口；测试期生成的 `lib/testkit.mjs` 不入库。
+host bundle 不做压缩：typert 网关靠方法参数名做参数校验，压缩会改名并破坏 wire 契约。client 改动没有热重载，需重新构建并刷新页面。`lib/` 作为构建产物随 git 提交入库，改动 `src/` 后必须重新构建并提交，否则从 GitHub 安装会加载到过期入口；测试期生成的 `lib/testkit.mjs` 不入库。本地联调：把插件加入 dsh web profile 的 `dsh.profile.bundles`，用 `file:` 依赖指向本目录，构建后即生效。
 
 ## 项目结构
 

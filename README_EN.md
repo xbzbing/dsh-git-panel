@@ -9,11 +9,14 @@ The panel only reads the Git repository at the current session's working directo
 ## Install
 
 ```bash
-# From the GitHub repository (the built tree is committed, no local build needed)
+# npm (default)
+dsh plugin add @xbzbing/dsh-git-panel
+
+# or from the GitHub repository (the built tree is committed, no local build needed)
 dsh plugin add github:xbzbing/dsh-git-panel
 ```
 
-Restart or refresh the Web GUI afterwards and the **Git** panel appears in the workspace tab bar (after Chat and Trajectory). You can also add the plugin to a dsh web profile's `dsh.profile.bundles`, point a `file:` dependency at this directory, then `node build.mjs` and install from local source.
+Restart or refresh the Web GUI afterwards and the **Git** panel appears in the workspace tab bar (after Chat and Trajectory).
 
 ## Features
 
@@ -53,7 +56,7 @@ npm run test:e2e    # isolated file:// headless-browser e2e (never touches a run
 npm test            # unit + e2e
 ```
 
-The host bundle is not minified: the typert gateway validates arguments by method parameter name, and minification would rename them and break the wire contract. Client changes are not hot-reloaded — rebuild and refresh the page. `lib/` is committed as a build artifact so `dsh plugin add github:…` installs the built tree directly; after editing `src/` you must rebuild and commit, or a GitHub install loads a stale entry. The test-time `lib/testkit.mjs` is not committed.
+The host bundle is not minified: the typert gateway validates arguments by method parameter name, and minification would rename them and break the wire contract. Client changes are not hot-reloaded — rebuild and refresh the page. `lib/` is committed as a build artifact so `dsh plugin add github:…` installs the built tree directly; after editing `src/` you must rebuild and commit, or a GitHub install loads a stale entry. The test-time `lib/testkit.mjs` is not committed. For local development, add the plugin to a dsh web profile's `dsh.profile.bundles` with a `file:` dependency pointing at this directory; a rebuild makes it effective.
 
 ## Project structure
 
