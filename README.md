@@ -2,6 +2,8 @@
 
 [English](README_EN.md) | 简体中文
 
+![dsh-git-panel](docs/assets/banner-zh.png)
+
 `dsh-git-panel` 是一个 DSH Web GUI 插件，在对话工作区里提供 IDE 风格的 Git 面板。它把分支列表、提交历史图、未提交变更的提交与 amend、语法高亮的差异对照集中到一个常驻标签页，并在输入框左侧放一个 zsh 风格的分支标记，让你在对话过程中随手查看仓库状态、提交改动，不必切到终端或另开 IDE。
 
 面板只读取当前会话工作目录所在的 Git 仓库，所有 git 命令都以 argv 数组经宿主的 subprocess 服务执行，不拼接 shell 字符串，工作目录锁定在仓库根，并带超时与输出上限。插件不改动 git 配置，写操作（提交、amend、暂存、丢弃）都有明确入口。
@@ -35,9 +37,11 @@ dsh plugin --profile web add github:xbzbing/dsh-git-panel
 
 | Git 总览 | 文件差异 modal |
 | :---: | :---: |
-| ![Git 总览：分支、提交历史图、提交详情与 hover 卡片](docs/assets/screenshots/1-git-panel-overview.png) | ![文件差异 modal：语法高亮的 side-by-side 对照](docs/assets/screenshots/2-overview-tab.png) |
-| 变更记录 | 插件详情 |
-| ![变更记录：统计条、未提交变更列表、提交框与差异对照](docs/assets/screenshots/3-changes.png) | ![DSH 插件页中的 Git 面板](docs/assets/screenshots/4-plugin-detail.png) |
+| ![Git 总览：分支、提交历史图、提交详情与 hover 卡片](docs/assets/screenshots/1-git-panel-overview.png) | ![文件差异 modal：语法高亮的 side-by-side 对照、块间按需展开与词级高亮](docs/assets/screenshots/2-overview-tab.png) |
+
+变更记录页见下图：
+
+![变更记录：统计条、未提交变更列表、提交框与差异对照](docs/assets/screenshots/3-changes.png)
 
 ## 架构
 

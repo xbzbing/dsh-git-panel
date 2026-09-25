@@ -2,6 +2,8 @@
 
 English | [简体中文](README.md)
 
+![dsh-git-panel](docs/assets/banner.png)
+
 `dsh-git-panel` is a DSH Web GUI plugin that brings an IDE-style Git panel into the conversation workspace. It gathers the branch list, commit history graph, uncommitted-change commit & amend, and syntax-highlighted diffs into one resident tab, and puts a zsh-style branch marker at the left of the input bar — so you can check repo status and commit changes mid-conversation without switching to a terminal or a separate IDE.
 
 The panel only reads the Git repository at the current session's working directory. Every git command runs through the host subprocess service as an argv array — no shell string concatenation — with the working directory locked to the repository root and per-command timeout and output caps. The plugin never touches your git config, and every write (commit, amend, stage, discard) has an explicit entry point.
@@ -35,9 +37,11 @@ Restart or refresh the Web GUI afterwards and the **Git** panel appears in the w
 
 | Overview | File-diff modal |
 | :---: | :---: |
-| ![Overview: branches, commit graph, commit detail, hover card](docs/assets/screenshots/1-git-panel-overview.png) | ![File-diff modal: syntax-highlighted side-by-side diff](docs/assets/screenshots/2-overview-tab.png) |
-| Changes | Plugin detail |
-| ![Changes: stats bar, uncommitted list, commit box, diff](docs/assets/screenshots/3-changes.png) | ![The Git panel in the DSH plugins page](docs/assets/screenshots/4-plugin-detail.png) |
+| ![Overview: branches, commit graph, commit detail, hover card](docs/assets/screenshots/1-git-panel-overview.png) | ![File-diff modal: syntax-highlighted side-by-side diff with on-demand gap expansion and word-level emphasis](docs/assets/screenshots/2-overview-tab.png) |
+
+The Changes page:
+
+![Changes: stats bar, uncommitted list, commit box, diff](docs/assets/screenshots/3-changes.png)
 
 ## Architecture
 
