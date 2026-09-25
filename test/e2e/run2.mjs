@@ -18,7 +18,9 @@ function cleanSnap() {
   return {
     root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: false,
     staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, lastCommit: null,
-    changes: [], truncated: false, refreshIntervalMs: 0, showInputPill: true, checkedAt: Date.now(),
+    changes: [],
+    stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
+    truncated: false, refreshIntervalMs: 0, showInputPill: true, checkedAt: Date.now(),
   }
 }
 
@@ -81,6 +83,21 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const plain = document.querySelector('.gp-pill--plain')
   result.notGitPlain = plain !== null
   result.notGitText = plain ? plain.textContent : null
+
+  // Case 3: showInputPill=false → the input-bar marker is hidden and the Git
+  // tab shows a status dot instead (pill ↔ tab-dot mutual exclusion, T5).
+  const dirtySnap = { ...snap, dirty: true, modified: 1, showInputPill: false, changes: [{ path: 'x.txt', status: 'modified', staged: false, isDirectory: false }] }
+  const dotConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
+    ? { ok: true, value: { ok: true, value: dirtySnap } }
+    : { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [], remote: [] } } } } }
+  entry.apply(mkCtx(dotConn))
+  const pill3 = registered['conversation.input.left']
+  ReactDOM.createRoot(document.getElementById('pill')).render(pill3.component({ sessionId: 's3' }))
+  await new Promise((r) => setTimeout(r, 300))
+  result.dotPillHidden = document.querySelector('#pill .gp-pill') === null
+  result.dotOnTab = document.querySelector('[data-gp-tab-dot]') !== null
+  result.dotDirty = document.querySelector('.gp-tab-dot--dirty') !== null
+
   return result
 }, { snap: cleanSnap(), nonGitDir: NON_GIT_DIR })
 
@@ -94,6 +111,9 @@ try {
   assert.equal(out.jumpClicked, true, 'pill click activates the Git tab button')
   assert.equal(out.notGitPlain, true, 'non-git directory renders a plain marker')
   assert.equal(out.notGitText, expectedNonGitName, 'non-git marker shows only the directory name')
+  assert.equal(out.dotPillHidden, true, 'showInputPill=false hides the input-bar marker')
+  assert.equal(out.dotOnTab, true, 'showInputPill=false injects the Git tab status dot')
+  assert.equal(out.dotDirty, true, 'the tab dot is the dirty (orange) variant')
   assert.equal(errors.length, 0, 'no page errors: ' + JSON.stringify(errors))
   console.log('e2e run2.mjs: PASS', JSON.stringify(out))
 } catch (e) {

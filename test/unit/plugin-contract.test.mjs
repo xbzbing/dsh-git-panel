@@ -39,7 +39,7 @@ function loadClient() {
     window: { __ModuleLoader__: { load: (h) => { handoff = h } } },
     document: { querySelector: () => null, createElement: () => ({ dataset: {}, appendChild() {} }), head: { appendChild() {} } },
     require: (spec) => {
-      if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, Fragment: 'fragment' }
+      if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, memo: (c) => c, Fragment: 'fragment' }
       if (spec === 'react-dom') return { createPortal: () => ({}) }
       if (spec === 'react/jsx-runtime') return { jsx: () => ({}), jsxs: () => ({}), Fragment: 'fragment' }
       throw new Error('unexpected require: ' + spec)
@@ -83,7 +83,7 @@ test('client factory returns a plugin with apply + inject', () => {
 
 function sandboxRequire() {
   return (spec) => {
-    if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, Fragment: 'fragment' }
+    if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, memo: (c) => c, Fragment: 'fragment' }
     if (spec === 'react-dom') return { createPortal: () => ({}) }
     if (spec === 'react/jsx-runtime') return { jsx: () => ({}), jsxs: () => ({}), Fragment: 'fragment' }
     throw new Error('unexpected require: ' + spec)

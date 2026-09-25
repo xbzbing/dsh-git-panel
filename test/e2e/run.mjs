@@ -27,6 +27,7 @@ const SNAP = {
     { path: 'd.txt', status: 'untracked', staged: false, isDirectory: false },
     { path: 'img.png', status: 'modified', staged: false, isDirectory: false },
   ],
+  stats: { fileCount: 4, staged: 0, modified: 3, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, checkedAt: Date.now(),
 }
 

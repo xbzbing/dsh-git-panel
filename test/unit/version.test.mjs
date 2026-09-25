@@ -17,6 +17,11 @@ test('compareVersions orders core and prerelease correctly', () => {
   // a release outranks a prerelease sharing the same core
   assert.equal(compareVersions('0.2.0', '0.2.0-beta.1'), 1)
   assert.equal(compareVersions('0.2.0-beta.1', '0.2.0'), -1)
+  // prerelease identifiers compare segment-wise, numeric parts numerically
+  assert.equal(compareVersions('0.2.0-beta.2', '0.2.0-beta.1'), 1)
+  assert.equal(compareVersions('0.2.0-beta.1', '0.2.0-beta.2'), -1)
+  assert.equal(compareVersions('0.2.0-rc.10', '0.2.0-rc.2'), 1)
+  assert.equal(compareVersions('0.2.0-beta.1', '0.2.0-beta.1'), 0)
 })
 
 test('parseRepository extracts owner/repo from the common forms', () => {
@@ -96,6 +101,18 @@ test('checkLatestVersion reports missing repository config', async () => {
     const info = await checkLatestVersion({ manifestPath: path, fetchFn: async () => { throw new Error('should not be called') } })
     assert.equal(info.checkedRemote, false)
     assert.equal(info.error, 'repository is not configured')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('checkLatestVersion rejects a non-github release URL, keeping a github fallback', async () => {
+  const { dir, path } = writeManifest('0.1.0', 'git+https://github.com/xbzbing/dsh-git-panel.git')
+  try {
+    const fetchFn = async () => ({ ok: true, status: 200, json: async () => ({ tag_name: 'v0.2.0', html_url: 'https://evil.example/pwn' }) })
+    const info = await checkLatestVersion({ manifestPath: path, fetchFn })
+    // The untrusted html_url is dropped; the derived github URL is used instead.
+    assert.equal(info.releaseUrl, 'https://github.com/xbzbing/dsh-git-panel/releases/latest')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

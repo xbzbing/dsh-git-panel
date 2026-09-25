@@ -45,9 +45,9 @@ test('commit --amend carries the amend flag', () => {
   assert.deepEqual(plan.argv, [['git', 'commit', '--amend', '-m', 'fixed']])
 })
 
-test('amend with an empty message is allowed (reuse previous message)', () => {
+test('amend with an empty message reuses the previous message via --no-edit', () => {
   const plan = planAction({ kind: 'commit', message: '', amend: true }, false)
-  assert.deepEqual(plan.argv, [['git', 'commit', '--amend']])
+  assert.deepEqual(plan.argv, [['git', 'commit', '--amend', '--no-edit']])
 })
 
 test('empty non-amend commit is rejected', () => {
