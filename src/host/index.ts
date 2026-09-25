@@ -66,20 +66,20 @@ export class GitPanelService extends TypertRemoteService {
   private buildDeps(ctx: Context, config: GitPanelConfig): SnapshotDeps {
     const rootCache = new Map<string, string>()
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
-    const subprocess = get('subprocess') as SubprocessLike | undefined
-    if (subprocess === undefined) {
-      return {
-        run: { run: async () => { throw new Error('subprocess service unavailable') } },
-        fs: { realpath, stat: async (p) => stat(p), readFile, remove: async (p) => { await rm(p, { force: true }) } },
-        sessions: { liveCwd: () => undefined, persistedMeta: async () => undefined },
-        rootCache,
-      }
+    const fs: SnapshotDeps['fs'] = {
+      realpath, stat: async (p) => stat(p), readFile, remove: async (p) => { await rm(p, { force: true }) },
     }
+    // `static inject` gates activation on subprocess, so it is always present
+    // here; the runner throws only if a future refactor drops that guard.
+    const subprocess = get('subprocess') as SubprocessLike | undefined
+    const run = subprocess === undefined
+      ? { run: async (): Promise<never> => { throw new Error('subprocess service unavailable') } }
+      : createGitRunner(subprocess, config.timeoutMs, config.maxBytes)
     const sessions = get('sessions') as SessionsService | undefined
     const persistence = get('sessionPersistence') as SessionPersistenceLike | undefined
     return {
-      run: createGitRunner(subprocess, config.timeoutMs, config.maxBytes),
-      fs: { realpath, stat: async (p) => stat(p), readFile, remove: async (p) => { await rm(p, { force: true }) } },
+      run,
+      fs,
       sessions: {
         liveCwd: (id) => sessions?.get(id)?.header?.cwd,
         persistedMeta: async (id) => {
@@ -113,7 +113,13 @@ export class GitPanelService extends TypertRemoteService {
 
   @Remote('version')
   async version(request: GitVersionRequest): Promise<GitVersionInfo> {
-    return request.check === true ? checkLatestVersion() : readVersionInfo()
+    // The only endpoint that reads/parses package.json; a missing or corrupt
+    // manifest must degrade to a typed value, not reject the RPC.
+    try {
+      return request.check === true ? await checkLatestVersion() : await readVersionInfo()
+    } catch (error) {
+      return { current: '0.0.0', updateAvailable: false, checkedRemote: false, error: error instanceof Error ? error.message : 'version unavailable' }
+    }
   }
 
   /** Re-read config so a live-edited volatile field (showInputPill) is current. */

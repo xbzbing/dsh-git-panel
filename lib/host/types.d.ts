@@ -29,6 +29,8 @@ export type GitFailure = {
     readonly detail: string;
 } | {
     readonly code: 'timeout';
+} | {
+    readonly code: 'cancelled';
 };
 /** Immutable snapshot of one repository's status at `checkedAt`. */
 export interface GitSnapshot {
@@ -49,6 +51,8 @@ export interface GitSnapshot {
     readonly behind: number;
     readonly lastCommit: GitCommit | null;
     readonly changes: readonly GitChange[];
+    /** Working-tree statistics for the changes-page header (single source). */
+    readonly stats: WorktreeStats;
     /** True when the change list was capped at maxChanges. */
     readonly truncated: boolean;
     /** Polling interval the client should use after this snapshot (0 = off). */
@@ -114,7 +118,7 @@ export type GitAction = {
 } | {
     readonly kind: 'fetch';
 };
-export type GitErrorCode = 'session-not-found' | 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'empty-message' | 'local-changes-block';
+export type GitErrorCode = 'session-not-found' | 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;

@@ -1,6 +1,7 @@
 /**
  * GitAction → command sequence construction + execution.
  */
+import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafeBranchName, isSafePath } from './validate.ts'
@@ -40,18 +41,19 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       return withPaths([['git', 'restore', '--']], action.paths)
     case 'commit': {
       const message = action.message.trim()
-      const amendFlag = action.amend === true ? ['--amend'] : []
-      if (message === '' && action.amend !== true) return { error: 'empty-message' }
-      const msgArgs = message === '' ? [] : ['-m', message]
+      const amend = action.amend === true
+      if (message === '' && !amend) return { error: 'empty-message' }
+      // amend + empty message: reuse the previous message. Without -m and with
+      // no TTY (`stdin:'ignore'`) git would abort asking for a message, so pass
+      // --no-edit to keep the existing one.
+      const amendFlag = amend ? ['--amend'] : []
+      const msgArgs = message === '' ? ['--no-edit'] : ['-m', message]
       if (action.paths === undefined || action.paths.length === 0) {
         return { argv: [['git', 'commit', ...amendFlag, ...msgArgs]] }
       }
       const staged = withPaths([['git', 'add', '--']], action.paths)
       if ('error' in staged) return staged
       const commitCmd = ['git', 'commit', ...amendFlag, ...msgArgs, '--', ...action.paths]
-      for (const path of action.paths) {
-        if (!isSafePath(path)) return { error: 'invalid-path', message: `unsafe path: ${path}` }
-      }
       return { argv: [...staged.argv, commitCmd] }
     }
     case 'branch-checkout':
@@ -79,6 +81,22 @@ export async function runAction(
   const headProbe = await runCommand(deps.run, ['git', 'rev-parse', '--verify', 'HEAD'], root, 'head-probe', deps.signal)
   const unborn = !('run' in headProbe) || headProbe.run.exitCode !== 0
 
+  // Discard of an untracked path can't go through `git restore` (pathspec does
+  // not match a known file); delete those from the work tree directly, with a
+  // realpath-containment check, and let git restore only the tracked ones.
+  if (request.action.kind === 'discard') {
+    const removed = await discardUntracked(deps, config, root, request.sessionId, request.action.paths)
+    if (removed !== null) {
+      if (!removed.ok) return removed.result
+      if (removed.remainingTracked.length === 0) {
+        const snapshot = await snapshotForSession(deps, config, request.sessionId)
+        if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
+        return { ok: true, snapshot: snapshot.value, output: '' }
+      }
+      request = { ...request, action: { kind: 'discard', paths: removed.remainingTracked } }
+    }
+  }
+
   const plan = planAction(request.action, unborn)
   if ('error' in plan) return { ok: false, error: { code: plan.error, ...(plan.message ? { message: plan.message } : {}) } }
 
@@ -89,12 +107,13 @@ export async function runAction(
       const message = outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure)
       return { ok: false, error: { code: 'git-unavailable', message } }
     }
+    if (outcome.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
     if (outcome.run.timedOut) return { ok: false, error: { code: 'timeout' } }
     lastOutput = outcome.run.stdout || outcome.run.stderr
     if (outcome.run.exitCode !== 0) {
       const stderr = outcome.run.stderr
-      // "nothing to commit" is reported on stdout with a non-zero exit but is
-      // not an error for our purposes when amending or committing an empty set.
+      // "nothing to commit" exits non-zero: report it as a git-error with the
+      // repo's own message rather than a bare exit code.
       if (/nothing to commit|no changes added/i.test(stderr + lastOutput)) {
         return { ok: false, error: { code: 'git-error', message: stderr.trim() || 'nothing to commit' } }
       }
@@ -110,4 +129,47 @@ export async function runAction(
     return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
   }
   return { ok: true, snapshot: snapshot.value, output: lastOutput.trim() }
+}
+
+/**
+ * Split a discard request into untracked paths (deleted from the work tree
+ * directly, since `git restore` can't touch them) and tracked paths (left for
+ * the git command). Returns null when the action doesn't need this split
+ * (no untracked path among the request). Each unlink is realpath-contained to
+ * the repository root before it runs.
+ */
+async function discardUntracked(
+  deps: SnapshotDeps,
+  config: GitPanelConfig,
+  root: string,
+  sessionId: string,
+  paths: readonly string[],
+): Promise<null | { ok: true; remainingTracked: readonly string[] } | { ok: false; result: GitActionResult }> {
+  const snap = await snapshotForSession(deps, config, sessionId)
+  if (!snap.ok) return null
+  const untrackedSet = new Set(snap.value.changes.filter((c) => c.status === 'untracked').map((c) => c.path))
+  const untracked = paths.filter((p) => untrackedSet.has(p))
+  if (untracked.length === 0) return null
+  const tracked = paths.filter((p) => !untrackedSet.has(p))
+  let rootReal: string
+  try {
+    rootReal = await deps.fs.realpath(root)
+  } catch {
+    return { ok: false, result: { ok: false, error: { code: 'git-error', message: 'repository root unavailable' } } }
+  }
+  for (const path of untracked) {
+    if (!isSafePath(path)) return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `unsafe path: ${path}` } } }
+    const target = join(root, path)
+    let targetReal: string
+    try {
+      targetReal = await deps.fs.realpath(target)
+    } catch {
+      continue // already gone — nothing to discard
+    }
+    if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
+      return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `path escapes repository: ${path}` } } }
+    }
+    await deps.fs.remove(target).catch(() => {})
+  }
+  return { ok: true, remainingTracked: tracked }
 }

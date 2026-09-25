@@ -45,6 +45,8 @@ export interface GitRunResult {
     readonly stdout: string;
     readonly stderr: string;
     readonly timedOut: boolean;
+    /** The caller's own signal aborted the run (navigation/reset), not our timeout. */
+    readonly cancelled: boolean;
     readonly stdoutLossy: boolean;
 }
 export interface GitRunner {

@@ -21,9 +21,10 @@ export declare function parseRepository(repository: unknown): {
     repo: string;
 } | undefined;
 /**
- * Compare dotted numeric versions with basic prerelease handling; returns 1
- * when a > b, -1 when a < b, 0 when equal. A release outranks a prerelease
- * sharing the same core (e.g. 0.2.0 > 0.2.0-beta.1).
+ * Compare dotted versions with prerelease handling; returns 1 when a > b, -1
+ * when a < b, 0 when equal. A release outranks a prerelease sharing the same
+ * core (0.2.0 > 0.2.0-beta.1); prerelease identifiers compare dot-segment by
+ * segment, numeric parts numerically (beta.2 > beta.1, 0.2.0-rc.10 > rc.2).
  */
 export declare function compareVersions(a: string, b: string): number;
 /** Local-only view: current version + repository URL, no network access. */
@@ -32,7 +33,8 @@ export declare function readVersionInfo(options?: {
 }): Promise<VersionInfo>;
 /**
  * Query the GitHub releases API for the latest tag and compare it to the
- * bundled version. Failures are reported through `error` instead of throwing.
+ * bundled version. Failures are reported through `error` instead of throwing;
+ * a 5s timeout bounds the call and a 10-minute memo bounds the request rate.
  */
 export declare function checkLatestVersion(options?: {
     manifestPath?: string;

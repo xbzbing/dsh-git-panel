@@ -300,3 +300,116 @@ test('branch-checkout rejects a dash-prefixed name (would run git checkout -f)',
   assert.equal(res.ok, false)
   assert.equal(res.error.code, 'invalid-name')
 })
+
+// ── snapshot edge states (T3) ────────────────────────────────────────────
+test('snapshot on an unborn repo reports unborn / null branch head', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-unborn-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const res = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(res.ok, true)
+    assert.equal(res.value.unborn, true)
+    assert.equal(res.value.head, null)
+    assert.equal(res.value.dirty, false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('snapshot on a clean committed repo is not dirty and has zero counts', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-clean-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const res = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(res.ok, true)
+    assert.equal(res.value.unborn, false)
+    assert.equal(res.value.dirty, false)
+    assert.equal(res.value.staged + res.value.modified + res.value.untracked, 0)
+    assert.equal(res.value.stats.fileCount, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('resolveWorkspace failures surface typed codes', async () => {
+  // No cwd for the session → cwd-unavailable.
+  const noCwd = { ...depsAt(repo), sessions: { liveCwd: () => undefined, persistedMeta: async () => undefined } }
+  const a = await snapshotForSession(noCwd, DEFAULT_CONFIG, SID)
+  assert.equal(a.ok, false)
+  assert.equal(a.error.code, 'cwd-unavailable')
+
+  // A cwd that is not a git repo → not-a-git-repo (pill preference preserved).
+  const plainDir = mkdtempSync(join(tmpdir(), 'gp-plain-'))
+  try {
+    const b = await snapshotForSession(depsAt(plainDir), DEFAULT_CONFIG, SID)
+    assert.equal(b.ok, false)
+    assert.equal(b.error.code, 'not-a-git-repo')
+    assert.equal(b.error.showInputPill, true)
+  } finally {
+    rmSync(plainDir, { recursive: true, force: true })
+  }
+})
+
+test('worktree-stats sums insertions across multiple untracked files (H1)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-unt-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'u1.txt'), 'a\nb\n')
+    writeFileSync(join(dir, 'u2.txt'), 'c\nd\ne\n')
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'worktree-stats' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.stats.untracked, 2)
+    // 2 + 3 = 5 insertions across the two untracked files (previously 0 because
+    // a single multi-path --no-index run failed with exit 129).
+    assert.equal(res.value.stats.insertions, 5)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard removes an untracked file from the work tree (H6)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-disc-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync, existsSync } = await import('node:fs')
+    writeFileSync(join(dir, 'u.txt'), 'junk\n')
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['u.txt'] } })
+    assert.equal(res.ok, true, 'discard of an untracked file succeeds instead of failing on pathspec')
+    assert.equal(existsSync(join(dir, 'u.txt')), false, 'the untracked file is deleted')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('snapshot counts reflect the full change set even when the list is truncated (H2)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-trunc-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync } = await import('node:fs')
+    for (let i = 0; i < 5; i++) writeFileSync(join(dir, `f${i}.txt`), 'x\n')
+    const cap = { ...DEFAULT_CONFIG, maxChanges: 2 }
+    const res = await snapshotForSession(depsAt(dir), cap, SID)
+    assert.equal(res.ok, true)
+    assert.equal(res.value.truncated, true)
+    assert.equal(res.value.changes.length, 2, 'the list is capped')
+    assert.equal(res.value.untracked, 5, 'but counts reflect all 5 files')
+    assert.equal(res.value.dirty, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

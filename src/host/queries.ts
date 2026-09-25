@@ -4,10 +4,10 @@
  */
 import { join } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
-import { maxChangeMtime, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
+import { resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
-import { parseBranches, parseGraphLog, parseNameStatus, sumNumstat } from './parser.ts'
-import type { GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, WorktreeStats } from './types.ts'
+import { parseBranches, parseGraphLog, parseNameStatus } from './parser.ts'
+import type { GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
 import { imageMimeFor } from './types.ts'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
@@ -28,7 +28,7 @@ export async function runQuery(
     return {
       ok: false,
       error: {
-        code: error.code === 'not-a-git-repo' || error.code === 'cwd-unavailable' || error.code === 'session-not-found' || error.code === 'timeout' || error.code === 'git-unavailable'
+        code: error.code === 'not-a-git-repo' || error.code === 'cwd-unavailable' || error.code === 'session-not-found' || error.code === 'timeout' || error.code === 'cancelled' || error.code === 'git-unavailable'
           ? error.code
           : 'git-error',
         ...('detail' in error ? { message: error.detail } : {}),
@@ -48,7 +48,7 @@ export async function runQuery(
       case 'tags': return await queryTags(deps, root)
       case 'authors': return await queryAuthors(deps, root)
       case 'last-commit-message': return await queryLastCommitMessage(deps, root)
-      case 'worktree-stats': return await queryWorktreeStats(deps, config, root, request.sessionId)
+      case 'worktree-stats': return await queryWorktreeStats(deps, config, request.sessionId)
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -61,7 +61,11 @@ async function queryHistory(
   root: string,
   q: Extract<GitQueryRequest['query'], { kind: 'history' }>,
 ): Promise<GitQueryResponse> {
-  const args = ['git', 'log', GRAPH_FORMAT, `--max-count=${q.limit}`, `--skip=${q.skip}`]
+  // Clamp paging: the host is the trust boundary; a huge limit walks all of
+  // history into the output cap, a non-number is a git fatal.
+  const limit = Number.isFinite(q.limit) ? Math.min(500, Math.max(1, Math.trunc(q.limit))) : 100
+  const skip = Number.isFinite(q.skip) ? Math.max(0, Math.trunc(q.skip)) : 0
+  const args = ['git', 'log', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
   const search = q.search?.trim() ?? ''
   const hexJump = search !== '' && isHexLike(search)
   const countArgs = ['git', 'rev-list', '--count']
@@ -89,10 +93,17 @@ async function queryHistory(
     hexJump ? Promise.resolve(null) : runCommand(deps.run, countArgs, root, 'history-count', deps.signal),
   ])
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
   if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
   if (res.run.exitCode !== 0) {
-    // A hash-jump miss or bad ref → empty result, not a hard error.
-    return { ok: true, value: { kind: 'history', commits: [], total: 0 } }
+    // Only a hash-jump miss or a genuine unknown/empty ref is an empty page;
+    // every other non-zero exit surfaces as an error instead of a silent
+    // "no commits" that would also mask malformed input.
+    const stderr = res.run.stderr.trim()
+    if (hexJump || /unknown revision|bad revision|does not have any commits|ambiguous argument/i.test(stderr)) {
+      return { ok: true, value: { kind: 'history', commits: [], total: 0 } }
+    }
+    return { ok: false, error: { code: 'git-error', message: stderr || `git exited ${res.run.exitCode}` } }
   }
   const commits: GraphCommit[] = parseGraphLog(res.run.stdout)
   let total = -1
@@ -127,6 +138,7 @@ async function queryDiff(
   }
   const res = await runCommand(deps.run, args, root, 'diff', deps.signal)
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
   if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
   let text = res.run.stdout
   // Untracked file: `git diff` yields nothing; synthesize with --no-index.
@@ -255,6 +267,7 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
     runCommand(deps.run, ['git', 'show', '--name-status', '-z', '--format=', '--end-of-options', ref], root, 'show-stat', deps.signal),
   ])
   if (!('run' in metaRes)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (metaRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
   if (metaRes.run.timedOut) return { ok: false, error: { code: 'timeout' } }
   if (metaRes.run.exitCode !== 0) {
     return { ok: false, error: { code: 'git-error', message: metaRes.run.stderr.trim() || 'unknown ref' } }
@@ -328,45 +341,11 @@ async function queryLastCommitMessage(deps: SnapshotDeps, root: string): Promise
 async function queryWorktreeStats(
   deps: SnapshotDeps,
   config: GitPanelConfig,
-  root: string,
   sessionId: string,
 ): Promise<GitQueryResponse> {
+  // The worktree stats now live on the snapshot (single source of git spawns);
+  // this endpoint just reads them so a bare stats request stays cheap.
   const snapshot = await snapshotForSession(deps, config, sessionId)
   if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot failed' } }
-  const snap = snapshot.value
-  const distinct = new Set(snap.changes.map((c) => c.path))
-
-  const [worktreeNum, stagedNum, headTime] = await Promise.all([
-    runCommand(deps.run, ['git', 'diff', '--numstat'], root, 'numstat-worktree', deps.signal),
-    runCommand(deps.run, ['git', 'diff', '--numstat', '--cached'], root, 'numstat-staged', deps.signal),
-    runCommand(deps.run, ['git', 'log', '-1', '--format=%aI'], root, 'head-time', deps.signal),
-  ])
-  const a = 'run' in worktreeNum && worktreeNum.run.exitCode === 0 ? sumNumstat(worktreeNum.run.stdout) : { insertions: 0, deletions: 0 }
-  const b = 'run' in stagedNum && stagedNum.run.exitCode === 0 ? sumNumstat(stagedNum.run.stdout) : { insertions: 0, deletions: 0 }
-
-  // Untracked files: count their lines as insertions (best effort, binary skipped).
-  let untrackedInsertions = 0
-  const untrackedPaths = snap.changes.filter((c) => c.status === 'untracked' && !c.isDirectory).map((c) => c.path)
-  if (untrackedPaths.length > 0) {
-    const safe = untrackedPaths.filter(isSafePath).slice(0, 200)
-    if (safe.length > 0) {
-      const noIndex = await runCommand(deps.run, ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', ...safe], root, 'numstat-untracked', deps.signal)
-      if ('run' in noIndex) untrackedInsertions = sumNumstat(noIndex.run.stdout).insertions
-    }
-  }
-
-  const lastChangeAt = await maxChangeMtime(deps, root, snap.changes)
-  const headCommittedAt = 'run' in headTime && headTime.run.exitCode === 0 ? headTime.run.stdout.trim() || null : null
-
-  const stats: WorktreeStats = {
-    fileCount: distinct.size,
-    staged: snap.staged,
-    modified: snap.modified,
-    untracked: snap.untracked,
-    insertions: a.insertions + b.insertions + untrackedInsertions,
-    deletions: a.deletions + b.deletions,
-    lastChangeAt,
-    headCommittedAt,
-  }
-  return { ok: true, value: { kind: 'worktree-stats', stats } }
+  return { ok: true, value: { kind: 'worktree-stats', stats: snapshot.value.stats } }
 }

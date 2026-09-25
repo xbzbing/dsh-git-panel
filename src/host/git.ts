@@ -50,6 +50,8 @@ export interface GitRunResult {
   readonly stdout: string
   readonly stderr: string
   readonly timedOut: boolean
+  /** The caller's own signal aborted the run (navigation/reset), not our timeout. */
+  readonly cancelled: boolean
   readonly stdoutLossy: boolean
 }
 
@@ -87,19 +89,24 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
         try {
           outcome = await handle.done
         } catch (error) {
+          const cancelled = opts.signal?.aborted === true && !controller.signal.aborted
           if (controller.signal.aborted || opts.signal?.aborted === true) {
-            return { exitCode: null, stdout: '', stderr: '', timedOut: true, stdoutLossy: false }
+            return { exitCode: null, stdout: '', stderr: '', timedOut: !cancelled, cancelled, stdoutLossy: false }
           }
           throw error
         }
         const stdout = handle.collected.stdout?.readFrom(0)
         const stderr = handle.collected.stderr?.readFrom(0)
         const resolved = await resolveStdout(stdout)
+        // Distinguish our timeout from a caller-driven abort (navigation/reset):
+        // the latter must not be surfaced as a `timeout` error state.
+        const cancelled = opts.signal?.aborted === true && !controller.signal.aborted
         return {
           exitCode: outcome.exitCode,
           stdout: resolved.text,
           stderr: stderr?.text ?? '',
-          timedOut: controller.signal.aborted || opts.signal?.aborted === true,
+          timedOut: controller.signal.aborted,
+          cancelled,
           stdoutLossy: resolved.lossy,
         }
       } finally {

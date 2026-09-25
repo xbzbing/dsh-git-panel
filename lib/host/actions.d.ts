@@ -1,6 +1,3 @@
-/**
- * GitAction → command sequence construction + execution.
- */
 import type { SnapshotDeps, GitPanelConfig } from './core.ts';
 import { isSafePath } from './validate.ts';
 import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.ts';

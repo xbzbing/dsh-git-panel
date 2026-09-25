@@ -21,6 +21,7 @@ export type GitFailure =
   | { readonly code: 'not-a-git-repo'; readonly cwd?: string; readonly showInputPill?: boolean }
   | { readonly code: 'git-unavailable'; readonly detail: string }
   | { readonly code: 'timeout' }
+  | { readonly code: 'cancelled' }
 
 /** Immutable snapshot of one repository's status at `checkedAt`. */
 export interface GitSnapshot {
@@ -41,6 +42,8 @@ export interface GitSnapshot {
   readonly behind: number
   readonly lastCommit: GitCommit | null
   readonly changes: readonly GitChange[]
+  /** Working-tree statistics for the changes-page header (single source). */
+  readonly stats: WorktreeStats
   /** True when the change list was capped at maxChanges. */
   readonly truncated: boolean
   /** Polling interval the client should use after this snapshot (0 = off). */
@@ -121,6 +124,7 @@ export type GitErrorCode =
   | 'invalid-name'
   | 'git-error'
   | 'timeout'
+  | 'cancelled'
   | 'empty-message'
   | 'local-changes-block'
 

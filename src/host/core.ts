@@ -3,8 +3,9 @@
  */
 import { join } from 'node:path'
 import type { GitRunner } from './git.ts'
-import { parseStatus } from './parser.ts'
-import type { GitChange, GitCommit, GitSnapshot, GitSnapshotResult } from './types.ts'
+import { parseStatus, sumNumstat } from './parser.ts'
+import { isSafePath } from './validate.ts'
+import type { GitChange, GitCommit, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -26,7 +27,10 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
 
 export function normalizeConfig(raw: unknown): GitPanelConfig {
   const c = (raw ?? {}) as Partial<GitPanelConfig>
-  const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : d)
+  // Positive integers only: 0 / fractional / non-finite fall back to the
+  // default, so a stray `maxChanges: 1.5` can't reach `slice(0, 1.5)`.
+  const num = (v: unknown, d: number): number =>
+    (typeof v === 'number' && Number.isFinite(v) && v >= 1 ? Math.floor(v) : d)
   return {
     timeoutMs: num(c.timeoutMs, DEFAULT_CONFIG.timeoutMs),
     maxBytes: num(c.maxBytes, DEFAULT_CONFIG.maxBytes),
@@ -93,6 +97,7 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   if ('failure' in top) {
     return { ok: false, failure: { ok: false, error: mapRunFailure(top.failure) } }
   }
+  if (top.run.cancelled) return { ok: false, failure: { ok: false, error: { code: 'cancelled' } } }
   if (top.run.timedOut) return { ok: false, failure: { ok: false, error: { code: 'timeout' } } }
   if (top.run.exitCode !== 0) {
     return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
@@ -148,12 +153,14 @@ export async function snapshotForSession(
   }
   const root = workspace.root
 
-  const [branchRes, headRes, statusRes, aheadBehindRes, lastCommitRes] = await Promise.all([
+  const [branchRes, headRes, statusRes, aheadBehindRes, lastCommitRes, worktreeNumRes, stagedNumRes] = await Promise.all([
     runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'branch', deps.signal),
     runCommand(deps.run, ['git', 'rev-parse', '--short', 'HEAD'], root, 'head', deps.signal),
     runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z'], root, 'status', deps.signal),
     runCommand(deps.run, ['git', 'rev-list', '--count', '--left-right', '@{upstream}...HEAD'], root, 'aheadBehind', deps.signal),
     runCommand(deps.run, ['git', 'log', '-1', '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI'], root, 'lastCommit', deps.signal),
+    runCommand(deps.run, ['git', 'diff', '--numstat'], root, 'numstat-worktree', deps.signal),
+    runCommand(deps.run, ['git', 'diff', '--numstat', '--cached'], root, 'numstat-staged', deps.signal),
   ])
 
   const branch = 'run' in branchRes && branchRes.run.exitCode === 0 ? branchRes.run.stdout.trim() || null : null
@@ -167,10 +174,12 @@ export async function snapshotForSession(
   const truncated = allChanges.length > config.maxChanges
   const changes = truncated ? allChanges.slice(0, config.maxChanges) : allChanges
 
+  // Counts and `dirty` reflect the full change set; only the `changes` list is
+  // bounded. Counting the truncated slice would under-report on large repos.
   let staged = 0
   let modified = 0
   let untracked = 0
-  for (const c of changes) {
+  for (const c of allChanges) {
     if (c.status === 'untracked') untracked++
     else if (c.staged) staged++
     else modified++
@@ -198,12 +207,39 @@ export async function snapshotForSession(
     }
   }
 
+  // Worktree statistics fold into the single snapshot (no separate endpoint
+  // fan-out): line counts from the two numstat runs above, untracked lines and
+  // mtimes best-effort, HEAD time from lastCommit.
+  const wt = 'run' in worktreeNumRes && worktreeNumRes.run.exitCode === 0 ? sumNumstat(worktreeNumRes.run.stdout) : { insertions: 0, deletions: 0 }
+  const stg = 'run' in stagedNumRes && stagedNumRes.run.exitCode === 0 ? sumNumstat(stagedNumRes.run.stdout) : { insertions: 0, deletions: 0 }
+  let untrackedInsertions = 0
+  const untrackedPaths = allChanges.filter((c) => c.status === 'untracked' && !c.isDirectory).map((c) => c.path)
+  const safeUntracked = untrackedPaths.filter(isSafePath).slice(0, 200)
+  if (safeUntracked.length > 0) {
+    const perFile = await Promise.all(
+      safeUntracked.map((p) => runCommand(deps.run, ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', p], root, 'numstat-untracked', deps.signal)),
+    )
+    for (const r of perFile) if ('run' in r) untrackedInsertions += sumNumstat(r.run.stdout).insertions
+  }
+  const lastChangeAt = await maxChangeMtime(deps, root, allChanges)
+  const distinct = new Set(allChanges.map((c) => c.path))
+  const stats: WorktreeStats = {
+    fileCount: distinct.size,
+    staged,
+    modified,
+    untracked,
+    insertions: wt.insertions + stg.insertions + untrackedInsertions,
+    deletions: wt.deletions + stg.deletions,
+    lastChangeAt,
+    headCommittedAt: lastCommit?.dateIso ?? null,
+  }
+
   const snapshot: GitSnapshot = {
     root,
     branch,
     head,
     unborn,
-    dirty: changes.length > 0,
+    dirty: allChanges.length > 0,
     staged,
     modified,
     untracked,
@@ -211,6 +247,7 @@ export async function snapshotForSession(
     behind,
     lastCommit,
     changes,
+    stats,
     truncated,
     refreshIntervalMs: config.refreshIntervalMs,
     showInputPill: config.showInputPill,
