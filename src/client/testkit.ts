@@ -6,7 +6,7 @@
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseTags, sumNumstat, parseRefs } from '../host/parser.ts'
 export { isSafePath, isSafeRev, isSafeBranchName } from '../host/validate.ts'
 export { planAction } from '../host/actions.ts'
-export { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent, isImagePath } from './diff.ts'
+export { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent, isImagePath, intraLineDiff, spliceGap, contextRowsFromLines, GAP_STEP } from './diff.ts'
 export { buildFileTree } from './file-tree.ts'
 export { layoutGraph, graphWidth } from './git-graph.ts'
 export { gitPanelRemoteOf, queryAs, hasSession } from './rpc.ts'

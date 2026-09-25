@@ -1,7 +1,11 @@
-/** Side-by-side diff renderer with lazy syntax highlighting. */
-import { createElement as h, memo, useEffect, useMemo, useState } from 'react'
+/** Side-by-side diff renderer with lazy syntax highlighting, on-demand gap
+ * expansion, and word-level intra-line emphasis. */
+import { createElement as h, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { buildSideBySide, extractAddedContent, extractDeletedContent, isAddOnlyDiff, isBinaryDiff, isDeleteOnlyDiff, isImagePath, summarize, type SideRow } from './diff'
+import {
+  buildSideBySide, extractAddedContent, extractDeletedContent, isAddOnlyDiff, isBinaryDiff,
+  isDeleteOnlyDiff, isImagePath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
+} from './diff'
 import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
 import { ImageCompare } from './ImageCompare'
 import type { GitPanelRemote } from './rpc'
@@ -11,7 +15,8 @@ import type { GitKey } from './locales'
 
 export type DiffMode = 'split' | 'before' | 'after'
 
-/** Which comparison the text diff shows — the image sides mirror it. */
+/** Which comparison the diff shows — image sides and gap-expansion source
+ * both mirror it. */
 export interface ImageDiffSpec {
   readonly base: 'worktree' | 'staged' | 'commit'
   readonly commit?: string
@@ -22,7 +27,8 @@ interface DiffViewProps {
   readonly mode: DiffMode
   /** File path, used to pick a syntax-highlighting grammar. */
   readonly path?: string
-  /** Present with imageSpec → a binary image fetches old/new panes instead. */
+  /** Present with imageSpec → a binary image fetches old/new panes instead;
+   * also the source for on-demand gap (hidden-context) expansion. */
   readonly remote?: GitPanelRemote
   readonly sessionId?: string
   readonly imageSpec?: ImageDiffSpec
@@ -35,13 +41,19 @@ type ImageState =
   | { readonly kind: 'ready'; readonly res: ImageDiffValue }
 
 export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, imageSpec, t }: DiffViewProps): JSX.Element {
-  const rows = useMemo(() => buildSideBySide(text), [text])
+  const baseRows = useMemo(() => buildSideBySide(text), [text])
   const binary = isBinaryDiff(text)
   const addOnly = useMemo(() => isAddOnlyDiff(text), [text])
   const delOnly = useMemo(() => isDeleteOnlyDiff(text), [text])
 
   const lang = useMemo(() => (path !== undefined ? languageForPath(path) : ''), [path])
   const hl = useHighlighter(lang)
+
+  // Rows are stateful in split mode so revealed gap context can be spliced in;
+  // reseed whenever the underlying diff text changes.
+  const [rows, setRows] = useState<readonly SideRow[]>(baseRows)
+  useEffect(() => { setRows(baseRows) }, [baseRows])
+  const expand = useGapExpander(rows, setRows, remote, sessionId, path, imageSpec)
 
   const imageable = binary && path !== undefined && isImagePath(path) && remote !== undefined && sessionId !== undefined && imageSpec !== undefined
   const image = useImageDiff(imageable ? remote : undefined, imageable ? sessionId : undefined, imageable ? path : undefined, imageable ? imageSpec : undefined)
@@ -66,8 +78,74 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   if (mode === 'after') return singleColumn(addOnly ? extractAddedContent(text) : rightText(rows), lang, hl)
 
   // split
-  return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, lang, hl)))
+  return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, lang, hl, expand, t)))
 })
+
+interface GapExpander {
+  readonly busy: string | null
+  readonly run: (gap: GapInfo, direction: 'all' | 'up' | 'down') => void
+}
+
+/**
+ * On-demand hidden-context expansion. Clicking a gap control fetches the
+ * revealed slice (file-lines query, source mirrors imageSpec) and splices it
+ * into the row list. A generation guard drops a stale response if the rows
+ * were reseeded (diff text changed) mid-flight.
+ */
+function useGapExpander(
+  rows: readonly SideRow[],
+  setRows: (updater: (prev: readonly SideRow[]) => readonly SideRow[]) => void,
+  remote: GitPanelRemote | undefined,
+  sessionId: string | undefined,
+  path: string | undefined,
+  spec: ImageDiffSpec | undefined,
+): GapExpander {
+  const [busy, setBusy] = useState<string | null>(null)
+  const gen = useRef(0)
+  // Reseeding the rows (diff text changed) invalidates any in-flight reveal.
+  useEffect(() => { gen.current += 1; setBusy(null) }, [rows])
+
+  const run = useCallback((gap: GapInfo, direction: 'all' | 'up' | 'down') => {
+    if (remote === undefined || sessionId === undefined || path === undefined || spec === undefined) return
+    const key = `${gap.rightStart}:${direction}`
+    setBusy(key)
+    const my = ++gen.current
+    // Which slice to request. 'up'/'down' reveal one GAP_STEP window; 'all'
+    // (and any bounded gap) reveal the whole hidden region.
+    const { start, end } = sliceRequest(gap, direction)
+    const query: GitQuery = spec.base === 'commit' && spec.commit !== undefined
+      ? { kind: 'file-lines', path, base: 'commit', commit: spec.commit, start, end }
+      : spec.base === 'staged'
+        ? { kind: 'file-lines', path, base: 'staged', start, end }
+        : { kind: 'file-lines', path, base: 'worktree', start, end }
+    void remote.query({ sessionId, query }).then((res) => {
+      if (my !== gen.current) return
+      const fl = queryAs(res, 'file-lines')
+      setBusy(null)
+      if (fl === null) return
+      setRows((prev) => spliceGap(prev, gap.rightStart, direction, fl.start, fl.lines, fl.eof))
+    }).catch(() => { if (my === gen.current) setBusy(null) })
+  }, [remote, sessionId, path, spec, setRows])
+
+  return { busy, run }
+}
+
+/** New-side line range to request for a gap expansion step. */
+function sliceRequest(gap: GapInfo, direction: 'all' | 'up' | 'down'): { start: number; end: number } {
+  if (gap.atEnd) {
+    // Trailing gap: reveal the next window below the last shown line.
+    return { start: gap.rightStart, end: gap.rightStart + GAP_STEP - 1 }
+  }
+  const total = gap.count ?? GAP_STEP
+  if (direction === 'all' || total <= GAP_STEP) {
+    return { start: gap.rightStart, end: gap.rightStart + total - 1 }
+  }
+  if (direction === 'down') {
+    return { start: gap.rightStart, end: gap.rightStart + GAP_STEP - 1 }
+  }
+  // 'up': reveal the bottom window of the gap.
+  return { start: gap.rightStart + total - GAP_STEP, end: gap.rightStart + total - 1 }
+}
 
 /**
  * Fetch the old/new image sides for a binary image path. Identity-stable
@@ -129,6 +207,30 @@ function codeCell(className: string, key: string, content: string, lang: string,
   return h('div', { key, className, dangerouslySetInnerHTML: { __html: hl.line(content, lang) } })
 }
 
+/**
+ * A code cell for a modified line with an intra-line change range: the changed
+ * middle is wrapped in a `.gp-diff-word` span. Each of the three segments
+ * (prefix / changed / suffix) is highlighted independently so highlight.js
+ * spans never straddle the word marker and break its nesting.
+ */
+function wordCell(
+  className: string, key: string, content: string, range: readonly [number, number],
+  wordCls: string, lang: string, hl: Highlighter | null,
+): JSX.Element {
+  const [a, b] = range
+  const pre = content.slice(0, a)
+  const mid = content.slice(a, b)
+  const post = content.slice(b)
+  const seg = (s: string): { __html: string } | undefined => (hl === null ? undefined : { __html: hl.line(s, lang) })
+  const part = (s: string, k: string): JSX.Element =>
+    hl === null ? h('span', { key: k }, s) : h('span', { key: k, dangerouslySetInnerHTML: seg(s) })
+  return h('div', { key, className }, [
+    pre !== '' ? part(pre, 'p') : null,
+    h('span', { key: 'w', className: wordCls }, mid !== '' ? part(mid, 'm') : '\u00a0'),
+    post !== '' ? part(post, 's') : null,
+  ])
+}
+
 function leftText(rows: readonly SideRow[]): string {
   return rows.filter((r) => r.leftText !== null).map((r) => r.leftText).join('\n')
 }
@@ -141,22 +243,66 @@ function singleColumn(content: string, lang: string, hl: Highlighter | null): JS
   return h('div', { className: 'gp-hljs' }, lines.map((line, i) => codeCell('gp-diff-cell', String(i), line, lang, hl)))
 }
 
-function renderRow(row: SideRow, i: number, lang: string, hl: Highlighter | null): JSX.Element[] {
+function renderRow(
+  row: SideRow, i: number, lang: string, hl: Highlighter | null,
+  expand: GapExpander, t: (key: GitKey, params?: Record<string, string | number>) => string,
+): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' } }, row.text ?? '')]
   }
-  const leftCls = row.kind === 'del' ? 'gp-diff-row--del' : ''
-  const rightCls = row.kind === 'add' ? 'gp-diff-row--add' : ''
+  if (row.kind === 'gap') {
+    return [renderGap(row.gap!, i, expand, t)]
+  }
+  const leftCls = row.kind === 'del' || row.kind === 'mod' ? 'gp-diff-row--del' : ''
+  const rightCls = row.kind === 'add' || row.kind === 'mod' ? 'gp-diff-row--add' : ''
+  const leftCell = row.leftText === null
+    ? h('div', { key: `l${i}`, className: `gp-diff-cell gp-hljs ${leftCls}` })
+    : row.kind === 'mod' && row.leftWord !== undefined
+      ? wordCell(`gp-diff-cell gp-hljs ${leftCls}`, `l${i}`, row.leftText, row.leftWord, 'gp-diff-word gp-diff-word--del', lang, hl)
+      : codeCell(`gp-diff-cell gp-hljs ${leftCls}`, `l${i}`, row.leftText, lang, hl)
+  const rightCell = row.rightText === null
+    ? h('div', { key: `r${i}`, className: `gp-diff-cell gp-hljs ${rightCls}` })
+    : row.kind === 'mod' && row.rightWord !== undefined
+      ? wordCell(`gp-diff-cell gp-hljs ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', lang, hl)
+      : codeCell(`gp-diff-cell gp-hljs ${rightCls}`, `r${i}`, row.rightText, lang, hl)
   return [
     h('div', { key: `ln${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
-    row.leftText === null
-      ? h('div', { key: `l${i}`, className: `gp-diff-cell gp-hljs ${leftCls}` })
-      : codeCell(`gp-diff-cell gp-hljs ${leftCls}`, `l${i}`, row.leftText, lang, hl),
+    leftCell,
     h('div', { key: `rn${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),
-    row.rightText === null
-      ? h('div', { key: `r${i}`, className: `gp-diff-cell gp-hljs ${rightCls}` })
-      : codeCell(`gp-diff-cell gp-hljs ${rightCls}`, `r${i}`, row.rightText, lang, hl),
+    rightCell,
   ]
+}
+
+/** A collapsed-context band spanning both sides, with expand controls. */
+function renderGap(
+  gap: GapInfo, i: number, expand: GapExpander,
+  t: (key: GitKey, params?: Record<string, string | number>) => string,
+): JSX.Element {
+  const busyAll = expand.busy === `${gap.rightStart}:all`
+  const busyUp = expand.busy === `${gap.rightStart}:up`
+  const busyDown = expand.busy === `${gap.rightStart}:down`
+  const btn = (dir: 'all' | 'up' | 'down', label: string, busyThis: boolean): JSX.Element =>
+    h('button', {
+      key: dir, type: 'button', className: 'gp-gap__btn', disabled: expand.busy !== null,
+      onClick: (e: { stopPropagation: () => void }) => { e.stopPropagation(); expand.run(gap, dir) },
+    }, busyThis ? t('common.loading') : label)
+
+  const controls: JSX.Element[] = []
+  if (gap.atEnd) {
+    controls.push(btn('down', t('diff.expandDown', { n: GAP_STEP }), busyDown))
+  } else {
+    const total = gap.count ?? 0
+    if (total > 0 && total <= GAP_STEP) {
+      controls.push(btn('all', t('diff.expandGap', { n: total }), busyAll))
+    } else {
+      // Larger gap: reveal up, down, or all. A leading gap has no "block above"
+      // to expand toward, so it offers only "down" + "all", and vice versa.
+      if (!gap.atStart) controls.push(btn('up', t('diff.expandUp', { n: GAP_STEP }), busyUp))
+      controls.push(btn('all', t('diff.expandGap', { n: total }), busyAll))
+      controls.push(btn('down', t('diff.expandDown', { n: GAP_STEP }), busyDown))
+    }
+  }
+  return h('div', { key: `g${i}`, className: 'gp-diff-row--gap', style: { gridColumn: '1 / -1' } }, controls)
 }
 
 /** Diff +/- summary from unified text (exported for the toolbar). */

@@ -41,7 +41,7 @@ Host 半 (Cordis + typert, lib/host)
 - `git.ts`：把 `subprocess` 服务适配成带超时的 `GitRunner`。
 - `core.ts`：workspace（cwd→仓库根 realpath）解析 + `snapshotForSession`。
 - `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`）。
-- `queries.ts`：`history / diff / image-diff / show / branches / tags / authors / last-commit-message / worktree-stats`。
+- `queries.ts`：`history / diff / file-lines / image-diff / show / branches / tags / authors / last-commit-message / worktree-stats`。`file-lines` 按新侧行号取文件切片（worktree/staged 读工作区文件、commit 读 `<commit>:<path>`），供 diff 视图按需展开块间隐藏上下文。
 - `validate.ts`：host 信任边界的输入校验（`isSafePath` / `isSafeRev` / `isSafeBranchName`）。经 RPC 到来的 path/ref/分支名是唯一不可信 argv 素材；凡会把它们放进选项位的 git 命令都在此拦截，并额外用 `--end-of-options` 殿后（拒 `-` 开头的 `--output=<file>` 任意写向量）。
 - `parser.ts`：`git status --porcelain` / `--numstat` / `log` 输出解析为结构化数据。
 - `version.ts`：读本包 `package.json` 版本 + 查 GitHub release 做更新检查，失败降级。
@@ -61,7 +61,7 @@ Host 半 (Cordis + typert, lib/host)
 - `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
 - `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果）。
 - `jump.ts`：面板/子 tab 一次性焦点中继（模块级 per-session Map）。
-- `git-graph.ts` / `file-tree.ts` / `diff.ts`：自研纯算法（提交图车道布局、路径折树、unified diff 拆行）。
+- `git-graph.ts` / `file-tree.ts` / `diff.ts`：自研纯算法（提交图车道布局、路径折树、unified diff 拆行 → 并排行 + 块间隐藏上下文折叠为可展开 gap + 改动行前缀/后缀词级 diff）。
 - `locales.ts` / `icons.tsx` / `time.ts` / `types.ts`：中英文案、图标、时间格式化、client 侧类型别名。
 
 ## 数据流铁律
