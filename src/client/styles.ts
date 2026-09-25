@@ -214,7 +214,8 @@ const CSS = `
 .gp-cfg{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
 .gp-cfg__title{margin:0;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .gp-cfg__row{display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
-.gp-cfg__switch{appearance:none;-webkit-appearance:none;flex:none;width:32px;height:18px;margin:0;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;transition:background .15s ease;cursor:pointer}
+/* 开关清零 border/padding：::after 按 padding box 定位，UA 默认 1px 边框会把定位框上下各缩 1px，滑块上缘就多出 1px 空隙。 */
+.gp-cfg__switch{appearance:none;-webkit-appearance:none;flex:none;width:32px;height:18px;margin:0;padding:0;border:0;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;transition:background .15s ease;cursor:pointer}
 .gp-cfg__switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s ease}
 .gp-cfg__switch:checked{background:var(--dsw-alias-state-business-primary)}
 .gp-cfg__switch:checked::after{transform:translateX(14px)}
