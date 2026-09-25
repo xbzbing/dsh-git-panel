@@ -4,12 +4,11 @@
  *  middle = commit history graph + search (message / hash / author / date)
  *  right  = selected commit's changed files + message (comment)
  */
-import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
-import { queryAs } from './rpc'
-import type { GitBranch, GitCommit, GitFileStat, GraphCommit } from './types'
+import type { GitBranch, GraphCommit } from './types'
 import type { GitKey } from './locales'
 import { BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, RefreshIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
@@ -17,6 +16,7 @@ import { buildFileTree } from './file-tree'
 import { absoluteTime, timeAgo } from './time'
 import { statusChar, statusClass } from './status'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
+import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
 
 interface OverviewProps {
   readonly remote: GitPanelRemote
@@ -26,184 +26,25 @@ interface OverviewProps {
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-const PAGE = 100
 const LANE_W = 14
 const ROW_H = 30
 
-interface BranchTree {
-  current: string | null
-  defaultBranch: string | null
-  local: readonly GitBranch[]
-  remote: readonly GitBranch[]
-  tags: readonly GitBranch[]
-}
-
 export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps): JSX.Element {
-  const [tree, setTree] = useState<BranchTree | null>(null)
-  const [treeError, setTreeError] = useState(false)
-  const [authors, setAuthors] = useState<readonly string[]>([])
-  const [commits, setCommits] = useState<readonly GraphCommit[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [listError, setListError] = useState(false)
-  const [selected, setSelected] = useState<GraphCommit | null>(null)
-  const [detail, setDetail] = useState<{ commit: GitCommit | null; body: string; stats: readonly GitFileStat[] } | null>(null)
-  const [detailError, setDetailError] = useState(false)
-  /** Full-width file-diff overlay (click a changed file in the right column). */
-  const [fileDiff, setFileDiff] = useState<{ path: string; hash: string; shortHash: string } | null>(null)
-  const [fileDiffText, setFileDiffText] = useState<string | null>(null)
-  const [fileDiffError, setFileDiffError] = useState(false)
-  const [fileDiffMode, setFileDiffMode] = useState<DiffMode>('split')
-  const [fileDiffExpanded, setFileDiffExpanded] = useState(false)
-  const fileDiffSeq = useRef(0)
-  const [filter, setFilter] = useState<{ ref: string | null; search: string; author: string; since: string }>({ ref: null, search: '', author: '', since: '' })
+  const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
-  const seqRef = useRef(0)
-  const loadingRef = useRef(false)
-  const selectedHash = useRef<string | null>(null)
-  const listRef = useRef<HTMLDivElement>(null)
 
-  const loadTree = useCallback(async () => {
-    // Branches + tags gate the left column; fetch them together and render as
-    // soon as they land. Authors walks up to 2000 commits and only feeds the
-    // filter dropdown, so it is fetched separately and never blocks the tree.
-    setTreeError(false)
-    const [branchesRes, tagsRes] = await Promise.all([
-      remote.query({ sessionId, query: { kind: 'branches' } }),
-      remote.query({ sessionId, query: { kind: 'tags' } }),
-    ])
-    const branches = queryAs(branchesRes, 'branches')
-    if (branches === null) { setTreeError(true); return }
-    const tags = queryAs(tagsRes, 'tags')
-    setTree({
-      current: branches.current,
-      defaultBranch: branches.defaultBranch,
-      local: branches.local,
-      remote: branches.remote,
-      tags: tags?.tags ?? [],
-    })
-    void remote.query({ sessionId, query: { kind: 'authors' } }).then((res) => {
-      setAuthors(queryAs(res, 'authors')?.authors ?? [])
-    })
-  }, [remote, sessionId])
+  const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, refreshKey)
+  const detail = useCommitDetail(remote, sessionId)
+  const { commits, loading, listError, hasMore, listRef, loadMore } = useHistory(
+    remote, sessionId, filter, refreshKey, detail.clearSelection,
+  )
 
-  const loadPage = useCallback(async (skip: number, f: typeof filter) => {
-    if (loadingRef.current) return
-    loadingRef.current = true
-    const seq = seqRef.current
-    setLoading(true)
-    setListError(false)
-    const res = await remote.query({
-      sessionId,
-      query: {
-        kind: 'history', limit: PAGE, skip,
-        ...(f.ref ? { ref: f.ref } : {}),
-        ...(f.search ? { search: f.search } : {}),
-        ...(f.author ? { author: f.author } : {}),
-        ...(f.since ? { since: f.since } : {}),
-      },
-    })
-    loadingRef.current = false
-    if (seq !== seqRef.current) return
-    setLoading(false)
-    const history = queryAs(res, 'history')
-    if (history === null) { setListError(true); return }
-    const page = history.commits
-    setCommits((prev) => (skip === 0 ? page : [...prev, ...page]))
-    setTotal(history.total)
-  }, [remote, sessionId])
-
-  // Reload the branch tree when the snapshot advances (commit landed / poll)
-  // and once on mount; the tree rarely changes but must not go stale after a
-  // commit the way it did before.
-  useEffect(() => {
-    void loadTree()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey])
-
-  // Reload history from scratch on a filter change or a snapshot advance. One
-  // effect owns page 0 so the two triggers can't race and discard each other.
-  useEffect(() => {
-    seqRef.current += 1
-    loadingRef.current = false
-    setSelected(null)
-    setDetail(null)
-    selectedHash.current = null
-    if (listRef.current) listRef.current.scrollTop = 0
-    void loadPage(0, filter)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, refreshKey])
-
-  // Search debounce.
+  // Search debounce → filter change (which reloads history from page 0).
   useEffect(() => {
     const timer = setTimeout(() => setFilter((prev) => (prev.search === searchInput ? prev : { ...prev, search: searchInput })), 300)
     return () => clearTimeout(timer)
   }, [searchInput])
-
-  // Commit-detail cache: `show` is immutable per hash, so a re-selection (or a
-  // scroll back to an earlier commit) resolves from memory instead of another
-  // round trip. Bounded to the most recent entries.
-  const detailCache = useRef(new Map<string, { commit: GitCommit | null; body: string; stats: readonly GitFileStat[] }>())
-  const select = useCallback(async (commit: GraphCommit) => {
-    selectedHash.current = commit.hash
-    setSelected(commit)
-    setDetailError(false)
-    // Selecting a different commit drops any open file-diff overlay.
-    fileDiffSeq.current += 1
-    setFileDiff(null)
-    setFileDiffText(null)
-    setFileDiffError(false)
-    const cached = detailCache.current.get(commit.hash)
-    if (cached !== undefined) { setDetail(cached); return }
-    setDetail(null)
-    const res = await remote.query({ sessionId, query: { kind: 'show', ref: commit.hash } })
-    if (selectedHash.current !== commit.hash) return
-    const show = queryAs(res, 'show')
-    if (show !== null) {
-      const detail = { commit: show.commit, body: show.body, stats: show.stats }
-      const cache = detailCache.current
-      cache.set(commit.hash, detail)
-      while (cache.size > 50) {
-        const first = cache.keys().next().value
-        if (first === undefined) break
-        cache.delete(first)
-      }
-      setDetail(detail)
-    } else {
-      setDetailError(true)
-    }
-  }, [remote, sessionId])
-
-  /** Open the full-width diff overlay for a file within the selected commit. */
-  const openFileDiff = useCallback(async (path: string, hash: string, shortHash: string, expand = false) => {
-    const seq = ++fileDiffSeq.current
-    setFileDiff({ path, hash, shortHash })
-    setFileDiffText(null)
-    setFileDiffError(false)
-    setFileDiffExpanded(expand)
-    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash, ...(expand ? { context: 100000 } : {}) } })
-    if (seq !== fileDiffSeq.current) return
-    const diff = queryAs(res, 'diff')
-    if (diff !== null) setFileDiffText(diff.text)
-    else setFileDiffError(true)
-  }, [remote, sessionId])
-
-  const closeFileDiff = useCallback(() => {
-    fileDiffSeq.current += 1
-    setFileDiff(null)
-    setFileDiffText(null)
-    setFileDiffError(false)
-    setFileDiffExpanded(false)
-  }, [])
-
-  // Esc closes the file-diff modal.
-  useEffect(() => {
-    if (fileDiff === null) return
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') closeFileDiff() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [fileDiff, closeFileDiff])
 
   const searching = filter.search !== ''
   const rows: GraphRow[] = useMemo(() => (searching ? commits.map((c) => ({ commit: c, lane: 0, color: 0, edges: [], merge: false })) : layoutGraph(commits)), [commits, searching])
@@ -211,64 +52,26 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
   const graphW = searching ? 12 : Math.max(LANE_W, laneCount * LANE_W)
   const gridTpl = `${graphW}px minmax(120px,1fr) 72px 120px 96px`
 
-  const hasMore = total < 0 ? true : commits.length < total
   const onScroll = (): void => {
     const el = listRef.current
-    if (el === null || loadingRef.current || !hasMore) return
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) void loadPage(commits.length, filter)
+    if (el === null || !hasMore) return
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) loadMore()
   }
 
   const now = useMemo(() => Date.now(), [commits])
-  const fileTree = useMemo(() => (detail === null ? [] : buildFileTree(detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail])
-
-  // Hover card: pointing at a commit subject shows its full commit message
-  // (comment) without selecting it. The body comes from the same `show` cache
-  // the right pane uses, fetched lazily on hover; a short delay avoids a fetch
-  // storm while scanning.
-  const [hover, setHover] = useState<{ commit: GraphCommit; x: number; y: number } | null>(null)
-  const [hoverBody, setHoverBody] = useState<string | null>(null)
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const hoverHash = useRef<string | null>(null)
-
-  const onHoverEnter = useCallback((commit: GraphCommit, x: number, y: number) => {
-    if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
-    hoverTimer.current = setTimeout(() => {
-      hoverHash.current = commit.hash
-      setHover({ commit, x, y })
-      const cached = detailCache.current.get(commit.hash)
-      if (cached !== undefined) { setHoverBody(cached.body); return }
-      setHoverBody(null)
-      void remote.query({ sessionId, query: { kind: 'show', ref: commit.hash } }).then((res) => {
-        if (hoverHash.current !== commit.hash) return
-        const show = queryAs(res, 'show')
-        if (show !== null) {
-          detailCache.current.set(commit.hash, { commit: show.commit, body: show.body, stats: show.stats })
-          setHoverBody(show.body)
-        } else setHoverBody('')
-      })
-    }, 260)
-  }, [remote, sessionId])
-
-  const onHoverLeave = useCallback(() => {
-    if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
-    hoverHash.current = null
-    setHover(null)
-    setHoverBody(null)
-  }, [])
-
-  // Clear a pending hover timer on unmount so it can't setState after teardown.
-  useEffect(() => () => { if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current) }, [])
+  const fileTree = useMemo(() => (detail.detail === null ? [] : buildFileTree(detail.detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail.detail])
+  const selected = detail.selected
 
   return h('div', { className: 'gp-overview' }, [
     // file-diff modal (click a changed file in the right column)
-    renderFileDiffModal(fileDiff, {
-      text: fileDiffText,
-      error: fileDiffError,
-      mode: fileDiffMode,
-      onMode: setFileDiffMode,
-      expanded: fileDiffExpanded,
-      onExpand: (expand) => { if (fileDiff !== null) void openFileDiff(fileDiff.path, fileDiff.hash, fileDiff.shortHash, expand) },
-      onClose: closeFileDiff,
+    renderFileDiffModal(detail.fileDiff, {
+      text: detail.fileDiffText,
+      error: detail.fileDiffError,
+      mode: detail.fileDiffMode,
+      onMode: detail.setFileDiffMode,
+      expanded: detail.fileDiffExpanded,
+      onExpand: (expand) => { if (detail.fileDiff !== null) detail.openFileDiff(detail.fileDiff.path, detail.fileDiff.hash, detail.fileDiff.shortHash, expand) },
+      onClose: detail.closeFileDiff,
       remote,
       sessionId,
       t,
@@ -277,7 +80,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
     h('div', { key: 'left', className: 'gp-col gp-col--left' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
       onFilter: (ref) => setFilter((prev) => ({ ...prev, ref })),
       onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
-      onRetry: () => { void loadTree() },
+      onRetry: reloadTree,
       t,
     })),
     // middle: history
@@ -303,7 +106,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
           h('option', { key: '7d', value: '7 days ago' }, t('overview.last7d')),
           h('option', { key: '30d', value: '30 days ago' }, t('overview.last30d')),
         ]),
-        h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), onClick: () => { void remote.run({ sessionId, action: { kind: 'fetch' } }).then(() => loadTree()) } }, h(RefreshIcon, { size: 14 })),
+        h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), onClick: () => { void remote.run({ sessionId, action: { kind: 'fetch' } }).then(() => reloadTree()) } }, h(RefreshIcon, { size: 14 })),
       ]),
       h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
         commits.length === 0
@@ -311,8 +114,8 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
           : rows.map((row) => renderCommitRow(row, {
             selected: selected?.hash === row.commit.hash,
             gridTpl, graphW, laneCount, searching, now,
-            onSelect: () => void select(row.commit),
-            onHoverEnter, onHoverLeave,
+            onSelect: () => void detail.select(row.commit),
+            onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
             t,
           }))),
     ]),
@@ -322,12 +125,12 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
         ? h('div', { className: 'gp-empty' }, [h(CommitIcon, { key: 'i', size: 20 }), t('overview.selectCommit')])
         : [
           h('div', { key: 'files', className: 'gp-detail__files' },
-            detail === null
-              ? h('div', { className: 'gp-empty' }, detailError ? t('overview.detailFailed') : t('common.loading'))
+            detail.detail === null
+              ? h('div', { className: 'gp-empty' }, detail.detailError ? t('overview.detailFailed') : t('common.loading'))
               : renderFileTree(fileTree, {
-                activePath: fileDiff?.path ?? null,
+                activePath: detail.fileDiff?.path ?? null,
                 openTitle: t('overview.openFileDiff'),
-                onOpen: (path) => { if (selected !== null) void openFileDiff(path, selected.hash, selected.shortHash) },
+                onOpen: (path) => { if (selected !== null) void detail.openFileDiff(path, selected.hash, selected.shortHash) },
               })),
           h('div', { key: 'msg', className: 'gp-detail__msg' }, [
             h('div', { key: 'subj', className: 'gp-detail__subject' }, selected.subject),
@@ -336,11 +139,11 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
               h('span', { key: 'a' }, selected.author),
               h('span', { key: 't', title: absoluteTime(selected.dateIso) }, timeAgo(selected.dateIso, now, t)),
             ]),
-            detail !== null && detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
+            detail.detail !== null && detail.detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
           ]),
         ]),
     // hover card: full commit message (comment) of the pointed-at commit
-    renderHoverCard(hover, hoverBody, t),
+    renderHoverCard(detail.hover, detail.hoverBody, t),
   ])
 }
 

@@ -83,3 +83,19 @@ await esbuild.build({
   outfile: resolve(ROOT, 'lib/testkit.mjs'),
   logLevel: 'info',
 })
+
+// ── Hook kit: the OverviewTab data hooks as an ESM bundle with react external,
+//    so hook unit tests drive them under react-test-renderer with the installed
+//    React. Gitignored like testkit; rebuilt by `npm run test:unit`.
+await esbuild.build({
+  entryPoints: [resolve(ROOT, 'src/client/overview-hooks.ts')],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2022',
+  external: ['react', 'react-dom'],
+  minify: false,
+  sourcemap: false,
+  outfile: resolve(ROOT, 'lib/hookkit.mjs'),
+  logLevel: 'info',
+})

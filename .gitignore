@@ -2,9 +2,10 @@
 node_modules/
 
 # lib/ is committed on purpose: `dsh plugin add github:xbzbing/dsh-git-panel`
-# installs the committed tree without running a build. Only the testkit bundle
-# stays untracked, because `npm run test:unit` rebuilds it before running.
+# installs the committed tree without running a build. Only the test-only
+# bundles stay untracked, because `npm run test:unit` rebuilds them first.
 lib/testkit.mjs
+lib/hookkit.mjs
 *.tsbuildinfo
 
 # Local-only docs (design notes, scratch, not for the repo)
