@@ -31,7 +31,7 @@ const CSS = `
 .gp-tab--active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 32%,transparent)}
 .gp-tab__icon{display:inline-flex;width:15px;height:15px}
 .gp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px;text-align:center}
-.gp-toolbar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+.gp-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
 .gp-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-btn:disabled{opacity:.5;cursor:default}
@@ -39,12 +39,14 @@ const CSS = `
 .gp-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .gp-icon-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
 
-/* three-column overview */
+/* three-column overview — side columns shrink (with a min floor) instead of
+ * staying fixed, and the middle keeps a guaranteed min so it never collapses to
+ * blank when a right sidebar narrows the panel. */
 .gp-overview{display:flex;width:100%;min-height:0}
 .gp-col{display:flex;flex-direction:column;min-height:0;min-width:0}
-.gp-col--left{width:200px;flex:none;border-right:1px solid var(--dsw-alias-border-l2);overflow-y:auto}
-.gp-col--mid{flex:1;min-width:0}
-.gp-col--right{width:340px;flex:none;border-left:1px solid var(--dsw-alias-border-l2);display:flex;flex-direction:column;min-height:0}
+.gp-col--left{flex:0 1 200px;min-width:130px;border-right:1px solid var(--dsw-alias-border-l2);overflow-y:auto}
+.gp-col--mid{flex:1 1 0;min-width:150px}
+.gp-col--right{flex:0 1 340px;min-width:190px;border-left:1px solid var(--dsw-alias-border-l2);display:flex;flex-direction:column;min-height:0}
 
 /* branch list */
 .gp-branch-group{padding:2px 0}
@@ -103,8 +105,8 @@ const CSS = `
  * scrolls inside its own pane instead of growing and pushing the left commit
  * box below the fold. */
 .gp-changes{display:flex;width:100%;height:100%;min-height:0}
-.gp-changes__left{width:380px;flex:none;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l2)}
-.gp-changes__right{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.gp-changes__left{flex:0 1 380px;min-width:220px;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l2)}
+.gp-changes__right{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 .gp-check{width:14px;height:14px;flex:none;cursor:pointer}
 .gp-group-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
