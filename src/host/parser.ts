@@ -132,6 +132,17 @@ export function parseBranches(stdout: string): GitBranch[] {
   return out
 }
 
+/** Parse `git for-each-ref` tag lines: `name\0shortHash` per line. */
+export function parseTags(stdout: string): GitBranch[] {
+  const out: GitBranch[] = []
+  for (const line of stdout.split('\n')) {
+    if (line.trim() === '') continue
+    const [name, shortHash = ''] = line.split('\0')
+    if (name) out.push({ name, shortHash: shortHash === '' ? null : shortHash })
+  }
+  return out
+}
+
 /**
  * Parse `git show --name-status -z` into stats with an explicit state machine:
  * read a status token, then consume exactly the paths it owns (2 for R/C, 1

@@ -1,7 +1,9 @@
 /**
  * dsh-git-panel build script (self-contained; also runs as `prepare`).
  *
- * 1. Host half: tsc emits `lib/host/` (ESM + d.ts). Never minified.
+ * 1. Host half: tsc emits only the `lib/host/*.d.ts` declarations
+ *    (emitDeclarationOnly); the ESM `lib/host/index.js` is the esbuild bundle
+ *    below. Never minified — typert reflects on method parameter names.
  * 2. Client half: esbuild bundles `src/client/index.ts` into one file
  *    `lib/client.js` wrapped in the `window.__ModuleLoader__.load({id,factory})`
  *    closure the web shell materializes. Platform modules (react, @deepseek-ai/*)
@@ -15,10 +17,11 @@ import * as esbuild from 'esbuild'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)))
 
-/** Platform modules the browser loader provides; must stay external. */
+/** Platform modules the browser loader provides; must stay external. The whole
+ * `@deepseek-ai/*` scope is host-provided, matching AGENTS.md's external rule. */
 const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
-  '@deepseek-ai/cordis',
+  '@deepseek-ai/*',
 ]
 
 /** Host externals: dsh installation provides @deepseek-ai/*; node builtins auto-external. */

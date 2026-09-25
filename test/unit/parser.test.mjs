@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseStatus, parseGraphLog, parseBranches, parseNameStatus, sumNumstat, parseRefs } from '../../lib/testkit.mjs'
+import { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseTags, sumNumstat, parseRefs } from '../../lib/testkit.mjs'
 
 test('parseStatus splits a mixed XY into staged + unstaged sides', () => {
   const z = 'MM a.txt\0 M b.txt\0M  c.txt\0?? d.txt\0'
@@ -116,4 +116,12 @@ test('parseStatus keeps a space/unicode filename end to end', () => {
 test('sumNumstat totals additions/deletions and skips binary rows', () => {
   const out = sumNumstat('3\t1\ta.txt\n10\t0\tb.txt\n-\t-\timage.png\n')
   assert.deepEqual(out, { insertions: 13, deletions: 1 })
+})
+
+test('parseTags reads name\\0shortHash lines and nulls a missing hash', () => {
+  const out = parseTags('v1.0\x00abc1234\nv0.9\x00\n\n')
+  assert.deepEqual(out, [
+    { name: 'v1.0', shortHash: 'abc1234' },
+    { name: 'v0.9', shortHash: null },
+  ])
 })

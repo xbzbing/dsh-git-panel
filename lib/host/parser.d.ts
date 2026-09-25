@@ -19,6 +19,8 @@ export declare function parseGraphLog(stdout: string): GraphCommit[];
 export declare function parseRefs(decoration: string): GitRef[];
 /** Parse `git for-each-ref` local/remote branch lines: `name\0shortHash\0track`. */
 export declare function parseBranches(stdout: string): GitBranch[];
+/** Parse `git for-each-ref` tag lines: `name\0shortHash` per line. */
+export declare function parseTags(stdout: string): GitBranch[];
 /**
  * Parse `git show --name-status -z` into stats with an explicit state machine:
  * read a status token, then consume exactly the paths it owns (2 for R/C, 1

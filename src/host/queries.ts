@@ -6,7 +6,7 @@ import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
-import { parseBranches, parseGraphLog, parseNameStatus } from './parser.ts'
+import { parseBranches, parseGraphLog, parseNameStatus, parseTags } from './parser.ts'
 import type { GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
 import { imageMimeFor } from './types.ts'
 
@@ -320,13 +320,7 @@ async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQuery
 
 async function queryTags(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
   const res = await runCommand(deps.run, ['git', 'for-each-ref', '--sort=-creatordate', '--format=%(refname:short)%00%(objectname:short)', 'refs/tags'], root, 'tags', deps.signal)
-  const tags: GitBranch[] = 'run' in res && res.run.exitCode === 0
-    ? res.run.stdout.split('\n').flatMap((line) => {
-        if (line.trim() === '') return []
-        const [name, shortHash = ''] = line.split('\0')
-        return name ? [{ name, shortHash: shortHash === '' ? null : shortHash }] : []
-      })
-    : []
+  const tags: GitBranch[] = 'run' in res && res.run.exitCode === 0 ? parseTags(res.run.stdout) : []
   return { ok: true, value: { kind: 'tags', tags } }
 }
 
