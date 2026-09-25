@@ -155,6 +155,19 @@ export type GitQuery = {
     readonly commit: string;
     readonly context?: number;
 } | {
+    readonly kind: 'file-lines';
+    readonly path: string;
+    readonly base: 'worktree' | 'staged';
+    readonly start: number;
+    readonly end: number;
+} | {
+    readonly kind: 'file-lines';
+    readonly path: string;
+    readonly base: 'commit';
+    readonly commit: string;
+    readonly start: number;
+    readonly end: number;
+} | {
     readonly kind: 'image-diff';
     readonly path: string;
     readonly base: 'worktree' | 'staged';
@@ -212,6 +225,12 @@ export type GitQueryResult = {
     readonly kind: 'diff';
     readonly path: string;
     readonly text: string;
+} | {
+    readonly kind: 'file-lines';
+    readonly path: string;
+    readonly start: number;
+    readonly lines: readonly string[];
+    readonly eof: boolean;
 } | {
     /**
      * Old/new images for a binary image diff, as data URLs. The sides mirror

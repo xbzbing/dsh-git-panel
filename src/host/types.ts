@@ -153,6 +153,11 @@ export type GitQuery =
   }
   | { readonly kind: 'diff'; readonly path: string; readonly base: 'worktree' | 'staged'; readonly context?: number }
   | { readonly kind: 'diff'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly context?: number }
+  // On-demand hidden-context expansion: a slice of the post-change file, by
+  // 1-based new-side line numbers. `base`/`commit` mirror the diff request so
+  // the revealed lines come from the exact version the diff compared against.
+  | { readonly kind: 'file-lines'; readonly path: string; readonly base: 'worktree' | 'staged'; readonly start: number; readonly end: number }
+  | { readonly kind: 'file-lines'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly start: number; readonly end: number }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'worktree' | 'staged' }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'commit'; readonly commit: string }
   | { readonly kind: 'show'; readonly ref: string }
@@ -195,6 +200,10 @@ export interface WorktreeStats {
 export type GitQueryResult =
   | { readonly kind: 'history'; readonly commits: readonly GraphCommit[]; readonly total: number }
   | { readonly kind: 'diff'; readonly path: string; readonly text: string }
+  // A slice of a file's post-change content for on-demand context expansion:
+  // `lines` are 1-based new-side numbers `start..end` (clamped to the file);
+  // `eof` marks that `end` reached the last line (no more to reveal below).
+  | { readonly kind: 'file-lines'; readonly path: string; readonly start: number; readonly lines: readonly string[]; readonly eof: boolean }
   | {
     /**
      * Old/new images for a binary image diff, as data URLs. The sides mirror

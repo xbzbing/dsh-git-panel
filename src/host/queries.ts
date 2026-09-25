@@ -31,6 +31,7 @@ export async function runQuery(
     switch (q.kind) {
       case 'history': return await queryHistory(deps, root, q)
       case 'diff': return await queryDiff(deps, root, q)
+      case 'file-lines': return await queryFileLines(deps, root, q)
       case 'image-diff': return await queryImageDiff(deps, config, root, q)
       case 'show': return await queryShow(deps, root, q.ref)
       case 'branches': return await queryBranches(deps, root)
@@ -145,6 +146,75 @@ async function queryDiff(
     }
   }
   return { ok: true, value: { kind: 'diff', path: q.path, text } }
+}
+
+/**
+ * A slice of a file's post-change content for on-demand context expansion. The
+ * source version mirrors the diff's new side: worktree/staged read the working
+ * file (both diff against it on the right), commit reads `<commit>:<path>`. The
+ * whole file is materialized then sliced in-process — expansion targets small
+ * ranges and git offers no cheap "print lines m..n of a blob" primitive.
+ */
+async function queryFileLines(
+  deps: SnapshotDeps,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'file-lines' }>,
+): Promise<GitQueryResponse> {
+  if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  const start = Number.isFinite(q.start) ? Math.max(1, Math.floor(q.start)) : 1
+  const end = Number.isFinite(q.end) ? Math.max(start, Math.floor(q.end)) : start
+  let args: string[]
+  if (q.base === 'commit') {
+    if (!isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
+    args = ['git', 'show', '--end-of-options', `${q.commit}:${q.path}`]
+  } else {
+    // worktree + staged both expand against the working-tree file (the diff's
+    // right side); --end-of-options keeps a `-`-leading path out of options.
+    args = ['git', 'show', `--end-of-options`, `:${q.path}`]
+    // ":<path>" is the index copy; for an unstaged worktree diff the working
+    // file is the truthful right side, so prefer reading it directly.
+    if (q.base === 'worktree') args = ['git', 'cat-file', '-p', `:${q.path}`]
+  }
+  const res = await runCommand(deps.run, args, root, 'file-lines', deps.signal)
+  if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+  if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  if (res.run.exitCode !== 0) {
+    // Untracked/new files have no committed/index blob: read the worktree file.
+    if (q.base === 'worktree') {
+      const wt = await readWorktreeText(deps, root, q.path)
+      if (wt !== null) return sliceLines(q.path, wt, start, end)
+    }
+    return { ok: false, error: { code: 'git-error', message: res.run.stderr.trim() || 'no such blob' } }
+  }
+  return sliceLines(q.path, res.run.stdout, start, end)
+}
+
+/** Read a worktree file as text when it is inside the root (symlink-guarded). */
+async function readWorktreeText(deps: SnapshotDeps, root: string, path: string): Promise<string | null> {
+  try {
+    const file = join(root, path)
+    const real = await deps.fs.realpath(file)
+    const rootReal = await deps.fs.realpath(root)
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) return null
+    const buf = await deps.fs.readFile(file)
+    return buf.toString('utf8')
+  } catch {
+    return null
+  }
+}
+
+/** Slice `content` to 1-based lines start..end, flagging when end hit EOF. */
+function sliceLines(path: string, content: string, start: number, end: number): GitQueryResponse {
+  // Split on \n and drop a single trailing empty element (final newline) so the
+  // line count matches the file's real line count.
+  const all = content.split('\n')
+  if (all.length > 0 && all[all.length - 1] === '') all.pop()
+  const from = Math.min(start, all.length + 1)
+  const to = Math.min(end, all.length)
+  const lines = from <= to ? all.slice(from - 1, to) : []
+  const eof = to >= all.length
+  return { ok: true, value: { kind: 'file-lines', path, start: from, lines, eof } }
 }
 
 // ── image diff ─────────────────────────────────────────────────────────────

@@ -171,8 +171,36 @@ test('diff context expansion shows more surrounding unchanged lines', async () =
   assert.match(wide.value.text, /^ line20$/m, 'expand-all includes the last line')
 })
 
-test('show returns commit meta + changed files', async () => {
+test('file-lines serves a worktree slice for on-demand context expansion', async () => {
+  // a.txt has 20 lines (line10 modified in the worktree); a slice reads the
+  // working-tree file's exact lines, EOF-flagged when the end is reached.
+  const mid = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'a.txt', base: 'worktree', start: 3, end: 5 } })
+  assert.equal(mid.ok, true)
+  assert.equal(mid.value.kind, 'file-lines')
+  assert.deepEqual(mid.value.lines, ['line3', 'line4', 'line5'])
+  assert.equal(mid.value.start, 3)
+  assert.equal(mid.value.eof, false)
+  const tail = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'a.txt', base: 'worktree', start: 19, end: 40 } })
+  assert.equal(tail.ok, true)
+  assert.deepEqual(tail.value.lines, ['line19', 'line20'])
+  assert.equal(tail.value.eof, true, 'clamped to file end flags eof')
+})
+
+test('file-lines reads a commit blob by new-side line number', async () => {
   const hist = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 5, skip: 0 } })
+  const ref = hist.value.commits.find((c) => c.subject.includes('add a')).hash
+  const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'a.txt', base: 'commit', commit: ref, start: 1, end: 2 } })
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.value.lines, ['line1', 'line2'])
+})
+
+test('file-lines rejects an unsafe path', async () => {
+  const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: '../escape', base: 'worktree', start: 1, end: 1 } })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'invalid-path')
+})
+
+test('show returns commit meta + changed files', async () => {  const hist = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 5, skip: 0 } })
   const ref = hist.value.commits.find((c) => c.subject.includes('add a')).hash
   const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref } })
   assert.equal(res.ok, true)
