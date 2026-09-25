@@ -18,8 +18,13 @@ import { PillConfig } from './PillConfig'
 import type { ClientCtx } from './rpc'
 
 const NS = 'gitPanel'
-/** The bundle package name — the `plugins.bundle.config` slot key. */
-const BUNDLE_KEY = 'dsh-git-panel'
+/**
+ * `plugins.bundle.config` keys: the bundle identity is the install dep key —
+ * `dsh-git-panel` for github/file installs, the scoped npm name for
+ * `dsh plugin add @xbzbing/dsh-git-panel`. Register both so the detail-page
+ * configuration gate matches either install.
+ */
+const BUNDLE_KEYS = ['dsh-git-panel', '@xbzbing/dsh-git-panel'] as const
 
 export const inject = ['slots', 'locale', 'connection']
 
@@ -45,12 +50,15 @@ export function apply(ctx: ClientCtx): void {
   ))
 
   // Plugin detail page config form (the openviking-manager pattern): only an
-  // explicit `plugins.bundle.config` entry keyed by the package name gives the
-  // detail page a configuration section — `static Config` alone renders nothing.
-  ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
-    { name: 'plugins.bundle.config', key: BUNDLE_KEY, locale: NS },
-    (props: { view?: string }) => (props.view === 'summary' ? t('cfg.title') : h(PillConfig, { ctx, t })),
-  ))
+  // explicit `plugins.bundle.config` entry keyed by the bundle identity gives
+  // the detail page a configuration section — `static Config` alone renders
+  // nothing. One registration per install-identity key (see BUNDLE_KEYS).
+  for (const key of BUNDLE_KEYS) {
+    ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
+      { name: 'plugins.bundle.config', key, locale: NS },
+      (props: { view?: string }) => (props.view === 'summary' ? t('cfg.title') : h(PillConfig, { ctx, t })),
+    ))
+  }
 
   // Refresh all controllers on connection reset; dispose on teardown.
   ctx.effect(() => {
