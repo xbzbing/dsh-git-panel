@@ -54,7 +54,7 @@ Host 半 (Cordis + typert, lib/host)
 - `index.ts`：Cordis `apply` —— 挂 RPC 面、注册三个 slot（`conversation.view` / `conversation.input.left` / `plugins.bundle.config`）、注册 i18n。
 - `Panel.tsx`：主面板壳，内部子 tab 路由 + 焦点消费 + 版本条。
 - `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment），含 hover 卡片。
-- `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条、并排差异视图。
+- `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条（读快照上的 `stats`，不再单发查询）、并排差异视图（`DiffView` 已 `memo`）。
 - `GitPill.tsx`：inputBar 标记 + 跳转。
 - `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）。
 - `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
@@ -106,6 +106,7 @@ npx tsc --noEmit      # 类型检查
 - client 改动：`node build.mjs` 产出 `lib/client.js` 成功，然后**刷新** `http://127.0.0.1:3082` 验证（当前无 dev:web watcher，client 改动不会热重载，必须重建 + 刷新页面）。
 - 测试放在 `test/` 下：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点），`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。
 - 提交前跑一次完整 `node build.mjs`，确保 host 与 client 均无错。
+- 一键门禁 `npm run check`（`typecheck` + `test` + `git diff --exit-code -- lib/`）：类型、单测/e2e、以及「`lib/` 与 `src/` 一致（构建产物已提交且新鲜）」三道一起过。
 
 ## 代码约定
 

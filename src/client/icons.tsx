@@ -36,10 +36,6 @@ export function RefreshIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M13 8a5 5 0 1 1-1.5-3.5' }), h('path', { key: 'b', d: 'M13 2v3h-3' })], size)
 }
 
-export function FolderIcon({ size }: IconProps): JSX.Element {
-  return svg([h('path', { key: 'a', d: 'M2 4h4l1.5 1.5H14V13H2z' })], size)
-}
-
 export function FileIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
 }

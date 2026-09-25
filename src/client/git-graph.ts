@@ -124,5 +124,3 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
   return rows
 }
 
-/** A small palette of theme-friendly graph colors (CSS variables preferred at render). */
-export const GRAPH_COLORS = 8

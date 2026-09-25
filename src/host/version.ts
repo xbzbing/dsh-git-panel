@@ -59,20 +59,22 @@ export function parseRepository(repository: unknown): { owner: string; repo: str
 }
 
 /**
- * Compare dotted numeric versions with basic prerelease handling; returns 1
- * when a > b, -1 when a < b, 0 when equal. A release outranks a prerelease
- * sharing the same core (e.g. 0.2.0 > 0.2.0-beta.1).
+ * Compare dotted versions with prerelease handling; returns 1 when a > b, -1
+ * when a < b, 0 when equal. A release outranks a prerelease sharing the same
+ * core (0.2.0 > 0.2.0-beta.1); prerelease identifiers compare dot-segment by
+ * segment, numeric parts numerically (beta.2 > beta.1, 0.2.0-rc.10 > rc.2).
  */
 export function compareVersions(a: string, b: string): number {
-  const split = (value: string): { core: number[]; prerelease: boolean } => {
+  const split = (value: string): { core: number[]; pre: string[] } => {
     const trimmed = value.trim().replace(/^v/i, '')
     const [core, ...rest] = trimmed.split('-')
+    const preRaw = rest.join('-')
     return {
       core: core!
         .split('.')
         .map((part) => Number.parseInt(part, 10))
         .filter((part) => Number.isFinite(part)),
-      prerelease: rest.length > 0 && rest.join('-') !== '',
+      pre: preRaw === '' ? [] : preRaw.split('.'),
     }
   }
   const left = split(a)
@@ -84,10 +86,27 @@ export function compareVersions(a: string, b: string): number {
     if (l > r) return 1
     if (l < r) return -1
   }
-  if (left.prerelease === right.prerelease) return 0
-  return left.prerelease ? -1 : 1
+  // Equal core: a version with no prerelease outranks one that has it.
+  if (left.pre.length === 0 && right.pre.length === 0) return 0
+  if (left.pre.length === 0) return 1
+  if (right.pre.length === 0) return -1
+  const preLen = Math.max(left.pre.length, right.pre.length)
+  for (let i = 0; i < preLen; i += 1) {
+    const lp = left.pre[i]
+    const rp = right.pre[i]
+    if (lp === undefined) return -1
+    if (rp === undefined) return 1
+    const ln = Number.parseInt(lp, 10)
+    const rn = Number.parseInt(rp, 10)
+    const lNum = Number.isFinite(ln) && String(ln) === lp
+    const rNum = Number.isFinite(rn) && String(rn) === rp
+    if (lNum && rNum) { if (ln !== rn) return ln > rn ? 1 : -1 }
+    else if (lp !== rp) return lp > rp ? 1 : -1
+  }
+  return 0
 }
 
+let manifestCache: PackageManifest | undefined
 async function readManifest(path: string): Promise<PackageManifest> {
   const raw = await readFile(path, 'utf8')
   const parsed: unknown = JSON.parse(raw)
@@ -95,9 +114,16 @@ async function readManifest(path: string): Promise<PackageManifest> {
   return parsed as PackageManifest
 }
 
+/** Read (and memoize) the default manifest once; a custom path skips the cache. */
+async function loadManifest(path: string | undefined): Promise<PackageManifest> {
+  if (path !== undefined) return readManifest(path)
+  if (manifestCache === undefined) manifestCache = await readManifest(manifestPath())
+  return manifestCache
+}
+
 /** Local-only view: current version + repository URL, no network access. */
 export async function readVersionInfo(options: { manifestPath?: string } = {}): Promise<VersionInfo> {
-  const manifest = await readManifest(options.manifestPath ?? manifestPath())
+  const manifest = await loadManifest(options.manifestPath)
   const current = stringField(manifest.version) ?? '0.0.0'
   const repo = parseRepository(manifest.repository)
   const repositoryUrl = repo === undefined ? undefined : `https://github.com/${repo.owner}/${repo.repo}`
@@ -109,15 +135,29 @@ export async function readVersionInfo(options: { manifestPath?: string } = {}): 
   }
 }
 
+/** GitHub release URLs only — the remote html_url goes straight into an href. */
+function safeReleaseUrl(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined
+  return /^https:\/\/github\.com\//i.test(url) ? url : undefined
+}
+
+/** Remote-check freshness: avoid hammering the anonymous 60/h GitHub limit. */
+const REMOTE_CACHE_MS = 10 * 60 * 1000
+let remoteCache: { at: number; info: VersionInfo } | undefined
+
 /**
  * Query the GitHub releases API for the latest tag and compare it to the
- * bundled version. Failures are reported through `error` instead of throwing.
+ * bundled version. Failures are reported through `error` instead of throwing;
+ * a 5s timeout bounds the call and a 10-minute memo bounds the request rate.
  */
 export async function checkLatestVersion(
   options: { manifestPath?: string; fetchFn?: VersionFetch } = {},
 ): Promise<VersionInfo> {
+  if (options.manifestPath === undefined && options.fetchFn === undefined && remoteCache !== undefined && Date.now() - remoteCache.at < REMOTE_CACHE_MS) {
+    return remoteCache.info
+  }
   const base = await readVersionInfo({ manifestPath: options.manifestPath })
-  const repo = parseRepository((await readManifest(options.manifestPath ?? manifestPath())).repository)
+  const repo = parseRepository((await loadManifest(options.manifestPath)).repository)
   if (repo === undefined) {
     return { ...base, checkedRemote: false, error: 'repository is not configured' }
   }
@@ -125,6 +165,7 @@ export async function checkLatestVersion(
   try {
     const response = await fetchFn(`https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`, {
       headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-git-panel' },
+      signal: AbortSignal.timeout(5000),
     })
     if (!response.ok) {
       return { ...base, checkedRemote: true, error: `GitHub responded with ${response.status}` }
@@ -136,13 +177,15 @@ export async function checkLatestVersion(
       return { ...base, checkedRemote: true, error: 'GitHub response did not include a release tag' }
     }
     const latest = tag.replace(/^v/i, '')
-    return {
+    const info: VersionInfo = {
       ...base,
       checkedRemote: true,
       latest,
       updateAvailable: compareVersions(latest, base.current) > 0,
-      releaseUrl: htmlUrl ?? `${base.repositoryUrl ?? ''}/releases/latest`,
+      releaseUrl: safeReleaseUrl(htmlUrl) ?? (base.repositoryUrl !== undefined ? `${base.repositoryUrl}/releases/latest` : undefined),
     }
+    if (options.manifestPath === undefined && options.fetchFn === undefined) remoteCache = { at: Date.now(), info }
+    return info
   } catch (error) {
     return { ...base, checkedRemote: true, error: error instanceof Error ? error.message : 'Unable to reach GitHub' }
   }

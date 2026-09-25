@@ -55,6 +55,9 @@ await esbuild.build({
   external: PLATFORM_MODULES,
   minify: true,
   sourcemap: false,
+  // The banner deliberately assigns `module.exports` in an ESM entry; silence
+  // the expected commonjs-variable-in-esm warning so the build log stays clean.
+  logOverride: { 'commonjs-variable-in-esm': 'silent' },
   outfile: resolve(ROOT, 'lib/client.js'),
   logLevel: 'info',
   banner: {

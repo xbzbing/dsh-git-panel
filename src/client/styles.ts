@@ -45,9 +45,6 @@ const CSS = `
 .gp-col--left{width:200px;flex:none;border-right:1px solid var(--dsw-alias-border-l2);overflow-y:auto}
 .gp-col--mid{flex:1;min-width:0}
 .gp-col--right{width:340px;flex:none;border-left:1px solid var(--dsw-alias-border-l2);display:flex;flex-direction:column;min-height:0}
-.gp-splitter{flex:none;width:5px;cursor:col-resize;background:transparent}
-.gp-splitter:hover{background:var(--dsw-alias-state-business-primary)}
-.gp-splitter--row{width:auto;height:5px;cursor:row-resize}
 
 /* branch list */
 .gp-branch-group{padding:2px 0}
@@ -124,7 +121,6 @@ const CSS = `
 .gp-stats__item{display:inline-flex;align-items:center;gap:5px}
 .gp-stats__add{color:var(--dsw-alias-state-success-primary)}
 .gp-stats__del{color:var(--dsw-alias-state-error-primary)}
-.gp-stats__dot{width:6px;height:6px;border-radius:99px;background:var(--dsw-alias-label-tertiary)}
 
 /* commit box */
 .gp-commitbox{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px;display:flex;flex-direction:column;gap:8px}
@@ -146,7 +142,6 @@ const CSS = `
 .gp-seg__btn--active{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-seg__btn--active:hover{background:var(--dsw-alias-state-business-primary)}
 .gp-diff__scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px}
-.gp-diff__table{width:100%;border-collapse:collapse}
 .gp-diff__side{display:grid;grid-template-columns:48px 1fr 48px 1fr}
 .gp-diff-cell{padding:0 4px;white-space:pre-wrap;word-break:break-all;line-height:20px}
 .gp-diff-no{color:var(--dsw-alias-label-tertiary);text-align:right;padding:0 6px;user-select:none;font-size:11px;line-height:20px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);border-right:1px solid var(--dsw-alias-border-l2)}
