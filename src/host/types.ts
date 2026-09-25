@@ -16,7 +16,6 @@ export type GitSnapshotResult =
   | { readonly ok: false; readonly error: GitFailure }
 
 export type GitFailure =
-  | { readonly code: 'session-not-found'; readonly sessionId: string }
   | { readonly code: 'cwd-unavailable'; readonly sessionId: string }
   | { readonly code: 'not-a-git-repo'; readonly cwd?: string; readonly showInputPill?: boolean }
   | { readonly code: 'git-unavailable'; readonly detail: string }
@@ -116,7 +115,6 @@ export type GitAction =
   | { readonly kind: 'fetch' }
 
 export type GitErrorCode =
-  | 'session-not-found'
   | 'cwd-unavailable'
   | 'not-a-git-repo'
   | 'git-unavailable'

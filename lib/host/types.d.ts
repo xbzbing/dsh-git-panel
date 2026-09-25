@@ -15,9 +15,6 @@ export type GitSnapshotResult = {
     readonly error: GitFailure;
 };
 export type GitFailure = {
-    readonly code: 'session-not-found';
-    readonly sessionId: string;
-} | {
     readonly code: 'cwd-unavailable';
     readonly sessionId: string;
 } | {
@@ -118,7 +115,7 @@ export type GitAction = {
 } | {
     readonly kind: 'fetch';
 };
-export type GitErrorCode = 'session-not-found' | 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;

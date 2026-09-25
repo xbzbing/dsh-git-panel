@@ -1,5 +1,5 @@
 import type { GitRunner } from './git.ts';
-import type { GitChange, GitSnapshotResult } from './types.ts';
+import type { GitChange, GitErrorCode, GitSnapshotResult } from './types.ts';
 export interface GitPanelConfig {
     readonly timeoutMs: number;
     /** Per-command stdout cap; also the per-side image-diff payload cap. */
@@ -70,6 +70,18 @@ export declare function runCommand(runner: GitRunner, argv: readonly string[], c
 } | {
     failure: unknown;
 }>;
+/**
+ * Collapse a workspace-resolution failure into the `{ code, message }` shape
+ * the run/query endpoints return. `GitFailure` already carries only endpoint
+ * codes, so no membership test is needed (the previous per-endpoint ternary
+ * that re-listed every code was always true — dead). `detail` becomes message.
+ */
+export declare function mapWorkspaceFailure(failure: GitSnapshotResult & {
+    ok: false;
+}): {
+    code: GitErrorCode;
+    message?: string;
+};
 /** Produce a full snapshot for a session. */
 export declare function snapshotForSession(deps: SnapshotDeps, config: GitPanelConfig, sessionId: string): Promise<GitSnapshotResult>;
 /** Max mtime among changed files (epoch ms), capped for large sets. */

@@ -4,7 +4,7 @@
  */
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
-import { resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
+import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
 import { parseBranches, parseGraphLog, parseNameStatus } from './parser.ts'
 import type { GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
@@ -23,18 +23,7 @@ export async function runQuery(
   request: GitQueryRequest,
 ): Promise<GitQueryResponse> {
   const workspace = await resolveWorkspace(deps, request.sessionId)
-  if (!workspace.ok) {
-    const error = workspace.failure.error
-    return {
-      ok: false,
-      error: {
-        code: error.code === 'not-a-git-repo' || error.code === 'cwd-unavailable' || error.code === 'session-not-found' || error.code === 'timeout' || error.code === 'cancelled' || error.code === 'git-unavailable'
-          ? error.code
-          : 'git-error',
-        ...('detail' in error ? { message: error.detail } : {}),
-      },
-    }
-  }
+  if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
   const q = request.query
 

@@ -16,7 +16,7 @@ export type GitView =
   | { readonly state: 'ready'; readonly snapshot: GitSnapshot }
   | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string; readonly showInputPill?: boolean } }
 
-const TERMINAL_CODES: ReadonlySet<string> = new Set(['cwd-unavailable', 'session-not-found'])
+const TERMINAL_CODES: ReadonlySet<string> = new Set(['cwd-unavailable'])
 const DEFAULT_POLL_MS = 30_000
 const NO_CWD_POLL_MS = 60_000
 

@@ -8,6 +8,7 @@ import { createElement as h, useCallback, useEffect, useMemo, useRef, useState }
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
+import { queryAs } from './rpc'
 import type { GitBranch, GitCommit, GitFileStat, GraphCommit } from './types'
 import type { GitKey } from './locales'
 import { BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, RefreshIcon, TagIcon } from './icons'
@@ -67,20 +68,22 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
     // soon as they land. Authors walks up to 2000 commits and only feeds the
     // filter dropdown, so it is fetched separately and never blocks the tree.
     setTreeError(false)
-    const [branches, tags] = await Promise.all([
+    const [branchesRes, tagsRes] = await Promise.all([
       remote.query({ sessionId, query: { kind: 'branches' } }),
       remote.query({ sessionId, query: { kind: 'tags' } }),
     ])
-    if (!branches.ok || branches.value.kind !== 'branches') { setTreeError(true); return }
+    const branches = queryAs(branchesRes, 'branches')
+    if (branches === null) { setTreeError(true); return }
+    const tags = queryAs(tagsRes, 'tags')
     setTree({
-      current: branches.value.current,
-      defaultBranch: branches.value.defaultBranch,
-      local: branches.value.local,
-      remote: branches.value.remote,
-      tags: tags.ok && tags.value.kind === 'tags' ? tags.value.tags : [],
+      current: branches.current,
+      defaultBranch: branches.defaultBranch,
+      local: branches.local,
+      remote: branches.remote,
+      tags: tags?.tags ?? [],
     })
-    void remote.query({ sessionId, query: { kind: 'authors' } }).then((auth) => {
-      setAuthors(auth.ok && auth.value.kind === 'authors' ? auth.value.authors : [])
+    void remote.query({ sessionId, query: { kind: 'authors' } }).then((res) => {
+      setAuthors(queryAs(res, 'authors')?.authors ?? [])
     })
   }, [remote, sessionId])
 
@@ -103,10 +106,11 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
     loadingRef.current = false
     if (seq !== seqRef.current) return
     setLoading(false)
-    if (!res.ok || res.value.kind !== 'history') { setListError(true); return }
-    const page = res.value.commits
+    const history = queryAs(res, 'history')
+    if (history === null) { setListError(true); return }
+    const page = history.commits
     setCommits((prev) => (skip === 0 ? page : [...prev, ...page]))
-    setTotal(res.value.total)
+    setTotal(history.total)
   }, [remote, sessionId])
 
   // Reload the branch tree when the snapshot advances (commit landed / poll)
@@ -154,8 +158,9 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
     setDetail(null)
     const res = await remote.query({ sessionId, query: { kind: 'show', ref: commit.hash } })
     if (selectedHash.current !== commit.hash) return
-    if (res.ok && res.value.kind === 'show') {
-      const detail = { commit: res.value.commit, body: res.value.body, stats: res.value.stats }
+    const show = queryAs(res, 'show')
+    if (show !== null) {
+      const detail = { commit: show.commit, body: show.body, stats: show.stats }
       const cache = detailCache.current
       cache.set(commit.hash, detail)
       while (cache.size > 50) {
@@ -178,7 +183,8 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
     setFileDiffExpanded(expand)
     const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash, ...(expand ? { context: 100000 } : {}) } })
     if (seq !== fileDiffSeq.current) return
-    if (res.ok && res.value.kind === 'diff') setFileDiffText(res.value.text)
+    const diff = queryAs(res, 'diff')
+    if (diff !== null) setFileDiffText(diff.text)
     else setFileDiffError(true)
   }, [remote, sessionId])
 
@@ -233,9 +239,10 @@ export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps)
       setHoverBody(null)
       void remote.query({ sessionId, query: { kind: 'show', ref: commit.hash } }).then((res) => {
         if (hoverHash.current !== commit.hash) return
-        if (res.ok && res.value.kind === 'show') {
-          detailCache.current.set(commit.hash, { commit: res.value.commit, body: res.value.body, stats: res.value.stats })
-          setHoverBody(res.value.body)
+        const show = queryAs(res, 'show')
+        if (show !== null) {
+          detailCache.current.set(commit.hash, { commit: show.commit, body: show.body, stats: show.stats })
+          setHoverBody(show.body)
         } else setHoverBody('')
       })
     }, 260)

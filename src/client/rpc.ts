@@ -8,7 +8,7 @@
  * instead of throwing.
  */
 import type {
-  GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse,
+  GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitQueryResult,
   GitSnapshotRequest, GitSnapshotResult, GitVersionInfo, GitVersionRequest,
 } from './types'
 
@@ -98,6 +98,24 @@ export interface GitPanelRemote {
   run(request: GitActionRequest, signal?: AbortSignal): Promise<GitActionResult>
   query(request: GitQueryRequest, signal?: AbortSignal): Promise<GitQueryResponse>
   version(request: GitVersionRequest, signal?: AbortSignal): Promise<GitVersionInfo | { ok: false; error: { code: string; message?: string } }>
+}
+
+/**
+ * Unwrap a query response to its typed value only when both the transport
+ * envelope succeeded and the business result matches `kind`; otherwise null.
+ * Collapses the repeated `res.ok && res.value.kind === '<k>'` guard.
+ */
+export function queryAs<K extends GitQueryResult['kind']>(
+  res: GitQueryResponse,
+  kind: K,
+): Extract<GitQueryResult, { kind: K }> | null {
+  if (!res.ok || res.value.kind !== kind) return null
+  return res.value as Extract<GitQueryResult, { kind: K }>
+}
+
+/** Narrow an optional sessionId to a usable non-empty string. */
+export function hasSession(id: string | undefined): id is string {
+  return id !== undefined && id !== ''
 }
 
 /**

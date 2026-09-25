@@ -5,6 +5,7 @@
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
+import { queryAs } from './rpc'
 import type { GitAction, GitChange, GitSnapshot } from './types'
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
@@ -74,8 +75,9 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
     if (!amend || amendPrefilled || message.trim() !== '') return
     let alive = true
     void remote.query({ sessionId, query: { kind: 'last-commit-message' } }).then((res) => {
-      if (alive && res.ok && res.value.kind === 'last-commit-message') {
-        setMessage(res.value.message)
+      const msg = queryAs(res, 'last-commit-message')
+      if (alive && msg !== null) {
+        setMessage(msg.message)
         setAmendPrefilled(true)
       }
     })
@@ -89,7 +91,8 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
     setExpanded(expand)
     const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: 100000 } : {}) } })
     if (seq !== diffSeq.current) return
-    if (res.ok && res.value.kind === 'diff') setDiffText(res.value.text)
+    const diff = queryAs(res, 'diff')
+    if (diff !== null) setDiffText(diff.text)
     else setDiffText('')
   }, [remote, sessionId])
 

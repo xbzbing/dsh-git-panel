@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { GitRunner } from './git.ts'
 import { parseStatus, sumNumstat } from './parser.ts'
 import { isSafePath } from './validate.ts'
-import type { GitChange, GitCommit, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
+import type { GitChange, GitCommit, GitErrorCode, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -152,6 +152,20 @@ export async function runCommand(
 function mapRunFailure(failure: unknown): { code: 'git-unavailable'; detail: string } {
   const message = failure instanceof Error ? failure.message : String(failure)
   return { code: 'git-unavailable', detail: message }
+}
+
+/**
+ * Collapse a workspace-resolution failure into the `{ code, message }` shape
+ * the run/query endpoints return. `GitFailure` already carries only endpoint
+ * codes, so no membership test is needed (the previous per-endpoint ternary
+ * that re-listed every code was always true — dead). `detail` becomes message.
+ */
+export function mapWorkspaceFailure(
+  failure: GitSnapshotResult & { ok: false },
+): { code: GitErrorCode; message?: string } {
+  const error = failure.error
+  const message = 'detail' in error ? error.detail : undefined
+  return { code: error.code, ...(message !== undefined ? { message } : {}) }
 }
 
 /** Produce a full snapshot for a session. */

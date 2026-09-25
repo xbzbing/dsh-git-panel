@@ -3,7 +3,7 @@
  */
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
-import { resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
+import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafeBranchName, isSafePath } from './validate.ts'
 import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.ts'
 
@@ -71,10 +71,7 @@ export async function runAction(
   request: GitActionRequest,
 ): Promise<GitActionResult> {
   const workspace = await resolveWorkspace(deps, request.sessionId)
-  if (!workspace.ok) {
-    const error = workspace.failure.error
-    return { ok: false, error: { code: error.code as GitErrorCode, message: 'detail' in error ? error.detail : undefined } }
-  }
+  if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
 
   // Detect unborn for correct unstage semantics.

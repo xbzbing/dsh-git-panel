@@ -5,10 +5,9 @@
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { gitPanelRemoteOf, type ClientCtx } from './rpc'
+import { gitPanelRemoteOf, hasSession, type ClientCtx } from './rpc'
 import type { GitPanelRemote } from './rpc'
-import { useGitView } from './registry'
-import { controllerFor } from './registry'
+import { useGitView, controllerFor } from './registry'
 import { takeSubTab, subscribeSubTab, type SubTab } from './jump'
 import { OverviewTab } from './OverviewTab'
 import { ChangesTab } from './ChangesTab'
@@ -33,7 +32,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const consumedFor = useRef<string | undefined>(undefined)
   const dirty = view.state === 'ready' ? view.snapshot.dirty : false
   useEffect(() => {
-    if (sessionId === undefined || sessionId === '') return
+    if (!hasSession(sessionId)) return
     if (consumedFor.current === sessionId) return
     const pending = takeSubTab(sessionId)
     if (pending !== null) { consumedFor.current = sessionId; setTab(pending); return }
@@ -43,7 +42,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // While mounted, receive pill jumps live (a click when the panel is already
   // visible must still switch sub-tabs, not sit in the pending map).
   useEffect(() => {
-    if (sessionId === undefined || sessionId === '') return
+    if (!hasSession(sessionId)) return
     return subscribeSubTab(sessionId, (t) => setTab(t))
   }, [sessionId])
 
@@ -52,7 +51,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const refreshKey = view.state === 'ready' ? view.snapshot.checkedAt : 0
 
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
-    if (sessionId === undefined) return { ok: false, error: t('error.noCwd') }
+    if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
     const result = await remote.run({ sessionId, action })
     if (result.ok) {
       // The run already returned a fresh snapshot; feed it to the controller
@@ -69,7 +68,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   ]
 
   const body = ((): JSX.Element => {
-    if (sessionId === undefined || sessionId === '') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
+    if (!hasSession(sessionId)) return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     if (view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     if (view.state === 'error') {
       return h('div', { className: 'gp-empty' }, view.error.code === 'not-a-git-repo' ? t('error.notARepo') : t('pill.unavailable'))

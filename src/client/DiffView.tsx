@@ -5,6 +5,7 @@ import { buildSideBySide, extractAddedContent, extractDeletedContent, isAddOnlyD
 import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
 import { ImageCompare } from './ImageCompare'
 import type { GitPanelRemote } from './rpc'
+import { queryAs } from './rpc'
 import type { GitQuery, GitQueryResult } from './types'
 import type { GitKey } from './locales'
 
@@ -93,7 +94,8 @@ function useImageDiff(
         : { kind: 'image-diff', path, base: 'worktree' }
     void remote.query({ sessionId, query }).then((res) => {
       if (!alive) return
-      setState(res.ok && res.value.kind === 'image-diff' ? { kind: 'ready', res: res.value } : { kind: 'failed' })
+      const img = queryAs(res, 'image-diff')
+      setState(img !== null ? { kind: 'ready', res: img } : { kind: 'failed' })
     }).catch(() => { if (alive) setState({ kind: 'failed' }) })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps

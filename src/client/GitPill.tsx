@@ -8,6 +8,7 @@ import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { useGitView } from './registry'
+import { hasSession } from './rpc'
 import { activateGitTab, requestSubTab } from './jump'
 import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot'
 import type { GitKey } from './locales'
@@ -101,7 +102,7 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   const gitClass = dirty ? 'gp-pill__git--dirty' : 'gp-pill__git--synced'
 
   const onClick = (): void => {
-    if (sessionId !== undefined && sessionId !== '') {
+    if (hasSession(sessionId)) {
       requestSubTab(sessionId, dirty ? 'changes' : 'overview')
     }
     activateGitTab(t('panel.tab'))
