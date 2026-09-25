@@ -246,7 +246,8 @@ export function ensureStyles(): void {
   const id = 'dsh-git-panel/client.css'
   if (document.querySelector(`style[data-plugin-css="${id}"]`) !== null) { injected = true; return }
   const tag = document.createElement('style')
-  tag.dataset.plugin = 'dsh-git-panel'
+  // data-plugin 必须等于 loader row id（安装的包名），平台侧样式回收按它定位。
+  tag.dataset.plugin = '@xbzbing/dsh-git-panel'
   tag.dataset.pluginCss = id
   tag.textContent = CSS
   document.head.appendChild(tag)

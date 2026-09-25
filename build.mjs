@@ -58,7 +58,7 @@ await esbuild.build({
   outfile: resolve(ROOT, 'lib/client.js'),
   logLevel: 'info',
   banner: {
-    js: 'window.__ModuleLoader__.load({ id: "dsh-git-panel", factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;',
+    js: 'window.__ModuleLoader__.load({ id: "@xbzbing/dsh-git-panel", factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;',
   },
   footer: {
     js: 'return module.exports;\n} });',

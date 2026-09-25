@@ -20,9 +20,9 @@ import type { ClientCtx } from './rpc'
 const NS = 'gitPanel'
 /**
  * `plugins.bundle.config` keys: the bundle identity is the install dep key —
- * `dsh-git-panel` for github/file installs, the scoped npm name for
- * `dsh plugin add @xbzbing/dsh-git-panel`. Register both so the detail-page
- * configuration gate matches either install.
+ * `@xbzbing/dsh-git-panel` for the npm and (post-rename) github installs,
+ * `dsh-git-panel` for pre-rename github/file installs still present in older
+ * profiles. Register both so the detail-page configuration gate matches either.
  */
 const BUNDLE_KEYS = ['dsh-git-panel', '@xbzbing/dsh-git-panel'] as const
 

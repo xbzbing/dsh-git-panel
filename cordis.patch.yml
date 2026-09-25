@@ -4,7 +4,7 @@
 # metadata composes the browser half (lib/client.js).
 - insert:
     - id: git-panel
-      name: dsh-git-panel
+      name: '@xbzbing/dsh-git-panel'
       config:
         timeoutMs: 8000
         maxBytes: 4194304

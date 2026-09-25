@@ -114,6 +114,7 @@ npx tsc --noEmit      # 类型检查
 - git 命令一律用 argv 数组经 subprocess 执行，禁止拼接 shell 字符串（注入防护 + cwd 锁定）。
 - 面向未提交变更的操作（commit / discard / stage）属破坏性或写操作，UI 需二次确认或明确入口，host 侧校验路径安全（拒绝仓库外路径、`..` 穿越）。
 - 样式用 dsh 主题 CSS 变量（`--dsw-alias-*`），不硬编码颜色，保证深浅色主题一致。
+- 安装身份三处必须一致且等于实际安装的包名 `@xbzbing/dsh-git-panel`：`package.json.name`、`cordis.patch.yml` 的 row `name`、`build.mjs` 产出的 ModuleLoader 注册 `id`。任一不一致，DSH 会以 `patch: name mismatch ... skipping` 跳过该行，或浏览器端注册 id 对不上 graph 行，两者都表现为面板整个消失（`plugin-contract.test.mjs` 有回归测试）。
 
 ## 目录与提交
 

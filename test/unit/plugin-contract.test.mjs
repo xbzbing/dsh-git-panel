@@ -54,8 +54,21 @@ function loadClient() {
 
 test('client bundle is a ModuleLoader registration with id dsh-git-panel', () => {
   const handoff = loadClient()
-  assert.equal(handoff.id, 'dsh-git-panel')
+  assert.equal(handoff.id, '@xbzbing/dsh-git-panel')
   assert.equal(typeof handoff.factory, 'function')
+})
+
+// The three install-identity strings must stay equal, or the composed tree
+// skips the row (name mismatch) or the client registration misses its graph
+// row — either way the panel disappears (the 0.1.0 npm-install regression).
+test('install identity is consistent across manifest, patch row, bundle id', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+  const patch = readFileSync(new URL('../../cordis.patch.yml', import.meta.url), 'utf8')
+  const handoff = loadClient()
+  const rowName = /name:\s*['"]?([^\s'"]+)/.exec(patch)?.[1]
+  assert.equal(pkg.name, '@xbzbing/dsh-git-panel')
+  assert.equal(rowName, pkg.name, 'cordis.patch.yml row name must equal package name')
+  assert.equal(handoff.id, pkg.name, 'ModuleLoader registration id must equal package name')
 })
 
 test('client factory returns a plugin with apply + inject', () => {
