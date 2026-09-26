@@ -116,3 +116,17 @@ test('apply registers the conversation.view panel and input.left marker', () => 
   assert.ok(registered.includes('conversation.view'), 'panel slot registered')
   assert.ok(registered.includes('conversation.input.left'), 'marker slot registered')
 })
+
+// DSH STORE's catalog automation blocks install when an install-time lifecycle
+// script is present: the committed lib/ is the shipped artifact, so no build
+// must run during `npm install` / git install. Keep build under an explicit
+// script the author runs by hand before release.
+test('no install-time lifecycle scripts are declared', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+  const installHooks = ['preinstall', 'install', 'postinstall', 'prepare', 'prepublish', 'prepublishOnly', 'prepack', 'postpack']
+  for (const hook of installHooks) {
+    assert.equal(pkg.scripts?.[hook], undefined, `${hook} must not run during install; build lib/ by hand before release`)
+  }
+  // The build entry stays available as an explicit, author-invoked script.
+  assert.equal(pkg.scripts.build, 'node build.mjs', 'build remains an explicit script')
+})

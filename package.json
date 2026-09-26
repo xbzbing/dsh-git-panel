@@ -44,8 +44,7 @@
     "test:unit": "node build.mjs && node --test --test-force-exit test/unit/*.test.mjs",
     "test:e2e": "node build.mjs && node test/e2e/setup.mjs && node test/e2e/run.mjs && node test/e2e/run2.mjs",
     "test": "npm run test:unit && npm run test:e2e",
-    "check": "npm run typecheck && npm run test && git diff --exit-code -- lib/",
-    "prepare": "node build.mjs"
+    "check": "npm run typecheck && npm run test && git diff --exit-code -- lib/"
   },
   "dsh": {
     "bundle": {
