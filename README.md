@@ -40,8 +40,8 @@ dsh plugin --profile web add github:xbzbing/dsh-git-panel
 | Git 总览 | 文件差异 modal |
 | :---: | :---: |
 | ![Git 总览：分支、提交历史图、提交详情与 hover 卡片](docs/assets/screenshots/1-git-panel-overview.png) | ![文件差异 modal：语法高亮的统一 / 并排对照、块间按需展开与词级高亮](docs/assets/screenshots/2-overview-tab.png) |
-| 变更记录 | |
-| ![变更记录：统计条、未提交变更列表、提交框与差异对照](docs/assets/screenshots/3-changes.png) | |
+| 变更记录 | 文件浏览 |
+| ![变更记录：统计条、未提交变更列表、提交框与差异对照](docs/assets/screenshots/3-changes.png) | ![文件浏览：懒加载目录树、官方类型图标、忽略项半透明与文件预览](docs/assets/screenshots/4-files.png) |
 
 ## 架构
 
