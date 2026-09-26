@@ -4,7 +4,7 @@ import { createElement as h, memo, useCallback, useEffect, useMemo, useRef, useS
 import type { JSX } from 'react'
 import {
   buildSideBySide, flattenToUnified, isBinaryDiff,
-  isImagePath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
+  isImagePath, isSvgPath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
 } from './diff'
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { splitHighlightSpans } from './code-spans'
@@ -55,11 +55,22 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   useEffect(() => { setRows(baseRows) }, [baseRows])
   const expand = useGapExpander(rows, setRows, remote, sessionId, path, imageSpec)
 
-  const imageable = binary && path !== undefined && isImagePath(path) && remote !== undefined && sessionId !== undefined && imageSpec !== undefined
-  const image = useImageDiff(imageable ? remote : undefined, imageable ? sessionId : undefined, imageable ? path : undefined, imageable ? imageSpec : undefined)
+  // An SVG is both an image (rendered old/new comparison) and text (a source
+  // diff). It gets a render/source toggle, defaulting to the rendered view;
+  // raster binaries only ever have the rendered comparison.
+  const svg = path !== undefined && isSvgPath(path)
+  const [svgView, setSvgView] = useState<SvgView>('render')
+  useEffect(() => { setSvgView('render') }, [path])
 
-  if (binary) {
-    if (imageable) {
+  const imageable = (binary || svg) && path !== undefined && isImagePath(path)
+    && remote !== undefined && sessionId !== undefined && imageSpec !== undefined
+  // An SVG showing its source diff doesn't need the image fetch.
+  const wantImage = imageable && (!svg || svgView === 'render')
+  const image = useImageDiff(wantImage ? remote : undefined, wantImage ? sessionId : undefined, wantImage ? path : undefined, wantImage ? imageSpec : undefined)
+
+  // Rendered comparison (raster binary always; SVG in 'render' mode).
+  if (wantImage) {
+    const rendered = ((): JSX.Element => {
       if (image.kind === 'idle' || image.kind === 'loading') return h('div', { className: 'gp-empty' }, t('common.loading'))
       if (image.kind === 'ready') {
         const res = image.res
@@ -68,23 +79,51 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
           return h(ImageCompare, { oldUrl: res.old, newUrl: res.new, mode, t })
         }
       }
-      // failed / unsupported / no sides → the plain binary notice below.
+      // failed / unsupported / no sides.
+      return h('div', { className: 'gp-empty' }, t('diff.binary'))
+    })()
+    // An SVG keeps its render/source toggle above the rendered panes; a raster
+    // binary has no source view, so it renders bare.
+    return svg ? svgFrame(svgView, setSvgView, rendered, t) : rendered
+  }
+
+  // Raster binary with no usable rendered comparison.
+  if (binary && !svg) return h('div', { className: 'gp-empty' }, t('diff.binary'))
+
+  // Text diff (regular files, and an SVG in 'source' mode).
+  const body = ((): JSX.Element => {
+    if (text.trim() === '') return h('div', { className: 'gp-empty' }, t('diff.empty'))
+    if (mode === 'before') return singleColumn(beforeLines(rows), hl)
+    if (mode === 'after') return singleColumn(afterLines(rows), hl)
+    if (mode === 'unified') {
+      const uni = flattenToUnified(rows)
+      return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, hl, expand, t)))
     }
-    return h('div', { className: 'gp-empty' }, t('diff.binary'))
-  }
-  if (text.trim() === '') return h('div', { className: 'gp-empty' }, t('diff.empty'))
-
-  if (mode === 'before') return singleColumn(beforeLines(rows), hl)
-  if (mode === 'after') return singleColumn(afterLines(rows), hl)
-
-  if (mode === 'unified') {
-    const uni = flattenToUnified(rows)
-    return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, hl, expand, t)))
-  }
-
-  // split
-  return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, hl, expand, t)))
+    return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, hl, expand, t)))
+  })()
+  return svg ? svgFrame(svgView, setSvgView, body, t) : body
 })
+
+type SvgView = 'render' | 'source'
+
+/** Wrap SVG diff content with a render/source toggle bar above it. */
+function svgFrame(
+  view: SvgView, onView: (v: SvgView) => void, body: JSX.Element,
+  t: (key: GitKey, params?: Record<string, string | number>) => string,
+): JSX.Element {
+  const btn = (v: SvgView, label: string): JSX.Element =>
+    h('button', {
+      key: v, type: 'button',
+      className: `gp-seg__btn${view === v ? ' gp-seg__btn--active' : ''}`,
+      'aria-pressed': view === v,
+      onClick: () => onView(v),
+    }, label)
+  return h('div', { className: 'gp-svgdiff' }, [
+    h('div', { key: 'bar', className: 'gp-svgdiff__bar' },
+      h('div', { className: 'gp-seg' }, [btn('render', t('diff.svgRender')), btn('source', t('diff.svgSource'))])),
+    h('div', { key: 'body', className: 'gp-svgdiff__body' }, body),
+  ])
+}
 
 interface GapExpander {
   readonly busy: string | null

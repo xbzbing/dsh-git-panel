@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent, isImagePath, intraLineDiff, spliceGap, contextRowsFromLines, flattenToUnified, GAP_STEP } from '../../lib/testkit.mjs'
+import { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent, isImagePath, isSvgPath, intraLineDiff, spliceGap, contextRowsFromLines, flattenToUnified, GAP_STEP } from '../../lib/testkit.mjs'
 
 const MODIFY = `diff --git a/a.txt b/a.txt
 index a29bdeb..c0d0fb4 100644
@@ -204,4 +204,13 @@ test('isImagePath gates on the shared image extension list', () => {
   assert.equal(isImagePath('no-extension'), false)
   assert.equal(isImagePath('archive.png.bak'), false, 'extension must be the suffix')
   assert.equal(isImagePath('png'), false)
+})
+
+test('isSvgPath matches only .svg (case-insensitive) as the suffix', () => {
+  assert.equal(isSvgPath('icon.svg'), true)
+  assert.equal(isSvgPath('dir/Logo.SVG'), true, 'case-insensitive')
+  assert.equal(isSvgPath('a.png'), false)
+  assert.equal(isSvgPath('a.svg.png'), false, 'must be the suffix')
+  assert.equal(isSvgPath('svg'), false)
+  assert.equal(isSvgPath('no-extension'), false)
 })

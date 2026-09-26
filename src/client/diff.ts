@@ -51,6 +51,12 @@ export function isImagePath(path: string): boolean {
   return imageMimeFor(path) !== null
 }
 
+/** True for an SVG path — an image that is also text, so its diff view offers
+ * both a rendered comparison and a source-text diff. */
+export function isSvgPath(path: string): boolean {
+  return /\.svg$/i.test(path)
+}
+
 /** True when the diff only adds lines (new file). */
 export function isAddOnlyDiff(unified: string): boolean {
   const body = bodyLines(unified)

@@ -227,6 +227,10 @@ const CSS = `
 .gp-imgcmp__img{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:center;justify-content:center;padding:10px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-imgcmp__img img{max-width:100%;max-height:100%;object-fit:contain;image-rendering:auto}
 .gp-imgcmp__missing{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:12px;background:var(--dsw-alias-bg-layer-1)}
+/* SVG diff: render/source toggle bar above the rendered comparison or source diff */
+.gp-svgdiff{display:flex;flex-direction:column;height:100%;min-height:0}
+.gp-svgdiff__bar{flex:none;display:flex;justify-content:flex-end;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-svgdiff__body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain}
 .gp-feedback{padding:6px 10px;font-size:12px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);display:flex;align-items:center;gap:8px}
 
 /* commit file-diff modal (overview → click a file): a centered dialog over a

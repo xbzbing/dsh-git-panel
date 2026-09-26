@@ -26,8 +26,9 @@ const SNAP = {
     { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'd.txt', status: 'untracked', staged: false, isDirectory: false },
     { path: 'img.png', status: 'modified', staged: false, isDirectory: false },
+    { path: 'icon.svg', status: 'modified', staged: false, isDirectory: false },
   ],
-  stats: { fileCount: 4, staged: 0, modified: 3, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null },
+  stats: { fileCount: 5, staged: 0, modified: 4, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 
@@ -66,10 +67,12 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'diff') {
             // An image path diffs as the binary marker, like real git.
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n' } } }
+            // An SVG is text: git produces a real source diff for it.
+            if (q.path.endsWith('.svg')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/icon.svg b/icon.svg\n--- a/icon.svg\n+++ b/icon.svg\n@@ -1 +1 @@\n-<svg width="1"/>\n+<svg width="2"/>\n' } } }
             if (q.path.endsWith('.ts')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-const count = 1\n+const count = 2\n' } } }
             return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n' } } }
           }
-          if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
+          if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: q.path.endsWith('.svg') ? 'image/svg+xml' : 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
           if (q.kind === 'dir-list') {
             fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
@@ -174,6 +177,20 @@ const out = await page.evaluate(async (snap) => {
   if (afterBtn) { afterBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.imageSingle = document.querySelector('.gp-imgcmp--single') !== null
   result.imageSingleHead = document.querySelector('.gp-imgcmp__head')?.textContent ?? null
+
+  // SVG diff: an SVG is image + text, so it shows a render/source toggle. It
+  // defaults to the rendered comparison (image panes), and switching to source
+  // reveals the text diff; switching back returns to the rendered panes.
+  const svgRow = [...document.querySelectorAll('.gp-file-row')].find((r) => (r.textContent || '').includes('icon.svg'))
+  if (svgRow) { svgRow.click(); await new Promise((r) => setTimeout(r, 600)) }
+  result.svgHasToggle = document.querySelector('.gp-svgdiff__bar') !== null
+  result.svgRenderDefault = document.querySelector('.gp-svgdiff .gp-imgcmp') !== null
+  const svgSourceBtn = [...document.querySelectorAll('.gp-svgdiff__bar .gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.svgSource')
+  if (svgSourceBtn) { svgSourceBtn.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.svgSourceShowsDiff = document.querySelector('.gp-svgdiff .gp-diff__unified, .gp-svgdiff .gp-diff__side, .gp-svgdiff .gp-diff__single') !== null
+  const svgRenderBtn = [...document.querySelectorAll('.gp-svgdiff__bar .gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.svgRender')
+  if (svgRenderBtn) { svgRenderBtn.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.svgRenderRestored = document.querySelector('.gp-svgdiff .gp-imgcmp') !== null
 
   const tabs = [...document.querySelectorAll('.gp-tab')]
   const overviewTab = tabs.find((t) => (t.textContent || '').includes('tab.overview'))
@@ -282,13 +299,17 @@ try {
   assert.equal(out.commitDisabledEmpty, true, 'commit button is disabled without a message')
   assert.equal(out.commitEnabledWithMessage, true, 'commit button enables once a message is typed')
   assert.equal(out.commitPrimaryHoverKeepsColor, true, 'primary button defines a hover style that keeps its color')
-  assert.equal(out.changeRows, 4, 'four change rows (three text + one image)')
+  assert.equal(out.changeRows, 5, 'five change rows (three text + one image + one svg)')
   assert.equal(out.imagePanes, 2, 'image diff renders both panes in split mode')
   assert.equal(out.imageImgs, 2, 'both panes render an image')
   assert.equal(out.imageSrcOk, true, 'panes carry data URL images')
   assert.deepEqual(out.imageHeads, ['diff.before', 'diff.after'], 'pane labels before/after')
   assert.equal(out.imageSingle, true, 'after-mode collapses to one pane')
   assert.equal(out.imageSingleHead, 'diff.after', 'the single pane keeps its label')
+  assert.equal(out.svgHasToggle, true, 'an SVG diff shows the render/source toggle bar')
+  assert.equal(out.svgRenderDefault, true, 'an SVG diff defaults to the rendered comparison')
+  assert.equal(out.svgSourceShowsDiff, true, 'switching an SVG to source shows the text diff')
+  assert.equal(out.svgRenderRestored, true, 'switching an SVG back to render restores the comparison')
   assert.equal(out.hasBranchList, true, 'branch list rendered on overview')
   assert.equal(out.commitRows, 2, 'two commit rows')
   assert.equal(out.hasGraph, true, 'commit graph svg rendered')
