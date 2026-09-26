@@ -32,6 +32,11 @@ export interface SnapshotDeps {
         }>;
         /** Raw bytes (no encoding) — image sides for the image-diff query. */
         readFile(path: string): Promise<Buffer>;
+        /** One directory's entries (name + is-directory) — the file browser. */
+        readdir(path: string): Promise<ReadonlyArray<{
+            name: string;
+            isDirectory: boolean;
+        }>>;
         /** Best-effort unlink (force) — temp-blob cleanup. */
         remove(path: string): Promise<void>;
     };

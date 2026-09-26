@@ -181,6 +181,12 @@ export type GitQuery = {
     readonly base: 'commit';
     readonly commit: string;
 } | {
+    readonly kind: 'dir-list';
+    readonly path: string;
+} | {
+    readonly kind: 'file-content';
+    readonly path: string;
+} | {
     readonly kind: 'show';
     readonly ref: string;
 } | {
@@ -194,6 +200,13 @@ export type GitQuery = {
 } | {
     readonly kind: 'worktree-stats';
 };
+/** One entry in a `dir-list` result. */
+export interface DirEntry {
+    readonly name: string;
+    readonly dir: boolean;
+    /** File byte size; absent for directories. */
+    readonly size?: number;
+}
 /** One commit's changed-file line (from --name-status). */
 export interface GitFileStat {
     readonly path: string;
@@ -276,6 +289,23 @@ export type GitQueryResult = {
 } | {
     readonly kind: 'worktree-stats';
     readonly stats: WorktreeStats;
+} | {
+    readonly kind: 'dir-list';
+    readonly path: string;
+    readonly entries: readonly DirEntry[];
+    readonly truncated: boolean;
+} | {
+    readonly kind: 'file-content';
+    readonly path: string;
+    readonly variant: 'text' | 'image' | 'binary';
+    /** text variant: the file's full UTF-8 content. */
+    readonly content?: string;
+    /** text variant: total line count. */
+    readonly lines?: number;
+    /** image variant: a `data:<mime>;base64,…` URL. */
+    readonly dataUrl?: string;
+    /** The file exceeded the byte cap, so no content is returned. */
+    readonly tooLarge?: true;
 };
 export type GitQueryResponse = {
     readonly ok: true;
