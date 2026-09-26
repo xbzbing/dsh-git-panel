@@ -10,7 +10,9 @@ interface SpawnSpec {
     readonly argv: readonly string[];
     readonly cwd: string;
     readonly stdio: {
-        readonly stdin: 'ignore';
+        readonly stdin: 'ignore' | {
+            readonly data: string;
+        };
         readonly stdout: CollectDisposition;
         readonly stderr: CollectDisposition;
     };
@@ -53,6 +55,7 @@ export interface GitRunner {
     run(argv: readonly string[], opts: {
         readonly cwd: string;
         readonly signal?: AbortSignal;
+        readonly stdinData?: string;
     }): Promise<GitRunResult>;
 }
 /**
