@@ -9,7 +9,7 @@
 - 工作区新增常驻面板 tab「Git」，位于「对话」「轨迹」之后，内部含三个子 tab：
   - **Git 总览**：左=分支列表，中=提交历史图（支持 commit id 等字段搜索），右=提交详情 + comment。
   - **变更记录**：左=变更统计（文件数 / 增删行数 / 最近变更时间）+ 本地未提交变更列表（勾选、手动提交、Amend），右=选中文件差异对比（图片走 `image-diff` 新旧双图对照）。
-  - **文件浏览**：直接打开 Git tab 默认进入此页；非 Git 目录仅显示此子 tab，以 cwd 为根。左=按需加载目录树（`.git` 不可浏览），右=文件预览（代码/文本用懒加载 highlight.js，Markdown 可切换 dsh 官方 `MarkdownText` 渲染，图片内联，其余二进制占位）。
+  - **文件浏览**：直接打开 Git tab 默认进入此页；非 Git 目录仅显示此子 tab，以 cwd 为根。左=按需加载目录树（`.git` 不可浏览），右=文件预览（代码/文本用 dsh 官方 `useCodeHighlighter` 语法高亮，Markdown 可切换官方 `MarkdownText` 渲染，图片内联，其余二进制占位）。
 - inputBar 一个 zsh 风格 Git 标记：`<仓库名> (<分支>)`，绿色=已同步、橙色=有待提交；hover 显示完整路径；点击跳转面板（有未提交→变更记录，已提交→Git 总览）。非 Git 目录不显示此标记或状态圆点；插件详情页可隐藏 Git 仓库的标记，隐藏时改为在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
 - 插件详情页配置区：「显示输入框标记」开关 = host `static Config` volatile 字段 + client 注册 `plugins.bundle.config` 表单（`PillConfig.tsx`），经 `configForms` 热写；写入被接受后客户端立即 `resyncAll()`，不等轮询。
 
@@ -73,15 +73,11 @@ Host 半 (Cordis + typert, lib/host)
 
 ## 依赖策略
 
-MIT 协议下**优先用成熟开源实现，不重造轮子**：
+MIT 协议下优先复用 dsh 官方能力，不为相同功能重复打包依赖。
 
-| 依赖 | 用途 |
-|---|---|
-| `highlight.js` | diff 视图语法高亮（core + 精选语言，动态 `import()` 懒加载） |
-
-- 平台模块（`react` / `react-dom` / `@deepseek-ai/*`）一律 external，由宿主提供，不打包。
-- 只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行）才自研。
-- `highlight.js` 体积大：经 `highlight.ts` → 动态 `import('./highlight-impl')`，只在首次查看 diff 时才**求值**高亮实现，语言集在 `highlight-impl.ts` 里注册。注意 client 是单文件 bundle，highlight.js 已内联进 `lib/client.js`（约 220KB），动态 import 延迟的是执行而非下载/解析。
+- 代码/差异高亮调用平台 `@deepseek-ai/dsh-client-ui-primitives` 的 `languageForPath` 与 `useCodeHighlighter`；返回逐行 `HighlightSpan`，语法色采用宿主 `--shiki-*` 主题变量。语法资源由宿主按需加载；加载期间展示纯文本。词级高亮用 `code-spans.ts` 把完整代码行的 token 按改动区间切开，保留 token 样式。
+- Markdown 渲染使用同一平台模块的 `MarkdownText`，不额外引入 marked/dompurify。
+- 平台模块（`react` / `react-dom` / `@deepseek-ai/*`）一律 external，由宿主提供，不打包。只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行）才自研。
 - 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。
 
 ## 构建
