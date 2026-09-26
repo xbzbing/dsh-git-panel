@@ -28,11 +28,14 @@ function findNamespace(namespaces: readonly SettingsNamespaceView[]): string | u
   return undefined
 }
 
+type DiffView = 'unified' | 'split'
+
 export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [, setTick] = useState(0)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const [pending, setPending] = useState<boolean | null>(null)
+  const [pendingView, setPendingView] = useState<DiffView | null>(null)
   const bump = (): void => { setTick((n) => n + 1) }
 
   const forms = ctx.get('configForms') as ConfigFormsFace | undefined
@@ -63,6 +66,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const loaded = form !== undefined && snap !== undefined && snap.status === 'ready'
   const mirrorStatus = mirror?.getSnapshot().status
   const checked = pending ?? (typeof snap?.value?.showInputPill === 'boolean' ? (snap.value.showInputPill as boolean) : true)
+  const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
 
   const toggle = async (next: boolean): Promise<void> => {
     if (form === undefined) return
@@ -89,6 +93,24 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     }
   }
 
+  const setView = async (next: DiffView): Promise<void> => {
+    if (form === undefined || next === diffView) return
+    setPendingView(next)
+    setFailed(false)
+    setBusy(true)
+    try {
+      const ok = await form.set('defaultDiffView', next)
+      setPendingView(null)
+      if (!ok) setFailed(true)
+      else { resyncAll(); setTimeout(() => resyncAll(), 1000) }
+    } catch {
+      setPendingView(null)
+      setFailed(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (forms === undefined) return h('p', { className: 'gp-cfg__hint' }, t('cfg.notLoaded'))
   if (!loaded) {
     if (mirrorStatus === 'idle' || mirrorStatus === 'loading') return h('p', { className: 'gp-cfg__hint' }, t('common.loading'))
@@ -106,6 +128,15 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.toggle')),
     ]),
     h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.hint')),
+    h('h3', { key: 'difftitle', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.diffTitle')),
+    h('div', { key: 'diffseg', className: 'gp-seg gp-cfg__seg' }, (['unified', 'split'] as DiffView[]).map((v) =>
+      h('button', {
+        key: v, type: 'button',
+        className: `gp-seg__btn${diffView === v ? ' gp-seg__btn--active' : ''}`,
+        disabled: busy || snap?.writable === false,
+        onClick: () => { void setView(v) },
+      }, t(v === 'unified' ? 'cfg.diffUnified' : 'cfg.diffSplit')))),
+    h('p', { key: 'diffhint', className: 'gp-cfg__hint' }, t('cfg.diffHint')),
     failed ? h('p', { key: 'error', className: 'gp-cfg__err', role: 'alert' }, t('cfg.saveFailed')) : null,
   ])
 }

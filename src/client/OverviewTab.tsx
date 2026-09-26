@@ -17,25 +17,28 @@ import { absoluteTime, timeAgo } from './time'
 import { statusChar, statusClass } from './status'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
+import type { DiffViewMode } from './types'
 
 interface OverviewProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
   /** Snapshot checkedAt; bumps drive a history/tree reload (commit landed / poll). */
   readonly refreshKey: number
+  /** Default diff layout new file-diff overlays open with. */
+  readonly defaultDiffView: DiffViewMode
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
 const LANE_W = 14
 const ROW_H = 30
 
-export function OverviewTab({ remote, sessionId, refreshKey, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t }: OverviewProps): JSX.Element {
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
 
   const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, refreshKey)
-  const detail = useCommitDetail(remote, sessionId)
+  const detail = useCommitDetail(remote, sessionId, defaultDiffView)
   const { commits, loading, listError, hasMore, listRef, loadMore } = useHistory(
     remote, sessionId, filter, refreshKey, detail.clearSelection,
   )
@@ -341,11 +344,11 @@ function renderFileDiffModal(
       h('button', {
         key: 'expand', type: 'button',
         className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
-        disabled: mode !== 'split',
+        disabled: mode !== 'split' && mode !== 'unified',
         title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
         onClick: () => onExpand(!expanded),
       }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
-      h('div', { key: 'seg', className: 'gp-seg' }, (['split', 'before', 'after'] as DiffMode[]).map((m) =>
+      h('div', { key: 'seg', className: 'gp-seg' }, (['unified', 'split', 'before', 'after'] as DiffMode[]).map((m) =>
         h('button', { key: m, type: 'button', className: `gp-seg__btn${mode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => onMode(m) }, t(`diff.${m}` as GitKey)))),
       h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
     ]),

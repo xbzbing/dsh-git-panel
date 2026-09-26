@@ -21,7 +21,7 @@ export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats,
-  GitVersionRequest, GitVersionInfo,
+  GitVersionRequest, GitVersionInfo, DiffViewMode,
 } from './types.ts'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts'
 export { createGitRunner } from './git.ts'
@@ -44,12 +44,17 @@ export class GitPanelService extends TypertRemoteService {
   static inject = ['subprocess', 'sessions', 'sessionPersistence']
 
   /**
-   * Config schema surfaced on the plugin detail page. Only `showInputPill` is
-   * `.volatile()`, so the settings host renders it as a live-editable toggle;
-   * the operational limits stay profile-only and out of the UI form.
+   * Config schema surfaced on the plugin detail page. `showInputPill` and
+   * `defaultDiffView` are `.volatile()`, so the settings host renders them as
+   * live-editable controls; the operational limits stay profile-only and out
+   * of the UI form.
    */
   static Config = Schema.object({
     showInputPill: Schema.boolean().default(true).volatile().description('显示输入框的 Git 分支标记'),
+    defaultDiffView: Schema.union([
+      Schema.const('unified').description('统一视图（单栏行内对比）'),
+      Schema.const('split').description('并排视图（左右分栏对比）'),
+    ]).default('unified').volatile().description('差异对比默认视图'),
   })
 
   private readonly deps: SnapshotDeps

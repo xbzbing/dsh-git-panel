@@ -67,6 +67,7 @@ export const zh = {
   'commit.commit': '提交',
   'commit.amend': '修正上次提交（amend）',
   // diff
+  'diff.unified': '统一',
   'diff.split': '对照',
   'diff.before': '变更前',
   'diff.after': '变更后',
@@ -94,6 +95,10 @@ export const zh = {
   'cfg.title': '输入框分支标记',
   'cfg.toggle': '显示输入框标记',
   'cfg.hint': '开启时在输入框显示 zsh 风格的 <仓库名> (分支) 标记；关闭后改为在 Git 标签旁显示状态圆点。保存后立即生效。',
+  'cfg.diffTitle': '差异对比默认视图',
+  'cfg.diffHint': '选择变更对比默认打开的布局：统一视图为单栏行内对比，并排视图为左右分栏对比。仍可在每个差异视图中临时切换。保存后立即生效。',
+  'cfg.diffUnified': '统一视图（单栏行内）',
+  'cfg.diffSplit': '并排视图（左右分栏）',
   'cfg.notLoaded': '配置未加载：该配置由运行中的宿主提供，若长时间空白请重启 DSH 后重试。',
   'cfg.saveFailed': '保存失败，请重试',
 }
@@ -158,6 +163,7 @@ export const en: Record<GitKey, string> = {
   'commit.placeholder': 'Commit message',
   'commit.commit': 'Commit',
   'commit.amend': 'Amend previous commit',
+  'diff.unified': 'Unified',
   'diff.split': 'Split',
   'diff.before': 'Before',
   'diff.after': 'After',
@@ -182,6 +188,10 @@ export const en: Record<GitKey, string> = {
   'cfg.title': 'Input-bar branch marker',
   'cfg.toggle': 'Show input-bar marker',
   'cfg.hint': 'When on, the input bar shows the zsh-style <repo> (branch) marker; when off, a status dot appears beside the Git tab instead. Saved changes apply immediately.',
+  'cfg.diffTitle': 'Default diff view',
+  'cfg.diffHint': 'Choose the layout diffs open with: unified is a single inline column, split is side-by-side. You can still switch per diff. Saved changes apply immediately.',
+  'cfg.diffUnified': 'Unified (single inline column)',
+  'cfg.diffSplit': 'Split (side-by-side)',
   'cfg.notLoaded': 'Config not loaded: it is served by the running host. Restart DSH if this stays blank.',
   'cfg.saveFailed': 'Save failed, please retry',
 }

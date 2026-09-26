@@ -1,5 +1,5 @@
 import type { GitRunner } from './git.ts';
-import type { GitChange, GitErrorCode, GitSnapshotResult } from './types.ts';
+import type { DiffViewMode, GitChange, GitErrorCode, GitSnapshotResult } from './types.ts';
 export interface GitPanelConfig {
     readonly timeoutMs: number;
     /** Per-command stdout cap; also the per-side image-diff payload cap. */
@@ -8,9 +8,13 @@ export interface GitPanelConfig {
     readonly refreshIntervalMs: number;
     /** Whether the input-bar git marker pill is shown. */
     readonly showInputPill: boolean;
+    /** Default diff layout the views open with (user can switch per-diff). */
+    readonly defaultDiffView: DiffViewMode;
 }
 export declare const DEFAULT_CONFIG: GitPanelConfig;
 export declare function normalizeConfig(raw: unknown): GitPanelConfig;
+/** Read the default-diff-view field, unwrapping a schemastery volatile ref. */
+export declare function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode;
 /**
  * Read a boolean config field, unwrapping a schemastery volatile reference
  * (`{ get() }`) so a live-editable toggle reflects the latest value. Absent or

@@ -81,7 +81,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     const snapshot = view.snapshot
     return h('div', { style: { display: 'contents' } }, [
       h('div', { key: 'overview', style: tab === 'overview' ? { display: 'contents' } : { display: 'none' } },
-        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, t })),
+        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, t })),
       h('div', { key: 'changes', style: tab === 'changes' ? { display: 'contents' } : { display: 'none' } },
         h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, t })),
     ])

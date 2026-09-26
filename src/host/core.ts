@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { GitRunner } from './git.ts'
 import { parseStatus, sumNumstat } from './parser.ts'
 import { isSafePath } from './validate.ts'
-import type { GitChange, GitCommit, GitErrorCode, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
+import type { DiffViewMode, GitChange, GitCommit, GitErrorCode, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -15,6 +15,8 @@ export interface GitPanelConfig {
   readonly refreshIntervalMs: number
   /** Whether the input-bar git marker pill is shown. */
   readonly showInputPill: boolean
+  /** Default diff layout the views open with (user can switch per-diff). */
+  readonly defaultDiffView: DiffViewMode
 }
 
 export const DEFAULT_CONFIG: GitPanelConfig = {
@@ -23,6 +25,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   maxChanges: 1000,
   refreshIntervalMs: 30000,
   showInputPill: true,
+  defaultDiffView: 'unified',
 }
 
 export function normalizeConfig(raw: unknown): GitPanelConfig {
@@ -37,7 +40,22 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     maxChanges: num(c.maxChanges, DEFAULT_CONFIG.maxChanges),
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
+    defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
   }
+}
+
+/** Unwrap a schemastery volatile reference (`{ get() }`) to its live value;
+ * pass non-volatile values through unchanged. */
+function unwrapVolatile(value: unknown): unknown {
+  return value !== null && typeof value === 'object' && 'get' in value && typeof (value as { get: unknown }).get === 'function'
+    ? (value as { get(): unknown }).get()
+    : value
+}
+
+/** Read the default-diff-view field, unwrapping a schemastery volatile ref. */
+export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode {
+  const raw = unwrapVolatile(value)
+  return raw === 'unified' || raw === 'split' ? raw : fallback
 }
 
 /**
@@ -46,9 +64,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
  * unrecognized shapes fall back to the default.
  */
 export function readBool(value: unknown, fallback: boolean): boolean {
-  const raw = value !== null && typeof value === 'object' && 'get' in value && typeof (value as { get: unknown }).get === 'function'
-    ? (value as { get(): unknown }).get()
-    : value
+  const raw = unwrapVolatile(value)
   return typeof raw === 'boolean' ? raw : fallback
 }
 
@@ -288,6 +304,7 @@ export async function snapshotForSession(
     truncated,
     refreshIntervalMs: config.refreshIntervalMs,
     showInputPill: config.showInputPill,
+    defaultDiffView: config.defaultDiffView,
     checkedAt: Date.now(),
   }
   return { ok: true, value: snapshot }

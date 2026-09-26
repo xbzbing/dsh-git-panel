@@ -8,6 +8,7 @@ import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
 import type { GitBranch, GitCommit, GitFileStat, GraphCommit } from './types'
 import type { DiffMode } from './DiffView'
+import type { DiffViewMode } from './types'
 
 const PAGE = 100
 
@@ -153,7 +154,7 @@ export function useHistory(
  * pane and the hover card, the full-width file-diff overlay (generation-guarded
  * + Esc-to-close), and the hover fetch (debounced, unmount-safe).
  */
-export function useCommitDetail(remote: GitPanelRemote, sessionId: string): {
+export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defaultDiffView: DiffViewMode): {
   selected: GraphCommit | null
   detail: CommitDetail | null
   detailError: boolean
@@ -178,7 +179,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string): {
   const [fileDiff, setFileDiff] = useState<{ path: string; hash: string; shortHash: string } | null>(null)
   const [fileDiffText, setFileDiffText] = useState<string | null>(null)
   const [fileDiffError, setFileDiffError] = useState(false)
-  const [fileDiffMode, setFileDiffMode] = useState<DiffMode>('split')
+  const [fileDiffMode, setFileDiffMode] = useState<DiffMode>(defaultDiffView)
   const [fileDiffExpanded, setFileDiffExpanded] = useState(false)
   const fileDiffSeq = useRef(0)
   const selectedHash = useRef<string | null>(null)

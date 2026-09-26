@@ -122,6 +122,20 @@ test('showInputPill config flows into the snapshot and normalizes volatile refs'
   assert.equal(hidden.value.showInputPill, false)
 })
 
+test('defaultDiffView config normalizes, unwraps volatile refs, and flows into the snapshot', async () => {
+  // Default unified; explicit split honored; unknown falls back; volatile ref unwrapped.
+  assert.equal(normalizeConfig({}).defaultDiffView, 'unified')
+  assert.equal(normalizeConfig({ defaultDiffView: 'split' }).defaultDiffView, 'split')
+  assert.equal(normalizeConfig({ defaultDiffView: 'bogus' }).defaultDiffView, 'unified')
+  assert.equal(normalizeConfig({ defaultDiffView: { get: () => 'split' } }).defaultDiffView, 'split')
+  const def = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
+  assert.equal(def.ok, true)
+  assert.equal(def.value.defaultDiffView, 'unified', 'snapshot carries the default view')
+  const split = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, defaultDiffView: 'split' }, SID)
+  assert.equal(split.ok, true)
+  assert.equal(split.value.defaultDiffView, 'split')
+})
+
 test('worktree-stats totals files and +/- lines, plus times', async () => {
   const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'worktree-stats' } })
   assert.equal(res.ok, true)
