@@ -40,6 +40,16 @@ export function FileIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
 }
 
+export function FolderIcon({ size, open }: IconProps & { open?: boolean }): JSX.Element {
+  return open
+    ? svg([h('path', { key: 'a', d: 'M2 4.5h4l1.4 1.5H14v1H2z' }), h('path', { key: 'b', d: 'M2 7h12l-1.2 6.5H3.2z' })], size)
+    : svg([h('path', { key: 'a', d: 'M2 4.5h4l1.4 1.5H14v7H2z' })], size)
+}
+
+export function FilesIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M5 2.5h4l2.5 2.5v7.5h-6.5z' }), h('path', { key: 'b', d: 'M9 2.5V5h2.5' }), h('path', { key: 'c', d: 'M11 12.5v1.5h-6.5V6' })], size)
+}
+
 /** GitHub mark (filled, currentColor). */
 export function GitHubIcon({ size = 15 }: IconProps): JSX.Element {
   return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'currentColor' },

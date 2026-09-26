@@ -11,7 +11,8 @@ import { useGitView, controllerFor } from './registry'
 import { takeSubTab, subscribeSubTab, type SubTab } from './jump'
 import { OverviewTab } from './OverviewTab'
 import { ChangesTab } from './ChangesTab'
-import { CommitIcon, DiffIcon, GitHubIcon, RefreshIcon } from './icons'
+import { FilesTab } from './FilesTab'
+import { CommitIcon, DiffIcon, FilesIcon, GitHubIcon, RefreshIcon } from './icons'
 import type { GitAction, GitVersionInfo } from './types'
 import type { GitKey } from './locales'
 
@@ -25,6 +26,12 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const [tab, setTab] = useState<SubTab>('overview')
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
+
+  // The Files tab mounts lazily on first visit, then stays mounted (retains its
+  // tree state); this keeps cold cost zero — no dir-list until the user opens it.
+  const everFiles = useRef(false)
+  if (tab === 'files') everFiles.current = true
+  const filesVisited = everFiles.current
 
   // Consume a pending focus request (pill click) once per session, or fall to
   // the dirty-aware default; a `ready` snapshot that arrives after mount (cold
@@ -65,6 +72,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const tabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = [
     { key: 'overview', label: t('tab.overview'), icon: h(CommitIcon, { size: 14 }) },
     { key: 'changes', label: t('tab.changes'), icon: h(DiffIcon, { size: 14 }) },
+    { key: 'files', label: t('tab.files'), icon: h(FilesIcon, { size: 14 }) },
   ]
 
   const body = ((): JSX.Element => {
@@ -84,6 +92,12 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
         h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, t })),
       h('div', { key: 'changes', style: tab === 'changes' ? { display: 'contents' } : { display: 'none' } },
         h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, t })),
+      // Files tab mounts on first visit (keeps cold cost zero — no dir-list
+      // until the user opens it), then stays mounted to retain its tree state.
+      filesVisited
+        ? h('div', { key: 'files', style: tab === 'files' ? { display: 'contents' } : { display: 'none' } },
+          h(FilesTab, { key: sessionId, remote, sessionId, t }))
+        : null,
     ])
   })()
 

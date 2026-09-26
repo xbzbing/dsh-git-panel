@@ -68,6 +68,19 @@ const out = await page.evaluate(async (snap) => {
             return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n' } } }
           }
           if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
+          if (q.kind === 'dir-list') {
+            if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
+              { name: 'src', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 },
+            ] } } }
+            if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
+              { name: 'index.ts', dir: false, size: 40 },
+            ] } } }
+            return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: [] } } }
+          }
+          if (q.kind === 'file-content') {
+            if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}` } } }
+            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
+          }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
         }
         if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
@@ -148,6 +161,21 @@ const out = await page.evaluate(async (snap) => {
   const closeBtn = document.querySelector('.gp-modal__bar .gp-icon-btn')
   if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
   result.modalClosedByBtn = document.querySelector('.gp-modal') === null
+
+  // Files tab: open it, the root tree lists entries; expand a dir; select a
+  // text file → code preview; select an image → inline image pane.
+  const filesTab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.files'))
+  if (filesTab) { filesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.filesTreeRows = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
+  const dirRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('src'))
+  if (dirRow) { dirRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.filesTreeRowsAfterExpand = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
+  const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
+  if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.filesCodeShown = document.querySelector('.gp-files__code') !== null
+  const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
+  if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.filesImageShown = document.querySelector('.gp-files__image img') !== null
   return result
 }, SNAP)
 
@@ -158,7 +186,7 @@ try {
   assert.deepEqual(out.slots.sort(), ['conversation.input.left', 'conversation.view', 'plugins.bundle.config'])
   assert.equal(out.pillHasDirty, true, 'dirty pill shows the orange git class')
   assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
-  assert.equal(out.tabCount, 2, 'two sub-tabs')
+  assert.equal(out.tabCount, 3, 'three sub-tabs')
   assert.equal(out.hasStats, true, 'stats bar rendered')
   assert.equal(out.hasCommitBox, true, 'commit box rendered')
   assert.equal(out.hasAmend, true, 'amend checkbox present')
@@ -177,6 +205,10 @@ try {
   assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
   assert.equal(out.modalClosedByEsc, true, 'Esc closes the modal')
   assert.equal(out.modalClosedByBtn, true, 'the close button closes the modal')
+  assert.ok(out.filesTreeRows >= 3, 'files tab lists the root directory entries')
+  assert.ok(out.filesTreeRowsAfterExpand > out.filesTreeRows, 'expanding a directory reveals its children')
+  assert.equal(out.filesCodeShown, true, 'selecting a text file shows the code preview')
+  assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {
