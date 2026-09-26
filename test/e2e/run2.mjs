@@ -115,15 +115,23 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   result.dotOnTab = document.querySelector('[data-gp-tab-dot]') !== null
   result.dotDirty = document.querySelector('.gp-tab-dot--dirty') !== null
 
-  // Case 4: the input-bar pill collapses to a status dot when its container is
-  // narrow (a sidebar opened), keeping the git status color. It relies on the
-  // shell input-bar row's container context, so a container query targets it.
-  result.pillCollapseStyled = [...document.styleSheets].some((sheet) => {
-    try {
-      return [...sheet.cssRules].some((rule) => rule.constructor.name === 'CSSContainerRule'
-        && [...rule.cssRules].some((inner) => (inner.selectorText || '').includes('gp-pill')))
-    } catch { return false }
-  })
+  // Case 4: the input-bar marker collapses to a status dot by workspace WIDTH
+  // (not sidebar open/close state), so it expands back as the workspace widens.
+  const region = document.createElement('div')
+  region.setAttribute('data-conversation-region', '')
+  region.style.width = '400px'
+  document.body.appendChild(region)
+  const host = document.createElement('div')
+  region.appendChild(host)
+  ReactDOM.createRoot(host).render(registered['conversation.input.left'].component({ sessionId: 's' }))
+  await new Promise((r) => setTimeout(r, 300))
+  const narrowPill = host.querySelector('.gp-pill')
+  result.compactWhenNarrow = narrowPill?.classList.contains('gp-pill--compact') === true
+  result.compactKeepsStatus = narrowPill?.classList.contains('gp-pill--synced') === true
+  result.compactDotShown = narrowPill ? getComputedStyle(narrowPill.querySelector('.gp-pill__dot')).display !== 'none' : false
+  region.style.width = '1000px'
+  await new Promise((r) => setTimeout(r, 300))
+  result.expandsWhenWide = host.querySelector('.gp-pill')?.classList.contains('gp-pill--compact') === false
 
   return result
 }, { snap: cleanSnap(), nonGitDir: NON_GIT_DIR })
@@ -143,7 +151,10 @@ try {
   assert.equal(out.dotPillHidden, true, 'showInputPill=false hides the input-bar marker')
   assert.equal(out.dotOnTab, true, 'showInputPill=false injects the Git tab status dot')
   assert.equal(out.dotDirty, true, 'the tab dot is the dirty (orange) variant')
-  assert.equal(out.pillCollapseStyled, true, 'the pill collapses to a dot via a container query on its wrapper')
+  assert.equal(out.compactWhenNarrow, true, 'a narrow workspace collapses the marker to a dot')
+  assert.equal(out.compactKeepsStatus, true, 'the collapsed marker keeps its git status class')
+  assert.equal(out.compactDotShown, true, 'the status dot is visible when collapsed')
+  assert.equal(out.expandsWhenWide, true, 'widening the workspace expands the marker again')
   assert.equal(errors.length, 0, 'no page errors: ' + JSON.stringify(errors))
   console.log('e2e run2.mjs: PASS', JSON.stringify(out))
 } catch (e) {

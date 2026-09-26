@@ -255,7 +255,7 @@ const CSS = `
 /* input-bar pill (zsh style) — repo cyan, (branch) green when synced /
  * orange when dirty. Fully-rounded (999px) to match the dsh-openviking-manager
  * input-bar toggle pill. */
-.gp-pill-wrap{display:inline-flex;container-type:inline-size;container-name:gp-pill-wrap}
+.gp-pill-wrap{display:inline-flex}
 .gp-pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:12px;line-height:16px;cursor:pointer;white-space:nowrap;max-width:280px;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-weight:600}
 .gp-pill:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-pill__dot{display:none;flex:none;width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}
@@ -269,13 +269,12 @@ const CSS = `
 .gp-pill--plain{cursor:default;font-weight:500}
 .gp-pill--plain .gp-pill__repo{color:var(--dsw-alias-label-secondary)}
 .gp-pill--degraded{color:var(--dsw-alias-label-tertiary);cursor:default;font-weight:500}
-/* When the input bar is squeezed (a sidebar opens), collapse the pill to a
- * single status dot — the git status color is preserved via .gp-pill__dot. */
-@container gp-pill-wrap (max-width:150px){
-  .gp-pill{gap:0;padding:0;width:28px;min-width:28px;height:28px;justify-content:center;border-radius:999px}
-  .gp-pill__dot{display:block}
-  .gp-pill__repo,.gp-pill__git{display:none}
-}
+/* When the workspace is narrow (a sidebar opens), collapse the pill to a single
+ * status dot — width-driven, so it expands back as the workspace widens. The
+ * git status color is preserved via .gp-pill__dot. */
+.gp-pill--compact{gap:0;padding:0;width:28px;min-width:28px;height:28px;justify-content:center;border-radius:999px}
+.gp-pill--compact .gp-pill__dot{display:block}
+.gp-pill--compact .gp-pill__repo,.gp-pill--compact .gp-pill__git{display:none}
 
 /* plugin detail config form (plugins.bundle.config slot body) */
 .gp-cfg{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}

@@ -55,9 +55,35 @@ function useTooltip(): {
   return { bind, render }
 }
 
+/**
+ * Observe the conversation workspace width and report whether the input-bar
+ * marker should collapse to a dot. Width-driven (not sidebar open/close state),
+ * so the pill expands again as soon as the workspace widens. Falls back to the
+ * viewport width when the region element is not found.
+ */
+function useCompactMarker(anchor: HTMLElement | null): boolean {
+  const [compact, setCompact] = useState(false)
+  useEffect(() => {
+    if (anchor === null || typeof ResizeObserver === 'undefined') return
+    const region = anchor.closest<HTMLElement>('[data-conversation-region]')
+    const target = region ?? document.body
+    const measure = (): void => setCompact(target.clientWidth > 0 && target.clientWidth < COMPACT_WIDTH)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(target)
+    return () => ro.disconnect()
+  }, [anchor])
+  return compact
+}
+
+/** Workspace width (px) below which the marker collapses to a status dot. */
+const COMPACT_WIDTH = 620
+
 export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   const view = useGitView(sessionId)
   const tip = useTooltip()
+  const [wrap, setWrap] = useState<HTMLElement | null>(null)
+  const compact = useCompactMarker(wrap)
   // Stable owner token for this pill instance (multi-pane shells run several).
   const dotOwner = useRef(Symbol('gp-tab-dot'))
 
@@ -99,9 +125,9 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
     activateGitTab(t('panel.tab'))
   }
 
-  return h('span', { className: 'gp-pill-wrap' }, [
+  return h('span', { className: 'gp-pill-wrap', ref: setWrap }, [
     h('button', {
-      key: 'btn', type: 'button', className: `gp-pill ${gitClass}`, onClick,
+      key: 'btn', type: 'button', className: `gp-pill ${gitClass}${compact ? ' gp-pill--compact' : ''}`, onClick,
       ref: tip.bind.ref, onMouseEnter: tip.bind.onMouseEnter, onMouseLeave: tip.bind.onMouseLeave,
     }, [
       h('span', { key: 'dot', className: 'gp-pill__dot', 'aria-hidden': 'true' }),
