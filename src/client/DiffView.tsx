@@ -80,7 +80,7 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   if (mode === 'after') return singleColumn(addOnly ? extractAddedContent(text) : rightText(rows), lang, hl)
 
   if (mode === 'unified') {
-    const uni = flattenToUnified(rows as SideRow[])
+    const uni = flattenToUnified(rows)
     return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, lang, hl, expand, t)))
   }
 

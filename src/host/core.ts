@@ -44,11 +44,17 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
   }
 }
 
-/** Read the default-diff-view field, unwrapping a schemastery volatile ref. */
-export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode {
-  const raw = value !== null && typeof value === 'object' && 'get' in value && typeof (value as { get: unknown }).get === 'function'
+/** Unwrap a schemastery volatile reference (`{ get() }`) to its live value;
+ * pass non-volatile values through unchanged. */
+function unwrapVolatile(value: unknown): unknown {
+  return value !== null && typeof value === 'object' && 'get' in value && typeof (value as { get: unknown }).get === 'function'
     ? (value as { get(): unknown }).get()
     : value
+}
+
+/** Read the default-diff-view field, unwrapping a schemastery volatile ref. */
+export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode {
+  const raw = unwrapVolatile(value)
   return raw === 'unified' || raw === 'split' ? raw : fallback
 }
 
@@ -58,9 +64,7 @@ export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMo
  * unrecognized shapes fall back to the default.
  */
 export function readBool(value: unknown, fallback: boolean): boolean {
-  const raw = value !== null && typeof value === 'object' && 'get' in value && typeof (value as { get: unknown }).get === 'function'
-    ? (value as { get(): unknown }).get()
-    : value
+  const raw = unwrapVolatile(value)
   return typeof raw === 'boolean' ? raw : fallback
 }
 
