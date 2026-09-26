@@ -20,7 +20,7 @@ function cleanSnap() {
     staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, lastCommit: null,
     changes: [],
     stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
-    truncated: false, refreshIntervalMs: 0, showInputPill: true, checkedAt: Date.now(),
+    truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
   }
 }
 

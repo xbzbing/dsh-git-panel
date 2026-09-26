@@ -250,6 +250,34 @@ export function contextRowsFromLines(delta: number, start: number, lines: readon
 export const GAP_STEP = 20
 
 /**
+ * Flatten side-by-side rows into a single-column (unified / inline) sequence:
+ * a `mod` row splits back into its deletion above its addition, so the unified
+ * view shows `-old` immediately followed by `+new` (GitHub inline style). The
+ * word-level ranges carry onto the split rows so intra-line emphasis survives.
+ * `context` / `add` / `del` / `hunk` / `gap` rows pass through unchanged.
+ */
+export function flattenToUnified(rows: readonly SideRow[]): SideRow[] {
+  const out: SideRow[] = []
+  for (const row of rows) {
+    if (row.kind === 'mod') {
+      out.push({
+        kind: 'del', leftNo: row.leftNo, rightNo: null,
+        leftText: row.leftText, rightText: null,
+        ...(row.leftWord !== undefined ? { leftWord: row.leftWord } : {}),
+      })
+      out.push({
+        kind: 'add', leftNo: null, rightNo: row.rightNo,
+        leftText: null, rightText: row.rightText,
+        ...(row.rightWord !== undefined ? { rightWord: row.rightWord } : {}),
+      })
+    } else {
+      out.push(row)
+    }
+  }
+  return out
+}
+
+/**
  * Splice a gap (identified by its rightStart) after revealing `lines` starting
  * at new-side line `revealedStart`. `direction` decides where a residual gap
  * remains: 'all' consumes the gap; 'down' reveals the top slice (residual

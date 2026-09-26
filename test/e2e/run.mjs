@@ -28,7 +28,7 @@ const SNAP = {
     { path: 'img.png', status: 'modified', staged: false, isDirectory: false },
   ],
   stats: { fileCount: 4, staged: 0, modified: 3, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null },
-  truncated: false, refreshIntervalMs: 0, showInputPill: true, checkedAt: Date.now(),
+  truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 
 const browser = await chromium.launch()
@@ -138,7 +138,7 @@ const out = await page.evaluate(async (snap) => {
   // Click a changed file → the diff modal opens (portaled to document.body).
   if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasModal = document.querySelector('.gp-modal') !== null
-  result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__side') !== null
+  result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
   // Esc closes it.
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 200))
@@ -174,7 +174,7 @@ try {
   assert.equal(out.hasGraph, true, 'commit graph svg rendered')
   assert.equal(out.hasDetailFileRow, true, 'selecting a commit lists its changed files')
   assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
-  assert.equal(out.modalHasDiff, true, 'the modal renders a side-by-side diff')
+  assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
   assert.equal(out.modalClosedByEsc, true, 'Esc closes the modal')
   assert.equal(out.modalClosedByBtn, true, 'the close button closes the modal')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))

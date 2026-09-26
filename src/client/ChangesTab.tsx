@@ -33,7 +33,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
   const [diffPath, setDiffPath] = useState<{ path: string; base: 'worktree' | 'staged' } | null>(null)
   const [diffText, setDiffText] = useState<string | null>(null)
-  const [diffMode, setDiffMode] = useState<DiffMode>('split')
+  const [diffMode, setDiffMode] = useState<DiffMode>(() => snapshot.defaultDiffView)
   const [expanded, setExpanded] = useState(false)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
   const diffSeq = useRef(0)
@@ -220,11 +220,11 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
               key: 'expand', type: 'button',
               className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
               style: summary ? {} : { marginLeft: 'auto' },
-              disabled: diffMode !== 'split',
+              disabled: diffMode !== 'split' && diffMode !== 'unified',
               title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
               onClick: () => void showDiff(diffPath.path, diffPath.base, !expanded),
             }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
-            h('div', { key: 'seg', className: 'gp-seg' }, (['split', 'before', 'after'] as DiffMode[]).map((m) =>
+            h('div', { key: 'seg', className: 'gp-seg' }, (['unified', 'split', 'before', 'after'] as DiffMode[]).map((m) =>
               h('button', { key: m, type: 'button', className: `gp-seg__btn${diffMode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => setDiffMode(m) }, t(`diff.${m}` as GitKey)))),
           ]),
           h('div', { key: 'scroll', className: 'gp-diff__scroll' },

@@ -3,8 +3,8 @@
 import { createElement as h, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import {
-  buildSideBySide, extractAddedContent, extractDeletedContent, isAddOnlyDiff, isBinaryDiff,
-  isDeleteOnlyDiff, isImagePath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
+  buildSideBySide, extractAddedContent, extractDeletedContent, flattenToUnified, isAddOnlyDiff,
+  isBinaryDiff, isDeleteOnlyDiff, isImagePath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
 } from './diff'
 import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
 import { ImageCompare } from './ImageCompare'
@@ -13,7 +13,9 @@ import { queryAs } from './rpc'
 import type { GitQuery, GitQueryResult } from './types'
 import type { GitKey } from './locales'
 
-export type DiffMode = 'split' | 'before' | 'after'
+/** unified = single inline column; split = side-by-side; before/after show one
+ * side's full content. */
+export type DiffMode = 'unified' | 'split' | 'before' | 'after'
 
 /** Which comparison the diff shows — image sides and gap-expansion source
  * both mirror it. */
@@ -76,6 +78,11 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
 
   if (mode === 'before') return singleColumn(delOnly ? extractDeletedContent(text) : leftText(rows), lang, hl)
   if (mode === 'after') return singleColumn(addOnly ? extractAddedContent(text) : rightText(rows), lang, hl)
+
+  if (mode === 'unified') {
+    const uni = flattenToUnified(rows as SideRow[])
+    return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, lang, hl, expand, t)))
+  }
 
   // split
   return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, lang, hl, expand, t)))
@@ -270,6 +277,40 @@ function renderRow(
     leftCell,
     h('div', { key: `rn${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),
     rightCell,
+  ]
+}
+
+/**
+ * One unified (inline) row: a full-width line-number gutter (old|new) + one
+ * code column tinted by add/del. Gap/hunk rows reuse the split renderers so
+ * on-demand expansion works identically in both layouts.
+ */
+function renderUnifiedRow(
+  row: SideRow, i: number, lang: string, hl: Highlighter | null,
+  expand: GapExpander, t: (key: GitKey, params?: Record<string, string | number>) => string,
+): JSX.Element[] {
+  if (row.kind === 'hunk') {
+    return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' } }, row.text ?? '')]
+  }
+  if (row.kind === 'gap') {
+    return [renderGap(row.gap!, i, expand, t)]
+  }
+  const isDel = row.kind === 'del'
+  const isAdd = row.kind === 'add'
+  const rowCls = isAdd ? 'gp-diff-row--add' : isDel ? 'gp-diff-row--del' : ''
+  const sign = isAdd ? '+' : isDel ? '\u2212' : '\u00a0'
+  const content = row.rightText ?? row.leftText ?? ''
+  const wordRange = isAdd ? row.rightWord : isDel ? row.leftWord : undefined
+  const wordCls = isAdd ? 'gp-diff-word gp-diff-word--add' : 'gp-diff-word gp-diff-word--del'
+  const codeCls = `gp-diff-cell gp-hljs gp-diff-uni__code ${rowCls}`
+  const code = wordRange !== undefined
+    ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, lang, hl)
+    : codeCell(codeCls, `c${i}`, content, lang, hl)
+  return [
+    h('div', { key: `ol${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
+    h('div', { key: `nl${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),
+    h('div', { key: `sg${i}`, className: `gp-diff-uni__sign ${rowCls}` }, sign),
+    code,
   ]
 }
 

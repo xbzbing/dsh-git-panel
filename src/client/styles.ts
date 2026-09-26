@@ -147,6 +147,13 @@ const CSS = `
 .gp-seg__btn--active:hover{background:var(--dsw-alias-state-business-primary)}
 .gp-diff__scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px}
 .gp-diff__side{display:grid;grid-template-columns:48px 1fr 48px 1fr}
+/* unified (inline) layout: old|new line-number gutters + a sign column + one
+ * shared code column; add/del tint the whole code cell, not one side. */
+.gp-diff__unified{display:grid;grid-template-columns:48px 48px 18px 1fr}
+.gp-diff-uni__sign{text-align:center;user-select:none;font-size:11px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
+.gp-diff-uni__sign.gp-diff-row--add{color:var(--dsw-alias-state-success-primary)}
+.gp-diff-uni__sign.gp-diff-row--del{color:var(--dsw-alias-state-error-primary)}
+.gp-diff-uni__code{box-shadow:none}
 .gp-diff-cell{padding:0 4px;white-space:pre-wrap;word-break:break-all;line-height:20px}
 .gp-diff-no{color:var(--dsw-alias-label-tertiary);text-align:right;padding:0 6px;user-select:none;font-size:11px;line-height:20px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);border-right:1px solid var(--dsw-alias-border-l2)}
 .gp-diff-row--add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-success-primary) 55%,transparent)}
@@ -231,6 +238,7 @@ const CSS = `
 .gp-cfg__switch:disabled{opacity:.5;cursor:default}
 .gp-cfg__switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-cfg__text{font-size:13px;color:var(--dsw-alias-label-primary)}
+.gp-cfg__seg{align-self:flex-start}
 .gp-cfg__hint{margin:0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}
 .gp-cfg__err{margin:0;font-size:12px;color:var(--dsw-alias-state-error-primary)}
 

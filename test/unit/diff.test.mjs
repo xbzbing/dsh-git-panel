@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent, isImagePath, intraLineDiff, spliceGap, contextRowsFromLines, GAP_STEP } from '../../lib/testkit.mjs'
+import { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent, isImagePath, intraLineDiff, spliceGap, contextRowsFromLines, flattenToUnified, GAP_STEP } from '../../lib/testkit.mjs'
 
 const MODIFY = `diff --git a/a.txt b/a.txt
 index a29bdeb..c0d0fb4 100644
@@ -80,6 +80,43 @@ test('modification rows carry word-level change ranges', () => {
   assert.ok(mod)
   // "old" vs "new": no shared prefix/suffix → whole line, so no word range.
   assert.equal(mod.leftWord, undefined)
+})
+
+test('flattenToUnified splits a mod row into del above add, keeping word ranges', () => {
+  // A mid-token edit so the mod row carries word ranges on both sides.
+  const src = `diff --git a/x b/x
+index 1..2 100644
+--- a/x
++++ b/x
+@@ -1,1 +1,1 @@
+-const x = 1
++const x = 2
+`
+  const rows = buildSideBySide(src)
+  const mod = rows.find((r) => r.kind === 'mod')
+  assert.ok(mod, 'a mod row exists in split layout')
+  assert.ok(mod.leftWord && mod.rightWord, 'mod carries word ranges')
+  const uni = flattenToUnified(rows)
+  const di = uni.findIndex((r) => r.kind === 'del' && r.leftText === 'const x = 1')
+  assert.ok(di >= 0, 'deletion present')
+  assert.equal(uni[di + 1].kind, 'add', 'addition immediately follows its deletion')
+  assert.equal(uni[di + 1].rightText, 'const x = 2')
+  // Word ranges survive onto the single-sided rows.
+  assert.deepEqual(uni[di].leftWord, mod.leftWord)
+  assert.deepEqual(uni[di + 1].rightWord, mod.rightWord)
+  // No mod rows remain in the flattened sequence.
+  assert.ok(!uni.some((r) => r.kind === 'mod'))
+})
+
+test('flattenToUnified passes context/add/del/hunk/gap rows through', () => {
+  const rows = buildSideBySide(GAPPED)
+  const uni = flattenToUnified(rows)
+  assert.ok(uni.some((r) => r.kind === 'hunk'))
+  assert.ok(uni.some((r) => r.kind === 'gap'))
+  assert.ok(uni.some((r) => r.kind === 'context'))
+  // GAPPED's single change is a mod (old31/new31) → becomes del + add.
+  assert.ok(uni.some((r) => r.kind === 'del' && r.leftText === 'old31'))
+  assert.ok(uni.some((r) => r.kind === 'add' && r.rightText === 'new31'))
 })
 
 const GAPPED = `diff --git a/f.txt b/f.txt

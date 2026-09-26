@@ -55,9 +55,8 @@ Host 半 (Cordis + typert, lib/host)
 - `Panel.tsx`：主面板壳，内部子 tab 路由 + 焦点消费 + 版本条。
 - `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment）的组合层，含 hover 卡；取数状态拆进 `overview-hooks.ts`。
 - `overview-hooks.ts`：`useBranchTree` / `useHistory`（分页 + 分代守卫 + `total:-1`）/ `useCommitDetail`（`show` LRU 缓存 + 文件 diff overlay + hover）三个数据 hook，`OverviewTab` 只做组合与渲染。
-- `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条（读快照上的 `stats`，不再单发查询）、并排差异视图（`DiffView` 已 `memo`）。
-- `GitPill.tsx`：inputBar 标记 + 跳转。
-- `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）。
+- `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条（读快照上的 `stats`，不再单发查询）、差异视图（`DiffView` 已 `memo`；支持统一（`unified`，单栏行内）/ 并排（`split`，左右分栏）两种布局，默认视图由快照上的 `defaultDiffView` 决定，可在工具栏临时切换）。
+- `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换。
 - `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
 - `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果）。
 - `jump.ts`：面板/子 tab 一次性焦点中继（模块级 per-session Map）。
