@@ -12,6 +12,7 @@ import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { ChevronIcon } from './icons'
 import { statusChar, statusClass } from './status'
+import { useResizableColumn } from './resizable'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -147,9 +148,13 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
 
   const summary = diffText !== null && diffText !== '' ? diffSummary(diffText) : null
 
+  // The left change-list column is drag-resizable; the right diff column takes
+  // the rest. Width persists across mounts.
+  const leftCol = useResizableColumn({ storageKey: 'gp.changes.left', initial: 380, min: 220, reserve: 200, edge: 'end' })
+
   return h('div', { className: 'gp-changes' }, [
     // left
-    h('div', { key: 'left', className: 'gp-changes__left' }, [
+    h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${leftCol.width}px` } }, [
       h(ChangeStats, { key: 'stats', stats: snapshot.stats, t }),
       h('div', { key: 'toolbar', className: 'gp-toolbar' }, [
         h('button', { key: 'sa', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, onClick: () => void run({ kind: 'stage-all' }) }, t('changes.stageAll')),
@@ -205,6 +210,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
         ]),
       ]),
     ]),
+    leftCol.divider,
     // right diff
     h('div', { key: 'right', className: 'gp-changes__right' },
       diffPath === null

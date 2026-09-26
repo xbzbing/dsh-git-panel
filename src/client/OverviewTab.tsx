@@ -17,6 +17,7 @@ import { absoluteTime, timeAgo } from './time'
 import { statusChar, statusClass } from './status'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
+import { useResizableColumn } from './resizable'
 import type { DiffViewMode } from './types'
 
 interface OverviewProps {
@@ -65,6 +66,11 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t 
   const fileTree = useMemo(() => (detail.detail === null ? [] : buildFileTree(detail.detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail.detail])
   const selected = detail.selected
 
+  // Left branch column + right detail column are drag-resizable; the middle
+  // history column takes the remaining space. Widths persist per column.
+  const leftCol = useResizableColumn({ storageKey: 'gp.overview.left', initial: 200, min: 130, reserve: 360, edge: 'end' })
+  const rightCol = useResizableColumn({ storageKey: 'gp.overview.right', initial: 340, min: 190, reserve: 360, edge: 'start' })
+
   return h('div', { className: 'gp-overview' }, [
     // file-diff modal (click a changed file in the right column)
     renderFileDiffModal(detail.fileDiff, {
@@ -80,12 +86,13 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t 
       t,
     }),
     // left: branches
-    h('div', { key: 'left', className: 'gp-col gp-col--left' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+    h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, renderBranchList(tree, treeError, filter.ref, closedSections, {
       onFilter: (ref) => setFilter((prev) => ({ ...prev, ref })),
       onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
       onRetry: reloadTree,
       t,
     })),
+    leftCol.divider,
     // middle: history
     h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
       h('div', { key: 'tb', className: 'gp-toolbar' }, [
@@ -122,8 +129,9 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t 
             t,
           }))),
     ]),
+    rightCol.divider,
     // right: detail
-    h('div', { key: 'right', className: 'gp-col gp-col--right gp-detail' },
+    h('div', { key: 'right', className: 'gp-col gp-col--right gp-detail', style: { flex: `0 0 ${rightCol.width}px` } },
       selected === null
         ? h('div', { className: 'gp-empty' }, [h(CommitIcon, { key: 'i', size: 20 }), t('overview.selectCommit')])
         : [

@@ -44,9 +44,14 @@ const CSS = `
  * blank when a right sidebar narrows the panel. */
 .gp-overview{display:flex;width:100%;min-height:0}
 .gp-col{display:flex;flex-direction:column;min-height:0;min-width:0}
-.gp-col--left{flex:0 1 200px;min-width:130px;border-right:1px solid var(--dsw-alias-border-l2);overflow-y:auto}
+.gp-col--left{flex:0 1 200px;min-width:130px;overflow-y:auto}
 .gp-col--mid{flex:1 1 0;min-width:150px}
-.gp-col--right{flex:0 1 340px;min-width:190px;border-left:1px solid var(--dsw-alias-border-l2);display:flex;flex-direction:column;min-height:0}
+.gp-col--right{flex:0 1 340px;min-width:190px;display:flex;flex-direction:column;min-height:0}
+/* drag handle between two columns: a thin hit area with a hairline center that
+ * thickens to the accent colour on hover / drag. */
+.gp-resizer{flex:0 0 5px;align-self:stretch;cursor:col-resize;position:relative;background:transparent;touch-action:none;user-select:none}
+.gp-resizer::before{content:"";position:absolute;top:0;bottom:0;left:2px;width:1px;background:var(--dsw-alias-border-l2)}
+.gp-resizer:hover::before,.gp-resizer:active::before{left:1px;width:3px;background:var(--dsw-alias-state-business-primary)}
 
 /* branch list */
 .gp-branch-group{padding:2px 0}
@@ -105,7 +110,7 @@ const CSS = `
  * scrolls inside its own pane instead of growing and pushing the left commit
  * box below the fold. */
 .gp-changes{display:flex;width:100%;height:100%;min-height:0}
-.gp-changes__left{flex:0 1 380px;min-width:220px;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l2)}
+.gp-changes__left{flex:0 1 380px;min-width:220px;display:flex;flex-direction:column;min-height:0}
 .gp-changes__right{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 .gp-check{width:14px;height:14px;flex:none;cursor:pointer}
