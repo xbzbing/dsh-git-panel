@@ -25,7 +25,7 @@ Restart or refresh the Web GUI afterwards and the **Git** panel appears in the w
 - **Overview** — three columns. The left column is the branch / tag list; clicking a ref filters history by it. The middle column is the commit history graph, searchable by commit message, commit hash, author, or date; hovering a commit shows a card with its full commit message (comment). The right column is the selected commit's changed-file tree and commit message; click a file to see its diff within that commit in a modal.
 - **Changes** — the local working tree. The left column has a statistics bar (file count / added·deleted lines / last-change time), the uncommitted change list with per-file checkboxes, and a commit box with an **Amend** checkbox; per-file stage / unstage / discard and manual commit are supported. The right column is the selected file's diff.
 - **File browser** — opening the workspace Git tab defaults to Files. Non-Git directories also work, using the current directory as the browse root. The resizable tree loads one directory at a time and hides `.git`; the preview shows code/text or images, with placeholders for oversized or binary files. Markdown defaults to source; choose Rendered to use dsh's built-in Markdown view.
-- **Syntax-highlighted diffs** — both diff views (the overview modal and the changes page) render lazy-loaded highlight.js syntax highlighting, picking a grammar by file extension; the highlighter is dynamically imported only the first time a diff is viewed.
+- **Syntax-highlighted diffs** — the overview modal, changes page, and file browser share dsh's built-in highlighter. Languages are selected by file extension and grammars load on demand; word-level change emphasis remains available in the diff views.
 - **Expand unchanged lines** — the diff toolbar offers an "expand all / collapse unchanged" toggle; expanded, it shows the whole file instead of just the context around each change.
 - **Diff modes** — unified / split / before / after views. Unified is a single inline column (each change shown as adjacent `-`/`+` lines, saving horizontal space); split is side-by-side. Both carry on-demand expansion of hidden between-hunk context and word-level emphasis on changed lines. The default view is selectable on the plugin detail page (unified / split) and can be switched per diff from the toolbar.
 - **Image compare** — diffs of image files (png, jpg, …) skip the binary placeholder and render "before / after" panes side by side (in both the overview modal and the changes page); an added or deleted image shows "Does not exist" on the other pane.
@@ -83,7 +83,7 @@ src/
     FilesTab.tsx    file browser (lazy directory tree + file preview)
     DiffView.tsx    diff view (unified / split / before / after)
     GitPill.tsx     input-bar marker
-    highlight.ts    lazy-loading facade for diff syntax highlighting
+    code-spans.ts   split syntax tokens at word-level change ranges
     git-graph.ts    commit-graph lane layout
     file-tree.ts    file paths folded into a tree
     diff.ts         unified diff → side-by-side rows + inline rows + stats

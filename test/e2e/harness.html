@@ -16,6 +16,14 @@
     // Official dsh MarkdownText is provided by the platform in production.
     // The isolated harness substitutes a minimal React render to test the UI toggle.
     '@deepseek-ai/dsh-client-ui-primitives': {
+      languageForPath: function (path) { return /\.tsx?$/i.test(path) ? 'typescript' : undefined; },
+      useCodeHighlighter: function (language) {
+        return window.React.useCallback(function (code) {
+          return language ? code.split('\n').map(function (line) {
+            return [{ text: line, style: { color: 'var(--shiki-keyword)' } }];
+          }) : undefined;
+        }, [language]);
+      },
       MarkdownText: function ({ text }) {
         return window.React.createElement('article', { 'data-markdown-rendered': '' },
           window.React.createElement('h1', null, text.replace(/^#\s*/, '').trim()));

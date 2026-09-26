@@ -10,3 +10,4 @@ export { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDi
 export { buildFileTree } from './file-tree.ts'
 export { layoutGraph, graphWidth } from './git-graph.ts'
 export { gitPanelRemoteOf, queryAs, hasSession } from './rpc.ts'
+export { splitHighlightSpans } from './code-spans.ts'

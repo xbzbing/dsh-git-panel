@@ -61,10 +61,11 @@ const out = await page.evaluate(async (snap) => {
             { hash: 'd196623aaa', shortHash: 'd196623', subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString(), parents: ['de54fc0bbb'], refs: [{ kind: 'branch', name: 'feature', head: false }] },
             { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [{ kind: 'branch', name: 'main', head: true }] },
           ] } } }
-          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'c.txt', status: 'added' }] } } }
+          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }] } } }
           if (q.kind === 'diff') {
             // An image path diffs as the binary marker, like real git.
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n' } } }
+            if (q.path.endsWith('.ts')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-const count = 1\n+const count = 2\n' } } }
             return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n' } } }
           }
           if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
@@ -156,6 +157,7 @@ const out = await page.evaluate(async (snap) => {
   if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasModal = document.querySelector('.gp-modal') !== null
   result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
+  result.modalWordSyntax = [...document.querySelectorAll('.gp-modal .gp-diff-word span')].some((el) => el.style.color.includes('--shiki-keyword'))
   // Esc closes it.
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 200))
@@ -177,6 +179,9 @@ const out = await page.evaluate(async (snap) => {
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
+  const tsRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('index.ts'))
+  if (tsRow) { tsRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.officialCodeHighlight = [...document.querySelectorAll('.gp-files__code .gp-diff-cell span')].some((node) => node.style.color.includes('--shiki-keyword'))
   const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
   if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesImageShown = document.querySelector('.gp-files__image img') !== null
@@ -217,11 +222,13 @@ try {
   assert.equal(out.hasDetailFileRow, true, 'selecting a commit lists its changed files')
   assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
   assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
+  assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')
   assert.equal(out.modalClosedByEsc, true, 'Esc closes the modal')
   assert.equal(out.modalClosedByBtn, true, 'the close button closes the modal')
   assert.ok(out.filesTreeRows >= 3, 'files tab lists the root directory entries')
   assert.ok(out.filesTreeRowsAfterExpand > out.filesTreeRows, 'expanding a directory reveals its children')
   assert.equal(out.filesCodeShown, true, 'selecting a text file shows the code preview')
+  assert.equal(out.officialCodeHighlight, true, 'code preview renders syntax spans from the DSH highlighter')
   assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
   assert.equal(out.markdownSourceDefault, true, 'Markdown defaults to source view')
   assert.equal(out.markdownRendered, true, 'render button uses official MarkdownText')

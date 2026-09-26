@@ -2,7 +2,7 @@
  * Files tab: a lazy directory tree of the working tree on the left, a preview
  * of the selected file on the right. Directories fetch their children on
  * expand (dir-list); files fetch content on select (file-content). Code/text
- * is syntax-highlighted (lazy highlight.js), images render inline, other
+ * uses the platform's lazy syntax highlighter; images render inline, other
  * binaries show a placeholder. Left column width is drag-resizable.
  */
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -12,9 +12,8 @@ import { queryAs } from './rpc'
 import type { DirEntry } from './types'
 import type { GitKey } from './locales'
 import { ChevronIcon, FileIcon, FolderIcon } from './icons'
-import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
 import { useResizableColumn } from './resizable'
-import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { languageForPath, MarkdownText, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -183,37 +182,18 @@ function renderPreview(file: FileState, t: (key: GitKey, params?: Record<string,
 
 /** Read-only numbered code view with lazy syntax highlighting. */
 function CodePreview({ content, path }: { content: string; path: string }): JSX.Element {
-  const lang = useMemo(() => languageForPath(path), [path])
-  const hl = useHighlighter(lang)
+  const lang = languageForPath(path)
+  const highlight = useCodeHighlighter(lang)
   const lines = useMemo(() => {
     const arr = content.split('\n')
     if (arr.length > 0 && arr[arr.length - 1] === '') arr.pop()
     return arr
   }, [content])
+  const highlighted = useMemo(() => highlight(lines.join('\n')), [highlight, lines])
   return h('div', { className: 'gp-files__single' }, lines.flatMap((line, i) => [
     h('div', { key: `n${i}`, className: 'gp-diff-no' }, i + 1),
-    codeCell(`gp-diff-cell gp-hljs`, `c${i}`, line, lang, hl),
+    h('div', { key: `c${i}`, className: 'gp-diff-cell' }, line === '' ? '\u00a0' : highlighted?.[i] !== undefined
+      ? highlighted[i].map((span: HighlightSpan, j: number) => h('span', { key: j, style: span.style }, span.text))
+      : line),
   ]))
-}
-
-/** A highlighted code cell, or a plain-text one when no highlighter/lang. */
-function codeCell(className: string, key: string, content: string, lang: string, hl: Highlighter | null): JSX.Element {
-  if (content === '') return h('div', { key, className }, '\u00a0')
-  if (hl === null) return h('div', { key, className }, content)
-  return h('div', { key, className, dangerouslySetInnerHTML: { __html: hl.line(content, lang) } })
-}
-
-/** Resolve the loaded highlighter for a language, kicking the lazy import. */
-function useHighlighter(lang: string): Highlighter | null {
-  const [, bump] = useState(0)
-  useEffect(() => {
-    if (lang === '') return
-    if (currentHighlighter() !== null) return
-    let alive = true
-    void ensureHighlighter().then(() => { if (alive) bump((n) => n + 1) })
-    return () => { alive = false }
-  }, [lang])
-  if (lang === '') return null
-  const hl = currentHighlighter()
-  return hl !== null && hl.supports(lang) ? hl : null
 }
