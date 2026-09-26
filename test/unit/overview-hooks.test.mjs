@@ -71,17 +71,25 @@ test('useHistory treats total:-1 as always-more (hash-jump paging)', async () =>
   h.unmount()
 })
 
-test('useHistory calls onReset before reloading page 0', async () => {
+test('useHistory resets selection on a filter change but not on a plain poll refresh', async () => {
   let resets = 0
   const remote = historyRemote(() => ({ commits: [], total: 0 }))
   const props = { remote, sid: 's', filter: F, refreshKey: 0 }
   const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.refreshKey, () => { resets += 1 }))
   await h.settle()
-  assert.equal(resets, 1)
+  // Mount keeps the initial filter → no reset (nothing selected yet either).
+  assert.equal(resets, 0)
+  // A plain snapshot advance (checkedAt bumps every poll) must NOT reset the
+  // selection — that was the bug where a background poll wiped the open commit.
   props.refreshKey = 1
   h.rerender()
   await h.settle()
-  assert.equal(resets, 2)
+  assert.equal(resets, 0)
+  // A genuine filter change may drop the selection from the new list → reset.
+  props.filter = { ref: 'feature', search: '', author: '', since: '' }
+  h.rerender()
+  await h.settle()
+  assert.equal(resets, 1)
   h.unmount()
 })
 

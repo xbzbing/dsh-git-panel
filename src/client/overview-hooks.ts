@@ -78,8 +78,14 @@ export function useBranchTree(remote: GitPanelRemote, sessionId: string, refresh
  * Middle column: paged commit history. One effect owns page 0 (keyed on
  * filter + refreshKey) so a filter change and a snapshot advance can't race and
  * discard each other; `seqRef` drops stale responses, `loadingRef` guards a
- * double page-append from two scroll events in one frame. `onReset` fires just
- * before page 0 reloads so the caller can clear the selection.
+ * double page-append from two scroll events in one frame.
+ *
+ * `onReset` fires only when the *filter* changed (branch / search / author /
+ * date), where the selected commit may have dropped out of the new list. A
+ * plain snapshot advance (`refreshKey`, bumped every poll because `checkedAt`
+ * is always fresh) reloads page 0 to pick up new commits but preserves the
+ * selection and scroll — otherwise a background poll would wipe the commit the
+ * user is reading.
  */
 export function useHistory(
   remote: GitPanelRemote,
@@ -130,11 +136,18 @@ export function useHistory(
     setTotal(history.total)
   }, [remote, sessionId])
 
+  const prevFilter = useRef(filter)
   useEffect(() => {
     seqRef.current += 1
     loadingRef.current = false
-    onReset()
-    if (listRef.current) listRef.current.scrollTop = 0
+    // Distinguish a filter change (selection may no longer be in the list, and
+    // the view should jump back to the top) from a plain poll refresh (same
+    // filter, just a newer snapshot): only the former resets selection/scroll.
+    if (prevFilter.current !== filter) {
+      prevFilter.current = filter
+      onReset()
+      if (listRef.current) listRef.current.scrollTop = 0
+    }
     void loadPage(0, filter)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, refreshKey])
