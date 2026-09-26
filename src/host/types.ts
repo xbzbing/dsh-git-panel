@@ -183,6 +183,8 @@ export interface DirEntry {
   readonly dir: boolean
   /** File byte size; absent for directories. */
   readonly size?: number
+  /** True when Git excludes an untracked item; absent outside a repository. */
+  readonly ignored?: boolean
 }
 
 /** One commit's changed-file line (from --name-status). */

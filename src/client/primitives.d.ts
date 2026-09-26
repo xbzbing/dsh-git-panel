@@ -22,6 +22,7 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export type CodeHighlighter = (code: string) => HighlightSpan[][] | undefined
   export function languageForPath(path: string): string | undefined
   export function useCodeHighlighter(language: string | undefined): CodeHighlighter
+  export const FileTypeIcon: (props: ({ readonly path: string } | { readonly kind: 'folder' }) & { readonly size?: number; readonly className?: string }) => JSX.Element | null
   export const MarkdownText: (props: {
     text: string
     labels: MarkdownLabels

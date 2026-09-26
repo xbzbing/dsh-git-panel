@@ -24,6 +24,8 @@ const SID = 'test-session'
 const subprocess = {
   spawn(spec) {
     const child = nodeSpawn(spec.argv[0], spec.argv.slice(1), { cwd: spec.cwd })
+    if (typeof spec.stdio.stdin === 'object') child.stdin.end(spec.stdio.stdin.data)
+    else child.stdin.end()
     let out = ''
     let err = ''
     child.stdout.on('data', (d) => { out += d })
@@ -242,6 +244,7 @@ test('file browser lists a non-git cwd and previews a file without exposing .git
     const listed = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '' } })
     assert.equal(listed.ok, true)
     assert.deepEqual(listed.value.entries.map((e) => e.name), ['git-alias', 'note.md'])
+    assert.ok(listed.value.entries.every((entry) => entry.ignored !== true), 'non-git directories have no ignore status')
     const preview = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'note.md' } })
     assert.equal(preview.ok, true)
     assert.equal(preview.value.content, '# hello\n')
@@ -253,6 +256,35 @@ test('file browser lists a non-git cwd and previews a file without exposing .git
     const blockedFile = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: '.git/config' } })
     assert.equal(blockedFile.ok, false)
     assert.equal(blockedFile.error.code, 'invalid-path')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('dir-list marks ignored files and directories using git rules only in repositories', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-ignored-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    await runGit(dir, ['init', '-q'])
+    writeFileSync(join(dir, '.gitignore'), '*.log\ncache/\n*.tmp\n!important.tmp\n')
+    mkdirSync(join(dir, 'cache'))
+    mkdirSync(join(dir, 'nested'))
+    writeFileSync(join(dir, 'ignored.log'), 'ignored')
+    writeFileSync(join(dir, 'tracked.log'), 'tracked')
+    writeFileSync(join(dir, 'important.tmp'), 'kept')
+    writeFileSync(join(dir, '-danger.tmp'), 'ignored')
+    writeFileSync(join(dir, 'nested', '.gitignore'), 'secret.txt\n')
+    writeFileSync(join(dir, 'nested', 'secret.txt'), 'ignored')
+    await runGit(dir, ['add', '-f', 'tracked.log'])
+    const root = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '' } })
+    assert.equal(root.ok, true)
+    const entries = Object.fromEntries(root.value.entries.map((entry) => [entry.name, entry]))
+    assert.equal(entries['ignored.log'].ignored, true)
+    assert.equal(entries['cache'].ignored, true)
+    assert.equal(entries['-danger.tmp'].ignored, true, 'leading dash is safely passed to git')
+    assert.notEqual(entries['tracked.log'].ignored, true, 'tracked files are not dimmed')
+    assert.notEqual(entries['important.tmp'].ignored, true, 'negated patterns stay visible')
+    const nested = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: 'nested' } })
+    assert.equal(nested.ok, true)
+    assert.equal(nested.value.entries.find((entry) => entry.name === 'secret.txt')?.ignored, true)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
