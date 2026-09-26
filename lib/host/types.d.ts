@@ -3,6 +3,8 @@
  * The client half (src/client/rpc.ts) reuses these types directly, so the
  * wire contract has a single definition and cannot drift.
  */
+/** Diff layout: `unified` = single inline column, `split` = side-by-side. */
+export type DiffViewMode = 'unified' | 'split';
 /** Wire request: the browser sends only session identity, never a path. */
 export interface GitSnapshotRequest {
     readonly sessionId: string;
@@ -56,6 +58,8 @@ export interface GitSnapshot {
     readonly refreshIntervalMs: number;
     /** Whether the input-bar git marker pill should render (user preference). */
     readonly showInputPill: boolean;
+    /** Default diff layout the views open with (user preference). */
+    readonly defaultDiffView: DiffViewMode;
     /** Epoch millis of the snapshot. */
     readonly checkedAt: number;
 }

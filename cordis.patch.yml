@@ -10,3 +10,4 @@
         maxBytes: 4194304
         maxChanges: 1000
         refreshIntervalMs: 30000
+        defaultDiffView: unified

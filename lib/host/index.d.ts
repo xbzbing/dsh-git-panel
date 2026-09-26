@@ -10,7 +10,7 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { Context } from '@deepseek-ai/cordis';
 import Schema from '@deepseek-ai/schemastery';
 import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitVersionInfo, GitVersionRequest } from './types.ts';
-export type { GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef, GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, GitVersionRequest, GitVersionInfo, } from './types.ts';
+export type { GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef, GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, GitVersionRequest, GitVersionInfo, DiffViewMode, } from './types.ts';
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts';
 export { createGitRunner } from './git.ts';
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, sumNumstat } from './parser.ts';
@@ -20,14 +20,17 @@ export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository }
 export declare class GitPanelService extends TypertRemoteService {
     static inject: string[];
     /**
-     * Config schema surfaced on the plugin detail page. Only `showInputPill` is
-     * `.volatile()`, so the settings host renders it as a live-editable toggle;
-     * the operational limits stay profile-only and out of the UI form.
+     * Config schema surfaced on the plugin detail page. `showInputPill` and
+     * `defaultDiffView` are `.volatile()`, so the settings host renders them as
+     * live-editable controls; the operational limits stay profile-only and out
+     * of the UI form.
      */
     static Config: Schema<Schemastery.ObjectS<NoInfer<{
         showInputPill: Schema<boolean, boolean, "volatile-defined">;
+        defaultDiffView: Schema<"split" | "unified", "split" | "unified", "volatile-defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
         showInputPill: Schema<boolean, boolean, "volatile-defined">;
+        defaultDiffView: Schema<"split" | "unified", "split" | "unified", "volatile-defined">;
     }>>, "plain">;
     private readonly deps;
     private config;
