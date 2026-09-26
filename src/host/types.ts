@@ -165,12 +165,25 @@ export type GitQuery =
   | { readonly kind: 'file-lines'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly start: number; readonly end: number }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'worktree' | 'staged' }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'commit'; readonly commit: string }
+  // File browser: list one working-tree directory (lazy, one level down), and
+  // read one working-tree file (text slice / image data URL / binary marker).
+  // Both take an in-tree relative path; `''` is the repository root.
+  | { readonly kind: 'dir-list'; readonly path: string }
+  | { readonly kind: 'file-content'; readonly path: string }
   | { readonly kind: 'show'; readonly ref: string }
   | { readonly kind: 'branches' }
   | { readonly kind: 'tags' }
   | { readonly kind: 'authors' }
   | { readonly kind: 'last-commit-message' }
   | { readonly kind: 'worktree-stats' }
+
+/** One entry in a `dir-list` result. */
+export interface DirEntry {
+  readonly name: string
+  readonly dir: boolean
+  /** File byte size; absent for directories. */
+  readonly size?: number
+}
 
 /** One commit's changed-file line (from --name-status). */
 export interface GitFileStat {
@@ -239,6 +252,26 @@ export type GitQueryResult =
   | { readonly kind: 'authors'; readonly authors: readonly string[] }
   | { readonly kind: 'last-commit-message'; readonly message: string }
   | { readonly kind: 'worktree-stats'; readonly stats: WorktreeStats }
+  // File-browser directory listing (one level). `truncated` is set when the
+  // entry count was capped.
+  | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }
+  // File-browser file content. Exactly one shape applies:
+  //   text  → a UTF-8 text file (`content` is the whole file, `lines` its count)
+  //   image → a browser-renderable image (`dataUrl` is a data: URL)
+  //   binary→ neither (no preview); tooLarge → over the byte cap.
+  | {
+    readonly kind: 'file-content'
+    readonly path: string
+    readonly variant: 'text' | 'image' | 'binary'
+    /** text variant: the file's full UTF-8 content. */
+    readonly content?: string
+    /** text variant: total line count. */
+    readonly lines?: number
+    /** image variant: a `data:<mime>;base64,…` URL. */
+    readonly dataUrl?: string
+    /** The file exceeded the byte cap, so no content is returned. */
+    readonly tooLarge?: true
+  }
 
 export type GitQueryResponse =
   | { readonly ok: true; readonly value: GitQueryResult }

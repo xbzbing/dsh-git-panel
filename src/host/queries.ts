@@ -4,10 +4,10 @@
  */
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
-import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
+import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
 import { parseBranches, parseGraphLog, parseNameStatus, parseTags } from './parser.ts'
-import type { GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
+import type { DirEntry, GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
 import { imageMimeFor } from './types.ts'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
@@ -22,10 +22,26 @@ export async function runQuery(
   config: GitPanelConfig,
   request: GitQueryRequest,
 ): Promise<GitQueryResponse> {
+  const q = request.query
+  // The file browser works outside a git repository too: resolve a plain
+  // directory root (work-tree top when in a repo, else the session cwd) so
+  // dir-list / file-content still function; every git-backed query keeps
+  // requiring a real work tree.
+  if (q.kind === 'dir-list' || q.kind === 'file-content') {
+    const browse = await resolveBrowseRoot(deps, request.sessionId)
+    if (!browse.ok) return { ok: false, error: browse.error }
+    try {
+      return q.kind === 'dir-list'
+        ? await queryDirList(deps, browse.root, q)
+        : await queryFileContent(deps, config, browse.root, q)
+    } catch (error) {
+      return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
+    }
+  }
+
   const workspace = await resolveWorkspace(deps, request.sessionId)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
-  const q = request.query
 
   try {
     switch (q.kind) {
@@ -330,6 +346,112 @@ async function worktreeSide(deps: SnapshotDeps, root: string, path: string, cap:
   } catch {
     return undefined
   }
+}
+
+// ── file browser ─────────────────────────────────────────────────────────
+
+/** Max entries returned for one directory listing (bounds RPC + render). */
+const DIR_ENTRY_CAP = 2000
+
+/**
+ * List one working-tree directory, one level down. `.git` is skipped; the path
+ * is validated (`isSafePath`) and its realpath is confirmed inside the root so
+ * a symlinked subdirectory cannot escape. Entries are sorted dirs-first then by
+ * name and capped at DIR_ENTRY_CAP.
+ */
+async function queryDirList(
+  deps: SnapshotDeps,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'dir-list' }>,
+): Promise<GitQueryResponse> {
+  const rel = q.path
+  if ((rel !== '' && !isSafePath(rel)) || hasGitSegment(rel)) return { ok: false, error: { code: 'invalid-path', message: rel } }
+  const dir = rel === '' ? root : join(root, rel)
+  const inside = await isInsideRoot(deps, root, dir, true)
+  if (!inside) return { ok: false, error: { code: 'invalid-path', message: rel } }
+  let raw: ReadonlyArray<{ name: string; isDirectory: boolean }>
+  try {
+    raw = await deps.fs.readdir(dir)
+  } catch (error) {
+    return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'readdir failed' } }
+  }
+  const filtered = raw.filter((e) => e.name !== '.git')
+  filtered.sort((a, b) => (a.isDirectory !== b.isDirectory ? (a.isDirectory ? -1 : 1) : a.name.localeCompare(b.name)))
+  const truncated = filtered.length > DIR_ENTRY_CAP
+  const slice = truncated ? filtered.slice(0, DIR_ENTRY_CAP) : filtered
+  const entries: DirEntry[] = await Promise.all(slice.map(async (e) => {
+    if (e.isDirectory) return { name: e.name, dir: true }
+    let size: number | undefined
+    try { size = (await deps.fs.stat(join(dir, e.name))).size } catch { size = undefined }
+    return { name: e.name, dir: false, ...(size !== undefined ? { size } : {}) }
+  }))
+  const path = rel === '' ? '' : rel.replace(/\/+$/, '')
+  return { ok: true, value: { kind: 'dir-list', path, entries, truncated } }
+}
+
+/**
+ * Read one working-tree file for preview. Images (by extension) return a base64
+ * data URL; otherwise a UTF-8/binary probe decides between a text body and a
+ * bare binary marker. Over the byte cap → `tooLarge`. Path is validated and
+ * confirmed inside the root (symlink-guarded) before any read.
+ */
+async function queryFileContent(
+  deps: SnapshotDeps,
+  config: GitPanelConfig,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'file-content' }>,
+): Promise<GitQueryResponse> {
+  if (!isSafePath(q.path) || hasGitSegment(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  const file = join(root, q.path)
+  const inside = await isInsideRoot(deps, root, file, true)
+  if (!inside) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  const cap = config.maxBytes
+  let info: { size: number }
+  try {
+    info = await deps.fs.stat(file)
+  } catch (error) {
+    return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'stat failed' } }
+  }
+  const mime = imageMimeFor(q.path)
+  if (info.size > cap) return { ok: true, value: { kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true } }
+  let buf: Buffer
+  try {
+    buf = await deps.fs.readFile(file)
+  } catch (error) {
+    return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'read failed' } }
+  }
+  if (buf.length > cap) return { ok: true, value: { kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true } }
+  if (mime !== null) {
+    return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:${mime};base64,${buf.toString('base64')}` } }
+  }
+  if (isBinaryBuffer(buf)) return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'binary' } }
+  const content = buf.toString('utf8')
+  const lines = content === '' ? 0 : content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
+  return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines } }
+}
+
+/** Do not expose Git metadata even through an explicit RPC path. */
+function hasGitSegment(path: string): boolean {
+  return path.split(/[\\/]/).includes('.git')
+}
+
+/** True when a path resolves inside the browse root, outside its .git tree. */
+async function isInsideRoot(deps: SnapshotDeps, root: string, path: string, hideGit = false): Promise<boolean> {
+  try {
+    const real = await deps.fs.realpath(path)
+    const rootReal = await deps.fs.realpath(root)
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) return false
+    return !hideGit || !hasGitSegment(real.slice(rootReal.length + 1))
+  } catch {
+    return false
+  }
+}
+
+/** Heuristic binary probe: a NUL byte in the first 8KB marks non-text. */
+function isBinaryBuffer(buf: Buffer): boolean {
+  const n = Math.min(buf.length, 8192)
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return true
+  return false
 }
 
 async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise<GitQueryResponse> {

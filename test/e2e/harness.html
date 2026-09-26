@@ -13,6 +13,14 @@
     'react': window.React,
     'react-dom': window.ReactDOM,
     'react/jsx-runtime': window.jsxRuntime,
+    // Official dsh MarkdownText is provided by the platform in production.
+    // The isolated harness substitutes a minimal React render to test the UI toggle.
+    '@deepseek-ai/dsh-client-ui-primitives': {
+      MarkdownText: function ({ text }) {
+        return window.React.createElement('article', { 'data-markdown-rendered': '' },
+          window.React.createElement('h1', null, text.replace(/^#\s*/, '').trim()));
+      },
+    },
   };
   var LOADED = null;
   window.__ModuleLoader__ = {

@@ -5,7 +5,7 @@
  * pill click switches sub-tabs even when the panel is already visible.
  */
 
-export type SubTab = 'overview' | 'changes'
+export type SubTab = 'overview' | 'changes' | 'files'
 
 /** The conversation shell's view-tab bar and its buttons — one definition for
  * both the pill jump and the tab status dot, so neither can match an unrelated

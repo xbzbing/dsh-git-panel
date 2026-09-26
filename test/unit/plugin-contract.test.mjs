@@ -48,6 +48,7 @@ function sandboxRequire() {
     if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, memo: (c) => c, Fragment: 'fragment' }
     if (spec === 'react-dom') return { createPortal: () => ({}) }
     if (spec === 'react/jsx-runtime') return { jsx: () => ({}), jsxs: () => ({}), Fragment: 'fragment' }
+    if (spec === '@deepseek-ai/dsh-client-ui-primitives') return { MarkdownText: () => ({}) }
     throw new Error('unexpected require: ' + spec)
   }
 }
@@ -84,6 +85,7 @@ test('install identity is consistent across manifest, patch row, bundle id', () 
   assert.equal(pkg.name, '@xbzbing/dsh-git-panel')
   assert.equal(rowName, pkg.name, 'cordis.patch.yml row name must equal package name')
   assert.equal(handoff.id, pkg.name, 'ModuleLoader registration id must equal package name')
+  assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-primitives'), 'MarkdownText must come from the dsh platform seed')
 })
 
 test('client factory returns a plugin with apply + inject', () => {

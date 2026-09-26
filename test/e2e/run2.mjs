@@ -71,18 +71,22 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   await new Promise((r) => setTimeout(r, 100))
   result.jumpClicked = clicked
 
-  // Case 2: not-a-git-repo → marker shows only the dir name, no error text.
+  // Case 2: a non-git directory has no input marker but opens the Files view.
   const notGitConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
     ? { ok: true, value: { ok: false, error: { code: 'not-a-git-repo', cwd: nonGitDir } } }
-    : { ok: true, value: { ok: true, value: { kind: 'branches', current: null, defaultBranch: null, local: [], remote: [] } } } } }
+    : { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [{ name: 'note.md', dir: false }] } } } } }
   entry.apply(mkCtx(notGitConn))
   const pill2 = registered['conversation.input.left']
   const host2 = document.getElementById('pill')
   ReactDOM.createRoot(host2).render(pill2.component({ sessionId: 's2' }))
   await new Promise((r) => setTimeout(r, 300))
-  const plain = document.querySelector('.gp-pill--plain')
-  result.notGitPlain = plain !== null
-  result.notGitText = plain ? plain.textContent : null
+  result.notGitPillHidden = document.querySelector('#pill .gp-pill') === null
+  const view2 = registered['conversation.view']
+  ReactDOM.createRoot(document.getElementById('panel')).render(view2.component({ sessionId: 's2' }))
+  await new Promise((r) => setTimeout(r, 300))
+  result.notGitFilesOnly = document.querySelectorAll('#panel .gp-tab').length === 1
+    && document.querySelector('#panel .gp-tab--active')?.textContent?.includes('tab.files')
+  result.notGitFileListed = document.querySelector('#panel .gp-files__tree')?.textContent?.includes('note.md')
 
   // Case 3: showInputPill=false → the input-bar marker is hidden and the Git
   // tab shows a status dot instead (pill ↔ tab-dot mutual exclusion, T5).
@@ -103,14 +107,13 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
 
 await browser.close()
 
-const expectedNonGitName = NON_GIT_DIR.split('/').pop()
-
 try {
   assert.equal(out.hasSynced, true, 'clean repo pill uses the green synced class')
   assert.equal(out.hasDirty, false, 'clean repo pill is not orange')
   assert.equal(out.jumpClicked, true, 'pill click activates the Git tab button')
-  assert.equal(out.notGitPlain, true, 'non-git directory renders a plain marker')
-  assert.equal(out.notGitText, expectedNonGitName, 'non-git marker shows only the directory name')
+  assert.equal(out.notGitPillHidden, true, 'non-git directory hides the input marker')
+  assert.equal(out.notGitFilesOnly, true, 'non-git panel defaults to Files only')
+  assert.equal(out.notGitFileListed, true, 'non-git panel lists cwd files')
   assert.equal(out.dotPillHidden, true, 'showInputPill=false hides the input-bar marker')
   assert.equal(out.dotOnTab, true, 'showInputPill=false injects the Git tab status dot')
   assert.equal(out.dotDirty, true, 'the tab dot is the dirty (orange) variant')

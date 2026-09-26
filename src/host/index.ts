@@ -9,7 +9,7 @@
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { readFile, realpath, rm, stat } from 'node:fs/promises'
+import { readFile, readdir, realpath, rm, stat } from 'node:fs/promises'
 import { createGitRunner, type SubprocessLike } from './git.ts'
 import { normalizeConfig, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.ts'
 import { runAction } from './actions.ts'
@@ -21,7 +21,7 @@ export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats,
-  GitVersionRequest, GitVersionInfo, DiffViewMode,
+  GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry,
 } from './types.ts'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts'
 export { createGitRunner } from './git.ts'
@@ -73,7 +73,9 @@ export class GitPanelService extends TypertRemoteService {
     const rootNegCache = new Map<string, number>()
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
     const fs: SnapshotDeps['fs'] = {
-      realpath, stat: async (p) => stat(p), readFile, remove: async (p) => { await rm(p, { force: true }) },
+      realpath, stat: async (p) => stat(p), readFile,
+      readdir: async (p) => (await readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, isDirectory: e.isDirectory() })),
+      remove: async (p) => { await rm(p, { force: true }) },
     }
     // `static inject` gates activation on subprocess, so it is always present
     // here; the runner throws only if a future refactor drops that guard.

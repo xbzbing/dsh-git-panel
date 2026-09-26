@@ -24,12 +24,13 @@ Restart or refresh the Web GUI afterwards and the **Git** panel appears in the w
 
 - **Overview** — three columns. The left column is the branch / tag list; clicking a ref filters history by it. The middle column is the commit history graph, searchable by commit message, commit hash, author, or date; hovering a commit shows a card with its full commit message (comment). The right column is the selected commit's changed-file tree and commit message; click a file to see its diff within that commit in a modal.
 - **Changes** — the local working tree. The left column has a statistics bar (file count / added·deleted lines / last-change time), the uncommitted change list with per-file checkboxes, and a commit box with an **Amend** checkbox; per-file stage / unstage / discard and manual commit are supported. The right column is the selected file's diff.
+- **File browser** — opening the workspace Git tab defaults to Files. Non-Git directories also work, using the current directory as the browse root. The resizable tree loads one directory at a time and hides `.git`; the preview shows code/text or images, with placeholders for oversized or binary files. Markdown defaults to source; choose Rendered to use dsh's built-in Markdown view.
 - **Syntax-highlighted diffs** — both diff views (the overview modal and the changes page) render lazy-loaded highlight.js syntax highlighting, picking a grammar by file extension; the highlighter is dynamically imported only the first time a diff is viewed.
 - **Expand unchanged lines** — the diff toolbar offers an "expand all / collapse unchanged" toggle; expanded, it shows the whole file instead of just the context around each change.
 - **Diff modes** — unified / split / before / after views. Unified is a single inline column (each change shown as adjacent `-`/`+` lines, saving horizontal space); split is side-by-side. Both carry on-demand expansion of hidden between-hunk context and word-level emphasis on changed lines. The default view is selectable on the plugin detail page (unified / split) and can be switched per diff from the toolbar.
 - **Image compare** — diffs of image files (png, jpg, …) skip the binary placeholder and render "before / after" panes side by side (in both the overview modal and the changes page); an added or deleted image shows "Does not exist" on the other pane.
 - **Show input-bar marker toggle** — the plugin detail page can toggle the input-bar marker; when off, the input bar stays clean and the Git tab shows a status dot instead (green = synced, orange = dirty). The two are mutually exclusive and changes apply immediately. The same config section also sets the default diff view (unified / split).
-- **Input-bar Git marker** — a zsh-theme `<repo> (<branch>)` marker: the repo name is cyan, `(branch)` is green when in sync and orange when there are uncommitted changes; hover shows the full repository path, and clicking jumps to the panel (to Changes when dirty, otherwise to Overview); when the current directory is not a Git repository, it shows only the directory name, with no error text.
+- **Input-bar Git marker** — a zsh-theme `<repo> (<branch>)` marker: the repo name is cyan, `(branch)` is green when in sync and orange when there are uncommitted changes; hover shows the full repository path, and clicking jumps to the panel (to Changes when dirty, otherwise to Overview); in non-Git directories the input-bar marker is hidden, while the workspace Git tab still opens the file browser.
 - **Version & repo entry** — the sub-tab row shows the plugin version on the right, next to a "Check for updates" button (queries GitHub for the latest release only when clicked) and an icon linking to the GitHub repository.
 - The UI follows the DSH system language, in Simplified Chinese and English.
 
@@ -70,7 +71,7 @@ src/
     git.ts          subprocess → a GitRunner with timeouts
     core.ts         workspace resolution + snapshotForSession
     actions.ts      GitAction → git command sequences (commit / amend / stage …)
-    queries.ts      history / diff / image-diff / show / branches / tags / worktree-stats
+    queries.ts      history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / worktree-stats
     parser.ts       git output parsed into structured data
     version.ts      package version + GitHub release update check
   client/
@@ -79,6 +80,7 @@ src/
     Panel.tsx       panel shell: sub-tab routing + version bar
     OverviewTab.tsx Overview three columns + hover card
     ChangesTab.tsx  changes page
+    FilesTab.tsx    file browser (lazy directory tree + file preview)
     DiffView.tsx    diff view (unified / split / before / after)
     GitPill.tsx     input-bar marker
     highlight.ts    lazy-loading facade for diff syntax highlighting

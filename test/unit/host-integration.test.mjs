@@ -13,7 +13,7 @@ import { spawn as nodeSpawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { realpath, readFile, rm, stat } from 'node:fs/promises'
+import { realpath, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 
 let repo
@@ -54,7 +54,11 @@ function runGit(cwd, args) {
 function depsAt(dir) {
   return {
     run: createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes),
-    fs: { realpath, stat: (p) => stat(p), readFile: (p) => readFile(p), remove: (p) => rm(p, { force: true }) },
+    fs: {
+      realpath, stat: (p) => stat(p), readFile: (p) => readFile(p),
+      readdir: async (p) => (await readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, isDirectory: e.isDirectory() })),
+      remove: (p) => rm(p, { force: true }),
+    },
     sessions: { liveCwd: () => dir, persistedMeta: async () => undefined },
   }
 }
@@ -210,6 +214,87 @@ test('file-lines reads a commit blob by new-side line number', async () => {
 
 test('file-lines rejects an unsafe path', async () => {
   const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: '../escape', base: 'worktree', start: 1, end: 1 } })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'invalid-path')
+})
+
+test('dir-list lists the root, dirs-first, skipping .git', async () => {
+  const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.kind, 'dir-list')
+  const names = res.value.entries.map((e) => e.name)
+  assert.ok(!names.includes('.git'), '.git is filtered from the root listing')
+  assert.ok(names.includes('a.txt') && names.includes('d.txt'))
+  const aTxt = res.value.entries.find((e) => e.name === 'a.txt')
+  assert.equal(aTxt.dir, false)
+  assert.ok(typeof aTxt.size === 'number' && aTxt.size > 0, 'files carry a byte size')
+})
+
+test('file browser lists a non-git cwd and previews a file without exposing .git', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-nongit-'))
+  try {
+    const { writeFileSync, mkdirSync, symlinkSync } = await import('node:fs')
+    writeFileSync(join(dir, 'note.md'), '# hello\n')
+    mkdirSync(join(dir, '.git'))
+    writeFileSync(join(dir, '.git', 'config'), 'secret')
+    symlinkSync(join(dir, '.git'), join(dir, 'git-alias'))
+    const d = depsAt(dir)
+    const listed = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '' } })
+    assert.equal(listed.ok, true)
+    assert.deepEqual(listed.value.entries.map((e) => e.name), ['git-alias', 'note.md'])
+    const preview = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'note.md' } })
+    assert.equal(preview.ok, true)
+    assert.equal(preview.value.content, '# hello\n')
+    for (const path of ['.git', 'git-alias']) {
+      const blocked = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path } })
+      assert.equal(blocked.ok, false)
+      assert.equal(blocked.error.code, 'invalid-path')
+    }
+    const blockedFile = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: '.git/config' } })
+    assert.equal(blockedFile.ok, false)
+    assert.equal(blockedFile.error.code, 'invalid-path')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('dir-list rejects an unsafe path', async () => {
+  const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '../escape' } })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'invalid-path')
+})
+
+test('file-content returns a text file body + line count', async () => {
+  const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'a.txt' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.variant, 'text')
+  assert.ok(res.value.content.includes('line10-changed'))
+  assert.equal(res.value.lines, 20)
+})
+
+test('file-content flags an over-cap file as tooLarge', async () => {
+  const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 4 }
+  const res = await runQuery(deps(), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'a.txt' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.tooLarge, true)
+})
+
+test('file-content serves an image as a data URL', async () => {
+  const res = await runQuery(depsAt(repoImg), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'img.png' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.variant, 'image')
+  assert.ok(res.value.dataUrl.startsWith('data:image/png;base64,'))
+})
+
+test('file-content marks a NUL-containing file as binary', async () => {
+  const { writeFileSync } = await import('node:fs')
+  writeFileSync(join(repo, 'blob.bin'), Buffer.from([0x00, 0x01, 0x02, 0x00, 0x41]))
+  const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'blob.bin' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.variant, 'binary')
+  assert.equal(res.value.content, undefined)
+})
+
+test('file-content rejects an unsafe path', async () => {
+  const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: '../../etc/hosts' } })
   assert.equal(res.ok, false)
   assert.equal(res.error.code, 'invalid-path')
 })
@@ -510,6 +595,23 @@ test('image-diff refuses a worktree symlink escaping the repo root (N6)', async 
     assert.equal(res.ok, true)
     // The escaping side is refused → no bytes leak into the pane.
     assert.equal(res.value.new, undefined, 'symlinked-out file is not read into the image pane')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(secret, { recursive: true, force: true })
+  }
+})
+
+test('file-content refuses a worktree symlink escaping the repo root', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-fc-esc-'))
+  const secret = mkdtempSync(join(tmpdir(), 'gp-fc-secret-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    const { writeFileSync, symlinkSync } = await import('node:fs')
+    writeFileSync(join(secret, 'id_rsa'), 'PRIVATE-KEY-OUTSIDE-REPO')
+    symlinkSync(join(secret, 'id_rsa'), join(dir, 'leak.txt'))
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'leak.txt' } })
+    assert.equal(res.ok, false, 'a symlink escaping the root is refused')
+    assert.equal(res.error.code, 'invalid-path')
   } finally {
     rmSync(dir, { recursive: true, force: true })
     rmSync(secret, { recursive: true, force: true })
