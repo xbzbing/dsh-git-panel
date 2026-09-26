@@ -166,8 +166,11 @@ const CSS = `
 .gp-diff-row--add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-success-primary) 55%,transparent)}
 .gp-diff-row--del{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent)}
 .gp-diff-row--hunk{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);color:var(--dsw-alias-state-business-primary);padding:3px 8px;font-size:11px;font-weight:600;border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2)}
-/* collapsed-context band with expand controls (spans both sides) */
-.gp-diff-row--gap{display:flex;align-items:center;justify-content:center;gap:6px;padding:2px 10px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2)}
+/* collapsed-context band with expand controls (spans both sides). A gap is
+ * always immediately followed by a hunk header (or the file end), so it omits
+ * its own bottom border and lets the hunk's top border be the single divider —
+ * otherwise the two 1px borders stack into a fat 2px line. */
+.gp-diff-row--gap{display:flex;align-items:center;justify-content:center;gap:6px;padding:2px 10px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);border-top:1px solid var(--dsw-alias-border-l2)}
 .gp-gap__btn{display:inline-flex;align-items:center;height:20px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-business-primary);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap;transition:background .12s ease}
 .gp-gap__btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-gap__btn:disabled{opacity:.55;cursor:default}
