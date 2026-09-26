@@ -6,7 +6,8 @@ import {
   buildSideBySide, flattenToUnified, isBinaryDiff,
   isImagePath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
 } from './diff'
-import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
+import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
+import { splitHighlightSpans } from './code-spans'
 import { ImageCompare } from './ImageCompare'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
@@ -46,8 +47,7 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   const baseRows = useMemo(() => buildSideBySide(text), [text])
   const binary = isBinaryDiff(text)
 
-  const lang = useMemo(() => (path !== undefined ? languageForPath(path) : ''), [path])
-  const hl = useHighlighter(lang)
+  const hl = useCodeHighlighter(path === undefined ? undefined : languageForPath(path))
 
   // Rows are stateful in split mode so revealed gap context can be spliced in;
   // reseed whenever the underlying diff text changes.
@@ -74,16 +74,16 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   }
   if (text.trim() === '') return h('div', { className: 'gp-empty' }, t('diff.empty'))
 
-  if (mode === 'before') return singleColumn(beforeLines(rows), lang, hl)
-  if (mode === 'after') return singleColumn(afterLines(rows), lang, hl)
+  if (mode === 'before') return singleColumn(beforeLines(rows), hl)
+  if (mode === 'after') return singleColumn(afterLines(rows), hl)
 
   if (mode === 'unified') {
     const uni = flattenToUnified(rows)
-    return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, lang, hl, expand, t)))
+    return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, hl, expand, t)))
   }
 
   // split
-  return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, lang, hl, expand, t)))
+  return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, hl, expand, t)))
 })
 
 interface GapExpander {
@@ -186,53 +186,29 @@ function useImageDiff(
   return state
 }
 
-/**
- * Resolve the loaded highlighter for a language, kicking the lazy import on
- * first need. Returns null (plain text) until the bundle lands, then a
- * highlighter that actually supports `lang`.
- */
-function useHighlighter(lang: string): Highlighter | null {
-  const [, bump] = useState(0)
-  useEffect(() => {
-    if (lang === '') return
-    if (currentHighlighter() !== null) return
-    let alive = true
-    void ensureHighlighter().then(() => { if (alive) bump((n) => n + 1) })
-    return () => { alive = false }
-  }, [lang])
-  if (lang === '') return null
-  const hl = currentHighlighter()
-  return hl !== null && hl.supports(lang) ? hl : null
+/** Syntax runs are React text nodes, not untrusted HTML. */
+function syntaxRuns(spans: readonly HighlightSpan[], prefix = ''): JSX.Element[] {
+  return spans.map((span, i) => h('span', { key: `${prefix}${i}`, style: span.style }, span.text))
 }
 
-/** A highlighted code cell, or a plain-text one when no highlighter/lang. */
-function codeCell(className: string, key: string, content: string, lang: string, hl: Highlighter | null): JSX.Element {
+/** A highlighted code cell, or plain text until its grammar loads. */
+function codeCell(className: string, key: string, content: string, hl: CodeHighlighter): JSX.Element {
   if (content === '') return h('div', { key, className }, '\u00a0')
-  if (hl === null) return h('div', { key, className }, content)
-  return h('div', { key, className, dangerouslySetInnerHTML: { __html: hl.line(content, lang) } })
+  const spans = hl(content)?.[0]
+  return h('div', { key, className }, spans === undefined ? content : syntaxRuns(spans))
 }
 
-/**
- * A code cell for a modified line with an intra-line change range: the changed
- * middle is wrapped in a `.gp-diff-word` span. Each of the three segments
- * (prefix / changed / suffix) is highlighted independently so highlight.js
- * spans never straddle the word marker and break its nesting.
- */
+/** Highlight the whole line once, then split runs at the word-diff boundaries. */
 function wordCell(
   className: string, key: string, content: string, range: readonly [number, number],
-  wordCls: string, lang: string, hl: Highlighter | null,
+  wordCls: string, hl: CodeHighlighter,
 ): JSX.Element {
-  const [a, b] = range
-  const pre = content.slice(0, a)
-  const mid = content.slice(a, b)
-  const post = content.slice(b)
-  const seg = (s: string): { __html: string } | undefined => (hl === null ? undefined : { __html: hl.line(s, lang) })
-  const part = (s: string, k: string): JSX.Element =>
-    hl === null ? h('span', { key: k }, s) : h('span', { key: k, dangerouslySetInnerHTML: seg(s) })
+  const spans = hl(content)?.[0] ?? [{ text: content, style: {} }]
+  const [pre, changed, post] = splitHighlightSpans(spans, range)
   return h('div', { key, className }, [
-    pre !== '' ? part(pre, 'p') : null,
-    h('span', { key: 'w', className: wordCls }, mid !== '' ? part(mid, 'm') : '\u00a0'),
-    post !== '' ? part(post, 's') : null,
+    ...syntaxRuns(pre, 'p'),
+    h('span', { key: 'w', className: wordCls }, changed.length === 0 ? '\u00a0' : syntaxRuns(changed)),
+    ...syntaxRuns(post, 's'),
   ])
 }
 
@@ -251,15 +227,15 @@ function afterLines(rows: readonly SideRow[]): NumberedLine[] {
   return rows.filter((r) => r.rightText !== null).map((r) => ({ no: r.rightNo, text: r.rightText as string }))
 }
 
-function singleColumn(lines: readonly NumberedLine[], lang: string, hl: Highlighter | null): JSX.Element {
+function singleColumn(lines: readonly NumberedLine[], hl: CodeHighlighter): JSX.Element {
   return h('div', { className: 'gp-diff__single' }, lines.flatMap((line, i) => [
     h('div', { key: `n${i}`, className: 'gp-diff-no' }, line.no ?? ''),
-    codeCell('gp-diff-cell gp-hljs', `c${i}`, line.text, lang, hl),
+    codeCell('gp-diff-cell', `c${i}`, line.text, hl),
   ]))
 }
 
 function renderRow(
-  row: SideRow, i: number, lang: string, hl: Highlighter | null,
+  row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
@@ -271,15 +247,15 @@ function renderRow(
   const leftCls = row.kind === 'del' || row.kind === 'mod' ? 'gp-diff-row--del' : ''
   const rightCls = row.kind === 'add' || row.kind === 'mod' ? 'gp-diff-row--add' : ''
   const leftCell = row.leftText === null
-    ? h('div', { key: `l${i}`, className: `gp-diff-cell gp-hljs ${leftCls}` })
+    ? h('div', { key: `l${i}`, className: `gp-diff-cell ${leftCls}` })
     : row.kind === 'mod' && row.leftWord !== undefined
-      ? wordCell(`gp-diff-cell gp-hljs ${leftCls}`, `l${i}`, row.leftText, row.leftWord, 'gp-diff-word gp-diff-word--del', lang, hl)
-      : codeCell(`gp-diff-cell gp-hljs ${leftCls}`, `l${i}`, row.leftText, lang, hl)
+      ? wordCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, row.leftWord, 'gp-diff-word gp-diff-word--del', hl)
+      : codeCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, hl)
   const rightCell = row.rightText === null
-    ? h('div', { key: `r${i}`, className: `gp-diff-cell gp-hljs ${rightCls}` })
+    ? h('div', { key: `r${i}`, className: `gp-diff-cell ${rightCls}` })
     : row.kind === 'mod' && row.rightWord !== undefined
-      ? wordCell(`gp-diff-cell gp-hljs ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', lang, hl)
-      : codeCell(`gp-diff-cell gp-hljs ${rightCls}`, `r${i}`, row.rightText, lang, hl)
+      ? wordCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', hl)
+      : codeCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, hl)
   return [
     h('div', { key: `ln${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
     leftCell,
@@ -294,7 +270,7 @@ function renderRow(
  * on-demand expansion works identically in both layouts.
  */
 function renderUnifiedRow(
-  row: SideRow, i: number, lang: string, hl: Highlighter | null,
+  row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
@@ -310,10 +286,10 @@ function renderUnifiedRow(
   const content = row.rightText ?? row.leftText ?? ''
   const wordRange = isAdd ? row.rightWord : isDel ? row.leftWord : undefined
   const wordCls = isAdd ? 'gp-diff-word gp-diff-word--add' : 'gp-diff-word gp-diff-word--del'
-  const codeCls = `gp-diff-cell gp-hljs gp-diff-uni__code ${rowCls}`
+  const codeCls = `gp-diff-cell gp-diff-uni__code ${rowCls}`
   const code = wordRange !== undefined
-    ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, lang, hl)
-    : codeCell(codeCls, `c${i}`, content, lang, hl)
+    ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, hl)
+    : codeCell(codeCls, `c${i}`, content, hl)
   return [
     h('div', { key: `ol${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
     h('div', { key: `nl${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),

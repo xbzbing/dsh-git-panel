@@ -7,8 +7,7 @@
  * 2. Client half: esbuild bundles `src/client/index.ts` into one file
  *    `lib/client.js` wrapped in the `window.__ModuleLoader__.load({id,factory})`
  *    closure the web shell materializes. Platform modules (react, @deepseek-ai/*)
- *    stay external and resolve through the loader-provided `require`; ordinary
- *    libraries (highlight.js) are inlined.
+ *    stay external and resolve through the loader-provided `require`.
  */
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
