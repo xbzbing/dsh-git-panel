@@ -127,6 +127,31 @@ test('useCommitDetail evicts the oldest entries past the 50 cap', async () => {
   h.unmount()
 })
 
+test('useCommitDetail hover writes go through the same LRU cap (no unbounded growth)', async () => {
+  const counter = { n: 0 }
+  const remote = showRemote(counter)
+  const h = mount(() => useCommitDetail(remote, 's'))
+  // 55 hovers each fetch once and populate the cache via the hover path. The
+  // hover fetch is debounced (~260ms), so wait past it before settling.
+  const past = () => new Promise((r) => setTimeout(r, 300))
+  for (let i = 0; i < 55; i++) {
+    h.value.onHoverEnter({ hash: 'h' + i }, 0, 0)
+    await past()
+    await h.settle()
+    h.value.onHoverLeave()
+    await h.settle()
+  }
+  assert.equal(counter.n, 55)
+  // The most recent hover (h54) stays cached → no refetch on select.
+  h.value.select({ hash: 'h54' }); await h.settle()
+  assert.equal(counter.n, 55, 'recent hover entry is cached')
+  // The oldest hover (h0) must have been evicted by the cap → it refetches,
+  // proving the hover path shares the bounded cache instead of growing it.
+  h.value.select({ hash: 'h0' }); await h.settle()
+  assert.equal(counter.n, 56, 'oldest hover entry was evicted past the cap')
+  h.unmount()
+})
+
 test('useBranchTree surfaces treeError when branches fail, and reload recovers', async () => {
   let ok = false
   const remote = {

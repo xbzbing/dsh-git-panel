@@ -198,6 +198,19 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   const selectedHash = useRef<string | null>(null)
   const detailCache = useRef(new Map<string, CommitDetail>())
 
+  // Write a commit's detail into the LRU cache, evicting oldest past the cap.
+  // Both the select and hover paths fetch `show`, so both must go through here
+  // — the hover path used to write without eviction and could grow unbounded.
+  const putDetail = useCallback((hash: string, d: CommitDetail) => {
+    const cache = detailCache.current
+    cache.set(hash, d)
+    while (cache.size > 50) {
+      const first = cache.keys().next().value
+      if (first === undefined) break
+      cache.delete(first)
+    }
+  }, [])
+
   const clearSelection = useCallback(() => {
     setSelected(null)
     setDetail(null)
@@ -221,18 +234,12 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     const show = queryAs(res, 'show')
     if (show !== null) {
       const d = { commit: show.commit, body: show.body, stats: show.stats }
-      const cache = detailCache.current
-      cache.set(commit.hash, d)
-      while (cache.size > 50) {
-        const first = cache.keys().next().value
-        if (first === undefined) break
-        cache.delete(first)
-      }
+      putDetail(commit.hash, d)
       setDetail(d)
     } else {
       setDetailError(true)
     }
-  }, [remote, sessionId])
+  }, [remote, sessionId, putDetail])
 
   const openFileDiff = useCallback(async (path: string, hash: string, shortHash: string, expand = false) => {
     const seq = ++fileDiffSeq.current
@@ -280,12 +287,12 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
         if (hoverHash.current !== commit.hash) return
         const show = queryAs(res, 'show')
         if (show !== null) {
-          detailCache.current.set(commit.hash, { commit: show.commit, body: show.body, stats: show.stats })
+          putDetail(commit.hash, { commit: show.commit, body: show.body, stats: show.stats })
           setHoverBody(show.body)
         } else setHoverBody('')
       })
     }, 260)
-  }, [remote, sessionId])
+  }, [remote, sessionId, putDetail])
 
   const onHoverLeave = useCallback(() => {
     if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
