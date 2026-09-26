@@ -3,8 +3,8 @@
 import { createElement as h, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import {
-  buildSideBySide, extractAddedContent, extractDeletedContent, flattenToUnified, isAddOnlyDiff,
-  isBinaryDiff, isDeleteOnlyDiff, isImagePath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
+  buildSideBySide, flattenToUnified, isBinaryDiff,
+  isImagePath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
 } from './diff'
 import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
 import { ImageCompare } from './ImageCompare'
@@ -45,8 +45,6 @@ type ImageState =
 export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, imageSpec, t }: DiffViewProps): JSX.Element {
   const baseRows = useMemo(() => buildSideBySide(text), [text])
   const binary = isBinaryDiff(text)
-  const addOnly = useMemo(() => isAddOnlyDiff(text), [text])
-  const delOnly = useMemo(() => isDeleteOnlyDiff(text), [text])
 
   const lang = useMemo(() => (path !== undefined ? languageForPath(path) : ''), [path])
   const hl = useHighlighter(lang)
@@ -76,8 +74,8 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   }
   if (text.trim() === '') return h('div', { className: 'gp-empty' }, t('diff.empty'))
 
-  if (mode === 'before') return singleColumn(delOnly ? extractDeletedContent(text) : leftText(rows), lang, hl)
-  if (mode === 'after') return singleColumn(addOnly ? extractAddedContent(text) : rightText(rows), lang, hl)
+  if (mode === 'before') return singleColumn(beforeLines(rows), lang, hl)
+  if (mode === 'after') return singleColumn(afterLines(rows), lang, hl)
 
   if (mode === 'unified') {
     const uni = flattenToUnified(rows)
@@ -238,16 +236,26 @@ function wordCell(
   ])
 }
 
-function leftText(rows: readonly SideRow[]): string {
-  return rows.filter((r) => r.leftText !== null).map((r) => r.leftText).join('\n')
-}
-function rightText(rows: readonly SideRow[]): string {
-  return rows.filter((r) => r.rightText !== null).map((r) => r.rightText).join('\n')
+/** One numbered code line for the single-column before/after views. */
+interface NumberedLine {
+  readonly no: number | null
+  readonly text: string
 }
 
-function singleColumn(content: string, lang: string, hl: Highlighter | null): JSX.Element {
-  const lines = content.split('\n')
-  return h('div', { className: 'gp-hljs' }, lines.map((line, i) => codeCell('gp-diff-cell', String(i), line, lang, hl)))
+/** Before view: every row that had a left (old) side, in order. */
+function beforeLines(rows: readonly SideRow[]): NumberedLine[] {
+  return rows.filter((r) => r.leftText !== null).map((r) => ({ no: r.leftNo, text: r.leftText as string }))
+}
+/** After view: every row that had a right (new) side, in order. */
+function afterLines(rows: readonly SideRow[]): NumberedLine[] {
+  return rows.filter((r) => r.rightText !== null).map((r) => ({ no: r.rightNo, text: r.rightText as string }))
+}
+
+function singleColumn(lines: readonly NumberedLine[], lang: string, hl: Highlighter | null): JSX.Element {
+  return h('div', { className: 'gp-diff__single' }, lines.flatMap((line, i) => [
+    h('div', { key: `n${i}`, className: 'gp-diff-no' }, line.no ?? ''),
+    codeCell('gp-diff-cell gp-hljs', `c${i}`, line.text, lang, hl),
+  ]))
 }
 
 function renderRow(
