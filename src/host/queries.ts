@@ -79,15 +79,19 @@ async function queryHistory(
   // dash-prefixed / metacharacter ref (the `--output=` file-write vector) and
   // pass the ref after `--end-of-options`, which git treats as a bare operand.
   if (!hexJump) {
-    if (search !== '') { args.push('-i', '-E', `--grep=${search}`); countArgs.push('-i', '-E', `--grep=${search}`) }
-    if (q.author !== undefined && q.author !== '') { args.push(`--author=${q.author}`); countArgs.push(`--author=${q.author}`) }
-    if (q.since !== undefined && q.since !== '') { args.push(`--since=${q.since}`); countArgs.push(`--since=${q.since}`) }
+    // The same filter set feeds both the page log and the total-count walk.
+    const filters: string[] = []
+    if (search !== '') filters.push('-i', '-E', `--grep=${search}`)
+    if (q.author !== undefined && q.author !== '') filters.push(`--author=${q.author}`)
+    if (q.since !== undefined && q.since !== '') filters.push(`--since=${q.since}`)
     if (q.ref !== undefined && q.ref !== '') {
       if (!isSafeRev(q.ref)) return { ok: false, error: { code: 'invalid-name', message: `unsafe ref: ${q.ref}` } }
-      args.push('--end-of-options', q.ref); countArgs.push('--end-of-options', q.ref)
+      filters.push('--end-of-options', q.ref)
     } else {
-      args.push('--all'); countArgs.push('--all')
+      filters.push('--all')
     }
+    args.push(...filters)
+    countArgs.push(...filters)
   } else {
     // Hash jump: `search` is already constrained to [0-9a-f]{7,40} by isHexLike.
     args.push('--end-of-options', search)
@@ -112,13 +116,11 @@ async function queryHistory(
     return { ok: false, error: { code: 'git-error', message: stderr || `git exited ${res.run.exitCode}` } }
   }
   const commits: GraphCommit[] = parseGraphLog(res.run.stdout)
+  // Hash-jump ignores ref/author/since filters and starts the walk at the
+  // commit itself, so a total is meaningless; -1 (the initial value) tells the
+  // client to page by "did the last page fill" instead of a fixed count.
   let total = -1
-  if (hexJump) {
-    // Hash-jump ignores ref/author/since filters and starts the walk at the
-    // commit itself, so a total is meaningless; -1 tells the client to page by
-    // "did the last page fill" instead of a fixed count.
-    total = -1
-  } else if (countRes !== null && 'run' in countRes && countRes.run.exitCode === 0) {
+  if (!hexJump && countRes !== null && 'run' in countRes && countRes.run.exitCode === 0) {
     const n = Number(countRes.run.stdout.trim())
     if (Number.isFinite(n)) total = n
   }
@@ -440,14 +442,17 @@ async function queryFileContent(
     return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'stat failed' } }
   }
   const mime = imageMimeFor(q.path)
-  if (info.size > cap) return { ok: true, value: { kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true } }
+  // Same over-cap response whether the size trips at stat or after read (the
+  // post-read length guards a grow-during-read race).
+  const tooLarge: GitQueryResponse = { ok: true, value: { kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true } }
+  if (info.size > cap) return tooLarge
   let buf: Buffer
   try {
     buf = await deps.fs.readFile(file)
   } catch (error) {
     return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'read failed' } }
   }
-  if (buf.length > cap) return { ok: true, value: { kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true } }
+  if (buf.length > cap) return tooLarge
   if (mime !== null) {
     return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:${mime};base64,${buf.toString('base64')}` } }
   }

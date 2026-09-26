@@ -240,7 +240,7 @@ export async function snapshotForSession(
 
   const branch = 'run' in branchRes && branchRes.run.exitCode === 0 ? branchRes.run.stdout.trim() || null : null
   const unborn = 'run' in headRes && headRes.run.exitCode !== 0
-  const head = unborn ? null : ('run' in headRes ? headRes.run.stdout.trim() || null : null)
+  const head = 'run' in headRes && headRes.run.exitCode === 0 ? headRes.run.stdout.trim() || null : null
 
   let allChanges: GitChange[] = []
   let statusLossy = false
