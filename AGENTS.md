@@ -9,8 +9,8 @@
 - 工作区新增常驻面板 tab「Git」，位于「对话」「轨迹」之后，内部含三个子 tab：
   - **Git 总览**：左=分支列表，中=提交历史图（支持 commit id 等字段搜索），右=提交详情 + comment。
   - **变更记录**：左=变更统计（文件数 / 增删行数 / 最近变更时间）+ 本地未提交变更列表（勾选、手动提交、Amend），右=选中文件差异对比（图片走 `image-diff` 新旧双图对照）。
-  - **文件浏览**：左=工作区目录树（懒加载，点目录才拉下一层，`.git` 跳过），右=选中文件预览（代码/文本走懒加载 highlight.js、图片走 data URL 内联、其余二进制显示占位）。
-- inputBar 一个 zsh 风格 Git 标记：`<仓库名> (<分支>)`，绿色=已同步、橙色=有待提交；hover 显示完整路径；点击跳转面板（有未提交→变更记录，已提交→Git 总览）。插件详情页可隐藏该标记；隐藏时改为在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
+  - **文件浏览**：直接打开 Git tab 默认进入此页；非 Git 目录仅显示此子 tab，以 cwd 为根。左=按需加载目录树（`.git` 不可浏览），右=文件预览（代码/文本用懒加载 highlight.js，Markdown 可切换 dsh 官方 `MarkdownText` 渲染，图片内联，其余二进制占位）。
+- inputBar 一个 zsh 风格 Git 标记：`<仓库名> (<分支>)`，绿色=已同步、橙色=有待提交；hover 显示完整路径；点击跳转面板（有未提交→变更记录，已提交→Git 总览）。非 Git 目录不显示此标记或状态圆点；插件详情页可隐藏 Git 仓库的标记，隐藏时改为在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
 - 插件详情页配置区：「显示输入框标记」开关 = host `static Config` volatile 字段 + client 注册 `plugins.bundle.config` 表单（`PillConfig.tsx`），经 `configForms` 热写；写入被接受后客户端立即 `resyncAll()`，不等轮询。
 
 许可：MIT。
@@ -40,7 +40,7 @@ Host 半 (Cordis + typert, lib/host)
 - `types.ts` 是 wire 数据模型的**唯一权威源**，client 侧的 RPC 类型直接从它复用。
 - `index.ts`：`GitPanelService extends TypertRemoteService`，`inject = ['subprocess','sessions','sessionPersistence']`，仅做端点委托与生命周期接线。
 - `git.ts`：把 `subprocess` 服务适配成带超时的 `GitRunner`。
-- `core.ts`：workspace（cwd→仓库根 realpath）解析 + `snapshotForSession`。
+- `core.ts`：workspace（cwd→仓库根 realpath）解析 + `snapshotForSession`；文件浏览使用 `resolveBrowseRoot`，非 Git 目录回退到 cwd realpath。
 - `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`）。
 - `queries.ts`：`history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / authors / last-commit-message / worktree-stats`。`file-lines` 按新侧行号取文件切片（worktree/staged 读工作区文件、commit 读 `<commit>:<path>`），供 diff 视图按需展开块间隐藏上下文。`dir-list` 列单个工作区目录（懒加载、跳过 `.git`、条目上限）、`file-content` 读单个工作区文件（文本切片 / 图片 data URL / 二进制标记，超上限降级）；两者的 path 经 `isSafePath` + realpath 逃逸守卫（软链指仓库外一律拒），是插件唯一直接读 git 未跟踪文件的信任边界。
 - `validate.ts`：host 信任边界的输入校验（`isSafePath` / `isSafeRev` / `isSafeBranchName`）。经 RPC 到来的 path/ref/分支名是唯一不可信 argv 素材；凡会把它们放进选项位的 git 命令都在此拦截，并额外用 `--end-of-options` 殿后（拒 `-` 开头的 `--output=<file>` 任意写向量）。
