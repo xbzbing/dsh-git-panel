@@ -64,7 +64,7 @@ const CSS = `
 .gp-history__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .gp-commit-row{display:grid;align-items:center;gap:8px;height:30px;padding:0 10px;cursor:pointer;border-bottom:1px solid transparent}
 .gp-commit-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.gp-commit-row--active{background:var(--dsw-alias-bg-layer-2)}
+.gp-commit-row--active,.gp-commit-row--active:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);box-shadow:inset 3px 0 0 var(--dsw-alias-state-business-primary)}
 .gp-commit-subject{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-commit-hash{font-family:var(--dsw-font-mono,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .gp-commit-author{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
