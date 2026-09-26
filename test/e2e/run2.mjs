@@ -36,9 +36,12 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const entry = window.__getLoaded()
 
   // Case 1: clean repo → synced (green) pill + jump click.
-  const cleanConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
-    ? { ok: true, value: { ok: true, value: snap } }
-    : { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [], remote: [] } } } } }
+  let cleanFileListings = 0
+  const cleanConn = { rpc: { call: async (_c, ep, payload) => {
+    if (ep === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+    if (payload?.args?.request?.query?.kind === 'dir-list') cleanFileListings++
+    return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [], remote: [] } } }
+  } } }
   const registered = {}
   const mkCtx = (conn) => {
     const ctx = {
@@ -56,8 +59,18 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const pill = registered['conversation.input.left']
   ReactDOM.createRoot(document.getElementById('pill')).render(pill.component({ sessionId: 's' }))
   await new Promise((r) => setTimeout(r, 300))
-  result.hasSynced = document.querySelector('.gp-pill__git--synced') !== null
-  result.hasDirty = document.querySelector('.gp-pill__git--dirty') !== null
+  result.hasSynced = document.querySelector('.gp-pill--synced') !== null
+  result.hasDirty = document.querySelector('.gp-pill--dirty') !== null
+  const cleanPanel = document.createElement('div')
+  document.body.appendChild(cleanPanel)
+  const cleanPanelRoot = ReactDOM.createRoot(cleanPanel)
+  cleanPanelRoot.render(registered['conversation.view'].component({ sessionId: 'clean-default' }))
+  await new Promise((r) => setTimeout(r, 300))
+  result.cleanDefault = cleanPanel.querySelector('.gp-tab--active')?.textContent?.includes('tab.overview') ?? false
+  result.cleanAvoidsFileListing = cleanFileListings === 0
+  cleanPanelRoot.render(registered['conversation.view'].component({ sessionId: 'clean-second' }))
+  await new Promise((r) => setTimeout(r, 300))
+  result.cleanAfterSessionSwitch = cleanPanel.querySelector('.gp-tab--active')?.textContent?.includes('tab.overview') ?? false
 
   // Fake tab bar → the pill click should click a role=tab button labeled panel.tab.
   // The real shell wraps view tabs in [data-conversation-tabs]; mirror that here.
@@ -102,6 +115,24 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   result.dotOnTab = document.querySelector('[data-gp-tab-dot]') !== null
   result.dotDirty = document.querySelector('.gp-tab-dot--dirty') !== null
 
+  // Case 4: the input-bar marker collapses to a status dot by workspace WIDTH
+  // (not sidebar open/close state), so it expands back as the workspace widens.
+  const region = document.createElement('div')
+  region.setAttribute('data-conversation-region', '')
+  region.style.width = '400px'
+  document.body.appendChild(region)
+  const host = document.createElement('div')
+  region.appendChild(host)
+  ReactDOM.createRoot(host).render(registered['conversation.input.left'].component({ sessionId: 's' }))
+  await new Promise((r) => setTimeout(r, 300))
+  const narrowPill = host.querySelector('.gp-pill')
+  result.compactWhenNarrow = narrowPill?.classList.contains('gp-pill--compact') === true
+  result.compactKeepsStatus = narrowPill?.classList.contains('gp-pill--synced') === true
+  result.compactDotShown = narrowPill ? getComputedStyle(narrowPill.querySelector('.gp-pill__dot')).display !== 'none' : false
+  region.style.width = '1000px'
+  await new Promise((r) => setTimeout(r, 300))
+  result.expandsWhenWide = host.querySelector('.gp-pill')?.classList.contains('gp-pill--compact') === false
+
   return result
 }, { snap: cleanSnap(), nonGitDir: NON_GIT_DIR })
 
@@ -110,6 +141,9 @@ await browser.close()
 try {
   assert.equal(out.hasSynced, true, 'clean repo pill uses the green synced class')
   assert.equal(out.hasDirty, false, 'clean repo pill is not orange')
+  assert.equal(out.cleanDefault, true, 'clean Git workspace defaults to Overview')
+  assert.equal(out.cleanAfterSessionSwitch, true, 'switching between clean sessions still selects Overview')
+  assert.equal(out.cleanAvoidsFileListing, true, 'clean default does not fetch hidden file-browser data')
   assert.equal(out.jumpClicked, true, 'pill click activates the Git tab button')
   assert.equal(out.notGitPillHidden, true, 'non-git directory hides the input marker')
   assert.equal(out.notGitFilesOnly, true, 'non-git panel defaults to Files only')
@@ -117,6 +151,10 @@ try {
   assert.equal(out.dotPillHidden, true, 'showInputPill=false hides the input-bar marker')
   assert.equal(out.dotOnTab, true, 'showInputPill=false injects the Git tab status dot')
   assert.equal(out.dotDirty, true, 'the tab dot is the dirty (orange) variant')
+  assert.equal(out.compactWhenNarrow, true, 'a narrow workspace collapses the marker to a dot')
+  assert.equal(out.compactKeepsStatus, true, 'the collapsed marker keeps its git status class')
+  assert.equal(out.compactDotShown, true, 'the status dot is visible when collapsed')
+  assert.equal(out.expandsWhenWide, true, 'widening the workspace expands the marker again')
   assert.equal(errors.length, 0, 'no page errors: ' + JSON.stringify(errors))
   console.log('e2e run2.mjs: PASS', JSON.stringify(out))
 } catch (e) {

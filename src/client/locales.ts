@@ -3,6 +3,9 @@
 export const zh = {
   // panel + tabs
   'panel.tab': 'Git',
+  'panel.fontDecrease': '缩小字体',
+  'panel.fontReset': '重置字体大小',
+  'panel.fontIncrease': '放大字体',
   'tab.overview': 'Git 总览',
   'tab.changes': '变更记录',
   'tab.files': '文件浏览',
@@ -65,6 +68,10 @@ export const zh = {
   'files.previewMode': 'Markdown 预览方式',
   'files.source': '源码',
   'files.render': '渲染',
+  'files.copyPath': '复制相对路径',
+  'files.pathCopied': '路径已复制',
+  'files.pathCopyFailed': '复制失败',
+  'files.ignored': '已被 Git 忽略',
   'files.copy': '复制代码',
   'files.copied': '已复制',
   'files.footnotes': '注释',
@@ -120,6 +127,9 @@ export type GitKey = keyof typeof zh
 
 export const en: Record<GitKey, string> = {
   'panel.tab': 'Git',
+  'panel.fontDecrease': 'Decrease font size',
+  'panel.fontReset': 'Reset font size',
+  'panel.fontIncrease': 'Increase font size',
   'tab.overview': 'Overview',
   'tab.changes': 'Changes',
   'tab.files': 'Files',
@@ -176,6 +186,10 @@ export const en: Record<GitKey, string> = {
   'files.previewMode': 'Markdown preview mode',
   'files.source': 'Source',
   'files.render': 'Rendered',
+  'files.copyPath': 'Copy relative path',
+  'files.pathCopied': 'Path copied',
+  'files.pathCopyFailed': 'Copy failed',
+  'files.ignored': 'Ignored by Git',
   'files.copy': 'Copy code',
   'files.copied': 'Copied',
   'files.footnotes': 'Footnotes',

@@ -118,13 +118,13 @@ export type WorkspaceResolution =
 export async function resolveBrowseRoot(
   deps: SnapshotDeps,
   sessionId: string,
-): Promise<{ ok: true; root: string } | { ok: false; error: { code: GitErrorCode; message?: string } }> {
+): Promise<{ ok: true; root: string; isGitRepo: boolean } | { ok: false; error: { code: GitErrorCode; message?: string } }> {
   const ws = await resolveWorkspace(deps, sessionId)
-  if (ws.ok) return { ok: true, root: ws.root }
+  if (ws.ok) return { ok: true, root: ws.root, isGitRepo: true }
   const err = ws.failure.error
   if (err.code === 'not-a-git-repo' && err.cwd !== undefined && err.cwd !== '') {
     try {
-      return { ok: true, root: await deps.fs.realpath(err.cwd) }
+      return { ok: true, root: await deps.fs.realpath(err.cwd), isGitRepo: false }
     } catch {
       return { ok: false, error: { code: 'git-error' } }
     }
@@ -181,9 +181,10 @@ export async function runCommand(
   cwd: string,
   _label: string,
   signal?: AbortSignal,
+  stdinData?: string,
 ): Promise<{ run: Awaited<ReturnType<GitRunner['run']>> } | { failure: unknown }> {
   try {
-    const run = await runner.run(argv, { cwd, ...(signal ? { signal } : {}) })
+    const run = await runner.run(argv, { cwd, ...(signal ? { signal } : {}), ...(stdinData !== undefined ? { stdinData } : {}) })
     return { run }
   } catch (error) {
     return { failure: error }

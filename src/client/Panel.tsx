@@ -1,7 +1,7 @@
 /**
- * Main Git panel shell: an internal tab bar (Overview / Changes) over the
- * conversation.view slot. Consumes the one-shot sub-tab focus request the
- * input-bar pill records.
+ * Main Git panel shell: Overview / Changes / Files over the conversation.view
+ * slot. Snapshot state chooses the initial tab unless the input-bar pill
+ * supplied a one-shot focus request.
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
@@ -16,6 +16,16 @@ import { CommitIcon, DiffIcon, FilesIcon, GitHubIcon, RefreshIcon } from './icon
 import type { GitAction, GitVersionInfo } from './types'
 import type { GitKey } from './locales'
 
+const FONT_DELTA_KEY = 'gp.panel.fontDelta'
+
+type FontDelta = -1 | 0 | 1
+
+function readFontDelta(): FontDelta {
+  if (typeof localStorage === 'undefined') return 0
+  const value = Number(localStorage.getItem(FONT_DELTA_KEY))
+  return value === -1 || value === 1 ? value : 0
+}
+
 interface PanelProps {
   readonly ctx: ClientCtx
   readonly sessionId?: string
@@ -23,42 +33,33 @@ interface PanelProps {
 }
 
 export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
-  const [tab, setTab] = useState<SubTab>('files')
+  const [fontDelta, setFontDelta] = useState<FontDelta>(readFontDelta)
+  const [selection, setSelection] = useState<{ sessionId: string; tab: SubTab } | null>(null)
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
+  const filesOnly = view.state === 'error' && view.error.code === 'not-a-git-repo'
+  // Wait for the snapshot before mounting any git-backed pane. An explicit pill
+  // jump takes priority; switching sessions resets the one-shot default.
+  const activeTab = filesOnly ? 'files' : selection !== null && selection.sessionId === sessionId ? selection.tab : null
+  const visited = useRef<{ sessionId?: string; tabs: Set<SubTab> }>({ tabs: new Set() })
+  if (visited.current.sessionId !== sessionId) visited.current = { sessionId, tabs: new Set() }
+  if (activeTab !== null) visited.current.tabs.add(activeTab)
+  const filesVisited = visited.current.tabs.has('files')
 
-  // Outside a git repository the overview/changes tabs have nothing to show,
-  // but file browsing still works — surface a Files-only panel there.
-  const notRepo = view.state === 'error' && view.error.code === 'not-a-git-repo'
-  const filesOnly = notRepo
-
-  // The Files tab mounts lazily on first visit, then stays mounted (retains its
-  // tree state); this keeps cold cost zero — no dir-list until the user opens it.
-  const everFiles = useRef(false)
-  if (tab === 'files' || filesOnly) everFiles.current = true
-  const filesVisited = everFiles.current
-  const everOverview = useRef(false)
-  const everChanges = useRef(false)
-  if (tab === 'overview' && !filesOnly) everOverview.current = true
-  if (tab === 'changes' && !filesOnly) everChanges.current = true
-
-  // A pill jump keeps its explicit destination; opening the workspace Git tab
-  // directly defaults to Files, whether or not the directory is a git repo.
-  const consumedFor = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (!hasSession(sessionId)) return
-    if (filesOnly) { setTab('files'); return }
-    if (consumedFor.current === sessionId) return
+    if (filesOnly) { setSelection(null); return }
+    if (selection?.sessionId === sessionId) return
     const pending = takeSubTab(sessionId)
-    if (pending !== null) { consumedFor.current = sessionId; setTab(pending); return }
-    if (view.state === 'ready') { consumedFor.current = sessionId; setTab('files') }
-  }, [sessionId, view.state, filesOnly])
+    if (pending !== null) { setSelection({ sessionId, tab: pending }); return }
+    if (view.state === 'ready') setSelection({ sessionId, tab: view.snapshot.dirty ? 'changes' : 'overview' })
+  }, [sessionId, view, filesOnly, selection?.sessionId])
 
   // While mounted, receive pill jumps live (a click when the panel is already
   // visible must still switch sub-tabs, not sit in the pending map).
   useEffect(() => {
     if (!hasSession(sessionId)) return
-    return subscribeSubTab(sessionId, (t) => setTab(t))
+    return subscribeSubTab(sessionId, (requested) => setSelection({ sessionId, tab: requested }))
   }, [sessionId])
 
   // The snapshot's checkedAt drives child reloads directly (no extra state /
@@ -77,6 +78,11 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     return { ok: false, error: errorText(result.error.code, result.error.message, t) }
   }
 
+  const adjustFont = (delta: FontDelta): void => {
+    setFontDelta(delta)
+    if (typeof localStorage !== 'undefined') localStorage.setItem(FONT_DELTA_KEY, String(delta))
+  }
+
   const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = [
     { key: 'overview', label: t('tab.overview'), icon: h(CommitIcon, { size: 14 }) },
     { key: 'changes', label: t('tab.changes'), icon: h(DiffIcon, { size: 14 }) },
@@ -84,7 +90,6 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   ]
   // A non-git directory exposes only the Files tab.
   const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
-  const activeTab = filesOnly ? 'files' : tab
 
   const body = ((): JSX.Element => {
     if (!hasSession(sessionId)) return h('div', { className: 'gp-empty' }, t('error.noCwd'))
@@ -97,19 +102,19 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     if (view.state === 'error') {
       return h('div', { className: 'gp-empty' }, t('pill.unavailable'))
     }
-    if (view.state === 'cold' || view.state === 'loading') return h('div', { className: 'gp-empty' }, t('common.loading'))
+    if (view.state === 'cold' || view.state === 'loading' || activeTab === null) return h('div', { className: 'gp-empty' }, t('common.loading'))
     // Mount each git-only tab on first visit, then hide it to retain its state.
     // Keying on sessionId resets per-session caches and selection on a switch.
     const snapshot = view.snapshot
     return h('div', { style: { display: 'contents' } }, [
-      everOverview.current ? h('div', { key: 'overview', style: tab === 'overview' ? { display: 'contents' } : { display: 'none' } },
+      visited.current.tabs.has('overview') ? h('div', { key: 'overview', style: activeTab === 'overview' ? { display: 'contents' } : { display: 'none' } },
         h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, t })) : null,
-      everChanges.current ? h('div', { key: 'changes', style: tab === 'changes' ? { display: 'contents' } : { display: 'none' } },
+      visited.current.tabs.has('changes') ? h('div', { key: 'changes', style: activeTab === 'changes' ? { display: 'contents' } : { display: 'none' } },
         h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, t })) : null,
       // Files tab mounts on first visit (keeps cold cost zero — no dir-list
       // until the user opens it), then stays mounted to retain its tree state.
       filesVisited
-        ? h('div', { key: 'files', style: tab === 'files' ? { display: 'contents' } : { display: 'none' } },
+        ? h('div', { key: 'files', style: activeTab === 'files' ? { display: 'contents' } : { display: 'none' } },
           h(FilesTab, { key: sessionId, remote, sessionId, t }))
         : null,
     ])
@@ -119,15 +124,20 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // full-height layout: the view area is fixed to the visible height with its
   // own overflow, and the composer/input bar floats over the bottom. Without
   // it the view grows with content and the whole conversation scrolls.
-  return h('div', { className: 'gp-panel', 'data-conversation-composer-overlay': '' }, [
+  return h('div', { className: 'gp-panel', 'data-conversation-composer-overlay': '', 'data-font-delta': fontDelta }, [
     h('div', { key: 'tabs', className: 'gp-tabbar', role: 'tablist' }, [
       ...tabs.map((tb) =>
         h('button', {
           key: tb.key, type: 'button', role: 'tab',
           'aria-selected': activeTab === tb.key,
           className: `gp-tab${activeTab === tb.key ? ' gp-tab--active' : ''}`,
-          onClick: () => setTab(tb.key),
+          onClick: () => { if (hasSession(sessionId)) setSelection({ sessionId, tab: tb.key }) },
         }, [h('span', { key: 'i', className: 'gp-tab__icon' }, tb.icon), tb.label])),
+      h('div', { key: 'font', className: 'gp-font' }, [
+        h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
+        h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
+        h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
+      ]),
       h(VersionBar, { key: 'ver', remote, t }),
     ]),
     h('div', { key: 'body', className: 'gp-body' }, body),

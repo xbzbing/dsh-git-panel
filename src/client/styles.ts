@@ -5,6 +5,8 @@
 
 const CSS = `
 .gp-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px;position:relative}
+.gp-panel[data-font-delta="1"]{zoom:1.08;font-size:14px}
+.gp-panel[data-font-delta="-1"]{zoom:.92;font-size:12px}
 .gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 /* The shell floats the input composer over the view's bottom (composer-overlay
  * mode). Reserve that height as bottom padding so the panel's own bottom rows
@@ -30,12 +32,18 @@ const CSS = `
  * Clear enough to spot at a glance, restrained enough not to shout. */
 .gp-tab--active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 32%,transparent)}
 .gp-tab__icon{display:inline-flex;width:15px;height:15px}
+.gp-font{margin-left:4px;display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden}
+.gp-font button{border:0;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:22px;width:24px;height:24px;padding:0;cursor:pointer}
+.gp-font button:first-child{border-left:0}
+.gp-font button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-font button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px;text-align:center}
 .gp-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
-.gp-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .gp-btn:disabled{opacity:.5;cursor:default}
 .gp-btn--primary{border-color:transparent;background:var(--dsw-alias-state-business-primary);color:#fff}
+.gp-btn--primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 85%,#000);color:#fff}
 .gp-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .gp-icon-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
 
@@ -103,6 +111,14 @@ const CSS = `
 .gp-tree-chev{flex:none;width:11px;display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary)}
 .gp-tree-ic{flex:none;display:inline-flex;align-items:center;color:var(--dsw-alias-label-tertiary)}
 .gp-tree-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.gp-files__entry{width:100%;border:0;background:transparent;color:inherit;text-align:left;font:inherit}
+.gp-files__entry--dir .gp-tree-name{font-weight:600}
+.gp-files__entry:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-files__entry.gp-tree-row--active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent);color:var(--dsw-alias-state-business-primary);box-shadow:inset 2px 0 0 var(--dsw-alias-state-business-primary)}
+.gp-files__entry.gp-tree-row--active .gp-tree-name{font-weight:600}
+.gp-files__entry.gp-tree-row--active:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}
+.gp-tree-row--ignored{opacity:.5}
+.gp-tree-row--ignored:hover,.gp-tree-row--ignored:focus-visible{opacity:.85}
 .gp-status-badge{flex:none;width:14px;text-align:center;font-size:11px;font-weight:600}
 .gp-status--added{color:var(--dsw-alias-state-success-primary)}
 .gp-status--modified{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
@@ -121,7 +137,13 @@ const CSS = `
 .gp-files__tree{flex:0 0 300px;min-width:180px;display:flex;flex-direction:column;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 .gp-files__preview{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-files__preview-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.gp-files__mode{display:flex;gap:4px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__path{flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font:inherit}
+.gp-files__copy-path{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
+.gp-files__copy-path:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-files__copy-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__copy-path--error{color:var(--dsw-alias-state-error-primary)}
+.gp-files__mode{display:flex;gap:4px}
 .gp-files__mode-btn{border:0;border-radius:6px;padding:4px 10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
 .gp-files__mode-btn--active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600}
 .gp-files__mode-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
@@ -233,16 +255,26 @@ const CSS = `
 /* input-bar pill (zsh style) — repo cyan, (branch) green when synced /
  * orange when dirty. Fully-rounded (999px) to match the dsh-openviking-manager
  * input-bar toggle pill. */
-.gp-pill{display:inline-flex;align-items:center;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:12px;line-height:16px;cursor:pointer;white-space:nowrap;max-width:280px;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-weight:600}
+.gp-pill-wrap{display:inline-flex}
+.gp-pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:12px;line-height:16px;cursor:pointer;white-space:nowrap;max-width:280px;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-weight:600}
 .gp-pill:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-pill__dot{display:none;flex:none;width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}
 .gp-pill__repo{color:var(--dsw-alias-state-business-primary,#5ac8fa);overflow:hidden;text-overflow:ellipsis}
 .gp-pill__git{margin-left:6px}
-.gp-pill__git--synced{color:var(--dsw-alias-state-success-primary,#3fb950)}
-.gp-pill__git--dirty{color:var(--dsw-alias-state-warn-primary,#e0982e)}
+.gp-pill--synced .gp-pill__git{color:var(--dsw-alias-state-success-primary,#3fb950)}
+.gp-pill--dirty .gp-pill__git{color:var(--dsw-alias-state-warn-primary,#e0982e)}
+.gp-pill--synced .gp-pill__dot{background:var(--dsw-alias-state-success-primary,#3fb950)}
+.gp-pill--dirty .gp-pill__dot{background:var(--dsw-alias-state-warn-primary,#e0982e)}
 .gp-pill__branch{color:inherit}
 .gp-pill--plain{cursor:default;font-weight:500}
 .gp-pill--plain .gp-pill__repo{color:var(--dsw-alias-label-secondary)}
 .gp-pill--degraded{color:var(--dsw-alias-label-tertiary);cursor:default;font-weight:500}
+/* When the workspace is narrow (a sidebar opens), collapse the pill to a single
+ * status dot — width-driven, so it expands back as the workspace widens. The
+ * git status color is preserved via .gp-pill__dot. */
+.gp-pill--compact{gap:0;padding:0;width:28px;min-width:28px;height:28px;justify-content:center;border-radius:999px}
+.gp-pill--compact .gp-pill__dot{display:block}
+.gp-pill--compact .gp-pill__repo,.gp-pill--compact .gp-pill__git{display:none}
 
 /* plugin detail config form (plugins.bundle.config slot body) */
 .gp-cfg{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}

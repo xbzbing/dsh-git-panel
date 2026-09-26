@@ -32,7 +32,7 @@ export async function runQuery(
     if (!browse.ok) return { ok: false, error: browse.error }
     try {
       return q.kind === 'dir-list'
-        ? await queryDirList(deps, browse.root, q)
+        ? await queryDirList(deps, browse.root, q, browse.isGitRepo)
         : await queryFileContent(deps, config, browse.root, q)
     } catch (error) {
       return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
@@ -363,6 +363,7 @@ async function queryDirList(
   deps: SnapshotDeps,
   root: string,
   q: Extract<GitQueryRequest['query'], { kind: 'dir-list' }>,
+  isGitRepo: boolean,
 ): Promise<GitQueryResponse> {
   const rel = q.path
   if ((rel !== '' && !isSafePath(rel)) || hasGitSegment(rel)) return { ok: false, error: { code: 'invalid-path', message: rel } }
@@ -379,14 +380,40 @@ async function queryDirList(
   filtered.sort((a, b) => (a.isDirectory !== b.isDirectory ? (a.isDirectory ? -1 : 1) : a.name.localeCompare(b.name)))
   const truncated = filtered.length > DIR_ENTRY_CAP
   const slice = truncated ? filtered.slice(0, DIR_ENTRY_CAP) : filtered
+  const ignored = isGitRepo ? await ignoredEntries(deps, root, rel, slice.map((e) => e.name)) : new Set<string>()
   const entries: DirEntry[] = await Promise.all(slice.map(async (e) => {
-    if (e.isDirectory) return { name: e.name, dir: true }
+    const ignoreFlag = ignored.has(e.name) ? { ignored: true } : {}
+    if (e.isDirectory) return { name: e.name, dir: true, ...ignoreFlag }
     let size: number | undefined
     try { size = (await deps.fs.stat(join(dir, e.name))).size } catch { size = undefined }
-    return { name: e.name, dir: false, ...(size !== undefined ? { size } : {}) }
+    return { name: e.name, dir: false, ...(size !== undefined ? { size } : {}), ...ignoreFlag }
   }))
   const path = rel === '' ? '' : rel.replace(/\/+$/, '')
   return { ok: true, value: { kind: 'dir-list', path, entries, truncated } }
+}
+
+/** Check only the visible directory page; Git handles nested and negated rules. */
+async function ignoredEntries(deps: SnapshotDeps, root: string, parent: string, names: readonly string[]): Promise<Set<string>> {
+  const ignored = new Set<string>()
+  const paths = names.map((name) => parent === '' ? name : `${parent}/${name}`)
+  // Bound each argv batch by both count and bytes (especially for deep paths).
+  for (let index = 0; index < paths.length;) {
+    const batch: string[] = []
+    let bytes = 0
+    while (index < paths.length && batch.length < 128) {
+      const candidate = paths[index]
+      const size = Buffer.byteLength(candidate) + 1
+      if (batch.length > 0 && bytes + size > 32 * 1024) break
+      batch.push(candidate)
+      bytes += size
+      index++
+    }
+    const result = await runCommand(deps.run, ['git', 'check-ignore', '-z', '--stdin'], root, 'dir-ignore', deps.signal, `${batch.join('\0')}\0`)
+    if ('failure' in result || result.run.timedOut || result.run.cancelled || result.run.stdoutLossy || ![0, 1].includes(result.run.exitCode ?? -1)) continue
+    const matches = new Set(result.run.stdout.split('\0'))
+    for (const path of batch) if (matches.has(path)) ignored.add(parent === '' ? path : path.slice(parent.length + 1))
+  }
+  return ignored
 }
 
 /**

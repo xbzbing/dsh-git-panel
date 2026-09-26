@@ -43,6 +43,7 @@ const out = await page.evaluate(async (snap) => {
   const result = { steps: [] }
   // Valid 1×1 PNG, served as both image-diff sides by the mock.
   const MOCK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const fileQueries = []
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
@@ -70,8 +71,9 @@ const out = await page.evaluate(async (snap) => {
           }
           if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
           if (q.kind === 'dir-list') {
+            fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'README.md', dir: false, size: 18 },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'README.md', dir: false, size: 18 }, { name: 'ignored.log', dir: false, ignored: true },
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
@@ -112,7 +114,7 @@ const out = await page.evaluate(async (snap) => {
   const pillEntry = registered['conversation.input.left']
   ReactDOM.createRoot(document.getElementById('pill')).render(pillEntry.component({ sessionId: 'sess-1' }))
   await new Promise((r) => setTimeout(r, 300))
-  result.pillHasDirty = document.querySelector('.gp-pill__git--dirty') !== null
+  result.pillHasDirty = document.querySelector('.gp-pill--dirty') !== null
 
   const viewEntry = registered['conversation.view']
   result.viewLabel = viewEntry.reg.label ? viewEntry.reg.label() : null
@@ -120,13 +122,45 @@ const out = await page.evaluate(async (snap) => {
   ReactDOM.createRoot(document.getElementById('panel')).render(viewEntry.component({ sessionId: 'sess-1' }))
   await new Promise((r) => setTimeout(r, 500))
   result.tabCount = document.querySelectorAll('.gp-tab').length
-  result.filesDefault = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.files') ?? false
+  result.dirtyDefault = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.changes') ?? false
+  result.noInitialFileListing = fileQueries.length === 0
+  const panelRoot = document.querySelector('.gp-panel')
+  result.fontDefault = getComputedStyle(panelRoot).fontSize
+  document.querySelector('.gp-font__increase')?.click()
+  await new Promise((r) => setTimeout(r, 60))
+  result.fontIncreased = getComputedStyle(panelRoot).fontSize
+  result.fontStored = localStorage.getItem('gp.panel.fontDelta')
+  document.querySelector('.gp-font__reset')?.click()
+  await new Promise((r) => setTimeout(r, 60))
+  result.fontReset = getComputedStyle(panelRoot).fontSize
   const changesTab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))
   if (changesTab) { changesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasStats = document.querySelector('.gp-stats') !== null
   result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
   result.changeRows = document.querySelectorAll('.gp-file-row').length
   result.hasAmend = document.querySelector('.gp-commitbox__amend') !== null
+  const commitBtn = [...document.querySelectorAll('.gp-commitbox__actions .gp-btn--primary')][0]
+  result.commitDisabledEmpty = commitBtn?.disabled === true
+  const primaryStyle = getComputedStyle(commitBtn)
+  result.commitPrimaryBg = primaryStyle.backgroundColor
+  const msgBox = document.querySelector('.gp-commitbox__msg')
+  if (msgBox) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(msgBox, 'feat: add feature')
+    msgBox.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 60))
+  }
+  const commitBtnAfter = [...document.querySelectorAll('.gp-commitbox__actions .gp-btn--primary')][0]
+  result.commitEnabledWithMessage = commitBtnAfter?.disabled === false
+  result.commitPrimaryHoverKeepsColor = [...document.styleSheets].some((sheet) => {
+    try { return [...sheet.cssRules].some((rule) => rule.selectorText === '.gp-btn--primary:hover' || rule.selectorText === '.gp-btn--primary:hover:not(:disabled)') } catch { return false }
+  })
+  if (msgBox) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(msgBox, '')
+    msgBox.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 60))
+  }
 
   // Image compare: opening a binary image renders old/new panes (not the
   // binary notice), and before/after modes collapse to a single labelled pane.
@@ -167,26 +201,57 @@ const out = await page.evaluate(async (snap) => {
   const closeBtn = document.querySelector('.gp-modal__bar .gp-icon-btn')
   if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
   result.modalClosedByBtn = document.querySelector('.gp-modal') === null
+  document.querySelector('#pill .gp-pill')?.click()
+  await new Promise((r) => setTimeout(r, 100))
+  result.livePillJump = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.changes') ?? false
 
   // Files tab: open it, the root tree lists entries; expand a dir; select a
   // text file → code preview; select an image → inline image pane.
   const filesTab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.files'))
   if (filesTab) { filesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesTreeRows = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
+  const cacheRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('cache'))
+  const ignoredRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('ignored.log'))
+  result.ignoredRowsDimmed = cacheRow?.classList.contains('gp-tree-row--ignored') && ignoredRow?.classList.contains('gp-tree-row--ignored') && getComputedStyle(cacheRow).opacity < 1
+  result.folderIcon = cacheRow?.querySelector('[data-file-type]')?.getAttribute('data-file-type')
   const dirRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('src'))
   if (dirRow) { dirRow.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.filesTreeRowsAfterExpand = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
+  result.txtRowSelected = txtRow?.classList.contains('gp-tree-row--active') === true
+  result.selectionStyled = [...document.styleSheets].some((sheet) => {
+    try {
+      return [...sheet.cssRules].some((rule) => (rule.selectorText || '').includes('gp-tree-row--active')
+        && /business-primary/.test(rule.style.cssText) && /box-shadow/.test(rule.style.cssText))
+    } catch { return false }
+  })
   const tsRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('index.ts'))
   if (tsRow) { tsRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.officialCodeHighlight = [...document.querySelectorAll('.gp-files__code .gp-diff-cell span')].some((node) => node.style.color.includes('--shiki-keyword'))
+  result.codeIconPath = tsRow?.querySelector('[data-file-type]')?.getAttribute('data-file-type')
+  let copiedPath = null
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { copiedPath = text } } })
+  document.querySelector('.gp-files__copy-path')?.click()
+  await new Promise((r) => setTimeout(r, 100))
+  result.copiedPath = copiedPath
+  result.copyFeedback = document.querySelector('.gp-files__copy-path')?.textContent
   const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
   if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesImageShown = document.querySelector('.gp-files__image img') !== null
+  let finishCopy
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((resolve) => { finishCopy = resolve }) } })
+  document.querySelector('.gp-files__copy-path')?.click()
   const mdRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
   if (mdRow) { mdRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  finishCopy?.()
+  await new Promise((r) => setTimeout(r, 50))
+  result.copyFeedbackReset = document.querySelector('.gp-files__copy-path')?.textContent === 'files.copyPath'
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied') } } })
+  document.querySelector('.gp-files__copy-path')?.click()
+  await new Promise((r) => setTimeout(r, 50))
+  result.copyDeniedFeedback = document.querySelector('.gp-files__copy-path')?.textContent === 'files.pathCopyFailed'
   result.markdownSourceDefault = document.querySelector('.gp-files__code') !== null && document.querySelector('[data-markdown-rendered]') === null
   const renderBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.render')
   if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
@@ -205,10 +270,18 @@ try {
   assert.equal(out.pillHasDirty, true, 'dirty pill shows the orange git class')
   assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
   assert.equal(out.tabCount, 3, 'three sub-tabs')
-  assert.equal(out.filesDefault, true, 'opening the Git tab defaults to Files')
+  assert.equal(out.dirtyDefault, true, 'opening a dirty Git workspace defaults to Changes')
+  assert.equal(out.noInitialFileListing, true, 'dirty default does not fetch hidden file-browser data')
+  assert.equal(out.fontDefault, '13px', 'panel keeps the existing default font size')
+  assert.equal(out.fontIncreased, '14px', 'font control increases panel text size')
+  assert.equal(out.fontStored, '1', 'font adjustment persists locally')
+  assert.equal(out.fontReset, '13px', 'font reset restores default size')
   assert.equal(out.hasStats, true, 'stats bar rendered')
   assert.equal(out.hasCommitBox, true, 'commit box rendered')
   assert.equal(out.hasAmend, true, 'amend checkbox present')
+  assert.equal(out.commitDisabledEmpty, true, 'commit button is disabled without a message')
+  assert.equal(out.commitEnabledWithMessage, true, 'commit button enables once a message is typed')
+  assert.equal(out.commitPrimaryHoverKeepsColor, true, 'primary button defines a hover style that keeps its color')
   assert.equal(out.changeRows, 4, 'four change rows (three text + one image)')
   assert.equal(out.imagePanes, 2, 'image diff renders both panes in split mode')
   assert.equal(out.imageImgs, 2, 'both panes render an image')
@@ -225,10 +298,20 @@ try {
   assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')
   assert.equal(out.modalClosedByEsc, true, 'Esc closes the modal')
   assert.equal(out.modalClosedByBtn, true, 'the close button closes the modal')
+  assert.equal(out.livePillJump, true, 'pill jump still takes the active panel to Changes')
   assert.ok(out.filesTreeRows >= 3, 'files tab lists the root directory entries')
+  assert.equal(out.ignoredRowsDimmed, true, 'Git ignored files and directories appear translucent')
+  assert.equal(out.folderIcon, 'folder', 'folder rows use the official folder glyph')
   assert.ok(out.filesTreeRowsAfterExpand > out.filesTreeRows, 'expanding a directory reveals its children')
   assert.equal(out.filesCodeShown, true, 'selecting a text file shows the code preview')
+  assert.equal(out.txtRowSelected, true, 'the selected file row carries the active class')
+  assert.equal(out.selectionStyled, true, 'the active file row has a distinct primary-tinted highlight')
   assert.equal(out.officialCodeHighlight, true, 'code preview renders syntax spans from the DSH highlighter')
+  assert.equal(out.codeIconPath, 'src/index.ts', 'code file glyph receives its relative path for official type classification')
+  assert.equal(out.copiedPath, 'src/index.ts', 'preview copies the selected file path relative to browse root')
+  assert.equal(out.copyFeedback, 'files.pathCopied', 'copy button confirms successful clipboard write')
+  assert.equal(out.copyFeedbackReset, true, 'late copy of previous file cannot change current file feedback')
+  assert.equal(out.copyDeniedFeedback, true, 'clipboard denial shows an actionable failure state')
   assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
   assert.equal(out.markdownSourceDefault, true, 'Markdown defaults to source view')
   assert.equal(out.markdownRendered, true, 'render button uses official MarkdownText')

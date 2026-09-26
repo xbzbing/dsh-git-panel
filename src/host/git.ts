@@ -18,7 +18,7 @@ interface SpawnSpec {
   readonly argv: readonly string[]
   readonly cwd: string
   readonly stdio: {
-    readonly stdin: 'ignore'
+    readonly stdin: 'ignore' | { readonly data: string }
     readonly stdout: CollectDisposition
     readonly stderr: CollectDisposition
   }
@@ -56,7 +56,7 @@ export interface GitRunResult {
 }
 
 export interface GitRunner {
-  run(argv: readonly string[], opts: { readonly cwd: string; readonly signal?: AbortSignal }): Promise<GitRunResult>
+  run(argv: readonly string[], opts: { readonly cwd: string; readonly signal?: AbortSignal; readonly stdinData?: string }): Promise<GitRunResult>
 }
 
 /**
@@ -78,7 +78,7 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
           argv,
           cwd: opts.cwd,
           stdio: {
-            stdin: 'ignore',
+            stdin: opts.stdinData === undefined ? 'ignore' : { data: opts.stdinData },
             stdout: { collect: { maxBytes, spill: { maxBytes: spillMaxBytes } } },
             stderr: { collect: { maxBytes, spill: { maxBytes: spillMaxBytes } } },
           },

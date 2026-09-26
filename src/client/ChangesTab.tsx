@@ -205,7 +205,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
             t('commit.amend'),
           ]),
           h('div', { key: 'actions', className: 'gp-commitbox__actions' }, [
-            h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: busy, onClick: () => void commit() }, t('commit.commit')),
+            h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: busy || message.trim() === '', onClick: () => void commit() }, t('commit.commit')),
           ]),
         ]),
       ]),

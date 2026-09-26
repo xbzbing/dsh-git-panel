@@ -11,9 +11,9 @@ import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
 import type { DirEntry } from './types'
 import type { GitKey } from './locales'
-import { ChevronIcon, FileIcon, FolderIcon } from './icons'
+import { ChevronIcon } from './icons'
 import { useResizableColumn } from './resizable'
-import { languageForPath, MarkdownText, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -42,6 +42,7 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
   const [file, setFile] = useState<FileState>({ kind: 'idle' })
   const [renderMarkdown, setRenderMarkdown] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
   const fileSeq = useRef(0)
 
@@ -83,6 +84,7 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
   const selectFile = useCallback((path: string) => {
     setSelected(path)
     setRenderMarkdown(false)
+    setCopyState('idle')
     const seq = ++fileSeq.current
     setFile({ kind: 'loading', path })
     void remote.query({ sessionId, query: { kind: 'file-content', path } }).then((res) => {
@@ -98,16 +100,34 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
 
   const treeRows = useMemo(() => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t }), [dirs, open, selected, toggleDir, selectFile, t])
 
+  const copyPath = async (): Promise<void> => {
+    if (selected === null) return
+    const seq = fileSeq.current
+    try {
+      await navigator.clipboard.writeText(selected)
+      if (seq === fileSeq.current) setCopyState('copied')
+    } catch {
+      if (seq === fileSeq.current) setCopyState('error')
+    }
+  }
+
   return h('div', { className: 'gp-files' }, [
     h('div', { key: 'left', className: 'gp-files__tree', style: { flex: `0 0 ${leftCol.width}px` } }, treeRows),
     leftCol.divider,
     h('div', { key: 'right', className: 'gp-files__preview' }, [
-      file.kind === 'text' && isMarkdownPath(file.path)
-        ? h('div', { key: 'mode', className: 'gp-files__mode', role: 'group', 'aria-label': t('files.previewMode') }, [
-          h('button', { key: 'source', type: 'button', className: `gp-files__mode-btn${!renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': !renderMarkdown, onClick: () => setRenderMarkdown(false) }, t('files.source')),
-          h('button', { key: 'render', type: 'button', className: `gp-files__mode-btn${renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': renderMarkdown, onClick: () => setRenderMarkdown(true) }, t('files.render')),
-        ])
-        : null,
+      selected !== null ? h('div', { key: 'bar', className: 'gp-files__bar' }, [
+        h('code', { key: 'path', className: 'gp-files__path', title: selected }, selected),
+        file.kind === 'text' && isMarkdownPath(file.path)
+          ? h('div', { key: 'mode', className: 'gp-files__mode', role: 'group', 'aria-label': t('files.previewMode') }, [
+            h('button', { key: 'source', type: 'button', className: `gp-files__mode-btn${!renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': !renderMarkdown, onClick: () => setRenderMarkdown(false) }, t('files.source')),
+            h('button', { key: 'render', type: 'button', className: `gp-files__mode-btn${renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': renderMarkdown, onClick: () => setRenderMarkdown(true) }, t('files.render')),
+          ])
+          : null,
+        h('button', {
+          key: 'copy', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
+          'aria-live': 'polite', onClick: () => { void copyPath() },
+        }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
+      ]) : null,
       h('div', { key: 'content', className: 'gp-files__preview-content' }, file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path)
         ? h('div', { className: 'gp-files__markdown' }, h(MarkdownText, { text: file.content, labels: markdownLabels, variant: 'body' }))
         : renderPreview(file, t)),
@@ -139,23 +159,27 @@ function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Element[] 
     const path = dirPath === '' ? entry.name : `${dirPath}/${entry.name}`
     if (entry.dir) {
       const isOpen = cb.open.has(path)
-      rows.push(h('div', {
-        key: path, className: 'gp-tree-row', style: { paddingLeft: 10 + depth * 14 },
+      rows.push(h('button', {
+        key: path, type: 'button', className: `gp-tree-row gp-files__entry gp-files__entry--dir${entry.ignored ? ' gp-tree-row--ignored' : ''}`,
+        style: { paddingLeft: 10 + depth * 14 }, 'aria-expanded': isOpen,
+        'aria-label': entry.ignored ? `${entry.name} (${cb.t('files.ignored')})` : entry.name,
         onClick: () => cb.toggleDir(path),
       }, [
         h('span', { key: 'c', className: 'gp-tree-chev' }, h(ChevronIcon, { size: 11, open: isOpen })),
-        h('span', { key: 'i', className: 'gp-tree-ic' }, h(FolderIcon, { size: 13, open: isOpen })),
+        h('span', { key: 'i', className: 'gp-tree-ic' }, h(FileTypeIcon, { kind: 'folder', size: 18 })),
         h('span', { key: 'n', className: 'gp-tree-name' }, entry.name),
       ]))
       if (isOpen) rows.push(...renderTree(path, depth + 1, cb))
     } else {
       const active = cb.selected === path
-      rows.push(h('div', {
-        key: path, className: `gp-tree-row${active ? ' gp-tree-row--active' : ''}`, style: { paddingLeft: 10 + depth * 14 },
+      rows.push(h('button', {
+        key: path, type: 'button', className: `gp-tree-row gp-files__entry${active ? ' gp-tree-row--active' : ''}${entry.ignored ? ' gp-tree-row--ignored' : ''}`,
+        style: { paddingLeft: 10 + depth * 14 }, 'aria-current': active ? 'true' : undefined,
+        'aria-label': entry.ignored ? `${entry.name} (${cb.t('files.ignored')})` : entry.name,
         onClick: () => cb.selectFile(path),
       }, [
         h('span', { key: 'c', className: 'gp-tree-chev' }),
-        h('span', { key: 'i', className: 'gp-tree-ic' }, h(FileIcon, { size: 13 })),
+        h('span', { key: 'i', className: 'gp-tree-ic' }, h(FileTypeIcon, { path, size: 18 })),
         h('span', { key: 'n', className: 'gp-tree-name' }, entry.name),
       ]))
     }

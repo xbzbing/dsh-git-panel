@@ -80,6 +80,7 @@ export type WorkspaceResolution = {
 export declare function resolveBrowseRoot(deps: SnapshotDeps, sessionId: string): Promise<{
     ok: true;
     root: string;
+    isGitRepo: boolean;
 } | {
     ok: false;
     error: {
@@ -90,7 +91,7 @@ export declare function resolveBrowseRoot(deps: SnapshotDeps, sessionId: string)
 /** Resolve the git work-tree root for a session's cwd. */
 export declare function resolveWorkspace(deps: SnapshotDeps, sessionId: string): Promise<WorkspaceResolution>;
 /** Run one git command; a spawn-level failure returns { failure }. */
-export declare function runCommand(runner: GitRunner, argv: readonly string[], cwd: string, _label: string, signal?: AbortSignal): Promise<{
+export declare function runCommand(runner: GitRunner, argv: readonly string[], cwd: string, _label: string, signal?: AbortSignal, stdinData?: string): Promise<{
     run: Awaited<ReturnType<GitRunner['run']>>;
 } | {
     failure: unknown;
