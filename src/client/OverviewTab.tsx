@@ -18,6 +18,7 @@ import { statusChar, statusClass } from './status'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
 import { useResizableColumn } from './resizable'
+import { segButtons } from './seg'
 import type { DiffViewMode } from './types'
 
 interface OverviewProps {
@@ -356,8 +357,8 @@ function renderFileDiffModal(
         title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
         onClick: () => onExpand(!expanded),
       }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
-      h('div', { key: 'seg', className: 'gp-seg' }, (['unified', 'split', 'before', 'after'] as DiffMode[]).map((m) =>
-        h('button', { key: m, type: 'button', className: `gp-seg__btn${mode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => onMode(m) }, t(`diff.${m}` as GitKey)))),
+      h('div', { key: 'seg', className: 'gp-seg' },
+        segButtons<DiffMode>(['unified', 'split', 'before', 'after'], mode, onMode, (m) => t(`diff.${m}` as GitKey))),
       h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },

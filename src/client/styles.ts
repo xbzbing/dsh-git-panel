@@ -300,7 +300,6 @@ const CSS = `
 
 /* pill wrapper + rounded hover tooltip panel (openviking-manager style):
  * soft radius, layered shadow, subtle border, portaled above the pill. */
-.gp-pill-wrap{display:inline-flex}
 .gp-tip{position:fixed;z-index:60;max-width:520px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;pointer-events:none}
 .gp-tip__path{color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);word-break:break-all}
 .gp-tip__note{margin-top:4px;color:var(--dsw-alias-label-tertiary)}

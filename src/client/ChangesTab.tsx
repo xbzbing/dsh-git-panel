@@ -13,6 +13,7 @@ import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { ChevronIcon } from './icons'
 import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
+import { segButtons } from './seg'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -43,11 +44,12 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   const unstaged = useMemo(() => snapshot.changes.filter((c) => !c.staged && c.status !== 'untracked').sort(byPath), [snapshot])
   const untracked = useMemo(() => snapshot.changes.filter((c) => c.status === 'untracked').sort(byPath), [snapshot])
 
-  const groups: Array<{ key: GroupKey; labelKey: GitKey; items: GitChange[] }> = [
-    { key: 'staged' as GroupKey, labelKey: 'changes.groupStaged' as GitKey, items: staged },
-    { key: 'unstaged' as GroupKey, labelKey: 'changes.groupUnstaged' as GitKey, items: unstaged },
-    { key: 'untracked' as GroupKey, labelKey: 'changes.groupUntracked' as GitKey, items: untracked },
-  ].filter((g) => g.items.length > 0)
+  const allGroups: Array<{ key: GroupKey; labelKey: GitKey; items: GitChange[] }> = [
+    { key: 'staged', labelKey: 'changes.groupStaged', items: staged },
+    { key: 'unstaged', labelKey: 'changes.groupUnstaged', items: unstaged },
+    { key: 'untracked', labelKey: 'changes.groupUntracked', items: untracked },
+  ]
+  const groups = allGroups.filter((g) => g.items.length > 0)
 
   // Prune selection to living paths (avoid a stale path aborting a commit).
   // Selection keys are `path:s`/`path:w`; a key survives only if a change with
@@ -230,8 +232,8 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
               title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
               onClick: () => void showDiff(diffPath.path, diffPath.base, !expanded),
             }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
-            h('div', { key: 'seg', className: 'gp-seg' }, (['unified', 'split', 'before', 'after'] as DiffMode[]).map((m) =>
-              h('button', { key: m, type: 'button', className: `gp-seg__btn${diffMode === m ? ' gp-seg__btn--active' : ''}`, onClick: () => setDiffMode(m) }, t(`diff.${m}` as GitKey)))),
+            h('div', { key: 'seg', className: 'gp-seg' },
+              segButtons<DiffMode>(['unified', 'split', 'before', 'after'], diffMode, setDiffMode, (m) => t(`diff.${m}` as GitKey))),
           ]),
           h('div', { key: 'scroll', className: 'gp-diff__scroll' },
             diffText === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffText, mode: diffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, t })),

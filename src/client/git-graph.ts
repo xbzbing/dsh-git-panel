@@ -58,13 +58,19 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
   }
 
   for (const commit of commits) {
-    // Find the lane awaiting this commit; else allocate a new one.
-    let lane = lanes.findIndex((h) => h === commit.hash)
-    if (lane === -1) {
-      lane = lanes.findIndex((h) => h === null)
-      if (lane === -1) { lane = lanes.length; lanes.push(null) }
-      lanes[lane] = commit.hash
+    // Place a hash into the lane already awaiting it, else the first free lane,
+    // else a freshly opened one; returns the chosen lane index.
+    const assignLane = (hash: string): number => {
+      let lane = lanes.findIndex((h) => h === hash)
+      if (lane === -1) {
+        lane = lanes.findIndex((h) => h === null)
+        if (lane === -1) { lane = lanes.length; lanes.push(null) }
+        lanes[lane] = hash
+      }
+      return lane
     }
+
+    const lane = assignLane(commit.hash)
     const color = colorFor(commit.hash)
 
     // Snapshot lanes before mutation (top of the row).
@@ -84,13 +90,7 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
       colorFor(parents[0]!)
       for (let p = 1; p < parents.length; p++) {
         const parent = parents[p]!
-        // Reuse a lane already awaiting this parent, else open one.
-        let plane = lanes.findIndex((h) => h === parent)
-        if (plane === -1) {
-          plane = lanes.findIndex((h) => h === null)
-          if (plane === -1) { plane = lanes.length; lanes.push(null) }
-          lanes[plane] = parent
-        }
+        assignLane(parent)
         colorFor(parent)
       }
     }

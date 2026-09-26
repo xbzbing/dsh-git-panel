@@ -72,7 +72,7 @@ function callerOf(ctx: ClientCtx): ((endpoint: string, payload: unknown, signal?
     const rpc = (ctx.get('connection') as ConnectionFace | undefined)?.rpc
     const fn = rpc?.call
     if (rpc !== undefined && typeof fn === 'function') {
-      return (endpoint, payload, signal) => (fn as (c: string, e: string, p: unknown, s?: AbortSignal) => Promise<unknown>).call(rpc, API_CHANNEL, endpoint, payload, signal)
+      return (endpoint, payload, signal) => fn.call(rpc, API_CHANNEL, endpoint, payload, signal)
     }
   } catch { /* absent or hostile */ }
   return undefined

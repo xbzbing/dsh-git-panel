@@ -10,6 +10,7 @@
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { resyncAll } from './registry'
+import { segButtons } from './seg'
 import type { ClientCtx, ConfigFormsFace, SettingsNamespaceView } from './rpc'
 import type { GitKey } from './locales'
 
@@ -68,47 +69,36 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const checked = pending ?? (typeof snap?.value?.showInputPill === 'boolean' ? (snap.value.showInputPill as boolean) : true)
   const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
 
-  const toggle = async (next: boolean): Promise<void> => {
+  // Write one config field, then resync so the pill/tab-dot reflect it without
+  // waiting for the next poll; `clearPending` resets that field's optimistic
+  // value. A snapshot already in flight when the write lands wins the first
+  // resync with pre-write values, so a second re-pull bounds that race.
+  const commitField = async (field: string, next: unknown, clearPending: () => void): Promise<void> => {
     if (form === undefined) return
-    setPending(next)
     setFailed(false)
     setBusy(true)
     try {
-      const ok = await form.set('showInputPill', next)
-      setPending(null)
+      const ok = await form.set(field, next)
+      clearPending()
       if (!ok) setFailed(true)
-      // The pill and tab dot read the snapshot controller, which otherwise
-      // only polls every refreshIntervalMs — resync so the flip shows now.
-      else {
-        resyncAll()
-        // A snapshot already in flight when the write landed wins the first
-        // resync with pre-write values; one later re-pull bounds that race.
-        setTimeout(() => resyncAll(), 1000)
-      }
+      else { resyncAll(); setTimeout(() => resyncAll(), 1000) }
     } catch {
-      setPending(null)
+      clearPending()
       setFailed(true)
     } finally {
       setBusy(false)
     }
   }
 
-  const setView = async (next: DiffView): Promise<void> => {
-    if (form === undefined || next === diffView) return
+  const toggle = (next: boolean): Promise<void> => {
+    setPending(next)
+    return commitField('showInputPill', next, () => setPending(null))
+  }
+
+  const setView = (next: DiffView): Promise<void> => {
+    if (next === diffView) return Promise.resolve()
     setPendingView(next)
-    setFailed(false)
-    setBusy(true)
-    try {
-      const ok = await form.set('defaultDiffView', next)
-      setPendingView(null)
-      if (!ok) setFailed(true)
-      else { resyncAll(); setTimeout(() => resyncAll(), 1000) }
-    } catch {
-      setPendingView(null)
-      setFailed(true)
-    } finally {
-      setBusy(false)
-    }
+    return commitField('defaultDiffView', next, () => setPendingView(null))
   }
 
   if (forms === undefined) return h('p', { className: 'gp-cfg__hint' }, t('cfg.notLoaded'))
@@ -129,13 +119,9 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     ]),
     h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.hint')),
     h('h3', { key: 'difftitle', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.diffTitle')),
-    h('div', { key: 'diffseg', className: 'gp-seg gp-cfg__seg' }, (['unified', 'split'] as DiffView[]).map((v) =>
-      h('button', {
-        key: v, type: 'button',
-        className: `gp-seg__btn${diffView === v ? ' gp-seg__btn--active' : ''}`,
-        disabled: busy || snap?.writable === false,
-        onClick: () => { void setView(v) },
-      }, t(v === 'unified' ? 'cfg.diffUnified' : 'cfg.diffSplit')))),
+    h('div', { key: 'diffseg', className: 'gp-seg gp-cfg__seg' },
+      segButtons<DiffView>(['unified', 'split'], diffView, (v) => { void setView(v) },
+        (v) => t(v === 'unified' ? 'cfg.diffUnified' : 'cfg.diffSplit'), busy || snap?.writable === false)),
     h('p', { key: 'diffhint', className: 'gp-cfg__hint' }, t('cfg.diffHint')),
     failed ? h('p', { key: 'error', className: 'gp-cfg__err', role: 'alert' }, t('cfg.saveFailed')) : null,
   ])

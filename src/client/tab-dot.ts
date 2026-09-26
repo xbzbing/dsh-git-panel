@@ -80,15 +80,8 @@ function teardownObserver(): void {
  */
 export function setGitTabDot(who: symbol, label: string, status: GitTabDotStatus): void {
   if (typeof document === 'undefined') return
-  if (status === null) {
-    // Only the current owner (or an unclaimed dot) may clear.
-    if (owner !== undefined && owner !== who) return
-    owner = undefined
-    currentStatus = null
-    apply()
-    teardownObserver()
-    return
-  }
+  // A null status is a release: same owner check + teardown as clearGitTabDot.
+  if (status === null) { clearGitTabDot(who); return }
   owner = who
   currentLabel = label
   currentStatus = status
