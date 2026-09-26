@@ -24,6 +24,7 @@ dsh plugin --profile web add github:xbzbing/dsh-git-panel
 
 - **Git 总览**：三栏布局。左栏是分支 / 标签列表，点击某个引用即按它过滤历史；中栏是提交历史图，支持按提交信息、commit 哈希、作者、日期搜索，悬停某条提交弹出卡片显示完整提交信息（comment）；右栏是选中提交的变更文件树与提交信息，点击文件在弹出的 modal 里查看该文件在此提交中的差异。
 - **变更记录**：面向本地工作区。左栏是统计条（文件数 / 增删行数 / 最近变更时间）、带复选框的未提交变更列表、以及含 **Amend** 复选框的提交框，支持逐文件暂存 / 取消暂存 / 丢弃与手动提交；右栏是选中文件的差异对照。
+- **文件浏览**：左栏是工作区目录树，懒加载——点开目录才拉取下一层（跳过 `.git`）；右栏预览选中文件：代码/文本走语法高亮、图片内联显示、其余二进制给出占位提示，过大的文件不预览。左栏宽度可拖动调节。
 - **语法高亮差异**：两处差异视图（总览 modal 与变更记录）都带懒加载的 highlight.js 语法高亮，按文件扩展名选择语法，高亮首次查看 diff 时才动态加载。
 - **展开未变更行**：差异工具栏提供「展开全部 / 折叠未变更」切换，展开后显示整个文件而不只是变更附近的上下文。
 - **对照模式**：差异支持「统一 / 对照 / 变更前 / 变更后」四种视图切换。统一视图为单栏行内对比（改动行前后紧邻，省横向空间），对照视图为左右并排；两种视图都带块间隐藏上下文的按需展开与改动行的词级高亮。默认视图可在插件详情页选择（统一 / 并排），也可在每个差异视图工具栏临时切换。
@@ -70,7 +71,7 @@ src/
     git.ts          subprocess → 带超时的 GitRunner
     core.ts         workspace 解析 + snapshotForSession
     actions.ts      GitAction → git 命令序列（commit / amend / stage 等）
-    queries.ts      history / diff / image-diff / show / branches / tags / worktree-stats
+    queries.ts      history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / worktree-stats
     parser.ts       git 输出解析为结构化数据
     version.ts      本包版本 + GitHub release 更新检查
   client/
@@ -79,6 +80,7 @@ src/
     Panel.tsx       主面板壳：子 tab 路由 + 版本条
     OverviewTab.tsx Git 总览三栏 + hover 卡片
     ChangesTab.tsx  变更记录页
+    FilesTab.tsx    文件浏览（懒加载目录树 + 文件预览）
     DiffView.tsx    差异视图（统一 / 并排 / 变更前 / 变更后）
     GitPill.tsx     输入框标记
     highlight.ts    diff 语法高亮的懒加载门面
