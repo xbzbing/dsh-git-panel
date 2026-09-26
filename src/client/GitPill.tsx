@@ -90,7 +90,7 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   const repo = basename(snap.root)
   const branch = snap.branch ?? `(${t('pill.detached')})`
   const dirty = snap.dirty
-  const gitClass = dirty ? 'gp-pill__git--dirty' : 'gp-pill__git--synced'
+  const gitClass = dirty ? 'gp-pill--dirty' : 'gp-pill--synced'
 
   const onClick = (): void => {
     if (hasSession(sessionId)) {
@@ -101,11 +101,12 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
 
   return h('span', { className: 'gp-pill-wrap' }, [
     h('button', {
-      key: 'btn', type: 'button', className: 'gp-pill', onClick,
+      key: 'btn', type: 'button', className: `gp-pill ${gitClass}`, onClick,
       ref: tip.bind.ref, onMouseEnter: tip.bind.onMouseEnter, onMouseLeave: tip.bind.onMouseLeave,
     }, [
+      h('span', { key: 'dot', className: 'gp-pill__dot', 'aria-hidden': 'true' }),
       h('span', { key: 'repo', className: 'gp-pill__repo' }, repo),
-      h('span', { key: 'git', className: `gp-pill__git ${gitClass}` }, [
+      h('span', { key: 'git', className: 'gp-pill__git' }, [
         '(',
         h('span', { key: 'b', className: 'gp-pill__branch' }, branch),
         ')',
