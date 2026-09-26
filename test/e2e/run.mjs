@@ -70,7 +70,7 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
           if (q.kind === 'dir-list') {
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 },
+              { name: 'src', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'README.md', dir: false, size: 18 },
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
@@ -78,6 +78,7 @@ const out = await page.evaluate(async (snap) => {
             return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: [] } } }
           }
           if (q.kind === 'file-content') {
+            if (q.path.endsWith('.md')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# Hello Markdown\n', lines: 1 } } }
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}` } } }
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
           }
@@ -118,6 +119,9 @@ const out = await page.evaluate(async (snap) => {
   ReactDOM.createRoot(document.getElementById('panel')).render(viewEntry.component({ sessionId: 'sess-1' }))
   await new Promise((r) => setTimeout(r, 500))
   result.tabCount = document.querySelectorAll('.gp-tab').length
+  result.filesDefault = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.files') ?? false
+  const changesTab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))
+  if (changesTab) { changesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasStats = document.querySelector('.gp-stats') !== null
   result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
   result.changeRows = document.querySelectorAll('.gp-file-row').length
@@ -176,6 +180,15 @@ const out = await page.evaluate(async (snap) => {
   const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
   if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesImageShown = document.querySelector('.gp-files__image img') !== null
+  const mdRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
+  if (mdRow) { mdRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.markdownSourceDefault = document.querySelector('.gp-files__code') !== null && document.querySelector('[data-markdown-rendered]') === null
+  const renderBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.render')
+  if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
+  result.markdownRendered = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
+  const sourceBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.source')
+  if (sourceBtn) { sourceBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
+  result.markdownSourceRestored = document.querySelector('.gp-files__code') !== null
   return result
 }, SNAP)
 
@@ -187,6 +200,7 @@ try {
   assert.equal(out.pillHasDirty, true, 'dirty pill shows the orange git class')
   assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
   assert.equal(out.tabCount, 3, 'three sub-tabs')
+  assert.equal(out.filesDefault, true, 'opening the Git tab defaults to Files')
   assert.equal(out.hasStats, true, 'stats bar rendered')
   assert.equal(out.hasCommitBox, true, 'commit box rendered')
   assert.equal(out.hasAmend, true, 'amend checkbox present')
@@ -209,6 +223,9 @@ try {
   assert.ok(out.filesTreeRowsAfterExpand > out.filesTreeRows, 'expanding a directory reveals its children')
   assert.equal(out.filesCodeShown, true, 'selecting a text file shows the code preview')
   assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
+  assert.equal(out.markdownSourceDefault, true, 'Markdown defaults to source view')
+  assert.equal(out.markdownRendered, true, 'render button uses official MarkdownText')
+  assert.equal(out.markdownSourceRestored, true, 'source button restores the code view')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {

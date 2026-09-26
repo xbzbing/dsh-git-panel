@@ -14,6 +14,7 @@ import type { GitKey } from './locales'
 import { ChevronIcon, FileIcon, FolderIcon } from './icons'
 import { currentHighlighter, ensureHighlighter, languageForPath, type Highlighter } from './highlight'
 import { useResizableColumn } from './resizable'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -22,6 +23,8 @@ interface FilesTabProps {
 }
 
 type Loaded = { readonly status: 'loading' } | { readonly status: 'error' } | { readonly status: 'ready'; readonly entries: readonly DirEntry[]; readonly truncated: boolean }
+
+function isMarkdownPath(path: string): boolean { return /\.(?:md|markdown)$/i.test(path) }
 
 type FileState =
   | { readonly kind: 'idle' }
@@ -39,6 +42,8 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set(['']))
   const [selected, setSelected] = useState<string | null>(null)
   const [file, setFile] = useState<FileState>({ kind: 'idle' })
+  const [renderMarkdown, setRenderMarkdown] = useState(false)
+  const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
   const fileSeq = useRef(0)
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
@@ -78,6 +83,7 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
 
   const selectFile = useCallback((path: string) => {
     setSelected(path)
+    setRenderMarkdown(false)
     const seq = ++fileSeq.current
     setFile({ kind: 'loading', path })
     void remote.query({ sessionId, query: { kind: 'file-content', path } }).then((res) => {
@@ -96,7 +102,17 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
   return h('div', { className: 'gp-files' }, [
     h('div', { key: 'left', className: 'gp-files__tree', style: { flex: `0 0 ${leftCol.width}px` } }, treeRows),
     leftCol.divider,
-    h('div', { key: 'right', className: 'gp-files__preview' }, renderPreview(file, t)),
+    h('div', { key: 'right', className: 'gp-files__preview' }, [
+      file.kind === 'text' && isMarkdownPath(file.path)
+        ? h('div', { key: 'mode', className: 'gp-files__mode', role: 'group', 'aria-label': t('files.previewMode') }, [
+          h('button', { key: 'source', type: 'button', className: `gp-files__mode-btn${!renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': !renderMarkdown, onClick: () => setRenderMarkdown(false) }, t('files.source')),
+          h('button', { key: 'render', type: 'button', className: `gp-files__mode-btn${renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': renderMarkdown, onClick: () => setRenderMarkdown(true) }, t('files.render')),
+        ])
+        : null,
+      h('div', { key: 'content', className: 'gp-files__preview-content' }, file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path)
+        ? h('div', { className: 'gp-files__markdown' }, h(MarkdownText, { text: file.content, labels: markdownLabels, variant: 'body' }))
+        : renderPreview(file, t)),
+    ]),
   ])
 }
 

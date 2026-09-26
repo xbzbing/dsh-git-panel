@@ -23,28 +23,36 @@ interface PanelProps {
 }
 
 export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
-  const [tab, setTab] = useState<SubTab>('overview')
+  const [tab, setTab] = useState<SubTab>('files')
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
+
+  // Outside a git repository the overview/changes tabs have nothing to show,
+  // but file browsing still works — surface a Files-only panel there.
+  const notRepo = view.state === 'error' && view.error.code === 'not-a-git-repo'
+  const filesOnly = notRepo
 
   // The Files tab mounts lazily on first visit, then stays mounted (retains its
   // tree state); this keeps cold cost zero — no dir-list until the user opens it.
   const everFiles = useRef(false)
-  if (tab === 'files') everFiles.current = true
+  if (tab === 'files' || filesOnly) everFiles.current = true
   const filesVisited = everFiles.current
+  const everOverview = useRef(false)
+  const everChanges = useRef(false)
+  if (tab === 'overview' && !filesOnly) everOverview.current = true
+  if (tab === 'changes' && !filesOnly) everChanges.current = true
 
-  // Consume a pending focus request (pill click) once per session, or fall to
-  // the dirty-aware default; a `ready` snapshot that arrives after mount (cold
-  // controller) is still consumed exactly once via the consumedFor guard.
+  // A pill jump keeps its explicit destination; opening the workspace Git tab
+  // directly defaults to Files, whether or not the directory is a git repo.
   const consumedFor = useRef<string | undefined>(undefined)
-  const dirty = view.state === 'ready' ? view.snapshot.dirty : false
   useEffect(() => {
     if (!hasSession(sessionId)) return
+    if (filesOnly) { setTab('files'); return }
     if (consumedFor.current === sessionId) return
     const pending = takeSubTab(sessionId)
     if (pending !== null) { consumedFor.current = sessionId; setTab(pending); return }
-    if (view.state === 'ready') { consumedFor.current = sessionId; setTab(dirty ? 'changes' : 'overview') }
-  }, [sessionId, view.state, dirty])
+    if (view.state === 'ready') { consumedFor.current = sessionId; setTab('files') }
+  }, [sessionId, view.state, filesOnly])
 
   // While mounted, receive pill jumps live (a click when the panel is already
   // visible must still switch sub-tabs, not sit in the pending map).
@@ -69,29 +77,35 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     return { ok: false, error: errorText(result.error.code, result.error.message, t) }
   }
 
-  const tabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = [
+  const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = [
     { key: 'overview', label: t('tab.overview'), icon: h(CommitIcon, { size: 14 }) },
     { key: 'changes', label: t('tab.changes'), icon: h(DiffIcon, { size: 14 }) },
     { key: 'files', label: t('tab.files'), icon: h(FilesIcon, { size: 14 }) },
   ]
+  // A non-git directory exposes only the Files tab.
+  const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
+  const activeTab = filesOnly ? 'files' : tab
 
   const body = ((): JSX.Element => {
     if (!hasSession(sessionId)) return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     if (view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
+    // A non-git directory still browses files (host resolves the cwd as root).
+    if (filesOnly) {
+      return h('div', { style: { display: 'contents' } },
+        filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, t }) : null)
+    }
     if (view.state === 'error') {
-      return h('div', { className: 'gp-empty' }, view.error.code === 'not-a-git-repo' ? t('error.notARepo') : t('pill.unavailable'))
+      return h('div', { className: 'gp-empty' }, t('pill.unavailable'))
     }
     if (view.state === 'cold' || view.state === 'loading') return h('div', { className: 'gp-empty' }, t('common.loading'))
-    // Both tabs stay mounted; visibility toggles. Keying on sessionId forces a
-    // fresh mount when the conversation changes, so per-session fetch state
-    // (Overview's tree/history caches, Changes' selection/message) can't bleed
-    // across sessions; within one session the display:none tab keeps its state.
+    // Mount each git-only tab on first visit, then hide it to retain its state.
+    // Keying on sessionId resets per-session caches and selection on a switch.
     const snapshot = view.snapshot
     return h('div', { style: { display: 'contents' } }, [
-      h('div', { key: 'overview', style: tab === 'overview' ? { display: 'contents' } : { display: 'none' } },
-        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, t })),
-      h('div', { key: 'changes', style: tab === 'changes' ? { display: 'contents' } : { display: 'none' } },
-        h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, t })),
+      everOverview.current ? h('div', { key: 'overview', style: tab === 'overview' ? { display: 'contents' } : { display: 'none' } },
+        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, t })) : null,
+      everChanges.current ? h('div', { key: 'changes', style: tab === 'changes' ? { display: 'contents' } : { display: 'none' } },
+        h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, t })) : null,
       // Files tab mounts on first visit (keeps cold cost zero — no dir-list
       // until the user opens it), then stays mounted to retain its tree state.
       filesVisited
@@ -110,8 +124,8 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       ...tabs.map((tb) =>
         h('button', {
           key: tb.key, type: 'button', role: 'tab',
-          'aria-selected': tab === tb.key,
-          className: `gp-tab${tab === tb.key ? ' gp-tab--active' : ''}`,
+          'aria-selected': activeTab === tb.key,
+          className: `gp-tab${activeTab === tb.key ? ' gp-tab--active' : ''}`,
           onClick: () => setTab(tb.key),
         }, [h('span', { key: 'i', className: 'gp-tab__icon' }, tb.icon), tb.label])),
       h(VersionBar, { key: 'ver', remote, t }),

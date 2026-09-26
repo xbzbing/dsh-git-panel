@@ -77,20 +77,11 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
 
   if (view.state === 'cold' || view.state === 'loading' || view.state === 'no-cwd') return null
   if (view.state === 'error') {
-    // The user preference can hide the marker entirely (carried on the failure
-    // for the not-a-git-repo path too).
+    // Not a git repo: hide the input-bar marker entirely (the Git tab still
+    // opens straight into the file browser). Other errors → a dim label unless
+    // the marker is turned off by preference.
+    if (view.error.code === 'not-a-git-repo') return null
     if (view.error.showInputPill === false) return null
-    // Not a git repo: show only the directory name (no "not a git repo" text);
-    // full path in the tooltip. Other errors: a dim degraded label.
-    if (view.error.code === 'not-a-git-repo') {
-      const cwd = view.error.cwd
-      if (cwd === undefined || cwd === '') return null
-      return h('span', { className: 'gp-pill-wrap' }, [
-        h('span', { key: 'p', className: 'gp-pill gp-pill--plain', ref: tip.bind.ref, onMouseEnter: tip.bind.onMouseEnter, onMouseLeave: tip.bind.onMouseLeave },
-          h('span', { className: 'gp-pill__repo' }, basename(cwd))),
-        tip.render([cwd]),
-      ])
-    }
     return h('span', { className: 'gp-pill gp-pill--degraded', title: view.error.detail ?? t('pill.unavailable') }, t('pill.unavailable'))
   }
 
