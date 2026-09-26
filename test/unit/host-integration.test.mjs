@@ -230,6 +230,32 @@ test('dir-list lists the root, dirs-first, skipping .git', async () => {
   assert.ok(typeof aTxt.size === 'number' && aTxt.size > 0, 'files carry a byte size')
 })
 
+test('file browser lists a non-git cwd and previews a file without exposing .git', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-nongit-'))
+  try {
+    const { writeFileSync, mkdirSync, symlinkSync } = await import('node:fs')
+    writeFileSync(join(dir, 'note.md'), '# hello\n')
+    mkdirSync(join(dir, '.git'))
+    writeFileSync(join(dir, '.git', 'config'), 'secret')
+    symlinkSync(join(dir, '.git'), join(dir, 'git-alias'))
+    const d = depsAt(dir)
+    const listed = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '' } })
+    assert.equal(listed.ok, true)
+    assert.deepEqual(listed.value.entries.map((e) => e.name), ['git-alias', 'note.md'])
+    const preview = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'note.md' } })
+    assert.equal(preview.ok, true)
+    assert.equal(preview.value.content, '# hello\n')
+    for (const path of ['.git', 'git-alias']) {
+      const blocked = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path } })
+      assert.equal(blocked.ok, false)
+      assert.equal(blocked.error.code, 'invalid-path')
+    }
+    const blockedFile = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: '.git/config' } })
+    assert.equal(blockedFile.ok, false)
+    assert.equal(blockedFile.error.code, 'invalid-path')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('dir-list rejects an unsafe path', async () => {
   const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '../escape' } })
   assert.equal(res.ok, false)

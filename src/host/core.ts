@@ -109,6 +109,29 @@ export type WorkspaceResolution =
   | { readonly ok: true; readonly root: string }
   | { readonly ok: false; readonly failure: GitSnapshotResult & { ok: false } }
 
+/**
+ * Resolve a directory root for the file browser, which must work outside a git
+ * repository too. Inside a repo it is the work-tree top; otherwise it falls
+ * back to the session's cwd (realpath'd) so directory listing / file preview
+ * still function. Only a missing cwd is a hard failure.
+ */
+export async function resolveBrowseRoot(
+  deps: SnapshotDeps,
+  sessionId: string,
+): Promise<{ ok: true; root: string } | { ok: false; error: { code: GitErrorCode; message?: string } }> {
+  const ws = await resolveWorkspace(deps, sessionId)
+  if (ws.ok) return { ok: true, root: ws.root }
+  const err = ws.failure.error
+  if (err.code === 'not-a-git-repo' && err.cwd !== undefined && err.cwd !== '') {
+    try {
+      return { ok: true, root: await deps.fs.realpath(err.cwd) }
+    } catch {
+      return { ok: false, error: { code: 'git-error' } }
+    }
+  }
+  return { ok: false, error: mapWorkspaceFailure(ws.failure) }
+}
+
 /** Resolve the git work-tree root for a session's cwd. */
 export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): Promise<WorkspaceResolution> {
   let cwd = deps.sessions.liveCwd(sessionId)

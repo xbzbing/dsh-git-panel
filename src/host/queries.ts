@@ -4,7 +4,7 @@
  */
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
-import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
+import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
 import { parseBranches, parseGraphLog, parseNameStatus, parseTags } from './parser.ts'
 import type { DirEntry, GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
@@ -22,10 +22,26 @@ export async function runQuery(
   config: GitPanelConfig,
   request: GitQueryRequest,
 ): Promise<GitQueryResponse> {
+  const q = request.query
+  // The file browser works outside a git repository too: resolve a plain
+  // directory root (work-tree top when in a repo, else the session cwd) so
+  // dir-list / file-content still function; every git-backed query keeps
+  // requiring a real work tree.
+  if (q.kind === 'dir-list' || q.kind === 'file-content') {
+    const browse = await resolveBrowseRoot(deps, request.sessionId)
+    if (!browse.ok) return { ok: false, error: browse.error }
+    try {
+      return q.kind === 'dir-list'
+        ? await queryDirList(deps, browse.root, q)
+        : await queryFileContent(deps, config, browse.root, q)
+    } catch (error) {
+      return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
+    }
+  }
+
   const workspace = await resolveWorkspace(deps, request.sessionId)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
-  const q = request.query
 
   try {
     switch (q.kind) {
@@ -33,8 +49,6 @@ export async function runQuery(
       case 'diff': return await queryDiff(deps, root, q)
       case 'file-lines': return await queryFileLines(deps, root, q)
       case 'image-diff': return await queryImageDiff(deps, config, root, q)
-      case 'dir-list': return await queryDirList(deps, root, q)
-      case 'file-content': return await queryFileContent(deps, config, root, q)
       case 'show': return await queryShow(deps, root, q.ref)
       case 'branches': return await queryBranches(deps, root)
       case 'tags': return await queryTags(deps, root)
@@ -351,9 +365,9 @@ async function queryDirList(
   q: Extract<GitQueryRequest['query'], { kind: 'dir-list' }>,
 ): Promise<GitQueryResponse> {
   const rel = q.path
-  if (rel !== '' && !isSafePath(rel)) return { ok: false, error: { code: 'invalid-path', message: rel } }
+  if ((rel !== '' && !isSafePath(rel)) || hasGitSegment(rel)) return { ok: false, error: { code: 'invalid-path', message: rel } }
   const dir = rel === '' ? root : join(root, rel)
-  const inside = await isInsideRoot(deps, root, dir)
+  const inside = await isInsideRoot(deps, root, dir, true)
   if (!inside) return { ok: false, error: { code: 'invalid-path', message: rel } }
   let raw: ReadonlyArray<{ name: string; isDirectory: boolean }>
   try {
@@ -361,7 +375,7 @@ async function queryDirList(
   } catch (error) {
     return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'readdir failed' } }
   }
-  const filtered = raw.filter((e) => !(rel === '' && e.name === '.git'))
+  const filtered = raw.filter((e) => e.name !== '.git')
   filtered.sort((a, b) => (a.isDirectory !== b.isDirectory ? (a.isDirectory ? -1 : 1) : a.name.localeCompare(b.name)))
   const truncated = filtered.length > DIR_ENTRY_CAP
   const slice = truncated ? filtered.slice(0, DIR_ENTRY_CAP) : filtered
@@ -387,9 +401,9 @@ async function queryFileContent(
   root: string,
   q: Extract<GitQueryRequest['query'], { kind: 'file-content' }>,
 ): Promise<GitQueryResponse> {
-  if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  if (!isSafePath(q.path) || hasGitSegment(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   const file = join(root, q.path)
-  const inside = await isInsideRoot(deps, root, file)
+  const inside = await isInsideRoot(deps, root, file, true)
   if (!inside) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   const cap = config.maxBytes
   let info: { size: number }
@@ -416,12 +430,18 @@ async function queryFileContent(
   return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines } }
 }
 
-/** True when a path's realpath is the root or strictly inside it. */
-async function isInsideRoot(deps: SnapshotDeps, root: string, path: string): Promise<boolean> {
+/** Do not expose Git metadata even through an explicit RPC path. */
+function hasGitSegment(path: string): boolean {
+  return path.split(/[\\/]/).includes('.git')
+}
+
+/** True when a path resolves inside the browse root, outside its .git tree. */
+async function isInsideRoot(deps: SnapshotDeps, root: string, path: string, hideGit = false): Promise<boolean> {
   try {
     const real = await deps.fs.realpath(path)
     const rootReal = await deps.fs.realpath(root)
-    return real === rootReal || real.startsWith(rootReal + sep)
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) return false
+    return !hideGit || !hasGitSegment(real.slice(rootReal.length + 1))
   } catch {
     return false
   }
