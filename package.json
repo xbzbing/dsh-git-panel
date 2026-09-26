@@ -1,6 +1,6 @@
 {
   "name": "@xbzbing/dsh-git-panel",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "DeepSeek Harness (dsh) plugin: an IDE-style Git panel in the Web GUI — branch/history overview, uncommitted changes with commit & amend, diff stats, and a zsh-style branch marker in the input bar.",
   "type": "module",
   "license": "MIT",
