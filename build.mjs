@@ -1,5 +1,6 @@
 /**
- * dsh-git-panel build script (self-contained; also runs as `prepare`).
+ * dsh-git-panel build script (self-contained; run by hand before release, not
+ * as an install-time lifecycle hook — the committed lib/ is the shipped tree).
  *
  * 1. Host half: tsc emits only the `lib/host/*.d.ts` declarations
  *    (emitDeclarationOnly); the ESM `lib/host/index.js` is the esbuild bundle

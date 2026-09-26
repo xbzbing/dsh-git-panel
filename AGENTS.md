@@ -97,6 +97,8 @@ node build.mjs        # 全量构建 host + client + testkit
 npx tsc --noEmit      # 类型检查
 ```
 
+构建只作为显式脚本手动执行，**不挂 `prepare` 等安装期生命周期钩子**：`lib/` 已提交入库即为发布产物，DSH STORE 上架契约会拦截「安装期执行 install lifecycle script」的插件（`plugin-contract.test.mjs` 有回归测试守住这条不变量）。改动 `src/` 后手动 `node build.mjs` 并把 `lib/` 一起提交。
+
 ## 验证
 
 - host 改动：`tsc --noEmit` 通过 + 端点逻辑单测。
