@@ -238,12 +238,20 @@ const out = await page.evaluate(async (snap) => {
   if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
   result.txtRowSelected = txtRow?.classList.contains('gp-tree-row--active') === true
-  result.selectionStyled = [...document.styleSheets].some((sheet) => {
-    try {
-      return [...sheet.cssRules].some((rule) => (rule.selectorText || '').includes('gp-tree-row--active')
-        && /business-primary/.test(rule.style.cssText) && /box-shadow/.test(rule.style.cssText))
-    } catch { return false }
-  })
+  // Selection styling is shared across the three list panes via --gp-select-*:
+  // the active row rule references the vars, and the panel defines them from
+  // business-primary. Assert both halves so the shared token can't silently
+  // drift from the primary accent.
+  result.selectionStyled = (() => {
+    const rules = [...document.styleSheets].flatMap((sheet) => {
+      try { return [...sheet.cssRules] } catch { return [] }
+    })
+    const rowUsesVar = rules.some((rule) => (rule.selectorText || '').includes('gp-tree-row--active')
+      && /var\(--gp-select-bar\)/.test(rule.style.cssText) && /var\(--gp-select-bg\)/.test(rule.style.cssText))
+    const panelDefinesToken = rules.some((rule) => (rule.selectorText || '').includes('.gp-panel')
+      && /--gp-select-bar:[^;]*business-primary/.test(rule.style.cssText))
+    return rowUsesVar && panelDefinesToken
+  })()
   const tsRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('index.ts'))
   if (tsRow) { tsRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.officialCodeHighlight = [...document.querySelectorAll('.gp-files__code .gp-diff-cell span')].some((node) => node.style.color.includes('--shiki-keyword'))

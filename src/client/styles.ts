@@ -4,7 +4,11 @@
  */
 
 const CSS = `
-.gp-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px;position:relative}
+.gp-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px;position:relative;
+  /* One selection language across the three list panes (Overview commits,
+   * Changes rows, Files tree): primary-tinted fill + a 3px inset left bar. */
+  --gp-select-bg:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);
+  --gp-select-bar:inset 3px 0 0 var(--dsw-alias-state-business-primary)}
 .gp-panel[data-font-delta="1"]{zoom:1.08;font-size:14px}
 .gp-panel[data-font-delta="-1"]{zoom:.92;font-size:12px}
 .gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
@@ -77,7 +81,7 @@ const CSS = `
 .gp-history__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .gp-commit-row{display:grid;align-items:center;gap:8px;height:30px;padding:0 10px;cursor:pointer;border-bottom:1px solid transparent}
 .gp-commit-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.gp-commit-row--active,.gp-commit-row--active:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);box-shadow:inset 3px 0 0 var(--dsw-alias-state-business-primary)}
+.gp-commit-row--active,.gp-commit-row--active:hover{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
 .gp-commit-subject{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-commit-hash{font-family:var(--dsw-font-mono,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .gp-commit-author{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -114,9 +118,8 @@ const CSS = `
 .gp-files__entry{width:100%;border:0;background:transparent;color:inherit;text-align:left;font:inherit}
 .gp-files__entry--dir .gp-tree-name{font-weight:600}
 .gp-files__entry:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.gp-files__entry.gp-tree-row--active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent);color:var(--dsw-alias-state-business-primary);box-shadow:inset 2px 0 0 var(--dsw-alias-state-business-primary)}
+.gp-files__entry.gp-tree-row--active,.gp-files__entry.gp-tree-row--active:hover{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
 .gp-files__entry.gp-tree-row--active .gp-tree-name{font-weight:600}
-.gp-files__entry.gp-tree-row--active:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}
 .gp-tree-row--ignored{opacity:.5}
 .gp-tree-row--ignored:hover,.gp-tree-row--ignored:focus-visible{opacity:.85}
 .gp-status-badge{flex:none;width:14px;text-align:center;font-size:11px;font-weight:600}
@@ -157,7 +160,10 @@ const CSS = `
 .gp-group-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
 .gp-file-row{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 20px;cursor:pointer;font-size:12px;border-radius:4px}
 .gp-file-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.gp-file-row--active{background:var(--dsw-alias-bg-layer-2)}
+/* Selected change row: identical accent to the Git overview commit list
+ * (business-primary 16% tint + a 3px inset left bar), for one selection
+ * language across panes. */
+.gp-file-row--active,.gp-file-row--active:hover{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
 /* Actions occupy a fixed lane at all times (visibility toggle, not display)
  * so hovering never changes the row's width — no wobble. */
 .gp-file-row__actions{margin-left:auto;display:flex;gap:4px;flex:none;visibility:hidden}
