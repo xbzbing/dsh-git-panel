@@ -33,10 +33,31 @@ interface OverviewProps {
 
 const LANE_W = 14
 const ROW_H = 30
+/** Toolbar width below which the search placeholder drops its "(message / hash)"
+ * hint — a placeholder is a DOM attribute CSS can't rewrite, so swap it here.
+ * Measured on the toolbar (not the input): flex-wrap keeps the input's own
+ * width nearly constant while the toolbar's width is the real space signal. */
+const SEARCH_HINT_MIN_W = 260
+
+/** Observe an element's width; true once it is measured and below `min`. */
+function useNarrow(el: HTMLElement | null, min: number): boolean {
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    if (el === null || typeof ResizeObserver === 'undefined') return
+    const measure = (): void => setNarrow(el.clientWidth > 0 && el.clientWidth < min)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [el, min])
+  return narrow
+}
 
 export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t }: OverviewProps): JSX.Element {
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
+  const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
+  const searchNarrow = useNarrow(searchEl, SEARCH_HINT_MIN_W)
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
 
   const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, refreshKey)
@@ -96,9 +117,9 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t 
     leftCol.divider,
     // middle: history
     h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
-      h('div', { key: 'tb', className: 'gp-toolbar' }, [
+      h('div', { key: 'tb', className: 'gp-toolbar', ref: setSearchEl }, [
         h('input', {
-          key: 'search', className: 'gp-search', placeholder: t('overview.search'), value: searchInput,
+          key: 'search', className: 'gp-search', placeholder: t(searchNarrow ? 'overview.searchShort' : 'overview.search'), value: searchInput,
           onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
         }),
         h('select', {

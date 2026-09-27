@@ -11,7 +11,7 @@ const CSS = `
   --gp-select-bar:inset 3px 0 0 var(--dsw-alias-state-business-primary)}
 .gp-panel[data-font-delta="1"]{zoom:1.08;font-size:14px}
 .gp-panel[data-font-delta="-1"]{zoom:.92;font-size:12px}
-.gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+.gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;flex-wrap:nowrap;min-width:0;container-type:inline-size}
 /* The shell floats the input composer over the view's bottom (composer-overlay
  * mode). Reserve that height as bottom padding so the panel's own bottom rows
  * (commit box / commit comment) stay above it instead of being covered. */
@@ -30,12 +30,19 @@ const CSS = `
 .gp-verbar__link:hover{text-decoration:underline}
 .gp-verbar__gh{color:var(--dsw-alias-label-secondary);text-decoration:none}
 .gp-verbar__gh:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
-.gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;transition:background .12s ease,color .12s ease}
+.gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;flex:none;transition:background .12s ease,color .12s ease}
 .gp-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
 /* Active tab: primary-tinted fill + primary text + medium weight + a soft ring.
  * Clear enough to spot at a glance, restrained enough not to shout. */
 .gp-tab--active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 32%,transparent)}
-.gp-tab__icon{display:inline-flex;width:15px;height:15px}
+.gp-tab__icon{display:inline-flex;width:15px;height:15px;flex:none}
+.gp-tab__label{white-space:nowrap}
+/* Responsive tab bar (the bar is an inline-size container): as the panel
+ * narrows — e.g. when the right sidebar opens — shed the trailing controls
+ * first, then drop the tab labels to icon-only. Two stages, so labels never
+ * wrap or overflow into the garbled multi-line state. */
+@container (max-width:460px){.gp-tabbar .gp-font,.gp-tabbar .gp-verbar{display:none}}
+@container (max-width:300px){.gp-tab__label{display:none}.gp-tab{gap:0;padding:0 10px}}
 .gp-font{margin-left:4px;display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden}
 .gp-font button{border:0;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:22px;width:24px;height:24px;padding:0;cursor:pointer}
 .gp-font button:first-child{border-left:0}
@@ -92,7 +99,7 @@ const CSS = `
 .gp-ref-chip--tag{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
 .gp-graph-cell{position:relative}
 .gp-graph-svg{display:block}
-.gp-search{flex:1;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;box-sizing:border-box}
+.gp-search{flex:1;min-width:60px;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;box-sizing:border-box}
 .gp-search:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-select{height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px}
 

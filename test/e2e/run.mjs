@@ -136,6 +136,25 @@ const out = await page.evaluate(async (snap) => {
   document.querySelector('.gp-font__reset')?.click()
   await new Promise((r) => setTimeout(r, 60))
   result.fontReset = getComputedStyle(panelRoot).fontSize
+  // Responsive tab bar: the bar is an inline-size container, so narrowing the
+  // panel sheds the trailing controls first (font stepper + version bar), then
+  // drops the tab labels to icon-only — labels must never wrap/overflow.
+  const panelHost = document.getElementById('panel')
+  const fontCluster = panelRoot.querySelector('.gp-font')
+  const firstLabel = panelRoot.querySelector('.gp-tab__label')
+  result.wideShowsControls = getComputedStyle(fontCluster).display !== 'none'
+  result.wideShowsLabel = getComputedStyle(firstLabel).display !== 'none'
+  panelHost.style.width = '400px'
+  await new Promise((r) => setTimeout(r, 80))
+  result.narrowHidesControls = getComputedStyle(panelRoot.querySelector('.gp-font')).display === 'none'
+  result.narrowKeepsLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display !== 'none'
+  panelHost.style.width = '260px'
+  await new Promise((r) => setTimeout(r, 80))
+  result.tinyHidesLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display === 'none'
+  result.tinyKeepsIcon = getComputedStyle(panelRoot.querySelector('.gp-tab__icon')).display !== 'none'
+  panelHost.style.width = '1000px'
+  await new Promise((r) => setTimeout(r, 80))
+  result.restoresLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display !== 'none'
   const changesTab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))
   if (changesTab) { changesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasStats = document.querySelector('.gp-stats') !== null
@@ -198,6 +217,19 @@ const out = await page.evaluate(async (snap) => {
   result.hasBranchList = document.querySelector('.gp-branch-group') !== null
   result.commitRows = document.querySelectorAll('.gp-commit-row').length
   result.hasGraph = document.querySelector('.gp-graph-svg') !== null
+  // Search box: a wide panel uses the full "(message / hash)" placeholder key;
+  // narrowing it below the threshold swaps to the short key (a placeholder is a
+  // DOM attribute, so this is a JS swap, not CSS). The harness binds t() to the
+  // raw key, so assert on the key that lands in the placeholder.
+  const searchBox = document.querySelector('.gp-search')
+  result.searchFullHint = searchBox?.getAttribute('placeholder') === 'overview.search'
+  const panelHostForSearch = document.getElementById('panel')
+  panelHostForSearch.style.width = '360px'
+  await new Promise((r) => setTimeout(r, 120))
+  result.searchShortHint = document.querySelector('.gp-search')?.getAttribute('placeholder') === 'overview.searchShort'
+  panelHostForSearch.style.width = '1000px'
+  await new Promise((r) => setTimeout(r, 120))
+  result.searchHintRestored = document.querySelector('.gp-search')?.getAttribute('placeholder') === 'overview.search'
 
   // Select the first commit → its changed-file tree appears on the right.
   const firstCommit = document.querySelector('.gp-commit-row')
@@ -302,6 +334,13 @@ try {
   assert.equal(out.fontIncreased, '14px', 'font control increases panel text size')
   assert.equal(out.fontStored, '1', 'font adjustment persists locally')
   assert.equal(out.fontReset, '13px', 'font reset restores default size')
+  assert.equal(out.wideShowsControls, true, 'a wide panel shows the trailing controls')
+  assert.equal(out.wideShowsLabel, true, 'a wide panel shows the tab labels')
+  assert.equal(out.narrowHidesControls, true, 'a narrow panel hides the trailing controls first')
+  assert.equal(out.narrowKeepsLabel, true, 'a narrow panel still keeps the tab labels')
+  assert.equal(out.tinyHidesLabel, true, 'a very narrow panel drops the tab labels')
+  assert.equal(out.tinyKeepsIcon, true, 'a very narrow panel keeps the tab icons')
+  assert.equal(out.restoresLabel, true, 'widening the panel restores the tab labels')
   assert.equal(out.hasStats, true, 'stats bar rendered')
   assert.equal(out.hasCommitBox, true, 'commit box rendered')
   assert.equal(out.hasAmend, true, 'amend checkbox present')
@@ -320,6 +359,9 @@ try {
   assert.equal(out.svgSourceShowsDiff, true, 'switching an SVG to source shows the text diff')
   assert.equal(out.svgRenderRestored, true, 'switching an SVG back to render restores the comparison')
   assert.equal(out.hasBranchList, true, 'branch list rendered on overview')
+  assert.equal(out.searchFullHint, true, 'a wide search box shows the full message/hash hint')
+  assert.equal(out.searchShortHint, true, 'a narrow search box drops the hint to the short placeholder')
+  assert.equal(out.searchHintRestored, true, 'widening the search box restores the full hint')
   assert.equal(out.commitRows, 2, 'two commit rows')
   assert.equal(out.hasGraph, true, 'commit graph svg rendered')
   assert.equal(out.hasDetailFileRow, true, 'selecting a commit lists its changed files')

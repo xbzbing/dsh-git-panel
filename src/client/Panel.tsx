@@ -132,7 +132,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
           'aria-selected': activeTab === tb.key,
           className: `gp-tab${activeTab === tb.key ? ' gp-tab--active' : ''}`,
           onClick: () => { if (hasSession(sessionId)) setSelection({ sessionId, tab: tb.key }) },
-        }, [h('span', { key: 'i', className: 'gp-tab__icon' }, tb.icon), tb.label])),
+        }, [h('span', { key: 'i', className: 'gp-tab__icon' }, tb.icon), h('span', { key: 'l', className: 'gp-tab__label' }, tb.label)])),
       h('div', { key: 'font', className: 'gp-font' }, [
         h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
         h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
