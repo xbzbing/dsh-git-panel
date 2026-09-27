@@ -41,7 +41,7 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set(['']))
   const [selected, setSelected] = useState<string | null>(null)
   const [file, setFile] = useState<FileState>({ kind: 'idle' })
-  const [renderMarkdown, setRenderMarkdown] = useState(false)
+  const [renderMarkdown, setRenderMarkdown] = useState(true)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
   const fileSeq = useRef(0)
@@ -83,7 +83,8 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
 
   const selectFile = useCallback((path: string) => {
     setSelected(path)
-    setRenderMarkdown(false)
+    // Markdown defaults to the rendered view; a new selection resets to it.
+    setRenderMarkdown(true)
     setCopyState('idle')
     const seq = ++fileSeq.current
     setFile({ kind: 'loading', path })

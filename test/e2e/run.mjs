@@ -269,13 +269,14 @@ const out = await page.evaluate(async (snap) => {
   document.querySelector('.gp-files__copy-path')?.click()
   await new Promise((r) => setTimeout(r, 50))
   result.copyDeniedFeedback = document.querySelector('.gp-files__copy-path')?.textContent === 'files.pathCopyFailed'
-  result.markdownSourceDefault = document.querySelector('.gp-files__code') !== null && document.querySelector('[data-markdown-rendered]') === null
-  const renderBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.render')
-  if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
-  result.markdownRendered = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
+  // Markdown defaults to the rendered view; switch to source, then back.
+  result.markdownRenderedDefault = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown' && document.querySelector('.gp-files__code') === null
   const sourceBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.source')
   if (sourceBtn) { sourceBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
-  result.markdownSourceRestored = document.querySelector('.gp-files__code') !== null
+  result.markdownSourceShown = document.querySelector('.gp-files__code') !== null && document.querySelector('[data-markdown-rendered]') === null
+  const renderBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.render')
+  if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
+  result.markdownRenderRestored = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
   return result
 }, SNAP)
 
@@ -334,9 +335,9 @@ try {
   assert.equal(out.copyFeedbackReset, true, 'late copy of previous file cannot change current file feedback')
   assert.equal(out.copyDeniedFeedback, true, 'clipboard denial shows an actionable failure state')
   assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
-  assert.equal(out.markdownSourceDefault, true, 'Markdown defaults to source view')
-  assert.equal(out.markdownRendered, true, 'render button uses official MarkdownText')
-  assert.equal(out.markdownSourceRestored, true, 'source button restores the code view')
+  assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
+  assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
+  assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {
