@@ -2,14 +2,16 @@
  * inputBar Git marker, zsh-theme style: `<repo> (<branch>)`.
  * repo = cyan, (branch) = green when synced / orange when dirty.
  * Hover shows a rounded tooltip panel with the full repository path; click
- * jumps to the Git panel (changes tab when dirty, overview when clean).
+ * toggles the Git panel — jumps to it (changes tab when dirty, overview when
+ * clean), and returns to the conversation view when the Git tab is already
+ * active.
  */
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { useGitView } from './registry'
 import { hasSession } from './rpc'
-import { activateGitTab, requestSubTab } from './jump'
+import { activateGitTab, isGitTabActive, requestSubTab, returnToConversation } from './jump'
 import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot'
 import type { GitKey } from './locales'
 
@@ -118,11 +120,15 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   const dirty = snap.dirty
   const gitClass = dirty ? 'gp-pill--dirty' : 'gp-pill--synced'
 
+  // Toggle: a click opens the Git panel; a click while the Git tab is already
+  // active returns to the conversation view.
   const onClick = (): void => {
+    const label = t('panel.tab')
+    if (isGitTabActive(label)) { returnToConversation(label); return }
     if (hasSession(sessionId)) {
       requestSubTab(sessionId, dirty ? 'changes' : 'overview')
     }
-    activateGitTab(t('panel.tab'))
+    activateGitTab(label)
   }
 
   return h('span', { className: 'gp-pill-wrap', ref: setWrap }, [

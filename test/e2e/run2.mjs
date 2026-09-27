@@ -73,16 +73,30 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   result.cleanAfterSessionSwitch = cleanPanel.querySelector('.gp-tab--active')?.textContent?.includes('tab.overview') ?? false
 
   // Fake tab bar → the pill click should click a role=tab button labeled panel.tab.
-  // The real shell wraps view tabs in [data-conversation-tabs]; mirror that here.
+  // The real shell wraps view tabs in [data-conversation-tabs]; mirror that here,
+  // and add a sibling "chat" tab so the toggle-back path has somewhere to go.
   document.getElementById('tabbar').setAttribute('data-conversation-tabs', '')
+  const chatTab = document.createElement('button')
+  chatTab.setAttribute('role', 'tab'); chatTab.textContent = 'chat'; chatTab.setAttribute('aria-selected', 'true')
+  chatTab.addEventListener('click', () => {
+    chatTab.setAttribute('aria-selected', 'true'); fakeTab.setAttribute('aria-selected', 'false')
+  })
+  document.getElementById('tabbar').appendChild(chatTab)
   const fakeTab = document.createElement('button')
   fakeTab.setAttribute('role', 'tab'); fakeTab.textContent = 'panel.tab'; fakeTab.setAttribute('aria-selected', 'false')
   let clicked = false
-  fakeTab.addEventListener('click', () => { clicked = true; fakeTab.setAttribute('aria-selected', 'true') })
+  fakeTab.addEventListener('click', () => {
+    clicked = true; fakeTab.setAttribute('aria-selected', 'true'); chatTab.setAttribute('aria-selected', 'false')
+  })
   document.getElementById('tabbar').appendChild(fakeTab)
   document.querySelector('.gp-pill').click()
   await new Promise((r) => setTimeout(r, 100))
   result.jumpClicked = clicked
+  result.jumpSelectedGit = fakeTab.getAttribute('aria-selected') === 'true'
+  // A second click while the Git tab is active returns to the conversation tab.
+  document.querySelector('.gp-pill').click()
+  await new Promise((r) => setTimeout(r, 100))
+  result.toggleBackToChat = chatTab.getAttribute('aria-selected') === 'true' && fakeTab.getAttribute('aria-selected') === 'false'
 
   // Case 2: a non-git directory has no input marker but opens the Files view.
   const notGitConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
@@ -145,6 +159,8 @@ try {
   assert.equal(out.cleanAfterSessionSwitch, true, 'switching between clean sessions still selects Overview')
   assert.equal(out.cleanAvoidsFileListing, true, 'clean default does not fetch hidden file-browser data')
   assert.equal(out.jumpClicked, true, 'pill click activates the Git tab button')
+  assert.equal(out.jumpSelectedGit, true, 'pill click selects the Git tab')
+  assert.equal(out.toggleBackToChat, true, 'a second pill click while on Git returns to the conversation tab')
   assert.equal(out.notGitPillHidden, true, 'non-git directory hides the input marker')
   assert.equal(out.notGitFilesOnly, true, 'non-git panel defaults to Files only')
   assert.equal(out.notGitFileListed, true, 'non-git panel lists cwd files')

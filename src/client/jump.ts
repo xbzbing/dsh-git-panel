@@ -63,3 +63,30 @@ export function activateGitTab(label: string): boolean {
   }
   return false
 }
+
+/** Whether the Git view tab is the shell's currently selected tab. */
+export function isGitTabActive(label: string): boolean {
+  if (typeof document === 'undefined') return false
+  const tabs = document.querySelectorAll<HTMLButtonElement>(SHELL_TAB_SELECTOR)
+  for (const tab of tabs) {
+    if ((tab.textContent ?? '').trim() !== label) continue
+    return tab.getAttribute('aria-selected') === 'true'
+  }
+  return false
+}
+
+/**
+ * Leave the Git panel by selecting the first non-Git shell tab — the
+ * conversation view, which the shell always keeps first (order 0). Returns
+ * whether such a tab was found; a no-op when it is already selected.
+ */
+export function returnToConversation(label: string): boolean {
+  if (typeof document === 'undefined') return false
+  const tabs = document.querySelectorAll<HTMLButtonElement>(SHELL_TAB_SELECTOR)
+  for (const tab of tabs) {
+    if ((tab.textContent ?? '').trim() === label) continue
+    if (tab.getAttribute('aria-selected') !== 'true') tab.click()
+    return true
+  }
+  return false
+}
