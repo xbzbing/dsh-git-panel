@@ -76,7 +76,7 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'dir-list') {
             fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'README.md', dir: false, size: 18 }, { name: 'ignored.log', dir: false, ignored: true },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
@@ -85,6 +85,14 @@ const out = await page.evaluate(async (snap) => {
           }
           if (q.kind === 'file-content') {
             if (q.path.endsWith('.md')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# Hello Markdown\n', lines: 1 } } }
+            if (q.path.endsWith('.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><title>Doc</title><p id="hi">Hello HTML</p>', lines: 1 } } }
+            // A big text file exercises both source-view guards: >5000 lines
+            // (highlight off) with one >5000-char line (truncation).
+            if (q.path.endsWith('big.js')) {
+              const huge = 'x'.repeat(6000)
+              const body = `const long = "${huge}"\n` + Array.from({ length: 5100 }, (_, i) => `line ${i}`).join('\n') + '\n'
+              return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: body, lines: 5101 } } }
+            }
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}` } } }
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
           }
@@ -317,6 +325,24 @@ const out = await page.evaluate(async (snap) => {
   const renderBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.render')
   if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownRenderRestored = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
+  // HTML defaults to source (no auto-run); switching to render mounts a
+  // sandboxed iframe that carries the page bytes but drops same-origin.
+  const htmlRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('page.html'))
+  if (htmlRow) { htmlRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.htmlSourceDefault = document.querySelector('.gp-files__code') !== null && document.querySelector('.gp-files__html') === null
+  const htmlRenderBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.render')
+  if (htmlRenderBtn) { htmlRenderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
+  const htmlFrame = document.querySelector('.gp-files__html')
+  result.htmlRenderShown = htmlFrame !== null && document.querySelector('.gp-files__code') === null
+  result.htmlFrameSandbox = htmlFrame?.getAttribute('sandbox') ?? null
+  result.htmlFrameHasSrcdoc = (htmlFrame?.getAttribute('srcdoc') || '').includes('Hello HTML')
+  // Large-file source guards: highlighting is skipped (a notice shows, no
+  // syntax spans) and the over-long line is truncated with a marker.
+  const bigRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.js'))
+  if (bigRow) { bigRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.bigHighlightOff = document.querySelector('.gp-files__note')?.textContent === 'files.highlightOff'
+  result.bigNoSyntaxSpans = document.querySelector('.gp-files__code .gp-diff-cell span[style]') === null
+  result.bigLineTruncated = [...document.querySelectorAll('.gp-files__trunc')].some((n) => n.textContent === 'files.lineTruncated')
   return result
 }, SNAP)
 
@@ -388,6 +414,13 @@ try {
   assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
   assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
   assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
+  assert.equal(out.htmlSourceDefault, true, 'HTML defaults to the source view, never auto-rendered')
+  assert.equal(out.htmlRenderShown, true, 'switching HTML to render mounts the preview iframe')
+  assert.equal(out.htmlFrameSandbox, 'allow-scripts', 'the HTML iframe runs scripts but stays a unique opaque origin (no allow-same-origin)')
+  assert.equal(out.htmlFrameHasSrcdoc, true, 'the HTML iframe carries the page bytes via srcdoc (no extra fetch)')
+  assert.equal(out.bigHighlightOff, true, 'a large text file skips highlighting and shows the notice')
+  assert.equal(out.bigNoSyntaxSpans, true, 'a large text file renders plain text (no syntax spans)')
+  assert.equal(out.bigLineTruncated, true, 'an over-long line is truncated with a marker')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {

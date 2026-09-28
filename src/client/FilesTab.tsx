@@ -24,6 +24,16 @@ interface FilesTabProps {
 type Loaded = { readonly status: 'loading' } | { readonly status: 'error' } | { readonly status: 'ready'; readonly entries: readonly DirEntry[]; readonly truncated: boolean }
 
 function isMarkdownPath(path: string): boolean { return /\.(?:md|markdown)$/i.test(path) }
+function isHtmlPath(path: string): boolean { return /\.(?:html?|xhtml)$/i.test(path) }
+/** Text files that offer a rendered view beside their source. */
+function isRichPath(path: string): boolean { return isMarkdownPath(path) || isHtmlPath(path) }
+
+// Source-view performance guards. Syntax highlighting is synchronous and DOM
+// cost scales with line count, so above these limits the code preview degrades
+// gracefully: no highlighting for a big file, truncation for a huge line.
+const MAX_HIGHLIGHT_BYTES = 256 * 1024
+const MAX_HIGHLIGHT_LINES = 5000
+const MAX_LINE_CHARS = 5000
 
 type FileState =
   | { readonly kind: 'idle' }
@@ -83,8 +93,9 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
 
   const selectFile = useCallback((path: string) => {
     setSelected(path)
-    // Markdown defaults to the rendered view; a new selection resets to it.
-    setRenderMarkdown(true)
+    // Rendered view is the default for Markdown; HTML defaults to source so a
+    // page never auto-executes on selection — the user opts into the preview.
+    setRenderMarkdown(!isHtmlPath(path))
     setCopyState('idle')
     const seq = ++fileSeq.current
     setFile({ kind: 'loading', path })
@@ -118,7 +129,7 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
     h('div', { key: 'right', className: 'gp-files__preview' }, [
       selected !== null ? h('div', { key: 'bar', className: 'gp-files__bar' }, [
         h('code', { key: 'path', className: 'gp-files__path', title: selected }, selected),
-        file.kind === 'text' && isMarkdownPath(file.path)
+        file.kind === 'text' && isRichPath(file.path)
           ? h('div', { key: 'mode', className: 'gp-files__mode', role: 'group', 'aria-label': t('files.previewMode') }, [
             h('button', { key: 'source', type: 'button', className: `gp-files__mode-btn${!renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': !renderMarkdown, onClick: () => setRenderMarkdown(false) }, t('files.source')),
             h('button', { key: 'render', type: 'button', className: `gp-files__mode-btn${renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': renderMarkdown, onClick: () => setRenderMarkdown(true) }, t('files.render')),
@@ -129,11 +140,32 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
           'aria-live': 'polite', onClick: () => { void copyPath() },
         }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
       ]) : null,
-      h('div', { key: 'content', className: 'gp-files__preview-content' }, file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path)
-        ? h('div', { className: 'gp-files__markdown' }, h(MarkdownText, { text: file.content, labels: markdownLabels, variant: 'body' }))
-        : renderPreview(file, t)),
+      h('div', { key: 'content', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, t)),
     ]),
   ])
+}
+
+/** Preview body: rendered Markdown/HTML when the mode is on, else raw preview. */
+function renderContent(
+  file: FileState,
+  renderMarkdown: boolean,
+  markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string },
+  t: (key: GitKey, params?: Record<string, string | number>) => string,
+): JSX.Element {
+  if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path)) {
+    return h('div', { className: 'gp-files__markdown' }, h(MarkdownText, { text: file.content, labels: markdownLabels, variant: 'body' }))
+  }
+  if (file.kind === 'text' && renderMarkdown && isHtmlPath(file.path)) {
+    // Render in a locked-down iframe: allow-scripts lets an interactive page
+    // run, but WITHOUT allow-same-origin the document is a unique opaque
+    // origin — it cannot reach the DSH parent, its storage, or same-origin
+    // network. srcDoc keeps the bytes in-document (no extra fetch).
+    return h('iframe', {
+      className: 'gp-files__html', title: file.path, srcDoc: file.content,
+      sandbox: 'allow-scripts', referrerPolicy: 'no-referrer',
+    })
+  }
+  return renderPreview(file, t)
 }
 
 interface TreeCbs {
@@ -201,24 +233,53 @@ function renderPreview(file: FileState, t: (key: GitKey, params?: Record<string,
     case 'image':
       return h('div', { className: 'gp-files__image' }, h('img', { src: file.dataUrl, alt: file.path }))
     case 'text':
-      return h('div', { className: 'gp-files__code gp-diff__scroll' }, h(CodePreview, { content: file.content, path: file.path }))
+      return h('div', { className: 'gp-files__code gp-diff__scroll' }, h(CodePreview, { content: file.content, path: file.path, t }))
   }
 }
 
 /** Read-only numbered code view with lazy syntax highlighting. */
-function CodePreview({ content, path }: { content: string; path: string }): JSX.Element {
-  const lang = languageForPath(path)
-  const highlight = useCodeHighlighter(lang)
+function CodePreview({ content, path, t }: { content: string; path: string; t: (key: GitKey, params?: Record<string, string | number>) => string }): JSX.Element {
   const lines = useMemo(() => {
     const arr = content.split('\n')
     if (arr.length > 0 && arr[arr.length - 1] === '') arr.pop()
     return arr
   }, [content])
-  const highlighted = useMemo(() => highlight(lines.join('\n')), [highlight, lines])
-  return h('div', { className: 'gp-files__single' }, lines.flatMap((line, i) => [
-    h('div', { key: `n${i}`, className: 'gp-diff-no' }, i + 1),
-    h('div', { key: `c${i}`, className: 'gp-diff-cell' }, line === '' ? '\u00a0' : highlighted?.[i] !== undefined
-      ? highlighted[i].map((span: HighlightSpan, j: number) => h('span', { key: j, style: span.style }, span.text))
-      : line),
-  ]))
+  // Guard 1: a large file is cheap to detect from its raw size, and Shiki
+  // tokenizes the whole body synchronously — over the threshold, skip
+  // highlighting entirely (undefined lang → no grammar load) and render plain
+  // text so opening the file never blocks the main thread.
+  const plain = content.length > MAX_HIGHLIGHT_BYTES || lines.length > MAX_HIGHLIGHT_LINES
+  const lang = plain ? undefined : languageForPath(path)
+  const highlight = useCodeHighlighter(lang)
+  const highlighted = useMemo(() => plain ? undefined : highlight(lines.join('\n')), [plain, highlight, lines])
+  return h('div', null, [
+    plain ? h('div', { key: 'note', className: 'gp-files__note' }, t('files.highlightOff')) : null,
+    h('div', { key: 'grid', className: 'gp-files__single' }, lines.flatMap((line, i) => [
+      h('div', { key: `n${i}`, className: 'gp-diff-no' }, i + 1),
+      renderCodeLine(line, i, highlighted?.[i], t),
+    ])),
+  ])
+}
+
+/**
+ * One code cell. Guard 2: an over-long line (e.g. minified/inlined content) is
+ * truncated to a bounded width with a marker, and its syntax spans are dropped
+ * — a single 40k-char cell would otherwise blow up layout and text-node cost.
+ */
+function renderCodeLine(
+  line: string,
+  i: number,
+  spans: readonly HighlightSpan[] | undefined,
+  t: (key: GitKey, params?: Record<string, string | number>) => string,
+): JSX.Element {
+  if (line === '') return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, '\u00a0')
+  if (line.length > MAX_LINE_CHARS) {
+    return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, [
+      line.slice(0, MAX_LINE_CHARS),
+      h('span', { key: 'trunc', className: 'gp-files__trunc' }, t('files.lineTruncated')),
+    ])
+  }
+  return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, spans !== undefined
+    ? spans.map((span: HighlightSpan, j: number) => h('span', { key: j, style: span.style }, span.text))
+    : line)
 }

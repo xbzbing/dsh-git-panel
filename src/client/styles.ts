@@ -158,7 +158,10 @@ const CSS = `
 .gp-files__mode-btn--active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600}
 .gp-files__mode-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__markdown{overflow:auto;overscroll-behavior:contain;padding:16px 24px;color:var(--dsw-alias-label-primary)}
+.gp-files__html{flex:1;min-height:0;width:100%;border:0;background:#fff}
 .gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px}
+.gp-files__note{position:sticky;top:0;z-index:1;padding:5px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__trunc{color:var(--dsw-alias-label-tertiary);font-style:italic}
 .gp-files__single{display:grid;grid-template-columns:44px 1fr}
 .gp-files__image{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:center;justify-content:center;padding:16px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-files__image img{max-width:100%;max-height:100%;object-fit:contain}
