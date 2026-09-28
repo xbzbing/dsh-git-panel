@@ -8,6 +8,7 @@ import {
 } from './diff'
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { splitHighlightSpans } from './code-spans'
+import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
 import { ImageCompare } from './ImageCompare'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
@@ -17,6 +18,18 @@ import type { GitKey } from './locales'
 /** unified = single inline column; split = side-by-side; before/after show one
  * side's full content. */
 export type DiffMode = 'unified' | 'split' | 'before' | 'after'
+
+// Bound the match set so a pathological query (e.g. a single space) on a large
+// diff cannot build an unbounded array or paint tens of thousands of marks.
+// (MAX_MATCHES is shared from ./find.)
+
+/** Search state threaded into the code cells while Find is active. */
+interface FindCtx {
+  readonly perCell: ReadonlyMap<string, ReadonlyArray<readonly [number, number]>>
+  readonly activeKey: string | null
+  readonly activeRange: readonly [number, number] | null
+  readonly activeRef: { current: HTMLElement | null }
+}
 
 /** Which comparison the diff shows — image sides and gap-expansion source
  * both mirror it. */
@@ -68,6 +81,62 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   const wantImage = imageable && (!svg || svgView === 'render')
   const image = useImageDiff(wantImage ? remote : undefined, wantImage ? sessionId : undefined, wantImage ? path : undefined, wantImage ? imageSpec : undefined)
 
+  // In-diff Find (Ctrl/Cmd+F): matches are computed over the currently visible
+  // code cells for the active mode, so next/prev walks them in reading order.
+  const [findOpen, setFindOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [caseSensitive, setCaseSensitive] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const activeRef = useRef<HTMLElement | null>(null)
+  useEffect(() => { setFindOpen(false); setQuery(''); setActiveIndex(0) }, [text, path])
+
+  const cells = useMemo(() => collectCells(mode, rows), [mode, rows])
+  // Cache a lowercased copy of every visible cell once per (mode, rows); a
+  // case-insensitive scan reuses it instead of re-lowercasing on each query.
+  const lowerCells = useMemo(() => cells.map((c) => ({ key: c.key, text: c.text.toLowerCase() })), [cells])
+  const debouncedQuery = useDebounced(query, FIND_DEBOUNCE_MS)
+  const needle = caseSensitive ? debouncedQuery : debouncedQuery.toLowerCase()
+  const scanCells = caseSensitive ? cells : lowerCells
+  const matches = useMemo(() => findMatches(scanCells, needle), [scanCells, needle])
+  useEffect(() => { setActiveIndex(0) }, [needle])
+  const safeActive = matches.length === 0 ? 0 : Math.min(activeIndex, matches.length - 1)
+  const active = matches.length > 0 ? matches[safeActive] : null
+
+  const perCell = useMemo(() => {
+    const map = new Map<string, Array<readonly [number, number]>>()
+    for (const m of matches) {
+      const arr = map.get(m.cellKey) ?? []
+      arr.push([m.start, m.end])
+      map.set(m.cellKey, arr)
+    }
+    return map
+  }, [matches])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F'))) return
+      const el = containerRef.current
+      if (el === null || el.offsetParent === null) return
+      e.preventDefault()
+      setFindOpen(true)
+      requestAnimationFrame(() => inputRef.current?.select())
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => { activeRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' }) }, [safeActive, matches])
+
+  const step = useCallback((delta: number) => {
+    setActiveIndex((cur) => matches.length === 0 ? 0 : (cur + delta + matches.length) % matches.length)
+  }, [matches.length])
+
+  const find: FindCtx | null = findOpen && needle !== '' ? {
+    perCell, activeKey: active?.cellKey ?? null, activeRange: active ? [active.start, active.end] : null, activeRef,
+  } : null
+
   // Rendered comparison (raster binary always; SVG in 'render' mode).
   if (wantImage) {
     const rendered = ((): JSX.Element => {
@@ -93,16 +162,61 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   // Text diff (regular files, and an SVG in 'source' mode).
   const body = ((): JSX.Element => {
     if (text.trim() === '') return h('div', { className: 'gp-empty' }, t('diff.empty'))
-    if (mode === 'before') return singleColumn(beforeLines(rows), hl)
-    if (mode === 'after') return singleColumn(afterLines(rows), hl)
+    if (mode === 'before') return singleColumn(beforeLines(rows), hl, find)
+    if (mode === 'after') return singleColumn(afterLines(rows), hl, find)
     if (mode === 'unified') {
       const uni = flattenToUnified(rows)
-      return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, hl, expand, t)))
+      return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, hl, expand, find, t)))
     }
-    return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, hl, expand, t)))
+    return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, hl, expand, find, t)))
   })()
-  return svg ? svgFrame(svgView, setSvgView, body, t) : body
+
+  const findBox = findOpen ? h(FindBar, {
+    inputRef, query, matches: matches.length, active: safeActive, caseSensitive,
+    onChange: setQuery, onToggleCase: () => setCaseSensitive((c) => !c),
+    onStep: step, onClose: () => setFindOpen(false), t,
+  }) : null
+  const wrapped = h('div', { className: 'gp-diff__wrap', ref: containerRef }, [findBox, body])
+  return svg ? svgFrame(svgView, setSvgView, wrapped, t) : wrapped
 })
+
+/** A single match location within the diff, addressed by visible cell key. */
+interface DiffMatch { readonly cellKey: string; readonly start: number; readonly end: number }
+
+/** Ordered visible code cells for the active mode, keyed as their render fns. */
+function collectCells(mode: DiffMode, rows: readonly SideRow[]): Array<{ key: string; text: string }> {
+  const cells: Array<{ key: string; text: string }> = []
+  if (mode === 'before') { beforeLines(rows).forEach((l, i) => cells.push({ key: `c${i}`, text: l.text })); return cells }
+  if (mode === 'after') { afterLines(rows).forEach((l, i) => cells.push({ key: `c${i}`, text: l.text })); return cells }
+  if (mode === 'unified') {
+    flattenToUnified(rows).forEach((row, i) => {
+      if (row.kind === 'hunk' || row.kind === 'gap') return
+      const content = row.rightText ?? row.leftText ?? ''
+      if (content !== '') cells.push({ key: `c${i}`, text: content })
+    })
+    return cells
+  }
+  rows.forEach((row, i) => {
+    if (row.kind === 'hunk' || row.kind === 'gap') return
+    if (row.leftText !== null && row.leftText !== '') cells.push({ key: `l${i}`, text: row.leftText })
+    if (row.rightText !== null && row.rightText !== '') cells.push({ key: `r${i}`, text: row.rightText })
+  })
+  return cells
+}
+
+/** Substring matches across the (already case-normalized) cells, capped. Both
+ * `cells[].text` and `needle` are pre-normalized by the caller. */
+function findMatches(cells: ReadonlyArray<{ key: string; text: string }>, needle: string): DiffMatch[] {
+  if (needle === '') return []
+  const out: DiffMatch[] = []
+  for (const cell of cells) {
+    for (const [start, end] of matchRangesRaw(cell.text, needle)) {
+      out.push({ cellKey: cell.key, start, end })
+      if (out.length >= MAX_MATCHES) return out
+    }
+  }
+  return out
+}
 
 type SvgView = 'render' | 'source'
 
@@ -230,19 +344,37 @@ function syntaxRuns(spans: readonly HighlightSpan[], prefix = ''): JSX.Element[]
   return spans.map((span, i) => h('span', { key: `${prefix}${i}`, style: span.style }, span.text))
 }
 
-/** A highlighted code cell, or plain text until its grammar loads. */
-function codeCell(className: string, key: string, content: string, hl: CodeHighlighter): JSX.Element {
+/** Wrap Find matches in the given cell's content with <mark>, keeping syntax. */
+function withFindMarks(
+  content: string, cellKey: string, find: FindCtx | null, spans: readonly HighlightSpan[] | undefined,
+): Array<JSX.Element | string> | null {
+  if (find === null) return null
+  const ranges = find.perCell.get(cellKey)
+  if (ranges === undefined || ranges.length === 0) return null
+  const activeRange = find.activeKey === cellKey ? find.activeRange : null
+  return markContent(content, ranges, spans, cellKey, activeRange, find.activeRef)
+}
+
+/** A highlighted code cell, or plain text until its grammar loads. Find
+ * matches (when active) are marked in place, preserving syntax colors. */
+function codeCell(className: string, key: string, content: string, hl: CodeHighlighter, find: FindCtx | null = null): JSX.Element {
   if (content === '') return h('div', { key, className }, '\u00a0')
   const spans = hl(content)?.[0]
+  const marked = withFindMarks(content, key, find, spans)
+  if (marked !== null) return h('div', { key, className }, marked)
   return h('div', { key, className }, spans === undefined ? content : syntaxRuns(spans))
 }
 
-/** Highlight the whole line once, then split runs at the word-diff boundaries. */
+/** Highlight the whole line once, then split runs at the word-diff boundaries.
+ * When Find is active on this cell, match marks take precedence over the
+ * word-diff emphasis (both are just spans; the search overlay wins visually). */
 function wordCell(
   className: string, key: string, content: string, range: readonly [number, number],
-  wordCls: string, hl: CodeHighlighter,
+  wordCls: string, hl: CodeHighlighter, find: FindCtx | null = null,
 ): JSX.Element {
   const spans = hl(content)?.[0] ?? [{ text: content, style: {} }]
+  const marked = withFindMarks(content, key, find, spans)
+  if (marked !== null) return h('div', { key, className }, marked)
   const [pre, changed, post] = splitHighlightSpans(spans, range)
   return h('div', { key, className }, [
     ...syntaxRuns(pre, 'p'),
@@ -266,16 +398,16 @@ function afterLines(rows: readonly SideRow[]): NumberedLine[] {
   return rows.filter((r) => r.rightText !== null).map((r) => ({ no: r.rightNo, text: r.rightText as string }))
 }
 
-function singleColumn(lines: readonly NumberedLine[], hl: CodeHighlighter): JSX.Element {
+function singleColumn(lines: readonly NumberedLine[], hl: CodeHighlighter, find: FindCtx | null = null): JSX.Element {
   return h('div', { className: 'gp-diff__single' }, lines.flatMap((line, i) => [
     h('div', { key: `n${i}`, className: 'gp-diff-no' }, line.no ?? ''),
-    codeCell('gp-diff-cell', `c${i}`, line.text, hl),
+    codeCell('gp-diff-cell', `c${i}`, line.text, hl, find),
   ]))
 }
 
 function renderRow(
   row: SideRow, i: number, hl: CodeHighlighter,
-  expand: GapExpander, t: (key: GitKey, params?: Record<string, string | number>) => string,
+  expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' } }, row.text ?? '')]
@@ -288,13 +420,13 @@ function renderRow(
   const leftCell = row.leftText === null
     ? h('div', { key: `l${i}`, className: `gp-diff-cell ${leftCls}` })
     : row.kind === 'mod' && row.leftWord !== undefined
-      ? wordCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, row.leftWord, 'gp-diff-word gp-diff-word--del', hl)
-      : codeCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, hl)
+      ? wordCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, row.leftWord, 'gp-diff-word gp-diff-word--del', hl, find)
+      : codeCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, hl, find)
   const rightCell = row.rightText === null
     ? h('div', { key: `r${i}`, className: `gp-diff-cell ${rightCls}` })
     : row.kind === 'mod' && row.rightWord !== undefined
-      ? wordCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', hl)
-      : codeCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, hl)
+      ? wordCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', hl, find)
+      : codeCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, hl, find)
   return [
     h('div', { key: `ln${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
     leftCell,
@@ -310,7 +442,7 @@ function renderRow(
  */
 function renderUnifiedRow(
   row: SideRow, i: number, hl: CodeHighlighter,
-  expand: GapExpander, t: (key: GitKey, params?: Record<string, string | number>) => string,
+  expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' } }, row.text ?? '')]
@@ -327,8 +459,8 @@ function renderUnifiedRow(
   const wordCls = isAdd ? 'gp-diff-word gp-diff-word--add' : 'gp-diff-word gp-diff-word--del'
   const codeCls = `gp-diff-cell gp-diff-uni__code ${rowCls}`
   const code = wordRange !== undefined
-    ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, hl)
-    : codeCell(codeCls, `c${i}`, content, hl)
+    ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, hl, find)
+    : codeCell(codeCls, `c${i}`, content, hl, find)
   return [
     h('div', { key: `ol${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
     h('div', { key: `nl${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),

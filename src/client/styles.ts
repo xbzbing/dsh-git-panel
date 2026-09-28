@@ -159,10 +159,32 @@ const CSS = `
 .gp-files__mode-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__markdown{overflow:auto;overscroll-behavior:contain;padding:16px 24px;color:var(--dsw-alias-label-primary)}
 .gp-files__html{flex:1;min-height:0;width:100%;border:0;background:#fff}
-.gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px}
-.gp-files__note{position:sticky;top:0;z-index:1;padding:5px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;position:relative}
+.gp-files__header{position:sticky;top:0;z-index:2}
+.gp-files__note{padding:5px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-find{display:flex;align-items:center;gap:4px;padding:5px 8px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-find__input{flex:1;min-width:60px;height:26px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 8px;box-sizing:border-box}
+.gp-find__input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-find__count{flex:none;min-width:44px;text-align:center;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.gp-find__btn{flex:none;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:14px;line-height:1}
+.gp-find__btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-find__btn:disabled{color:var(--dsw-alias-label-quaternary);cursor:default}
+.gp-find__btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-find__case{width:auto;padding:0 6px;font-size:11px;font-weight:600}
+.gp-find__case--active{background:var(--dsw-alias-state-business-primary);color:#fff}
+.gp-find__case--active:hover{background:var(--dsw-alias-state-business-primary);color:#fff}
+.gp-find-hit{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 40%,transparent);color:inherit;border-radius:2px}
+.gp-find-hit--active{background:var(--dsw-alias-state-warn-primary);color:var(--dsw-static-neutral-1000,#000)}
 .gp-files__trunc{color:var(--dsw-alias-label-tertiary);font-style:italic}
 .gp-files__single{display:grid;grid-template-columns:44px 1fr}
+/* Virtualized source view: the outer box is a fixed-height spacer that owns the
+ * scrollbar; each mounted row is absolutely positioned at its line offset and
+ * lays its line-number gutter + code cell on one fixed-height row. */
+.gp-files__single--virt{display:block;position:relative;width:100%}
+.gp-files__row{position:absolute;left:0;right:0;display:grid;grid-template-columns:44px 1fr;height:20px}
+/* Fixed row height needs non-wrapping cells; a long line scrolls horizontally
+ * on the container instead of growing the row past ROW_HEIGHT. */
+.gp-files__row .gp-diff-cell{white-space:pre;overflow:hidden;text-overflow:clip}
 .gp-files__image{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:center;justify-content:center;padding:16px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-files__image img{max-width:100%;max-height:100%;object-fit:contain}
 .gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
@@ -207,6 +229,9 @@ const CSS = `
 .gp-seg__btn--active{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-seg__btn--active:hover{background:var(--dsw-alias-state-business-primary)}
 .gp-diff__scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px}
+/* DiffView wraps its Find bar + body so the bar can stick to the scroll top. */
+.gp-diff__wrap{display:flex;flex-direction:column;min-height:100%}
+.gp-diff__wrap .gp-find{position:sticky;top:0;z-index:2}
 .gp-diff__side{display:grid;grid-template-columns:38px 1fr 38px 1fr}
 /* unified (inline) layout: old|new line-number gutters + a sign column + one
  * shared code column; add/del tint the whole code cell, not one side. */

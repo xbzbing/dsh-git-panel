@@ -249,6 +249,42 @@ const out = await page.evaluate(async (snap) => {
   result.hasModal = document.querySelector('.gp-modal') !== null
   result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
   result.modalWordSyntax = [...document.querySelectorAll('.gp-modal .gp-diff-word span')].some((el) => el.style.color.includes('--shiki-keyword'))
+  // In-diff Find (Ctrl+F) inside the modal: open, search a token present in the
+  // fixture diff, assert marks + count, then Esc dismisses Find (not the modal).
+  const diffWrap = document.querySelector('.gp-modal .gp-diff__wrap')
+  if (diffWrap) { Object.defineProperty(diffWrap, 'offsetParent', { configurable: true, get: () => document.body }) }
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }))
+  await new Promise((r) => setTimeout(r, 60))
+  result.diffFindOpened = document.querySelector('.gp-modal .gp-find__input') !== null
+  const diffFindInput = document.querySelector('.gp-modal .gp-find__input')
+  if (diffFindInput) {
+    // Fixture .ts diff replaces "const count = 1" → "const count = 2"; "count"
+    // appears on both sides in split-derived unified rows.
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(diffFindInput, 'count')
+    diffFindInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  result.diffFindHits = document.querySelectorAll('.gp-modal .gp-find-hit').length
+  result.diffFindActive = document.querySelectorAll('.gp-modal .gp-find-hit--active').length
+  result.diffFindCount = document.querySelector('.gp-modal .gp-find__count')?.textContent
+  // Case toggle in the diff find: uppercase query matches by default, and
+  // enabling Match case drops it to zero.
+  if (diffFindInput) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(diffFindInput, 'COUNT')
+    diffFindInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  result.diffFindCaseInsensitiveHits = document.querySelectorAll('.gp-modal .gp-find-hit').length
+  document.querySelector('.gp-modal .gp-find__case')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  result.diffFindCaseSensitiveHits = document.querySelectorAll('.gp-modal .gp-find-hit').length
+  document.querySelector('.gp-modal .gp-find__case')?.click()
+  await new Promise((r) => setTimeout(r, 60))
+  diffFindInput?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await new Promise((r) => setTimeout(r, 60))
+  result.diffFindClosedModalKept = document.querySelector('.gp-modal .gp-find__input') === null && document.querySelector('.gp-modal') !== null
   // Esc closes it.
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 200))
@@ -343,6 +379,63 @@ const out = await page.evaluate(async (snap) => {
   result.bigHighlightOff = document.querySelector('.gp-files__note')?.textContent === 'files.highlightOff'
   result.bigNoSyntaxSpans = document.querySelector('.gp-files__code .gp-diff-cell span[style]') === null
   result.bigLineTruncated = [...document.querySelectorAll('.gp-files__trunc')].some((n) => n.textContent === 'files.lineTruncated')
+  // Virtualization: the 5101-line big.js mounts only a windowed subset of rows,
+  // not all of them, while the spacer height reflects the full line count.
+  result.bigMountedRows = document.querySelectorAll('.gp-files__row').length
+  result.bigTotalLines = 5101
+  const virtGrid = document.querySelector('.gp-files__single--virt')
+  result.bigSpacerHeight = virtGrid ? parseInt(virtGrid.style.height || '0', 10) : 0
+  // In-panel Find (Ctrl+F): open on a text file, type a query, assert match
+  // count + highlighted hits + next-match navigation, then Esc closes it.
+  const findRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
+  if (findRow) { findRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  const codeEl = document.querySelector('.gp-files__code')
+  Object.defineProperty(codeEl, 'offsetParent', { configurable: true, get: () => document.body })
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }))
+  await new Promise((r) => setTimeout(r, 60))
+  result.findOpened = document.querySelector('.gp-find__input') !== null
+  const findInput = document.querySelector('.gp-find__input')
+  if (findInput) {
+    // Fixture a.txt content is "const x = 1\nconst y = 2\n" → two "const".
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(findInput, 'const')
+    findInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  result.findHitCount = document.querySelectorAll('.gp-find-hit').length
+  result.findActiveCount = document.querySelectorAll('.gp-find-hit--active').length
+  result.findCountLabel = document.querySelector('.gp-find__count')?.textContent
+  document.querySelector('.gp-find__btn[title="files.findNext"]')?.click()
+  await new Promise((r) => setTimeout(r, 60))
+  result.findCountAfterNext = document.querySelector('.gp-find__count')?.textContent
+  if (findInput) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(findInput, 'zzzznotfound')
+    findInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  result.findNoMatchLabel = document.querySelector('.gp-find__count')?.textContent
+  // Case sensitivity: default is insensitive, so "CONST" matches the lowercase
+  // "const"; toggling Match case drops the matches to zero.
+  if (findInput) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(findInput, 'CONST')
+    findInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  result.findCaseInsensitiveHits = document.querySelectorAll('.gp-find-hit').length
+  document.querySelector('.gp-find__case')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  result.findCaseButtonActive = document.querySelector('.gp-find__case')?.classList.contains('gp-find__case--active') === true
+  result.findCaseSensitiveHits = document.querySelectorAll('.gp-find-hit').length
+  result.findCaseSensitiveLabel = document.querySelector('.gp-find__count')?.textContent
+  // Toggle case back off so the Esc-close assertion below starts from a clean
+  // insensitive state.
+  document.querySelector('.gp-find__case')?.click()
+  await new Promise((r) => setTimeout(r, 60))
+  findInput?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await new Promise((r) => setTimeout(r, 60))
+  result.findClosed = document.querySelector('.gp-find__input') === null
   return result
 }, SNAP)
 
@@ -394,6 +487,13 @@ try {
   assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
   assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
   assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')
+  assert.equal(out.diffFindOpened, true, 'Ctrl+F opens Find inside the diff modal')
+  assert.ok(out.diffFindHits >= 1, 'the diff Find highlights matches')
+  assert.equal(out.diffFindActive, 1, 'exactly one diff match is the active hit')
+  assert.ok(/^1\/\d+$/.test(out.diffFindCount || ''), 'the diff Find shows an active/total count')
+  assert.ok(out.diffFindCaseInsensitiveHits >= 1, 'diff Find is case-insensitive by default: COUNT matches count')
+  assert.equal(out.diffFindCaseSensitiveHits, 0, 'enabling Match case in the diff Find drops mismatched-case matches')
+  assert.equal(out.diffFindClosedModalKept, true, 'Esc closes diff Find without closing the modal')
   assert.equal(out.modalClosedByEsc, true, 'Esc closes the modal')
   assert.equal(out.modalClosedByBtn, true, 'the close button closes the modal')
   assert.equal(out.livePillJump, true, 'pill jump still takes the active panel to Changes')
@@ -421,6 +521,19 @@ try {
   assert.equal(out.bigHighlightOff, true, 'a large text file skips highlighting and shows the notice')
   assert.equal(out.bigNoSyntaxSpans, true, 'a large text file renders plain text (no syntax spans)')
   assert.equal(out.bigLineTruncated, true, 'an over-long line is truncated with a marker')
+  assert.ok(out.bigMountedRows > 0 && out.bigMountedRows < out.bigTotalLines, `virtualized: mounts a window (${out.bigMountedRows}), not all ${out.bigTotalLines} rows`)
+  assert.equal(out.bigSpacerHeight, out.bigTotalLines * 20, 'the virtual spacer height reflects the full line count')
+  assert.equal(out.findOpened, true, 'Ctrl+F opens the in-panel find while the preview is visible')
+  assert.equal(out.findHitCount, 2, 'the query highlights every match in the file')
+  assert.equal(out.findActiveCount, 1, 'exactly one match is the active hit')
+  assert.equal(out.findCountLabel, '1/2', 'the count shows the active index and total')
+  assert.equal(out.findCountAfterNext, '2/2', 'next-match navigation advances the active index')
+  assert.equal(out.findNoMatchLabel, 'files.findNoMatch', 'a query with no results shows the no-match label')
+  assert.equal(out.findCaseInsensitiveHits, 2, 'case-insensitive by default: CONST matches lowercase const')
+  assert.equal(out.findCaseButtonActive, true, 'the Match case toggle reflects its active state')
+  assert.equal(out.findCaseSensitiveHits, 0, 'enabling Match case drops mismatched-case matches')
+  assert.equal(out.findCaseSensitiveLabel, 'files.findNoMatch', 'case-sensitive no-match shows the no-match label')
+  assert.equal(out.findClosed, true, 'Esc closes the find box')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {
