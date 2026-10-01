@@ -13,7 +13,7 @@ import type { GitKey } from './locales'
 import { BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, RefreshIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
-import { absoluteTime, timeAgo } from './time'
+import { absoluteDateTime, absoluteTime, timeAgo } from './time'
 import { statusChar, statusClass } from './status'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
@@ -170,7 +170,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t 
             h('div', { key: 'meta', className: 'gp-detail__meta' }, [
               h('span', { key: 'h', className: 'gp-commit-hash' }, selected.shortHash),
               h('span', { key: 'a' }, selected.author),
-              h('span', { key: 't', title: absoluteTime(selected.dateIso) }, timeAgo(selected.dateIso, now, t)),
+              h('span', { key: 't' }, absoluteDateTime(selected.dateIso)),
             ]),
             detail.detail !== null && detail.detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
           ]),

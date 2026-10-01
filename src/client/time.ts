@@ -25,3 +25,12 @@ export function absoluteTime(iso: string | number | null): string {
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+/** Absolute local time with seconds (YYYY-MM-DD HH:mm:ss) for detail views. */
+export function absoluteDateTime(iso: string | number | null): string {
+  if (iso === null) return ''
+  const d = new Date(typeof iso === 'number' ? iso : Date.parse(iso))
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
