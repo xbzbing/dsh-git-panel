@@ -26,6 +26,8 @@ export type GitFailure = {
 } | {
     readonly code: 'git-unavailable';
     readonly detail: string;
+    readonly cwd?: string;
+    readonly isGitRepo?: boolean;
 } | {
     readonly code: 'timeout';
 } | {

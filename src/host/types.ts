@@ -21,7 +21,13 @@ export type GitSnapshotResult =
 export type GitFailure =
   | { readonly code: 'cwd-unavailable'; readonly sessionId: string }
   | { readonly code: 'not-a-git-repo'; readonly cwd?: string; readonly showInputPill?: boolean }
-  | { readonly code: 'git-unavailable'; readonly detail: string }
+  // git not installed / not on PATH: the spawn itself failed, so neither the
+  // work-tree root nor repo membership can be learned from git. `cwd` carries
+  // the session directory (so the browser can still file-browse it); `isGitRepo`
+  // is a filesystem-only probe (`.git` found walking up) telling the client
+  // whether to surface the "git not installed" notice (inside a repo) or
+  // degrade silently to the file browser (outside one).
+  | { readonly code: 'git-unavailable'; readonly detail: string; readonly cwd?: string; readonly isGitRepo?: boolean }
   | { readonly code: 'timeout' }
   | { readonly code: 'cancelled' }
 

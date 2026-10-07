@@ -11,6 +11,9 @@ lib/hookkit.mjs
 # Local-only docs (design notes, scratch, not for the repo)
 docs/local/
 
+# graphify knowledge-graph output (generated, local-only)
+graphify-out/
+
 # Editor / OS
 .DS_Store
 .idea/

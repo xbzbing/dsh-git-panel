@@ -513,6 +513,51 @@ test('resolveWorkspace failures surface typed codes', async () => {
   }
 })
 
+/** deps whose git runner always fails to spawn — simulates git not installed. */
+function depsNoGit(dir) {
+  return { ...depsAt(dir), run: { run: async () => { throw new Error('spawn git ENOENT') } } }
+}
+
+test('git-not-installed inside a repo → git-unavailable with isGitRepo true', async () => {
+  // `repo` has a real `.git`, so the filesystem probe reports a repo even though
+  // git itself cannot run.
+  const res = await snapshotForSession(depsNoGit(repo), DEFAULT_CONFIG, SID)
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'git-unavailable')
+  assert.equal(res.error.isGitRepo, true)
+  assert.ok(res.error.cwd !== undefined && res.error.cwd !== '', 'cwd is carried for the browse fallback')
+})
+
+test('git-not-installed outside a repo → git-unavailable with isGitRepo false', async () => {
+  const plainDir = mkdtempSync(join(tmpdir(), 'gp-nogit-plain-'))
+  try {
+    const res = await snapshotForSession(depsNoGit(plainDir), DEFAULT_CONFIG, SID)
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'git-unavailable')
+    assert.equal(res.error.isGitRepo, false)
+  } finally {
+    rmSync(plainDir, { recursive: true, force: true })
+  }
+})
+
+test('git-not-installed still lists the directory via the cwd browse root', async () => {
+  // The file browser must keep working with git absent: dir-list falls back to
+  // the plain cwd (no git ignore info, hence no `ignored` flags).
+  const dir = mkdtempSync(join(tmpdir(), 'gp-nogit-browse-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    writeFileSync(join(dir, 'top.txt'), 'hi\n')
+    mkdirSync(join(dir, 'sub'))
+    const res = await runQuery(depsNoGit(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '' } })
+    assert.equal(res.ok, true, 'dir-list succeeds without git')
+    const names = res.value.entries.map((e) => e.name).sort()
+    assert.deepEqual(names, ['sub', 'top.txt'])
+    assert.ok(res.value.entries.every((e) => e.ignored === undefined), 'no git ignore info without git')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('worktree-stats sums insertions across multiple untracked files (H1)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-unt-'))
   try {

@@ -14,7 +14,7 @@ export type GitView =
   | { readonly state: 'loading' }
   | { readonly state: 'no-cwd' }
   | { readonly state: 'ready'; readonly snapshot: GitSnapshot }
-  | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string; readonly showInputPill?: boolean } }
+  | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string; readonly showInputPill?: boolean; readonly isGitRepo?: boolean } }
 
 const TERMINAL_CODES: ReadonlySet<string> = new Set(['cwd-unavailable'])
 const DEFAULT_POLL_MS = 30_000
@@ -67,6 +67,11 @@ export class GitController {
         } else if (result.error.code === 'not-a-git-repo') {
           const e = result.error as { cwd?: string; showInputPill?: boolean }
           this.setView({ state: 'error', error: { code: 'not-a-git-repo', ...(e.cwd ? { cwd: e.cwd } : {}), ...(e.showInputPill !== undefined ? { showInputPill: e.showInputPill } : {}) } })
+        } else if (result.error.code === 'git-unavailable') {
+          // git not installed → file-browser-only degrade; `isGitRepo` decides
+          // whether the panel surfaces the "git not installed" notice.
+          const e = result.error as { detail?: string; cwd?: string; isGitRepo?: boolean }
+          this.setView({ state: 'error', error: { code: 'git-unavailable', ...(e.detail ? { detail: e.detail } : {}), ...(e.cwd ? { cwd: e.cwd } : {}), ...(e.isGitRepo !== undefined ? { isGitRepo: e.isGitRepo } : {}) } })
         } else {
           this.setView({ state: 'error', error: { code: result.error.code, ...('detail' in result.error ? { detail: (result.error as { detail?: string }).detail } : {}) } })
         }

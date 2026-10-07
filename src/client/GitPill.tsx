@@ -105,10 +105,10 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
 
   if (view.state === 'cold' || view.state === 'loading' || view.state === 'no-cwd') return null
   if (view.state === 'error') {
-    // Not a git repo: hide the input-bar marker entirely (the Git tab still
-    // opens straight into the file browser). Other errors → a dim label unless
-    // the marker is turned off by preference.
-    if (view.error.code === 'not-a-git-repo') return null
+    // Not a git repo, or git not installed: hide the input-bar marker entirely
+    // (the Git tab still opens straight into the file browser). Other errors →
+    // a dim label unless the marker is turned off by preference.
+    if (view.error.code === 'not-a-git-repo' || view.error.code === 'git-unavailable') return null
     if (view.error.showInputPill === false) return null
     return h('span', { className: 'gp-pill gp-pill--degraded', title: view.error.detail ?? t('pill.unavailable') }, t('pill.unavailable'))
   }

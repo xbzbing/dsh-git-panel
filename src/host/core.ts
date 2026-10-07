@@ -1,7 +1,7 @@
 /**
  * Workspace resolution + snapshot orchestration (framework-neutral).
  */
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { GitRunner } from './git.ts'
 import { parseStatus, sumNumstat } from './parser.ts'
 import { isSafePath } from './validate.ts'
@@ -122,7 +122,10 @@ export async function resolveBrowseRoot(
   const ws = await resolveWorkspace(deps, sessionId)
   if (ws.ok) return { ok: true, root: ws.root, isGitRepo: true }
   const err = ws.failure.error
-  if (err.code === 'not-a-git-repo' && err.cwd !== undefined && err.cwd !== '') {
+  // Both "not a git repo" and "git not installed" still browse the cwd: in the
+  // former git told us it's not a repo, in the latter git never ran at all, but
+  // either way the directory listing / file preview run off the plain cwd.
+  if ((err.code === 'not-a-git-repo' || err.code === 'git-unavailable') && 'cwd' in err && err.cwd !== undefined && err.cwd !== '') {
     try {
       return { ok: true, root: await deps.fs.realpath(err.cwd), isGitRepo: false }
     } catch {
@@ -151,7 +154,10 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   }
   const top = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], cwd, 'toplevel', deps.signal)
   if ('failure' in top) {
-    return { ok: false, failure: { ok: false, error: mapRunFailure(top.failure) } }
+    // Spawn-level failure (git missing / not on PATH): keep the cwd on the
+    // failure so the browse-root fallback and the "git not installed" probe
+    // can still work without git.
+    return { ok: false, failure: { ok: false, error: { ...mapRunFailure(top.failure), cwd } } }
   }
   if (top.run.cancelled) return { ok: false, failure: { ok: false, error: { code: 'cancelled' } } }
   if (top.run.timedOut) return { ok: false, failure: { ok: false, error: { code: 'timeout' } } }
@@ -197,6 +203,34 @@ function mapRunFailure(failure: unknown): { code: 'git-unavailable'; detail: str
 }
 
 /**
+ * Filesystem-only probe for git-repo membership, used when git itself cannot
+ * run (not installed / not on PATH). Walks up from `cwd` looking for a `.git`
+ * entry (a directory in a normal clone, a file in a worktree/submodule). No git
+ * process is spawned, so it works even with git absent; a bounded ancestor walk
+ * guards against pathological depths.
+ */
+async function detectGitRepo(deps: SnapshotDeps, cwd: string): Promise<boolean> {
+  let dir: string
+  try {
+    dir = await deps.fs.realpath(cwd)
+  } catch {
+    dir = cwd
+  }
+  for (let i = 0; i < 100; i++) {
+    try {
+      await deps.fs.stat(join(dir, '.git'))
+      return true
+    } catch {
+      // no `.git` here — ascend
+    }
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return false
+}
+
+/**
  * Collapse a workspace-resolution failure into the `{ code, message }` shape
  * the run/query endpoints return. `GitFailure` already carries only endpoint
  * codes, so no membership test is needed (the previous per-endpoint ternary
@@ -223,6 +257,15 @@ export async function snapshotForSession(
     const failure = workspace.failure
     if (failure.error.code === 'not-a-git-repo') {
       return { ok: false, error: { ...failure.error, showInputPill: config.showInputPill } }
+    }
+    // git not installed: probe the filesystem for a `.git` so the client knows
+    // whether to show the "git not installed" notice (inside a repo) or degrade
+    // silently to the file browser (outside one). Either way the panel falls
+    // back to file browsing.
+    if (failure.error.code === 'git-unavailable') {
+      const cwd = failure.error.cwd
+      const isGitRepo = cwd !== undefined && cwd !== '' ? await detectGitRepo(deps, cwd) : false
+      return { ok: false, error: { ...failure.error, isGitRepo } }
     }
     return failure
   }

@@ -37,7 +37,11 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const [selection, setSelection] = useState<{ sessionId: string; tab: SubTab } | null>(null)
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
-  const filesOnly = view.state === 'error' && view.error.code === 'not-a-git-repo'
+  // git not installed degrades to the file browser too; inside a repo we add a
+  // notice, outside one it is a silent fallback (same as not-a-git-repo).
+  const gitUnavailable = view.state === 'error' && view.error.code === 'git-unavailable'
+  const filesOnly = view.state === 'error' && (view.error.code === 'not-a-git-repo' || view.error.code === 'git-unavailable')
+  const gitMissingInRepo = gitUnavailable && view.state === 'error' && view.error.isGitRepo === true
   // Wait for the snapshot before mounting any git-backed pane. An explicit pill
   // jump takes priority; switching sessions resets the one-shot default.
   const activeTab = filesOnly ? 'files' : selection !== null && selection.sessionId === sessionId ? selection.tab : null
@@ -96,8 +100,15 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     if (view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      return h('div', { style: { display: 'contents' } },
-        filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, t }) : null)
+      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, t }) : null
+      // git-not-installed inside a repo: stack a notice above the browser.
+      if (gitMissingInRepo) {
+        return h('div', { className: 'gp-files-wrap' }, [
+          h('div', { key: 'notice', className: 'gp-notice' }, t('files.gitNotInstalled')),
+          files,
+        ])
+      }
+      return h('div', { style: { display: 'contents' } }, files)
     }
     if (view.state === 'error') {
       return h('div', { className: 'gp-empty' }, t('pill.unavailable'))

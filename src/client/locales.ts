@@ -84,6 +84,7 @@ export const zh = {
   'files.copy': '复制代码',
   'files.copied': '已复制',
   'files.footnotes': '注释',
+  'files.gitNotInstalled': '系统未安装 Git，Git 面板不可用，请安装 Git 工具后重试。',
   // stats
   'stats.files': '{n} 个文件',
   'stats.lastChange': '最近变更 {time}',
@@ -213,6 +214,7 @@ export const en: Record<GitKey, string> = {
   'files.copy': 'Copy code',
   'files.copied': 'Copied',
   'files.footnotes': 'Footnotes',
+  'files.gitNotInstalled': 'Git is not installed; the Git panel is unavailable. Please install Git and try again.',
   'stats.files': '{n} files',
   'stats.lastChange': 'changed {time}',
   'stats.lastCommit': 'last commit {time}',
