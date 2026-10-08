@@ -2,7 +2,13 @@
  * git output parsers: porcelain status, log, branch, numstat, name-status.
  * Pure functions over raw stdout, no I/O.
  */
-import type { GitBranch, GitChange, GitFileStat, GraphCommit, GitRef } from './types.ts';
+import type { GitBranch, GitChange, GitCommit, GitFileStat, GraphCommit, GitRef } from './types.ts';
+/**
+ * Build a GitCommit from a `%H\x1f%h\x1f%s\x1f%an\x1f%aI`-ordered field array
+ * (the body, when present, is the caller's `parts.slice(5)`). Null when the
+ * record is too short or carries no hash.
+ */
+export declare function commitFromFields(parts: readonly string[]): GitCommit | null;
 /**
  * Parse `git status --porcelain=v1 -z`. A mixed XY (both non-space, e.g. MM)
  * is split into a staged side (X) and an unstaged side (Y). Untracked (??) is

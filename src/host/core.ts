@@ -3,7 +3,7 @@
  */
 import { dirname, join } from 'node:path'
 import type { GitRunner } from './git.ts'
-import { parseStatus, sumNumstat } from './parser.ts'
+import { commitFromFields, parseStatus, sumNumstat } from './parser.ts'
 import { isSafePath } from './validate.ts'
 import type { DiffViewMode, GitChange, GitCommit, GitErrorCode, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
 
@@ -174,7 +174,7 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   try {
     root = await deps.fs.realpath(raw)
   } catch {
-    root = raw
+    // realpath failed (e.g. permissions) — keep the raw path already in `root`.
   }
   deps.rootCache?.set(cwd, root)
   return { ok: true, root }
@@ -317,16 +317,7 @@ export async function snapshotForSession(
 
   let lastCommit: GitCommit | null = null
   if ('run' in lastCommitRes && lastCommitRes.run.exitCode === 0) {
-    const parts = lastCommitRes.run.stdout.trim().split('\x1f')
-    if (parts.length >= 5 && parts[0]) {
-      lastCommit = {
-        hash: parts[0]!,
-        shortHash: parts[1] ?? '',
-        subject: parts[2] ?? '',
-        author: parts[3] ?? '',
-        dateIso: parts[4] ?? '',
-      }
-    }
+    lastCommit = commitFromFields(lastCommitRes.run.stdout.trim().split('\x1f'))
   }
 
   // Worktree statistics fold into the single snapshot (no separate endpoint
@@ -392,7 +383,7 @@ export async function maxChangeMtime(
     if (c.isDirectory) return
     try {
       const info = await deps.fs.stat(join(root, c.path))
-      if (typeof info.mtimeMs === 'number' && Number.isFinite(info.mtimeMs)) {
+      if (Number.isFinite(info.mtimeMs)) {
         max = max === null ? info.mtimeMs : Math.max(max, info.mtimeMs)
       }
     } catch {

@@ -2,7 +2,24 @@
  * git output parsers: porcelain status, log, branch, numstat, name-status.
  * Pure functions over raw stdout, no I/O.
  */
-import type { GitBranch, GitChange, GitChangeStatus, GitFileStat, GraphCommit, GitRef } from './types.ts'
+import type { GitBranch, GitChange, GitChangeStatus, GitCommit, GitFileStat, GraphCommit, GitRef } from './types.ts'
+
+/**
+ * Build a GitCommit from a `%H\x1f%h\x1f%s\x1f%an\x1f%aI`-ordered field array
+ * (the body, when present, is the caller's `parts.slice(5)`). Null when the
+ * record is too short or carries no hash.
+ */
+export function commitFromFields(parts: readonly string[]): GitCommit | null {
+  const hash = parts[0]
+  if (parts.length < 5 || hash === undefined || hash === '') return null
+  return {
+    hash,
+    shortHash: parts[1] ?? '',
+    subject: parts[2] ?? '',
+    author: parts[3] ?? '',
+    dateIso: parts[4] ?? '',
+  }
+}
 
 /** Map a porcelain single-column status char to our status vocabulary. */
 function statusOf(code: string): GitChangeStatus {

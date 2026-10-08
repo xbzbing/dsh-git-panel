@@ -123,7 +123,6 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   // Toggle: a click opens the Git panel; a click while the Git tab is already
   // active returns to the conversation view.
   const onClick = (): void => {
-    const label = t('panel.tab')
     if (isGitTabActive(label)) { returnToConversation(label); return }
     if (hasSession(sessionId)) {
       requestSubTab(sessionId, dirty ? 'changes' : 'overview')

@@ -6,8 +6,8 @@ import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
-import { parseBranches, parseGraphLog, parseNameStatus, parseTags } from './parser.ts'
-import type { DirEntry, GitBranch, GitCommit, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
+import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseTags } from './parser.ts'
+import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
 import { imageMimeFor } from './types.ts'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
@@ -227,7 +227,7 @@ function sliceLines(path: string, content: string, start: number, end: number): 
   // Split on \n and drop a single trailing empty element (final newline) so the
   // line count matches the file's real line count.
   const all = content.split('\n')
-  if (all.length > 0 && all[all.length - 1] === '') all.pop()
+  if (all[all.length - 1] === '') all.pop()
   const from = Math.min(start, all.length + 1)
   const to = Math.min(end, all.length)
   const lines = from <= to ? all.slice(from - 1, to) : []
@@ -503,18 +503,8 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
     return { ok: false, error: { code: 'git-error', message: metaRes.run.stderr.trim() || 'unknown ref' } }
   }
   const parts = metaRes.run.stdout.split('\x1f')
-  let commit: GitCommit | null = null
-  let body = ''
-  if (parts.length >= 5 && parts[0]) {
-    commit = {
-      hash: parts[0]!,
-      shortHash: parts[1] ?? '',
-      subject: parts[2] ?? '',
-      author: parts[3] ?? '',
-      dateIso: parts[4] ?? '',
-    }
-    body = parts.slice(5).join('\x1f').trim()
-  }
+  const commit = commitFromFields(parts)
+  const body = commit === null ? '' : parts.slice(5).join('\x1f').trim()
   const stats: GitFileStat[] = 'run' in statRes && statRes.run.exitCode === 0
     ? parseNameStatus(statRes.run.stdout)
     : []

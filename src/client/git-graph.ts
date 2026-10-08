@@ -104,7 +104,7 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
       if (awaited === null) continue
       if (awaited === commit.hash) {
         // Edge flowing into this node.
-        edges.push({ fromLane: i, toLane: lane, color: colorFor(commit.hash) })
+        edges.push({ fromLane: i, toLane: lane, color })
       } else {
         // Lane continues awaiting the same commit; find its post position.
         const toLane = after.findIndex((h) => h === awaited)
