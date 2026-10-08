@@ -61,6 +61,7 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
   const [file, setFile] = useState<FileState>({ kind: 'idle' })
   const [renderMarkdown, setRenderMarkdown] = useState(true)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
   const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
   const fileSeq = useRef(0)
 
@@ -105,6 +106,7 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
     // page never auto-executes on selection — the user opts into the preview.
     setRenderMarkdown(!isHtmlPath(path))
     setCopyState('idle')
+    setCopyContentState('idle')
     const seq = ++fileSeq.current
     setFile({ kind: 'loading', path })
     void remote.query({ sessionId, query: { kind: 'file-content', path } }).then((res) => {
@@ -131,6 +133,17 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
     }
   }
 
+  const copyContent = async (): Promise<void> => {
+    if (file.kind !== 'text') return
+    const seq = fileSeq.current
+    try {
+      await navigator.clipboard.writeText(file.content)
+      if (seq === fileSeq.current) setCopyContentState('copied')
+    } catch {
+      if (seq === fileSeq.current) setCopyContentState('error')
+    }
+  }
+
   return h('div', { className: 'gp-files' }, [
     h('div', { key: 'left', className: 'gp-files__tree', style: { flex: `0 0 ${leftCol.width}px` } }, treeRows),
     leftCol.divider,
@@ -147,6 +160,12 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
           key: 'copy', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
           'aria-live': 'polite', onClick: () => { void copyPath() },
         }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
+        file.kind === 'text'
+          ? h('button', {
+            key: 'copy-content', type: 'button', className: `gp-files__copy-path${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
+            'aria-live': 'polite', onClick: () => { void copyContent() },
+          }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
+          : null,
       ]) : null,
       h('div', { key: 'content', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, t)),
     ]),
