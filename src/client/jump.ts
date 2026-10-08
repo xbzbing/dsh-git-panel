@@ -49,6 +49,30 @@ export function subscribeSubTab(sessionId: string, cb: (tab: SubTab) => void): (
 }
 
 /**
+ * Sub-tab stickiness across a panel unmount. Switching the shell's view tab
+ * away unmounts the Panel (losing its selection); if the user returns within
+ * STICKY_MS the last sub-tab is restored instead of recomputing the default
+ * entry. The clock starts when the panel is left (stash on unmount), so the
+ * window measures time away, not time since the last tab click.
+ */
+const STICKY_MS = 60_000
+const sticky = new Map<string, { tab: SubTab; leftAt: number }>()
+
+/** Record the sub-tab the panel is leaving on, timestamped now. */
+export function stashSubTab(sessionId: string, tab: SubTab): void {
+  sticky.set(sessionId, { tab, leftAt: Date.now() })
+}
+
+/** The stashed sub-tab if the panel was left within the sticky window, else
+ * null (an expired entry is dropped). */
+export function recentSubTab(sessionId: string): SubTab | null {
+  const entry = sticky.get(sessionId)
+  if (entry === undefined) return null
+  if (Date.now() - entry.leftAt > STICKY_MS) { sticky.delete(sessionId); return null }
+  return entry.tab
+}
+
+/**
  * Activate the Git view tab by clicking its tab-bar button (the semantic
  * `button[role="tab"]` the conversation shell renders). Matches by the
  * localized label. Returns whether a matching tab was found.

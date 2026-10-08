@@ -130,7 +130,8 @@ const out = await page.evaluate(async (snap) => {
   const viewEntry = registered['conversation.view']
   result.viewLabel = viewEntry.reg.label ? viewEntry.reg.label() : null
   result.viewOrder = viewEntry.reg.order
-  ReactDOM.createRoot(document.getElementById('panel')).render(viewEntry.component({ sessionId: 'sess-1' }))
+  const viewRoot = ReactDOM.createRoot(document.getElementById('panel'))
+  viewRoot.render(viewEntry.component({ sessionId: 'sess-1' }))
   await new Promise((r) => setTimeout(r, 500))
   result.tabCount = document.querySelectorAll('.gp-tab').length
   result.dirtyDefault = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.changes') ?? false
@@ -436,6 +437,23 @@ const out = await page.evaluate(async (snap) => {
   findInput?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   await new Promise((r) => setTimeout(r, 60))
   result.findClosed = document.querySelector('.gp-find__input') === null
+
+  // Sticky restore: on the Files tab with `src` expanded and a file selected,
+  // a view-tab switch unmounts the panel; returning within the window must
+  // restore the Files tab, the expanded dir, and the selection (not reset to
+  // the root). Simulate the switch by unmounting and remounting the view root.
+  result.preUnmountFilesActive = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.files') ?? false
+  result.preUnmountSelected = document.querySelector('.gp-files__tree .gp-tree-row--active')?.textContent?.trim() ?? null
+  result.preUnmountChildVisible = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].some((r) => (r.textContent || '').includes('a.txt'))
+  viewRoot.unmount()
+  await new Promise((r) => setTimeout(r, 50))
+  const viewRoot2 = ReactDOM.createRoot(document.getElementById('panel'))
+  viewRoot2.render(viewEntry.component({ sessionId: 'sess-1' }))
+  await new Promise((r) => setTimeout(r, 500))
+  result.restoredFilesActive = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.files') ?? false
+  result.restoredChildVisible = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].some((r) => (r.textContent || '').includes('a.txt'))
+  result.restoredSelected = document.querySelector('.gp-files__tree .gp-tree-row--active')?.textContent?.trim() ?? null
+  result.restoredPreviewShown = document.querySelector('.gp-files__code, .gp-files__markdown, .gp-files__image') !== null
   return result
 }, SNAP)
 
@@ -534,6 +552,13 @@ try {
   assert.equal(out.findCaseSensitiveHits, 0, 'enabling Match case drops mismatched-case matches')
   assert.equal(out.findCaseSensitiveLabel, 'files.findNoMatch', 'case-sensitive no-match shows the no-match label')
   assert.equal(out.findClosed, true, 'Esc closes the find box')
+  assert.equal(out.preUnmountFilesActive, true, 'before the switch the Files tab is active')
+  assert.ok(out.preUnmountSelected, 'before the switch a file is selected')
+  assert.equal(out.preUnmountChildVisible, true, 'before the switch the expanded dir shows its child')
+  assert.equal(out.restoredFilesActive, true, 'a quick return restores the Files sub-tab')
+  assert.equal(out.restoredChildVisible, true, 'a quick return keeps the expanded directory open')
+  assert.equal(out.restoredSelected, out.preUnmountSelected, 'a quick return keeps the same file selected')
+  assert.equal(out.restoredPreviewShown, true, 'a quick return restores the file preview')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {

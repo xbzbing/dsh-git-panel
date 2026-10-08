@@ -52,14 +52,48 @@ type FileState =
   | { readonly kind: 'tooLarge'; readonly path: string }
   | { readonly kind: 'error'; readonly path: string }
 
+/**
+ * Preserved Files-tab state so a quick return (within the same ~1-minute
+ * window the panel uses for its sub-tab) keeps the opened directories,
+ * selection, and preview instead of resetting to the root. Keyed per session;
+ * an entry older than the window is dropped on read.
+ */
+interface FilesState {
+  readonly dirs: ReadonlyMap<string, Loaded>
+  readonly open: ReadonlySet<string>
+  readonly selected: string | null
+  readonly file: FileState
+  readonly renderMarkdown: boolean
+}
+const FILES_STICKY_MS = 60_000
+const filesCache = new Map<string, { state: FilesState; leftAt: number }>()
+
+function stashFilesState(sessionId: string, state: FilesState): void {
+  // A mid-flight load can't resume after remount; persist it as idle so the
+  // restore path re-selects and refetches the file.
+  const file: FileState = state.file.kind === 'loading' ? { kind: 'idle' } : state.file
+  filesCache.set(sessionId, { state: { ...state, file }, leftAt: Date.now() })
+}
+
+function restoreFilesState(sessionId: string): FilesState | null {
+  const entry = filesCache.get(sessionId)
+  if (entry === undefined) return null
+  if (Date.now() - entry.leftAt > FILES_STICKY_MS) { filesCache.delete(sessionId); return null }
+  return entry.state
+}
+
 export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
+  // Restore a recently-left state once (per mount); null when none/expired.
+  const restored = useRef<FilesState | null | undefined>(undefined)
+  if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
+  const init = restored.current
   // Per-directory listing cache + expansion set, both keyed by relative path
   // ('' = root). The tree renders from these; expanding a dir fetches it once.
-  const [dirs, setDirs] = useState<ReadonlyMap<string, Loaded>>(new Map())
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set(['']))
-  const [selected, setSelected] = useState<string | null>(null)
-  const [file, setFile] = useState<FileState>({ kind: 'idle' })
-  const [renderMarkdown, setRenderMarkdown] = useState(true)
+  const [dirs, setDirs] = useState<ReadonlyMap<string, Loaded>>(() => init?.dirs ?? new Map())
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => init?.open ?? new Set(['']))
+  const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
+  const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
+  const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
   const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
@@ -119,6 +153,22 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
       setFile({ kind: 'binary', path })
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
   }, [remote, sessionId])
+
+  // Persist the browsing state when the panel unmounts (view-tab switch or
+  // session change) so a quick return restores it; a ref carries the latest
+  // values into the unmount-only cleanup.
+  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown })
+  liveRef.current = { dirs, open, selected, file, renderMarkdown }
+  useEffect(() => () => { stashFilesState(sessionId, liveRef.current) }, [sessionId])
+
+  // A restored selection whose preview was still loading at unmount comes back
+  // as idle; refetch it once on mount so the preview isn't left blank.
+  const rehydrated = useRef(false)
+  useEffect(() => {
+    if (rehydrated.current) return
+    rehydrated.current = true
+    if (init !== null && init.selected !== null && file.kind === 'idle') selectFile(init.selected)
+  }, [init, file.kind, selectFile])
 
   const treeRows = useMemo(() => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t }), [dirs, open, selected, toggleDir, selectFile, t])
 

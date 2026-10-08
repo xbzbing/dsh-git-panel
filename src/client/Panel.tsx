@@ -8,7 +8,7 @@ import type { JSX } from 'react'
 import { gitPanelRemoteOf, hasSession, type ClientCtx } from './rpc'
 import type { GitPanelRemote } from './rpc'
 import { useGitView, controllerFor } from './registry'
-import { takeSubTab, subscribeSubTab, type SubTab } from './jump'
+import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } from './jump'
 import { OverviewTab } from './OverviewTab'
 import { ChangesTab } from './ChangesTab'
 import { FilesTab } from './FilesTab'
@@ -56,6 +56,11 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     if (selection?.sessionId === sessionId) return
     const pending = takeSubTab(sessionId)
     if (pending !== null) { setSelection({ sessionId, tab: pending }); return }
+    // A quick return (within the sticky window) restores the last sub-tab
+    // instead of recomputing the default entry; an explicit pill jump above
+    // still wins.
+    const recent = recentSubTab(sessionId)
+    if (recent !== null) { setSelection({ sessionId, tab: recent }); return }
     if (view.state === 'ready') setSelection({ sessionId, tab: view.snapshot.dirty ? 'changes' : 'overview' })
   }, [sessionId, view, filesOnly, selection?.sessionId])
 
@@ -65,6 +70,15 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     if (!hasSession(sessionId)) return
     return subscribeSubTab(sessionId, (requested) => setSelection({ sessionId, tab: requested }))
   }, [sessionId])
+
+  // Stash the sub-tab the panel is leaving on so a quick return restores it.
+  // A ref carries the latest value into the unmount-only cleanup.
+  const leavingRef = useRef<{ sessionId?: string; tab: SubTab | null }>({ tab: null })
+  leavingRef.current = { sessionId, tab: activeTab }
+  useEffect(() => () => {
+    const { sessionId: sid, tab } = leavingRef.current
+    if (sid !== undefined && tab !== null) stashSubTab(sid, tab)
+  }, [])
 
   // The snapshot's checkedAt drives child reloads directly (no extra state /
   // first-mount bump): OverviewTab/ChangesTab reload when it advances.
