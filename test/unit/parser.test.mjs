@@ -126,27 +126,27 @@ test('parseTags reads name\\0shortHash lines and nulls a missing hash', () => {
   ])
 })
 
-test('parseStashList parses selector / reflog subject / relative time', () => {
+test('parseStashList parses selector / sha / reflog subject / relative time', () => {
   // Records are NUL-separated; fields unit-separated (\x1f). Covers an auto
   // "WIP on <branch>: <sha> <subj>" and a custom "On <branch>: <msg>".
   const stdout =
-    'stash@{0}\x1fWIP on main: 1a2b3c4 fix things\x1f2 hours ago\x00' +
-    'stash@{1}\x1fOn feature/x: my custom message\x1f3 days ago\x00'
+    'stash@{0}\x1faaaa1111\x1fWIP on main: 1a2b3c4 fix things\x1f2 hours ago\x00' +
+    'stash@{1}\x1fbbbb2222\x1fOn feature/x: my custom message\x1f3 days ago\x00'
   const out = parseStashList(stdout)
   assert.deepEqual(out, [
-    { index: 0, message: '1a2b3c4 fix things', branch: 'main', relTime: '2 hours ago' },
-    { index: 1, message: 'my custom message', branch: 'feature/x', relTime: '3 days ago' },
+    { index: 0, sha: 'aaaa1111', message: '1a2b3c4 fix things', branch: 'main', relTime: '2 hours ago' },
+    { index: 1, sha: 'bbbb2222', message: 'my custom message', branch: 'feature/x', relTime: '3 days ago' },
   ])
 })
 
 test('parseStashList handles (no branch) and an unparseable subject', () => {
   const stdout =
-    'stash@{0}\x1fWIP on (no branch): abc on a detached head\x1f1 minute ago\x00' +
-    'stash@{1}\x1fsomething unexpected\x1fjust now\x00'
+    'stash@{0}\x1fcccc3333\x1fWIP on (no branch): abc on a detached head\x1f1 minute ago\x00' +
+    'stash@{1}\x1fdddd4444\x1fsomething unexpected\x1fjust now\x00'
   const out = parseStashList(stdout)
   assert.deepEqual(out, [
-    { index: 0, message: 'abc on a detached head', branch: null, relTime: '1 minute ago' },
-    { index: 1, message: 'something unexpected', branch: null, relTime: 'just now' },
+    { index: 0, sha: 'cccc3333', message: 'abc on a detached head', branch: null, relTime: '1 minute ago' },
+    { index: 1, sha: 'dddd4444', message: 'something unexpected', branch: null, relTime: 'just now' },
   ])
 })
 
@@ -154,5 +154,5 @@ test('parseStashList ignores empty / malformed records', () => {
   assert.deepEqual(parseStashList(''), [])
   assert.deepEqual(parseStashList('\x00\x00'), [])
   // A record with no stash@{N} selector is skipped.
-  assert.deepEqual(parseStashList('notaselector\x1fx\x1fy\x00'), [])
+  assert.deepEqual(parseStashList('notaselector\x1fsha\x1fx\x1fy\x00'), [])
 })

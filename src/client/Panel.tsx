@@ -16,6 +16,7 @@ import { CommitIcon, DiffIcon, FilesIcon, GitHubIcon, RefreshIcon } from './icon
 import { usePanelLayout } from './layout'
 import type { GitAction, GitVersionInfo } from './types'
 import type { GitKey } from './locales'
+import { opErrorText } from './ops-modals'
 
 const FONT_DELTA_KEY = 'gp.panel.fontDelta'
 
@@ -103,7 +104,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     // hit a conflict applies the diff but keeps the stash); resync so the panel
     // reflects the real state rather than the pre-action snapshot.
     controllerFor(sessionId).resync()
-    return { ok: false, error: errorText(result.error.code, result.error.message, t) }
+    return { ok: false, error: opErrorText(result.error.code, result.error.message, t) }
   }
 
   const adjustFont = (delta: FontDelta): void => {
@@ -182,20 +183,6 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     ]),
     h('div', { key: 'body', className: 'gp-body' }, body),
   ])
-}
-
-function errorText(code: string, message: string | undefined, t: (key: GitKey) => string): string {
-  switch (code) {
-    case 'empty-message': return t('error.emptyMessage')
-    case 'not-a-git-repo': return t('error.notARepo')
-    case 'cwd-unavailable': return t('error.noCwd')
-    case 'local-changes-block': return t('error.localChangesBlock')
-    case 'conflict': return t('error.conflict')
-    case 'index-busy': return t('error.indexBusy')
-    case 'not-found': return t('error.notFound')
-    case 'invalid-name': return t('error.invalidName')
-    default: return message ?? t('error.generic')
-  }
 }
 
 interface VersionBarProps {

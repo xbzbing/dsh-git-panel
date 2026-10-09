@@ -97,7 +97,7 @@ const out = await page.evaluate(async (snap) => {
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
-          if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: [{ index: 0, message: 'wip on main', branch: 'main', relTime: '1 hour ago' }] } } }
+          if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }] } } }
         }
         if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
@@ -186,8 +186,10 @@ const out = await page.evaluate(async (snap) => {
   const dropBtn = document.querySelector('.gp-stash-row__actions .gp-icon-btn')
   if (dropBtn) { dropBtn.click(); await new Promise((r) => setTimeout(r, 150)) }
   result.stashDropHint = (document.querySelector('.gp-modal--sm .gp-modal__hint')?.textContent || '') === 'ops.aiHint'
-  const dropCancel = [...document.querySelectorAll('.gp-modal--sm .gp-modal__btns .gp-btn')].find((b) => (b.textContent || '') === 'common.cancel')
-  if (dropCancel) { dropCancel.click(); await new Promise((r) => setTimeout(r, 120)) }
+  // Escape dismisses the confirm dialog (matches the panel's dialog contract).
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.stashDropEscClosed = document.querySelector('.gp-modal--sm') === null
   const commitBtn = [...document.querySelectorAll('.gp-commitbox__actions .gp-btn--primary')][0]
   result.commitDisabledEmpty = commitBtn?.disabled === true
   const primaryStyle = getComputedStyle(commitBtn)
@@ -515,6 +517,7 @@ try {
   assert.equal(out.hasStashBtn, true, 'stash button present in the changes toolbar')
   assert.equal(out.stashRows, 1, 'the stash list expands to its one entry')
   assert.equal(out.stashDropHint, true, 'the stash drop confirm shows the AI hint')
+  assert.equal(out.stashDropEscClosed, true, 'Escape dismisses the stash drop confirm')
   assert.equal(out.commitDisabledEmpty, true, 'commit button is disabled without a message')
   assert.equal(out.commitEnabledWithMessage, true, 'commit button enables once a message is typed')
   assert.equal(out.commitPrimaryHoverKeepsColor, true, 'primary button defines a hover style that keeps its color')

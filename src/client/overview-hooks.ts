@@ -172,6 +172,9 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   detail: CommitDetail | null
   detailError: boolean
   select: (commit: GraphCommit) => void
+  /** Replace the selected row object (e.g. after a reload brought fresh refs)
+   *  without refetching detail; no-op unless the hash matches the selection. */
+  resyncSelected: (commit: GraphCommit) => void
   clearSelection: () => void
   fileDiff: { path: string; hash: string; shortHash: string } | null
   fileDiffText: string | null
@@ -215,6 +218,15 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     setSelected(null)
     setDetail(null)
     selectedHash.current = null
+  }, [])
+
+  // After a history reload (e.g. a tag create/delete bumped the list) the
+  // selected row object is stale — its `refs` no longer reflect the repo. Swap
+  // in the fresh row for the same hash so the detail's tag chips stay correct;
+  // detail body/stats are unaffected (keyed by hash, served from the LRU cache).
+  const resyncSelected = useCallback((commit: GraphCommit) => {
+    if (selectedHash.current !== commit.hash) return
+    setSelected(commit)
   }, [])
 
   const select = useCallback(async (commit: GraphCommit) => {
@@ -305,7 +317,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   useEffect(() => () => { if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current) }, [])
 
   return {
-    selected, detail, detailError, select, clearSelection,
+    selected, detail, detailError, select, resyncSelected, clearSelection,
     fileDiff, fileDiffText, fileDiffError, fileDiffMode, setFileDiffMode, fileDiffExpanded, openFileDiff, closeFileDiff,
     hover, hoverBody, onHoverEnter, onHoverLeave,
   }

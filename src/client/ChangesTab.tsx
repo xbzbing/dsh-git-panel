@@ -178,10 +178,10 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     const ok = await run({ kind: 'stash-push', ...(message.trim() !== '' ? { message } : {}) })
     if (ok) { setStashPushOpen(false); void loadStashes() }
   }
-  const stashApply = (index: number): void => { void run({ kind: 'stash-apply', index }).then((ok) => { if (ok) void loadStashes() }) }
-  const stashPop = (index: number): void => { void run({ kind: 'stash-pop', index }).then((ok) => { if (ok) void loadStashes() }) }
-  const stashDropConfirmed = async (index: number): Promise<void> => {
-    const ok = await run({ kind: 'stash-drop', index })
+  const stashApply = (index: number, sha: string): void => { void run({ kind: 'stash-apply', index, sha }).then((ok) => { if (ok) void loadStashes() }) }
+  const stashPop = (index: number, sha: string): void => { void run({ kind: 'stash-pop', index, sha }).then((ok) => { if (ok) void loadStashes() }) }
+  const stashDropConfirmed = async (index: number, sha: string): Promise<void> => {
+    const ok = await run({ kind: 'stash-drop', index, sha })
     if (ok) { setStashDrop(null); void loadStashes() }
   }
 
@@ -262,7 +262,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     h('div', { key: 'toolbar', className: 'gp-toolbar' }, [
       h('button', { key: 'sa', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, onClick: () => void run({ kind: 'stage-all' }) }, t('changes.stageAll')),
       h('button', { key: 'ua', type: 'button', className: 'gp-btn', disabled: busy || snapshot.staged === 0, onClick: () => void run({ kind: 'unstage-all' }) }, t('changes.unstageAll')),
-      h('button', { key: 'stash', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, title: t('changes.stash'), onClick: () => { setError(null); setStashPushOpen(true) } }, [h(StashIcon, { key: 'ic', size: 13 }), t('changes.stash')]),
+      h('button', { key: 'stash', type: 'button', className: 'gp-btn', disabled: busy || (snapshot.staged === 0 && snapshot.modified === 0), title: t('changes.stash'), onClick: () => { setError(null); setStashPushOpen(true) } }, [h(StashIcon, { key: 'ic', size: 13 }), t('changes.stash')]),
     ]),
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
@@ -303,8 +303,8 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
       ]),
       stashClosed ? null : h('div', { key: 'items' }, stashes.map((s) => renderStashRow(s, {
         busy,
-        onApply: () => stashApply(s.index),
-        onPop: () => stashPop(s.index),
+        onApply: () => stashApply(s.index, s.sha),
+        onPop: () => stashPop(s.index, s.sha),
         onDrop: () => { setError(null); setStashDrop(s) },
         t,
       }))),
@@ -373,7 +373,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
       confirmLabel: t('stash.drop'),
       danger: true,
       error,
-      onConfirm: () => void stashDropConfirmed(stashDrop.index),
+      onConfirm: () => void stashDropConfirmed(stashDrop.index, stashDrop.sha),
       onClose: () => setStashDrop(null),
       t,
     }) : null,

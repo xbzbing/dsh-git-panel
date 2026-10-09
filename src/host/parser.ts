@@ -161,17 +161,17 @@ export function parseTags(stdout: string): GitBranch[] {
 }
 
 /**
- * Parse `git stash list -z --format=%gd%x1f%gs%x1f%cr` into stash entries.
- * Each NUL-separated record is: selector (`stash@{N}`), reflog subject, and a
- * relative time. The subject is either auto ("WIP on <branch>: <sha> <subj>")
- * or custom ("On <branch>: <message>"); the branch is the text between "on "
- * and the first ": ", and the message is everything after that colon.
+ * Parse `git stash list -z --format=%gd%x1f%H%x1f%gs%x1f%cr` into stash entries.
+ * Each NUL-separated record is: selector (`stash@{N}`), the stash commit SHA, the
+ * reflog subject, and a relative time. The subject is either auto ("WIP on
+ * <branch>: <sha> <subj>") or custom ("On <branch>: <message>"); the branch is
+ * the text between "on " and the first ": ", and the message is after it.
  */
 export function parseStashList(stdout: string): StashEntry[] {
   const out: StashEntry[] = []
   for (const record of stdout.split('\0')) {
     if (record.trim() === '') continue
-    const [selector = '', subject = '', relTime = ''] = record.split('\x1f')
+    const [selector = '', sha = '', subject = '', relTime = ''] = record.split('\x1f')
     const idxMatch = /stash@\{(\d+)\}/.exec(selector)
     if (idxMatch === null) continue
     const index = Number(idxMatch[1])
@@ -183,7 +183,7 @@ export function parseStashList(stdout: string): StashEntry[] {
       branch = m[1] === '(no branch)' ? null : (m[1] ?? null)
       message = m[2] ?? ''
     }
-    out.push({ index, message: message.trim(), branch, relTime: relTime.trim() })
+    out.push({ index, sha: sha.trim(), message: message.trim(), branch, relTime: relTime.trim() })
   }
   return out
 }

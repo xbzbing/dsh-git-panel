@@ -786,15 +786,53 @@ test('stash push → list → apply → drop lifecycle', async () => {
     assert.equal(list.value.entries.length, 1)
     assert.equal(list.value.entries[0].index, 0)
     assert.equal(list.value.entries[0].message, 'wip change')
-    const apply = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-apply', index: 0 } })
+    assert.match(list.value.entries[0].sha, /^[0-9a-f]{7,64}$/, 'stash entry carries a SHA')
+    const sha = list.value.entries[0].sha
+    const apply = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-apply', index: 0, sha } })
     assert.equal(apply.ok, true, 'apply restores the change')
     assert.equal(apply.snapshot.dirty, true, 'work tree dirty again')
     const stillThere = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
     assert.equal(stillThere.value.entries.length, 1, 'apply keeps the stash entry')
-    const drop = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-drop', index: 0 } })
+    const drop = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-drop', index: 0, sha } })
     assert.equal(drop.ok, true, 'drop ok')
     const empty = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
     assert.equal(empty.value.entries.length, 0, 'stack empty after drop')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('stash-push with only untracked files reports failure (not a silent no-op)', async () => {
+  const dir = await freshRepo('gp-stash-ut-')
+  try {
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'brand-new.txt'), 'untracked only\n')
+    const push = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-push', message: 'x' } })
+    assert.equal(push.ok, false, 'nothing to stash is a failure, not ok')
+    assert.match(push.error.message ?? '', /No local changes to save/i)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a stale stash index/sha is rejected before the destructive op runs', async () => {
+  const dir = await freshRepo('gp-stash-stale-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'first\n')
+    await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-push', message: 'first' } })
+    const list = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    const staleSha = list.value.entries[0].sha
+    // A second stash pushes to index 0 and shifts the first to index 1; the
+    // client still holds the OLD (index 0, staleSha) pairing.
+    writeFileSync(join(dir, 'a.txt'), 'second\n')
+    await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-push', message: 'second' } })
+    const drop = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-drop', index: 0, sha: staleSha } })
+    assert.equal(drop.ok, false, 'index 0 now holds a different stash → rejected')
+    assert.equal(drop.error.code, 'not-found')
+    const after = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(after.value.entries.length, 2, 'nothing was dropped')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -810,10 +848,11 @@ test('stash pop that conflicts reports conflict and keeps the stash entry', asyn
     // and git keeps the stash entry so recovery stays possible.
     writeFileSync(join(dir, 'a.txt'), 'stashed\n')
     await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-push', message: 'first' } })
+    const sha = (await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })).value.entries[0].sha
     writeFileSync(join(dir, 'a.txt'), 'committed\n')
     await runGit(dir, ['add', 'a.txt'])
     await runGit(dir, ['commit', '-qm', 'conflicting commit'])
-    const pop = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-pop', index: 0 } })
+    const pop = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-pop', index: 0, sha } })
     assert.equal(pop.ok, false, 'pop into a conflicting commit fails')
     assert.equal(pop.error.code, 'conflict')
     const kept = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })

@@ -36,6 +36,15 @@ interface OverviewProps {
 
 const LANE_W = 14
 const ROW_H = 30
+
+/** Shallow equality of two ref lists by kind/name/head (ignores array identity). */
+function refsEqual(a: readonly GraphCommit['refs'][number][], b: readonly GraphCommit['refs'][number][]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.kind !== b[i]!.kind || a[i]!.name !== b[i]!.name || a[i]!.head !== b[i]!.head) return false
+  }
+  return true
+}
 /** Taller commit row in compact so each is a comfortable touch target and the
  * subject + meta can stack on two lines. The graph svg stretches to match it so
  * lane edges still connect between consecutive rows. */
@@ -76,6 +85,8 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   const [tagForm, setTagForm] = useState<{ hash: string; shortHash: string } | null>(null)
   const [tagToDelete, setTagToDelete] = useState<string | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
+  // In-flight guard so a double-click on confirm can't fire two tag RPCs.
+  const [opBusy, setOpBusy] = useState(false)
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
   // Ignored by the wide layout, which renders both columns at once.
   const [pane, setPane] = useState<'list' | 'detail'>('list')
@@ -130,6 +141,19 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   const fileTree = useMemo(() => (detail.detail === null ? [] : buildFileTree(detail.detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail.detail])
   const selected = detail.selected
 
+  // Keep the selected row's `refs` fresh: a tag create/delete reloads `commits`
+  // (via opBump), but `selected` still points at the pre-reload object, so its
+  // tag chips would go stale. When the matching hash reappears with different
+  // refs, swap in the fresh row (no detail refetch).
+  useEffect(() => {
+    if (selected === null) return
+    const fresh = commits.find((c) => c.hash === selected.hash)
+    if (fresh !== undefined && fresh !== selected && !refsEqual(fresh.refs, selected.refs)) {
+      detail.resyncSelected(fresh)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commits, selected])
+
   // Left branch column + right detail column are drag-resizable; the middle
   // history column takes the remaining space. Widths persist per column.
   const leftCol = useResizableColumn({ storageKey: 'gp.overview.left', initial: 200, min: 130, reserve: 360, edge: 'end' })
@@ -140,17 +164,24 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   // Tag write ops go straight through `run` (the work tree is untouched, so no
   // snapshot is needed); afterTagOp reloads the history graph + branch/tag list.
   const runTagCreate = async (name: string, message: string): Promise<void> => {
-    if (tagForm === null) return
+    if (tagForm === null || opBusy) return
     setOpError(null)
-    const res = await remote.run({ sessionId, action: { kind: 'tag-create', name, commit: tagForm.hash, ...(message.trim() !== '' ? { message } : {}) } })
-    if (res.ok) { setTagForm(null); afterTagOp() }
-    else setOpError(opErrorText(res.error.code, res.error.message, t))
+    setOpBusy(true)
+    try {
+      const res = await remote.run({ sessionId, action: { kind: 'tag-create', name, commit: tagForm.hash, ...(message.trim() !== '' ? { message } : {}) } })
+      if (res.ok) { setTagForm(null); afterTagOp() }
+      else setOpError(opErrorText(res.error.code, res.error.message, t))
+    } finally { setOpBusy(false) }
   }
   const runTagDelete = async (name: string): Promise<void> => {
+    if (opBusy) return
     setOpError(null)
-    const res = await remote.run({ sessionId, action: { kind: 'tag-delete', name } })
-    if (res.ok) { setTagToDelete(null); afterTagOp() }
-    else setOpError(opErrorText(res.error.code, res.error.message, t))
+    setOpBusy(true)
+    try {
+      const res = await remote.run({ sessionId, action: { kind: 'tag-delete', name } })
+      if (res.ok) { setTagToDelete(null); afterTagOp() }
+      else setOpError(opErrorText(res.error.code, res.error.message, t))
+    } finally { setOpBusy(false) }
   }
 
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {

@@ -136,12 +136,15 @@ export type GitAction = {
 } | {
     readonly kind: 'stash-apply';
     readonly index: number;
+    readonly sha: string;
 } | {
     readonly kind: 'stash-pop';
     readonly index: number;
+    readonly sha: string;
 } | {
     readonly kind: 'stash-drop';
     readonly index: number;
+    readonly sha: string;
 };
 export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'conflict' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
 export type GitActionResult = {
@@ -250,6 +253,8 @@ export interface GitBranch {
 export interface StashEntry {
     /** Stack position (0 = most recent). */
     readonly index: number;
+    /** The stash commit SHA — a stable id the index position is not (see run). */
+    readonly sha: string;
     /** The stash message (custom `-m` text, or the auto "WIP on …" subject). */
     readonly message: string;
     /** Branch the stash was taken on; null when it could not be parsed. */

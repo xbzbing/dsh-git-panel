@@ -129,11 +129,13 @@ export type GitAction =
   // Tag write operations (issue #12). `message` non-empty → annotated tag (-a).
   | { readonly kind: 'tag-create'; readonly name: string; readonly commit: string; readonly message?: string }
   | { readonly kind: 'tag-delete'; readonly name: string }
-  // Stash operations (issue #12). `index` is the stash stack position (0 = top).
+  // Stash operations (issue #12). `index` is the stash stack position (0 = top);
+  // `sha` is the stash commit the client saw, so the host can reject a stale
+  // index (the stack may have shifted under a shared worktree) before acting.
   | { readonly kind: 'stash-push'; readonly message?: string }
-  | { readonly kind: 'stash-apply'; readonly index: number }
-  | { readonly kind: 'stash-pop'; readonly index: number }
-  | { readonly kind: 'stash-drop'; readonly index: number }
+  | { readonly kind: 'stash-apply'; readonly index: number; readonly sha: string }
+  | { readonly kind: 'stash-pop'; readonly index: number; readonly sha: string }
+  | { readonly kind: 'stash-drop'; readonly index: number; readonly sha: string }
 
 export type GitErrorCode =
   | 'cwd-unavailable'
@@ -234,6 +236,8 @@ export interface GitBranch {
 export interface StashEntry {
   /** Stack position (0 = most recent). */
   readonly index: number
+  /** The stash commit SHA — a stable id the index position is not (see run). */
+  readonly sha: string
   /** The stash message (custom `-m` text, or the auto "WIP on …" subject). */
   readonly message: string
   /** Branch the stash was taken on; null when it could not be parsed. */

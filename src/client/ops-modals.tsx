@@ -4,7 +4,7 @@
  * `.gp-modal*` styles; every footer carries the "use the dsh AI" hint so a user
  * always sees the lower-conflict alternative to operating git from the panel.
  */
-import { createElement as h } from 'react'
+import { createElement as h, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { CloseIcon } from './icons'
@@ -12,15 +12,22 @@ import type { GitKey } from './locales'
 
 export type OpT = (key: GitKey, params?: Record<string, string | number>) => string
 
-/** Map a write-action failure code to display text (callers of `run` directly). */
+/**
+ * The single wire-code → display-text map. Both the Changes/Panel action path
+ * and the direct-`run` tag path render through this, so a code can never show
+ * two different messages depending on which path hit it.
+ */
 export function opErrorText(code: string, message: string | undefined, t: OpT): string {
   switch (code) {
-    case 'invalid-name': return t('error.invalidName')
-    case 'not-found': return t('error.notFound')
-    case 'index-busy': return t('error.indexBusy')
-    case 'conflict': return t('error.conflict')
-    case 'local-changes-block': return t('error.localChangesBlock')
     case 'empty-message': return t('error.emptyMessage')
+    case 'not-a-git-repo': return t('error.notARepo')
+    case 'cwd-unavailable': return t('error.noCwd')
+    case 'local-changes-block': return t('error.localChangesBlock')
+    case 'conflict': return t('error.conflict')
+    case 'index-busy': return t('error.indexBusy')
+    case 'not-found': return t('error.notFound')
+    case 'invalid-name':
+    case 'invalid-index': return t('error.invalidName')
     default: return message ?? t('error.generic')
   }
 }
@@ -61,6 +68,17 @@ export interface ConfirmCbs {
 /** Portaled confirm dialog for a low-frequency destructive op (tag delete, stash drop). */
 export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
   if (typeof document === 'undefined') return null
+  return h(ConfirmModal, cb)
+}
+
+/** Escape / backdrop / close / cancel all dismiss, matching the panel's other
+ * dialogs (file-diff modal, branch sheet, tag/stash dialogs all honor Esc). */
+function ConfirmModal(cb: ConfirmCbs): JSX.Element {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') cb.onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [cb])
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) cb.onClose() },

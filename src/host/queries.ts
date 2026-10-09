@@ -557,7 +557,7 @@ async function queryStashList(deps: SnapshotDeps, root: string): Promise<GitQuer
   // NUL-separated records of selector / reflog-subject / relative-time, which
   // parseStashList turns into { index, message, branch, relTime }. No stash
   // ref (never stashed) exits non-zero → an empty list, not an error.
-  const res = await runCommand(deps.run, ['git', 'stash', 'list', '-z', '--format=%gd%x1f%gs%x1f%cr'], root, 'stash-list', deps.signal)
+  const res = await runCommand(deps.run, ['git', 'stash', 'list', '-z', '--format=%gd%x1f%H%x1f%gs%x1f%cr'], root, 'stash-list', deps.signal)
   const entries: StashEntry[] = 'run' in res && res.run.exitCode === 0 ? parseStashList(res.run.stdout) : []
   return { ok: true, value: { kind: 'stash-list', entries } }
 }

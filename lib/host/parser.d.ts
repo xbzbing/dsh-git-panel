@@ -28,11 +28,11 @@ export declare function parseBranches(stdout: string): GitBranch[];
 /** Parse `git for-each-ref` tag lines: `name\0shortHash` per line. */
 export declare function parseTags(stdout: string): GitBranch[];
 /**
- * Parse `git stash list -z --format=%gd%x1f%gs%x1f%cr` into stash entries.
- * Each NUL-separated record is: selector (`stash@{N}`), reflog subject, and a
- * relative time. The subject is either auto ("WIP on <branch>: <sha> <subj>")
- * or custom ("On <branch>: <message>"); the branch is the text between "on "
- * and the first ": ", and the message is everything after that colon.
+ * Parse `git stash list -z --format=%gd%x1f%H%x1f%gs%x1f%cr` into stash entries.
+ * Each NUL-separated record is: selector (`stash@{N}`), the stash commit SHA, the
+ * reflog subject, and a relative time. The subject is either auto ("WIP on
+ * <branch>: <sha> <subj>") or custom ("On <branch>: <message>"); the branch is
+ * the text between "on " and the first ": ", and the message is after it.
  */
 export declare function parseStashList(stdout: string): StashEntry[];
 /**

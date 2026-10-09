@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isSafePath, isSafeRev, isSafeBranchName, planAction } from '../../lib/testkit.mjs'
+import { isSafePath, isSafeRev, isSafeBranchName, planAction, classifyActionFailure } from '../../lib/testkit.mjs'
 
 test('isSafePath rejects absolute paths and .. traversal', () => {
   // POSIX assumptions: dsh runs on POSIX, so `C:\x` is a relative name here
@@ -137,9 +137,22 @@ test('stash-push builds push with/without a message', () => {
 })
 
 test('stash apply/pop/drop reference stash@{N} from a validated integer index', () => {
-  assert.deepEqual(planAction({ kind: 'stash-apply', index: 0 }, false).argv, [['git', 'stash', 'apply', '--end-of-options', 'stash@{0}']])
-  assert.deepEqual(planAction({ kind: 'stash-pop', index: 2 }, false).argv, [['git', 'stash', 'pop', '--end-of-options', 'stash@{2}']])
-  assert.deepEqual(planAction({ kind: 'stash-drop', index: 1 }, false).argv, [['git', 'stash', 'drop', '--end-of-options', 'stash@{1}']])
-  assert.equal(planAction({ kind: 'stash-drop', index: -1 }, false).error, 'invalid-index')
-  assert.equal(planAction({ kind: 'stash-apply', index: 1.5 }, false).error, 'invalid-index')
+  assert.deepEqual(planAction({ kind: 'stash-apply', index: 0, sha: 'x' }, false).argv, [['git', 'stash', 'apply', '--end-of-options', 'stash@{0}']])
+  assert.deepEqual(planAction({ kind: 'stash-pop', index: 2, sha: 'x' }, false).argv, [['git', 'stash', 'pop', '--end-of-options', 'stash@{2}']])
+  assert.deepEqual(planAction({ kind: 'stash-drop', index: 1, sha: 'x' }, false).argv, [['git', 'stash', 'drop', '--end-of-options', 'stash@{1}']])
+  assert.equal(planAction({ kind: 'stash-drop', index: -1, sha: 'x' }, false).error, 'invalid-index')
+  assert.equal(planAction({ kind: 'stash-apply', index: 1.5, sha: 'x' }, false).error, 'invalid-index')
+})
+
+test('classifyActionFailure orders conflict before nothing-to-commit, and maps codes', () => {
+  // A stash pop conflict prints BOTH "CONFLICT" and "no changes added to commit";
+  // conflict must win (git keeps the stash → recoverable).
+  const popConflict = classifyActionFailure('Auto-merging a\nCONFLICT (content): Merge conflict in a\nno changes added to commit', '', 1)
+  assert.equal(popConflict.code, 'conflict')
+  assert.equal(classifyActionFailure('', 'fatal: Unable to create .git/index.lock: File exists', 128).code, 'index-busy')
+  assert.equal(classifyActionFailure('nothing to commit, working tree clean', '', 1).code, 'git-error')
+  assert.equal(classifyActionFailure('', "error: tag 'nope' not found.", 1).code, 'not-found')
+  assert.equal(classifyActionFailure('', 'is not a valid reference', 1).code, 'not-found')
+  assert.equal(classifyActionFailure('', 'error: Your local changes to the following files would be overwritten by merge', 1).code, 'local-changes-block')
+  assert.equal(classifyActionFailure('', 'something else entirely', 1).code, 'git-error')
 })
