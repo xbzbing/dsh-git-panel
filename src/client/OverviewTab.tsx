@@ -358,6 +358,7 @@ function renderHoverCard(
     h('div', { key: 'meta', className: 'gp-hovercard__meta' }, [
       h('span', { key: 'h', className: 'gp-commit-hash' }, hover.commit.shortHash),
       h('span', { key: 'a' }, hover.commit.author),
+      h('span', { key: 't' }, absoluteDateTime(hover.commit.dateIso)),
     ]),
     body === null
       ? h('div', { key: 'l', className: 'gp-hovercard__loading' }, t('common.loading'))
