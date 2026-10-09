@@ -10,7 +10,7 @@ import type { GitAction, GitChange, GitErrorCode, GitSnapshot } from './types'
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
-import { ChevronIcon, SparkleIcon } from './icons'
+import { ArrowLeftIcon, ChevronIcon, SparkleIcon } from './icons'
 import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
@@ -20,12 +20,14 @@ interface ChangesTabProps {
   readonly sessionId: string
   readonly snapshot: GitSnapshot
   readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
+  /** Compact (single-column drill-in) layout for a narrow panel. */
+  readonly compact: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
 type GroupKey = 'staged' | 'unstaged' | 'untracked'
 
-export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }: ChangesTabProps): JSX.Element {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [amend, setAmend] = useState(false)
@@ -41,6 +43,9 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   const [suggesting, setSuggesting] = useState(false)
   const [armedSuggest, setArmedSuggest] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  // Compact drill-in: 'list' shows the change list + commit box, 'diff' the
+  // selected file's diff. Ignored by the wide layout (both columns at once).
+  const [pane, setPane] = useState<'list' | 'diff'>('list')
   const msgRef = useRef<HTMLTextAreaElement | null>(null)
   const diffSeq = useRef(0)
 
@@ -102,7 +107,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   useEffect(() => {
     if (diffPath === null) return
     const stillThere = snapshot.changes.some((c) => c.path === diffPath.path)
-    if (!stillThere) { setDiffPath(null); setDiffText(null); return }
+    if (!stillThere) { setDiffPath(null); setDiffText(null); setPane('list'); return }
     void showDiff(diffPath.path, diffPath.base, expanded, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot])
@@ -210,100 +215,122 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   // the rest. Width persists across mounts.
   const leftCol = useResizableColumn({ storageKey: 'gp.changes.left', initial: 380, min: 220, reserve: 200, edge: 'end' })
 
-  return h('div', { className: 'gp-changes' }, [
-    // left
-    h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${leftCol.width}px` } }, [
-      h(ChangeStats, { key: 'stats', stats: snapshot.stats, t }),
-      h('div', { key: 'toolbar', className: 'gp-toolbar' }, [
-        h('button', { key: 'sa', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, onClick: () => void run({ kind: 'stage-all' }) }, t('changes.stageAll')),
-        h('button', { key: 'ua', type: 'button', className: 'gp-btn', disabled: busy || snapshot.staged === 0, onClick: () => void run({ kind: 'unstage-all' }) }, t('changes.unstageAll')),
-      ]),
-      error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
-      notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
-      h('div', { key: 'list', className: 'gp-changes__list' },
-        snapshot.changes.length === 0
-          ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
-          : groups.map((g) => h('div', { key: g.key }, [
-            h('div', { key: 'head', className: 'gp-group-head', onClick: () => toggleGroup(g.key) }, [
-              h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) }),
-              `${t(g.labelKey)} (${g.items.length})`,
-            ]),
-            closed.has(g.key) ? null : g.items.map((c) => {
-              // A path staged AND modified appears in two rows; key selection /
-              // active / armed by path+side so acting on one row doesn't light
-              // up the other (React key on the row is already path+side).
-              const rowKey = c.path + (c.staged ? ':s' : ':w')
-              return renderFileRow(c, {
-                selected: selected.has(rowKey),
-                active: diffPath?.path === c.path && diffPath.base === (c.staged ? 'staged' : 'worktree'),
-                busy,
-                armed: armedDiscard === rowKey,
-                onToggle: () => toggle(rowKey),
-                onOpen: () => void showDiff(c.path, c.staged ? 'staged' : 'worktree'),
-                onStage: () => void run(c.staged ? { kind: 'unstage', paths: [c.path] } : { kind: 'stage', paths: [c.path] }),
-                onDiscard: () => {
-                  if (armedDiscard === rowKey) { void run({ kind: 'discard', paths: [c.path] }); setArmedDiscard(null) }
-                  else setArmedDiscard(rowKey)
-                },
-                t,
-              })
-            }),
-          ]))),
-      // commit box
-      h('div', { key: 'box', className: 'gp-commitbox' }, [
-        h('textarea', {
-          key: 'msg',
-          className: 'gp-commitbox__msg',
-          placeholder: t('commit.placeholder'),
-          value: message,
-          ref: msgRef,
-          onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
-        }),
-        h('div', { key: 'row', className: 'gp-commitbox__row' }, [
-          h('label', { key: 'amend', className: 'gp-commitbox__amend' }, [
-            h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: amend, onChange: () => { setAmend((v) => !v); setAmendPrefilled(false) } }),
-            t('commit.amend'),
+  // Open a file's diff; in compact drill into the diff pane.
+  const openDiff = (path: string, base: 'worktree' | 'staged'): void => {
+    void showDiff(path, base)
+    if (compact) setPane('diff')
+  }
+
+  // Compact drops side-by-side (no room) and renders split as unified instead.
+  const diffModes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
+  const effDiffMode: DiffMode = compact && diffMode === 'split' ? 'unified' : diffMode
+
+  const leftChildren = [
+    h(ChangeStats, { key: 'stats', stats: snapshot.stats, t }),
+    h('div', { key: 'toolbar', className: 'gp-toolbar' }, [
+      h('button', { key: 'sa', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, onClick: () => void run({ kind: 'stage-all' }) }, t('changes.stageAll')),
+      h('button', { key: 'ua', type: 'button', className: 'gp-btn', disabled: busy || snapshot.staged === 0, onClick: () => void run({ kind: 'unstage-all' }) }, t('changes.unstageAll')),
+    ]),
+    error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
+    notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
+    h('div', { key: 'list', className: 'gp-changes__list' },
+      snapshot.changes.length === 0
+        ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
+        : groups.map((g) => h('div', { key: g.key }, [
+          h('div', { key: 'head', className: 'gp-group-head', onClick: () => toggleGroup(g.key) }, [
+            h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) }),
+            `${t(g.labelKey)} (${g.items.length})`,
           ]),
-          h('div', { key: 'actions', className: 'gp-commitbox__actions' }, [
-            snapshot.suggestEnabled !== false
-              ? h('button', {
-                key: 'suggest', type: 'button', className: 'gp-btn',
-                disabled: busy || suggesting || snapshot.changes.length === 0,
-                onClick: () => void suggest(),
-                title: t('commit.suggest'),
-              }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')])
-              : null,
-            h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: busy || suggesting || message.trim() === '', onClick: () => void commit() }, t('commit.commit')),
-          ]),
+          closed.has(g.key) ? null : g.items.map((c) => {
+            // A path staged AND modified appears in two rows; key selection /
+            // active / armed by path+side so acting on one row doesn't light
+            // up the other (React key on the row is already path+side).
+            const rowKey = c.path + (c.staged ? ':s' : ':w')
+            return renderFileRow(c, {
+              selected: selected.has(rowKey),
+              active: diffPath?.path === c.path && diffPath.base === (c.staged ? 'staged' : 'worktree'),
+              busy,
+              armed: armedDiscard === rowKey,
+              onToggle: () => toggle(rowKey),
+              onOpen: () => openDiff(c.path, c.staged ? 'staged' : 'worktree'),
+              onStage: () => void run(c.staged ? { kind: 'unstage', paths: [c.path] } : { kind: 'stage', paths: [c.path] }),
+              onDiscard: () => {
+                if (armedDiscard === rowKey) { void run({ kind: 'discard', paths: [c.path] }); setArmedDiscard(null) }
+                else setArmedDiscard(rowKey)
+              },
+              t,
+            })
+          }),
+        ]))),
+    // commit box
+    h('div', { key: 'box', className: 'gp-commitbox' }, [
+      h('textarea', {
+        key: 'msg',
+        className: 'gp-commitbox__msg',
+        placeholder: t('commit.placeholder'),
+        value: message,
+        ref: msgRef,
+        onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
+      }),
+      h('div', { key: 'row', className: 'gp-commitbox__row' }, [
+        h('label', { key: 'amend', className: 'gp-commitbox__amend' }, [
+          h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: amend, onChange: () => { setAmend((v) => !v); setAmendPrefilled(false) } }),
+          t('commit.amend'),
+        ]),
+        h('div', { key: 'actions', className: 'gp-commitbox__actions' }, [
+          snapshot.suggestEnabled !== false
+            ? h('button', {
+              key: 'suggest', type: 'button', className: 'gp-btn',
+              disabled: busy || suggesting || snapshot.changes.length === 0,
+              onClick: () => void suggest(),
+              title: t('commit.suggest'),
+            }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')])
+            : null,
+          h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: busy || suggesting || message.trim() === '', onClick: () => void commit() }, t('commit.commit')),
         ]),
       ]),
     ]),
+  ]
+
+  const diffBlock = diffPath === null
+    ? h('div', { className: 'gp-empty' }, t('changes.selectFile'))
+    : h('div', { className: 'gp-diff' }, [
+      h('div', { key: 'tb', className: 'gp-diff__toolbar' }, [
+        compact ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('list') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('changes.backToList')]) : null,
+        h('span', { key: 'path', className: 'gp-diff__path' }, diffPath.path),
+        summary ? h('span', { key: 'sum', className: 'gp-stats__item', style: { marginLeft: 'auto' } }, [
+          h('span', { key: 'a', className: 'gp-stats__add' }, `+${summary.add}`), ' ',
+          h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${summary.del}`),
+        ]) : null,
+        h('button', {
+          key: 'expand', type: 'button',
+          className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
+          style: summary ? {} : { marginLeft: 'auto' },
+          disabled: effDiffMode !== 'split' && effDiffMode !== 'unified',
+          title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
+          onClick: () => void showDiff(diffPath.path, diffPath.base, !expanded),
+        }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
+        h('div', { key: 'seg', className: 'gp-seg' },
+          segButtons<DiffMode>(diffModes, effDiffMode, setDiffMode, (m) => t(`diff.${m}` as GitKey))),
+      ]),
+      h('div', { key: 'scroll', className: 'gp-diff__scroll' },
+        diffText === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffText, mode: effDiffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, t })),
+    ])
+
+  // Compact: a single column drilling from the change list into the diff.
+  if (compact) {
+    return h('div', { className: 'gp-changes gp-changes--compact' },
+      pane === 'diff'
+        ? h('div', { key: 'right', className: 'gp-changes__right' }, diffBlock)
+        : h('div', { key: 'left', className: 'gp-changes__left' }, leftChildren))
+  }
+
+  return h('div', { className: 'gp-changes' }, [
+    // left
+    h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${leftCol.width}px` } }, leftChildren),
     leftCol.divider,
     // right diff
-    h('div', { key: 'right', className: 'gp-changes__right' },
-      diffPath === null
-        ? h('div', { className: 'gp-empty' }, t('changes.selectFile'))
-        : h('div', { className: 'gp-diff' }, [
-          h('div', { key: 'tb', className: 'gp-diff__toolbar' }, [
-            h('span', { key: 'path', className: 'gp-diff__path' }, diffPath.path),
-            summary ? h('span', { key: 'sum', className: 'gp-stats__item', style: { marginLeft: 'auto' } }, [
-              h('span', { key: 'a', className: 'gp-stats__add' }, `+${summary.add}`), ' ',
-              h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${summary.del}`),
-            ]) : null,
-            h('button', {
-              key: 'expand', type: 'button',
-              className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
-              style: summary ? {} : { marginLeft: 'auto' },
-              disabled: diffMode !== 'split' && diffMode !== 'unified',
-              title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
-              onClick: () => void showDiff(diffPath.path, diffPath.base, !expanded),
-            }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
-            h('div', { key: 'seg', className: 'gp-seg' },
-              segButtons<DiffMode>(['unified', 'split', 'before', 'after'], diffMode, setDiffMode, (m) => t(`diff.${m}` as GitKey))),
-          ]),
-          h('div', { key: 'scroll', className: 'gp-diff__scroll' },
-            diffText === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffText, mode: diffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, t })),
-        ])),
+    h('div', { key: 'right', className: 'gp-changes__right' }, diffBlock),
   ])
 }
 

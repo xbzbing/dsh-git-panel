@@ -32,6 +32,16 @@ export function CloseIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 4l8 8M12 4l-8 8' })], size)
 }
 
+/** Left-pointing arrow for the compact drill-in back button. */
+export function ArrowLeftIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M10 3L5 8l5 5' }), h('path', { key: 'b', d: 'M5 8h8' })], size)
+}
+
+/** Funnel glyph for the compact branch/ref filter trigger. */
+export function FilterIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M2 3h12l-4.5 5.5V13L6.5 11V8.5z' })], size)
+}
+
 export function RefreshIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M13 8a5 5 0 1 1-1.5-3.5' }), h('path', { key: 'b', d: 'M13 2v3h-3' })], size)
 }

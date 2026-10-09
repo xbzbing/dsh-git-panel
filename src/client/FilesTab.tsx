@@ -11,7 +11,7 @@ import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
 import type { DirEntry } from './types'
 import type { GitKey } from './locales'
-import { ChevronIcon } from './icons'
+import { ArrowLeftIcon, ChevronIcon } from './icons'
 import { useResizableColumn } from './resizable'
 import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
@@ -19,6 +19,8 @@ import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, M
 interface FilesTabProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
+  /** Compact (single-column drill-in) layout for a narrow panel. */
+  readonly compact: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -64,6 +66,8 @@ interface FilesState {
   readonly selected: string | null
   readonly file: FileState
   readonly renderMarkdown: boolean
+  /** Compact drill pane ('tree' = list, 'preview' = open file); wide ignores it. */
+  readonly pane: 'tree' | 'preview'
 }
 const FILES_STICKY_MS = 60_000
 const filesCache = new Map<string, { state: FilesState; leftAt: number }>()
@@ -82,7 +86,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -96,6 +100,9 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
   const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
+  // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
+  // Ignored by the wide layout (tree + preview side by side).
+  const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
   const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
   const fileSeq = useRef(0)
 
@@ -136,6 +143,7 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
 
   const selectFile = useCallback((path: string) => {
     setSelected(path)
+    if (compact) setPane('preview')
     // Rendered view is the default for Markdown; HTML defaults to source so a
     // page never auto-executes on selection — the user opts into the preview.
     setRenderMarkdown(!isHtmlPath(path))
@@ -152,13 +160,13 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
       if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0 }); return }
       setFile({ kind: 'binary', path })
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
-  }, [remote, sessionId])
+  }, [remote, sessionId, compact])
 
   // Persist the browsing state when the panel unmounts (view-tab switch or
   // session change) so a quick return restores it; a ref carries the latest
   // values into the unmount-only cleanup.
-  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown })
-  liveRef.current = { dirs, open, selected, file, renderMarkdown }
+  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown, pane })
+  liveRef.current = { dirs, open, selected, file, renderMarkdown, pane }
   useEffect(() => () => { stashFilesState(sessionId, liveRef.current) }, [sessionId])
 
   // A restored selection whose preview was still loading at unmount comes back
@@ -194,31 +202,41 @@ export function FilesTab({ remote, sessionId, t }: FilesTabProps): JSX.Element {
     }
   }
 
+  const treeBlock = h('div', { key: 'left', className: 'gp-files__tree', style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` } }, treeRows)
+
+  const previewBlock = h('div', { key: 'right', className: 'gp-files__preview' }, [
+    selected !== null ? h('div', { key: 'bar', className: 'gp-files__bar' }, [
+      compact ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('tree') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('files.backToTree')]) : null,
+      h('code', { key: 'path', className: 'gp-files__path', title: selected }, selected),
+      file.kind === 'text' && isRichPath(file.path)
+        ? h('div', { key: 'mode', className: 'gp-files__mode', role: 'group', 'aria-label': t('files.previewMode') }, [
+          h('button', { key: 'source', type: 'button', className: `gp-files__mode-btn${!renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': !renderMarkdown, onClick: () => setRenderMarkdown(false) }, t('files.source')),
+          h('button', { key: 'render', type: 'button', className: `gp-files__mode-btn${renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': renderMarkdown, onClick: () => setRenderMarkdown(true) }, t('files.render')),
+        ])
+        : null,
+      h('button', {
+        key: 'copy', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
+        'aria-live': 'polite', onClick: () => { void copyPath() },
+      }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
+      file.kind === 'text'
+        ? h('button', {
+          key: 'copy-content', type: 'button', className: `gp-files__copy-path${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
+          'aria-live': 'polite', onClick: () => { void copyContent() },
+        }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
+        : null,
+    ]) : null,
+    h('div', { key: 'content', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, t)),
+  ])
+
+  // Compact: a single column drilling from the tree into the file preview.
+  if (compact) {
+    return h('div', { className: 'gp-files gp-files--compact' }, pane === 'preview' ? previewBlock : treeBlock)
+  }
+
   return h('div', { className: 'gp-files' }, [
-    h('div', { key: 'left', className: 'gp-files__tree', style: { flex: `0 0 ${leftCol.width}px` } }, treeRows),
+    treeBlock,
     leftCol.divider,
-    h('div', { key: 'right', className: 'gp-files__preview' }, [
-      selected !== null ? h('div', { key: 'bar', className: 'gp-files__bar' }, [
-        h('code', { key: 'path', className: 'gp-files__path', title: selected }, selected),
-        file.kind === 'text' && isRichPath(file.path)
-          ? h('div', { key: 'mode', className: 'gp-files__mode', role: 'group', 'aria-label': t('files.previewMode') }, [
-            h('button', { key: 'source', type: 'button', className: `gp-files__mode-btn${!renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': !renderMarkdown, onClick: () => setRenderMarkdown(false) }, t('files.source')),
-            h('button', { key: 'render', type: 'button', className: `gp-files__mode-btn${renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': renderMarkdown, onClick: () => setRenderMarkdown(true) }, t('files.render')),
-          ])
-          : null,
-        h('button', {
-          key: 'copy', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-          'aria-live': 'polite', onClick: () => { void copyPath() },
-        }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
-        file.kind === 'text'
-          ? h('button', {
-            key: 'copy-content', type: 'button', className: `gp-files__copy-path${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-            'aria-live': 'polite', onClick: () => { void copyContent() },
-          }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
-          : null,
-      ]) : null,
-      h('div', { key: 'content', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, t)),
-    ]),
+    previewBlock,
   ])
 }
 

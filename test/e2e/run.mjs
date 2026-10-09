@@ -145,24 +145,30 @@ const out = await page.evaluate(async (snap) => {
   document.querySelector('.gp-font__reset')?.click()
   await new Promise((r) => setTimeout(r, 60))
   result.fontReset = getComputedStyle(panelRoot).fontSize
-  // Responsive tab bar: the bar is an inline-size container, so narrowing the
-  // panel sheds the trailing controls first (font stepper + version bar), then
-  // drops the tab labels to icon-only — labels must never wrap/overflow.
+  // Responsive tab bar: a wide panel is the three-column 'wide' layout with the
+  // trailing controls inline; narrowing to a phone width switches to the
+  // 'compact' layout, which keeps the font stepper + version bar (wrapped onto a
+  // second row, not hidden) and keeps the tab labels; only a very narrow panel
+  // drops the labels to icon-only.
   const panelHost = document.getElementById('panel')
   const fontCluster = panelRoot.querySelector('.gp-font')
   const firstLabel = panelRoot.querySelector('.gp-tab__label')
+  result.wideLayout = panelRoot.getAttribute('data-layout')
   result.wideShowsControls = getComputedStyle(fontCluster).display !== 'none'
   result.wideShowsLabel = getComputedStyle(firstLabel).display !== 'none'
   panelHost.style.width = '400px'
-  await new Promise((r) => setTimeout(r, 80))
-  result.narrowHidesControls = getComputedStyle(panelRoot.querySelector('.gp-font')).display === 'none'
+  await new Promise((r) => setTimeout(r, 120))
+  result.narrowLayout = panelRoot.getAttribute('data-layout')
+  result.narrowShowsControls = getComputedStyle(panelRoot.querySelector('.gp-font')).display !== 'none'
   result.narrowKeepsLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display !== 'none'
   panelHost.style.width = '260px'
   await new Promise((r) => setTimeout(r, 80))
   result.tinyHidesLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display === 'none'
   result.tinyKeepsIcon = getComputedStyle(panelRoot.querySelector('.gp-tab__icon')).display !== 'none'
+  result.tinyShowsControls = getComputedStyle(panelRoot.querySelector('.gp-font')).display !== 'none'
   panelHost.style.width = '1000px'
-  await new Promise((r) => setTimeout(r, 80))
+  await new Promise((r) => setTimeout(r, 120))
+  result.restoresLayout = panelRoot.getAttribute('data-layout')
   result.restoresLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display !== 'none'
   const changesTab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))
   if (changesTab) { changesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
@@ -471,12 +477,16 @@ try {
   assert.equal(out.fontIncreased, '14px', 'font control increases panel text size')
   assert.equal(out.fontStored, '1', 'font adjustment persists locally')
   assert.equal(out.fontReset, '13px', 'font reset restores default size')
+  assert.equal(out.wideLayout, 'wide', 'a wide panel uses the three-column wide layout')
   assert.equal(out.wideShowsControls, true, 'a wide panel shows the trailing controls')
   assert.equal(out.wideShowsLabel, true, 'a wide panel shows the tab labels')
-  assert.equal(out.narrowHidesControls, true, 'a narrow panel hides the trailing controls first')
-  assert.equal(out.narrowKeepsLabel, true, 'a narrow panel still keeps the tab labels')
+  assert.equal(out.narrowLayout, 'compact', 'a phone-width panel switches to the compact layout')
+  assert.equal(out.narrowShowsControls, true, 'the compact layout keeps the trailing controls (wrapped, not hidden)')
+  assert.equal(out.narrowKeepsLabel, true, 'the compact layout still keeps the tab labels')
   assert.equal(out.tinyHidesLabel, true, 'a very narrow panel drops the tab labels')
   assert.equal(out.tinyKeepsIcon, true, 'a very narrow panel keeps the tab icons')
+  assert.equal(out.tinyShowsControls, true, 'a very narrow compact panel still keeps the trailing controls')
+  assert.equal(out.restoresLayout, 'wide', 'widening the panel restores the wide layout')
   assert.equal(out.restoresLabel, true, 'widening the panel restores the tab labels')
   assert.equal(out.hasStats, true, 'stats bar rendered')
   assert.equal(out.hasCommitBox, true, 'commit box rendered')
