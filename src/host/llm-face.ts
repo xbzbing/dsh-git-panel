@@ -1,43 +1,24 @@
 /**
  * Structural faces of the host `llm` and `agentDefaultModel` services.
  *
- * Only the fields the commit-message suggest endpoint reads are declared, so
- * the plugin builds standalone (like `SubprocessLike` in git.ts) and the
- * endpoint stays testable with a stub stream instead of a real model. Both
- * services are shipped by `@deepseek-ai/dsh-base`; absence degrades the
- * endpoint to a typed `llm-unavailable` failure instead of breaking it.
+ * The `llm` face is typed against the real `@deepseek-ai/dsh-llm` contract
+ * via type-only imports — the build externalizes the whole `@deepseek-ai/*`
+ * scope, so this adds no runtime dependency, and any wire-shape drift (e.g.
+ * the finish chunk's `reason` envelope) breaks typecheck instead of silently
+ * passing. Both services are shipped by `@deepseek-ai/dsh-base`; they are
+ * resolved per request (never frozen at construction) and absence degrades
+ * the suggest endpoint to a typed `llm-unavailable` failure instead of
+ * breaking plugin activation (kept out of `static inject` on purpose).
  */
-
-/** One streamed chunk, structurally — only the fields the suggest call reads. */
-export interface LlmStreamChunk {
-  readonly type: string
-  readonly text?: string
-  readonly kind?: string
-  readonly failure?: { readonly code?: string; readonly message?: string }
-}
-
-/** Request shape the suggest call assembles for the model. */
-export interface LlmStreamOptions {
-  readonly provider: string
-  readonly model: string
-  readonly messages: readonly {
-    readonly role: 'user'
-    readonly content: readonly { readonly type: 'text'; readonly text: string }[]
-  }[]
-  readonly system?: string
-  readonly maxTokens?: number
-  readonly temperature?: number
-  readonly reasoningEffort?: string
-  readonly signal?: AbortSignal
-}
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 
 /** Minimal face of the host `llm` service (`ctx.llm`). */
 export interface LlmFace {
-  stream(options: LlmStreamOptions): AsyncIterable<LlmStreamChunk>
+  stream(options: GenerateOptions): AsyncIterable<StreamChunk>
   listProviders?(): readonly { readonly id: string }[]
 }
 
 /** Minimal face of the host `agentDefaultModel` service. */
 export interface AgentDefaultModelFace {
-  currentSelection(): { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | undefined
+  currentSelection(): { readonly provider: string; readonly model: string } | undefined
 }

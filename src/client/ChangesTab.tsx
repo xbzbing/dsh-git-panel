@@ -39,6 +39,8 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   const [expanded, setExpanded] = useState(false)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
+  const [armedSuggest, setArmedSuggest] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const msgRef = useRef<HTMLTextAreaElement | null>(null)
   const diffSeq = useRef(0)
 
@@ -108,6 +110,9 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   // Disarm a pending discard confirmation when the snapshot changes (the row
   // may be gone) so the destructive "click again" state can't linger.
   useEffect(() => { setArmedDiscard(null) }, [snapshot])
+  // Same for the suggest-overwrite confirmation: a fresh snapshot means the
+  // message-in-box context may have moved on.
+  useEffect(() => { setArmedSuggest(false) }, [snapshot])
 
   const toggle = (path: string): void => {
     setSelected((prev) => {
@@ -121,6 +126,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
     if (busy) return false
     setBusy(true)
     setError(null)
+    setNotice(null)
     try {
       const result = await onAction(action)
       if (!result.ok) { setError(result.error ?? t('error.generic')); return false }
@@ -147,6 +153,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
     switch (code) {
       case 'empty-diff': return t('error.emptyDiff')
       case 'llm-unavailable': return t('error.llmUnavailable')
+      case 'suggest-disabled': return t('error.suggestDisabled')
       case 'llm-error':
       case 'llm-output': return detail === undefined ? t('error.llmFailed') : `${t('error.llmFailed')}: ${detail}`
       default: return detail ?? t('error.generic')
@@ -155,17 +162,29 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
 
   // Generate a commit message from the current changes (scoped to the
   // selection) and fill the box. On failure the typed error shows above; the
-  // user's existing draft is never overwritten by a failed generation.
+  // user's existing draft is never overwritten by a failed generation. In
+  // amend mode a non-empty box holds the previous commit's message as the
+  // reference, so replacing it takes a second click (armed pattern, like
+  // discard).
   const suggest = async (): Promise<void> => {
     if (suggesting) return
+    if (amend && !armedSuggest && message.trim() !== '') {
+      setArmedSuggest(true)
+      setError(null)
+      setNotice(t('commit.suggestOverwrite'))
+      return
+    }
+    setArmedSuggest(false)
     // Selection keys carry a :s/:w side suffix; the suggestion scopes to bare paths.
     const paths = selected.size > 0 ? [...new Set([...selected].map((k) => k.replace(/:[sw]$/, '')))] : undefined
     setSuggesting(true)
     setError(null)
+    setNotice(null)
     try {
       const res = await remote.suggest({ sessionId, ...(paths && paths.length > 0 ? { paths } : {}) })
       if (res.ok) {
         setMessage(res.value.message)
+        if (res.value.truncated === true) setNotice(t('commit.suggestTruncated'))
         msgRef.current?.focus()
       } else {
         setError(suggestErrorText(res.error.code, res.error.message))
@@ -200,6 +219,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
         h('button', { key: 'ua', type: 'button', className: 'gp-btn', disabled: busy || snapshot.staged === 0, onClick: () => void run({ kind: 'unstage-all' }) }, t('changes.unstageAll')),
       ]),
       error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
+      notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
       h('div', { key: 'list', className: 'gp-changes__list' },
         snapshot.changes.length === 0
           ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
@@ -245,12 +265,14 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
             t('commit.amend'),
           ]),
           h('div', { key: 'actions', className: 'gp-commitbox__actions' }, [
-            h('button', {
-              key: 'suggest', type: 'button', className: 'gp-btn',
-              disabled: busy || suggesting || snapshot.changes.length === 0,
-              onClick: () => void suggest(),
-              title: t('commit.suggest'),
-            }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')]),
+            snapshot.suggestEnabled !== false
+              ? h('button', {
+                key: 'suggest', type: 'button', className: 'gp-btn',
+                disabled: busy || suggesting || snapshot.changes.length === 0,
+                onClick: () => void suggest(),
+                title: t('commit.suggest'),
+              }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')])
+              : null,
             h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: busy || suggesting || message.trim() === '', onClick: () => void commit() }, t('commit.commit')),
           ]),
         ]),

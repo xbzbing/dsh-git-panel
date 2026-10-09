@@ -1,9 +1,10 @@
 /**
  * Suggest-endpoint tests: real git repositories in a temp dir drive the diff
  * collection; a stub LLM stream drives the model-call side. Covers framing
- * (files + diff + recent message), path filtering, unborn repos, truncation,
- * route resolution (agent default vs config override), finish-reason error
- * mapping, timeout, and missing-service degradation.
+ * (files + diff + recent message), untracked fold-in, path filtering, unborn
+ * repos, truncation, route resolution (agent default vs config override),
+ * finish-reason error mapping against the real `{ type:'finish'; reason }`
+ * chunk envelope, timeout, suggest-disabled, and missing-service degradation.
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -64,7 +65,16 @@ function depsFor(dir, extra = {}) {
   }
 }
 
-/** A stub LLM face recording every call and replaying a chunk script. */
+/** The default-model face returning a fixed route. */
+function defaultRoute(provider = 'p1', model = 'm1') {
+  return { currentSelection: () => ({ provider, model }) }
+}
+
+/**
+ * A stub LLM face recording every call and replaying a chunk script. Chunks
+ * use the real StreamChunk envelope: text-delta carries `text`, the terminal
+ * finish chunk carries `reason` (never a top-level `kind`).
+ */
 function stubLlm(chunks, { streamError, onSignalAbort } = {}) {
   const calls = []
   const face = {
@@ -88,7 +98,7 @@ function stubLlm(chunks, { streamError, onSignalAbort } = {}) {
 const OK_CHUNKS = [
   { type: 'text-delta', index: 0, text: 'fix(parser): handle NUL records' },
   { type: 'text-delta', index: 0, text: '\n\nBody line' },
-  { type: 'finish', index: 0, kind: 'stop' },
+  { type: 'finish', reason: { kind: 'stop' } },
 ]
 
 before(async () => {
@@ -120,7 +130,7 @@ after(() => {
 
 test('success: returns the assembled message and both delta texts', async () => {
   const llm = stubLlm(OK_CHUNKS)
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   assert.equal(res.ok, true)
   if (res.ok) {
@@ -134,7 +144,7 @@ test('success: returns the assembled message and both delta texts', async () => 
 
 test('frames files, diff, and recent commit message as JSON for the model', async () => {
   const llm = stubLlm(OK_CHUNKS)
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   const options = llm.calls[0]
   assert.equal(options.provider, 'p1')
@@ -142,42 +152,51 @@ test('frames files, diff, and recent commit message as JSON for the model', asyn
   assert.equal(options.maxTokens, DEFAULT_CONFIG.suggestMaxOutputTokens)
   assert.equal(options.temperature, 0.3)
   assert.match(options.system, /commit messages/)
+  // The one-shot message satisfies the durable Message contract (id + source).
+  assert.equal(options.messages[0].role, 'user')
+  assert.equal(options.messages[0].source.kind, 'user')
+  assert.equal(typeof options.messages[0].id, 'string')
   const frame = JSON.parse(options.messages[0].content[0].text)
   const changed = frame.files.map((f) => `${f.status}:${f.path}`).sort()
   // b.ts modified in the worktree, new.txt + unselected.txt untracked; a.ts clean.
   assert.deepEqual(changed, ['modified:b.ts', 'untracked:new.txt', 'untracked:unselected.txt'])
   assert.match(frame.diff, /changed line/)
   assert.match(frame.diff, /diff --git a\/b.ts/)
+  // Untracked new files are folded into the diff, not left as bare paths.
+  assert.match(frame.diff, /brand new/)
+  assert.match(frame.diff, /not in selection/)
   assert.equal(frame.recentCommitMessage, 'feat: add b.ts')
 })
 
 test('paths filter restricts both the file list and the diff', async () => {
   const llm = stubLlm(OK_CHUNKS)
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID, paths: ['new.txt'] })
   assert.equal(res.ok, true)
   const frame = JSON.parse(llm.calls[0].messages[0].content[0].text)
   assert.deepEqual(frame.files, [{ path: 'new.txt', status: 'untracked' }])
-  // Untracked files produce no HEAD diff, but the path still reached the frame.
-  assert.equal(frame.diff, '')
+  // `git diff HEAD` misses untracked paths; the fold-in supplies their content.
+  assert.match(frame.diff, /brand new/)
+  assert.doesNotMatch(frame.diff, /changed line/)
   assert.equal(res.ok && res.value.message.length > 0, true)
 })
 
 test('unsafe path in the request is rejected', async () => {
   const llm = stubLlm([])
-  const deps = depsFor(repo, { llm })
+  const deps = depsFor(repo, { getLlm: () => llm })
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID, paths: ['../evil.txt'] })
   assert.equal(res.ok, false)
   if (!res.ok) assert.equal(res.error.code, 'invalid-path')
 })
 
-test('unborn repo: diff comes from index + worktree, no HEAD required', async () => {
+test('unborn repo: diff comes from index + worktree, untracked content folded', async () => {
   const llm = stubLlm(OK_CHUNKS)
-  const deps = depsFor(unborn, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+  const deps = depsFor(unborn, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   assert.equal(res.ok, true)
   const frame = JSON.parse(llm.calls[0].messages[0].content[0].text)
   assert.deepEqual(frame.files, [{ path: 'x.txt', status: 'untracked' }])
+  assert.match(frame.diff, /hello/)
 })
 
 test('no uncommitted changes reports empty-diff', async () => {
@@ -185,7 +204,7 @@ test('no uncommitted changes reports empty-diff', async () => {
   try {
     await runGit(clean, ['init', '-q'])
     const llm = stubLlm([])
-    const deps = depsFor(clean, { llm })
+    const deps = depsFor(clean, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
     const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
     assert.equal(res.ok, false)
     if (!res.ok) assert.equal(res.error.code, 'empty-diff')
@@ -197,19 +216,24 @@ test('no uncommitted changes reports empty-diff', async () => {
 
 test('oversized diff is truncated and flagged', async () => {
   const llm = stubLlm(OK_CHUNKS)
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const config = { ...DEFAULT_CONFIG, suggestMaxBytes: 64 }
   const res = await runSuggest(deps, config, { sessionId: SID })
   assert.equal(res.ok, true)
   if (res.ok) assert.equal(res.value.truncated, true)
   const frame = JSON.parse(llm.calls[0].messages[0].content[0].text)
-  assert.ok(Buffer.byteLength(frame.diff, 'utf8') <= 64 + '[diff truncated]'.length + 8)
   assert.match(frame.diff, /diff truncated/)
+  assert.ok(Buffer.byteLength(frame.diff, 'utf8') <= 64 + '\n... [diff truncated]'.length)
 })
 
-test('finish error maps to llm-error with the provider message', async () => {
-  const llm = stubLlm([{ type: 'finish', kind: 'error', failure: { code: 'RATE_LIMIT', message: 'quota exceeded' } }])
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+test('finish error maps to llm-error with the provider message, even with partial text', async () => {
+  // The real chunk envelope is { type:'finish', reason:{ kind, failure } }; a
+  // half-streamed message must NOT come back as success (review regression).
+  const llm = stubLlm([
+    { type: 'text-delta', index: 0, text: 'half a message' },
+    { type: 'finish', reason: { kind: 'error', failure: { code: 'RATE_LIMIT', message: 'quota exceeded' } } },
+  ])
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   assert.equal(res.ok, false)
   if (!res.ok) {
@@ -218,17 +242,38 @@ test('finish error maps to llm-error with the provider message', async () => {
   }
 })
 
-test('max-tokens finish maps to llm-output', async () => {
-  const llm = stubLlm([{ type: 'finish', kind: 'max-tokens' }])
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+test('aborted finish maps to llm-error', async () => {
+  const llm = stubLlm([
+    { type: 'text-delta', index: 0, text: 'partial' },
+    { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'stream aborted' } } },
+  ])
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   assert.equal(res.ok, false)
-  if (!res.ok) assert.equal(res.error.code, 'llm-output')
+  if (!res.ok) {
+    assert.equal(res.error.code, 'llm-error')
+    assert.match(res.error.message ?? '', /stream aborted/)
+  }
+})
+
+test('max-tokens finish maps to llm-output even when partial text arrived', async () => {
+  // Truncated output must not be returned as a complete message (review case).
+  const llm = stubLlm([
+    { type: 'text-delta', index: 0, text: 'feat: a message cut off mid-sen' },
+    { type: 'finish', reason: { kind: 'max-tokens' } },
+  ])
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
+  assert.equal(res.ok, false)
+  if (!res.ok) {
+    assert.equal(res.error.code, 'llm-output')
+    assert.match(res.error.message ?? '', /token limit/)
+  }
 })
 
 test('empty model output maps to llm-output', async () => {
-  const llm = stubLlm([{ type: 'text-delta', index: 0, text: '   ' }, { type: 'finish', kind: 'stop' }])
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+  const llm = stubLlm([{ type: 'text-delta', index: 0, text: '   ' }, { type: 'finish', reason: { kind: 'stop' } }])
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   assert.equal(res.ok, false)
   if (!res.ok) assert.equal(res.error.code, 'llm-output')
@@ -237,16 +282,26 @@ test('empty model output maps to llm-output', async () => {
 test('code-fence wrapper is stripped from the message', async () => {
   const llm = stubLlm([
     { type: 'text-delta', index: 0, text: '```\nfeat: wrapped in fences\n```' },
-    { type: 'finish', kind: 'stop' },
+    { type: 'finish', reason: { kind: 'stop' } },
   ])
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   assert.equal(res.ok, true)
   if (res.ok) assert.equal(res.value.message, 'feat: wrapped in fences')
 })
 
+test('suggestEnabled=false refuses at the host gate without calling anything', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  const config = { ...DEFAULT_CONFIG, suggestEnabled: false }
+  const res = await runSuggest(deps, config, { sessionId: SID })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'suggest-disabled')
+  assert.equal(llm.calls.length, 0)
+})
+
 test('missing llm service reports llm-unavailable without calling anything', async () => {
-  const deps = depsFor(repo) // no llm, no agentDefaultModel
+  const deps = depsFor(repo) // no getLlm, no getAgentDefaultModel
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   assert.equal(res.ok, false)
   if (!res.ok) assert.equal(res.error.code, 'llm-unavailable')
@@ -254,7 +309,7 @@ test('missing llm service reports llm-unavailable without calling anything', asy
 
 test('config provider/model override beats the agent default route', async () => {
   const llm = stubLlm(OK_CHUNKS)
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'agent-p', model: 'agent-m' }) } })
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute('agent-p', 'agent-m') })
   const config = { ...DEFAULT_CONFIG, suggestProvider: 'cfg-p', suggestModel: 'cfg-m' }
   await runSuggest(deps, config, { sessionId: SID })
   assert.equal(llm.calls[0].provider, 'cfg-p')
@@ -263,7 +318,7 @@ test('config provider/model override beats the agent default route', async () =>
 
 test('timeout: a stream that never finishes maps to llm-error', async () => {
   const llm = stubLlm([], { onSignalAbort: true, streamError: new Error('aborted by signal') })
-  const deps = depsFor(repo, { llm, agentDefaultModel: { currentSelection: () => ({ provider: 'p1', model: 'm1' }) } })
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   const config = { ...DEFAULT_CONFIG, suggestTimeoutMs: 60 }
   const res = await runSuggest(deps, config, { sessionId: SID })
   assert.equal(res.ok, false)

@@ -101,6 +101,8 @@ export const zh = {
   'commit.amend': '修正上次提交（amend）',
   'commit.suggest': 'AI 生成',
   'commit.suggesting': '生成中…',
+  'commit.suggestOverwrite': '再次点击「AI 生成」以覆盖当前提交信息',
+  'commit.suggestTruncated': 'diff 过长已截断，生成的建议可能不完整',
   // diff
   'diff.unified': '统一',
   'diff.split': '对照',
@@ -131,6 +133,7 @@ export const zh = {
   'error.emptyDiff': '没有可生成的变更',
   'error.llmUnavailable': 'AI 服务不可用',
   'error.llmFailed': 'AI 生成失败',
+  'error.suggestDisabled': 'AI 生成已在插件配置中关闭',
   // plugin detail config form
   'cfg.title': '输入框分支标记',
   'cfg.toggle': '显示输入框标记',
@@ -240,6 +243,8 @@ export const en: Record<GitKey, string> = {
   'commit.amend': 'Amend previous commit',
   'commit.suggest': 'AI suggest',
   'commit.suggesting': 'Generating…',
+  'commit.suggestOverwrite': 'Click "AI suggest" again to replace the current message',
+  'commit.suggestTruncated': 'The diff was truncated; the suggestion may be incomplete',
   'diff.unified': 'Unified',
   'diff.split': 'Split',
   'diff.before': 'Before',
@@ -267,6 +272,7 @@ export const en: Record<GitKey, string> = {
   'error.emptyDiff': 'No changes to summarize',
   'error.llmUnavailable': 'AI service unavailable',
   'error.llmFailed': 'AI generation failed',
+  'error.suggestDisabled': 'AI suggest is turned off in the plugin config',
   'cfg.title': 'Input-bar branch marker',
   'cfg.toggle': 'Show input-bar marker',
   'cfg.hint': 'When on, the input bar shows the zsh-style <repo> (branch) marker; when off, a status dot appears beside the Git tab instead. Saved changes apply immediately.',

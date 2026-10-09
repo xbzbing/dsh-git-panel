@@ -276,6 +276,7 @@ const CSS = `
 .gp-svgdiff__bar{flex:none;display:flex;justify-content:flex-end;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-svgdiff__body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain}
 .gp-feedback{padding:6px 10px;font-size:12px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);display:flex;align-items:center;gap:8px}
+.gp-notice{padding:6px 10px;font-size:12px;color:var(--dsw-alias-label-secondary);background:color-mix(in srgb,var(--dsw-alias-label-secondary) 10%,transparent);display:flex;align-items:center;gap:8px}
 
 /* commit file-diff modal (overview → click a file): a centered dialog over a
  * dimmed backdrop, closed by Esc / backdrop click / the close button. */

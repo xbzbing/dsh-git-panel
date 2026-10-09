@@ -72,13 +72,14 @@ export interface SnapshotDeps {
      */
     readonly rootNegCache?: Map<string, number>;
     /**
-     * Optional host `llm` service face (see llm-face.ts). Absent in deployments
-     * without a model backend — the suggest endpoint then reports
-     * `llm-unavailable` instead of failing to activate.
+     * Optional per-request resolvers for the host `llm` and `agentDefaultModel`
+     * services (see llm-face.ts). Resolved on every suggest call — never frozen
+     * at construction — so a provider fiber that activates late or restarts is
+     * picked up. Absent in deployments without a model backend; the suggest
+     * endpoint then reports `llm-unavailable` instead of failing activation.
      */
-    readonly llm?: LlmFace;
-    /** Optional host `agentDefaultModel` service face. */
-    readonly agentDefaultModel?: AgentDefaultModelFace;
+    readonly getLlm?: () => LlmFace | undefined;
+    readonly getAgentDefaultModel?: () => AgentDefaultModelFace | undefined;
 }
 export type WorkspaceResolution = {
     readonly ok: true;

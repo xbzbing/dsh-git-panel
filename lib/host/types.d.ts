@@ -62,6 +62,8 @@ export interface GitSnapshot {
     readonly showInputPill: boolean;
     /** Default diff layout the views open with (user preference). */
     readonly defaultDiffView: DiffViewMode;
+    /** Whether the commit box shows the AI-suggest button (user preference). */
+    readonly suggestEnabled: boolean;
     /** Epoch millis of the snapshot. */
     readonly checkedAt: number;
 }
@@ -121,7 +123,7 @@ export type GitAction = {
 } | {
     readonly kind: 'fetch';
 };
-export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;

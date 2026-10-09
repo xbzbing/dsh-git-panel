@@ -107,11 +107,12 @@ export class GitPanelService extends TypertRemoteService {
       },
       rootCache,
       rootNegCache,
-      // Optional model services: absent in deployments without a model
-      // backend — the suggest endpoint then reports `llm-unavailable` rather
-      // than failing activation (kept out of `static inject` on purpose).
-      llm: get('llm') as LlmFace | undefined,
-      agentDefaultModel: get('agentDefaultModel') as AgentDefaultModelFace | undefined,
+      // Optional model services, resolved per request so a provider fiber that
+      // activates late or restarts is picked up — absent in deployments without
+      // a model backend, where the suggest endpoint reports `llm-unavailable`
+      // rather than failing activation (kept out of `static inject` on purpose).
+      getLlm: () => get('llm') as LlmFace | undefined,
+      getAgentDefaultModel: () => get('agentDefaultModel') as AgentDefaultModelFace | undefined,
     }
   }
 
