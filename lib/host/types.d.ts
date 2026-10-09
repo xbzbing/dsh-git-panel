@@ -122,8 +122,28 @@ export type GitAction = {
     readonly name: string;
 } | {
     readonly kind: 'fetch';
+} | {
+    readonly kind: 'tag-create';
+    readonly name: string;
+    readonly commit: string;
+    readonly message?: string;
+} | {
+    readonly kind: 'tag-delete';
+    readonly name: string;
+} | {
+    readonly kind: 'stash-push';
+    readonly message?: string;
+} | {
+    readonly kind: 'stash-apply';
+    readonly index: number;
+} | {
+    readonly kind: 'stash-pop';
+    readonly index: number;
+} | {
+    readonly kind: 'stash-drop';
+    readonly index: number;
 };
-export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'conflict' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;
@@ -198,6 +218,8 @@ export type GitQuery = {
 } | {
     readonly kind: 'tags';
 } | {
+    readonly kind: 'stash-list';
+} | {
     readonly kind: 'authors';
 } | {
     readonly kind: 'last-commit-message';
@@ -223,6 +245,17 @@ export interface GitBranch {
     readonly shortHash: string | null;
     readonly ahead?: number;
     readonly behind?: number;
+}
+/** One entry in the stash stack (`git stash list`). */
+export interface StashEntry {
+    /** Stack position (0 = most recent). */
+    readonly index: number;
+    /** The stash message (custom `-m` text, or the auto "WIP on …" subject). */
+    readonly message: string;
+    /** Branch the stash was taken on; null when it could not be parsed. */
+    readonly branch: string | null;
+    /** Human relative time (e.g. "2 hours ago"). */
+    readonly relTime: string;
 }
 /** Working-tree statistics for the changes page header. */
 export interface WorktreeStats {
@@ -286,6 +319,9 @@ export type GitQueryResult = {
 } | {
     readonly kind: 'tags';
     readonly tags: readonly GitBranch[];
+} | {
+    readonly kind: 'stash-list';
+    readonly entries: readonly StashEntry[];
 } | {
     readonly kind: 'authors';
     readonly authors: readonly string[];

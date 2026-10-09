@@ -4,7 +4,7 @@
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
-import { isSafeBranchName, isSafePath } from './validate.ts'
+import { isSafeBranchName, isSafePath, isSafeRev } from './validate.ts'
 import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.ts'
 
 export { isSafePath }
@@ -61,7 +61,41 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       return { argv: [['git', 'checkout', '--end-of-options', action.name]] }
     case 'fetch':
       return { argv: [['git', 'fetch', '--all', '--prune']] }
+    case 'tag-create': {
+      if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe tag name: ${action.name}` }
+      if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
+      const msg = action.message?.trim() ?? ''
+      // A message makes it an annotated tag (-a -m); otherwise a lightweight tag.
+      const flags = msg === '' ? [] : ['-a', '-m', msg]
+      return { argv: [['git', 'tag', ...flags, '--end-of-options', action.name, action.commit]] }
+    }
+    case 'tag-delete':
+      if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe tag name: ${action.name}` }
+      return { argv: [['git', 'tag', '-d', '--end-of-options', action.name]] }
+    case 'stash-push': {
+      const msg = action.message?.trim() ?? ''
+      // `-m` makes the stash subject the user's text; without it git auto-labels
+      // ("WIP on <branch>: …"). `--` would need a pathspec, so it is omitted.
+      return { argv: [msg === '' ? ['git', 'stash', 'push'] : ['git', 'stash', 'push', '-m', msg]] }
+    }
+    case 'stash-apply':
+    case 'stash-pop':
+    case 'stash-drop': {
+      if (!Number.isInteger(action.index) || action.index < 0) {
+        return { error: 'invalid-index', message: `invalid stash index: ${action.index}` }
+      }
+      const verb = action.kind === 'stash-apply' ? 'apply' : action.kind === 'stash-pop' ? 'pop' : 'drop'
+      // `stash@{N}` is built from a validated non-negative integer, never raw
+      // user text; `--end-of-options` keeps it an operand belt-and-suspenders.
+      return { argv: [['git', 'stash', verb, '--end-of-options', `stash@{${action.index}}`]] }
+    }
   }
+}
+
+/** True when a command outcome failed specifically on the git index lock. */
+function isIndexBusy(outcome: Awaited<ReturnType<typeof runCommand>>): boolean {
+  if (!('run' in outcome) || outcome.run.exitCode === 0) return false
+  return /index\.lock|Unable to create.*index|another git process/i.test(outcome.run.stderr + outcome.run.stdout)
 }
 
 /** Execute a management action, returning the fresh snapshot on success. */
@@ -103,7 +137,14 @@ export async function runAction(
   // broke (the sequence is not atomic — the add may have staged already).
   for (let step = 0; step < plan.argv.length; step += 1) {
     const argv = plan.argv[step]!
-    const outcome = await runCommand(deps.run, argv, root, 'action', deps.signal)
+    let outcome = await runCommand(deps.run, argv, root, 'action', deps.signal)
+    // Shared-worktree contention: another git process (often the dsh AI agent)
+    // holds .git/index.lock. Retry once after a short delay before surfacing a
+    // friendly "git busy" error instead of the raw lock message.
+    if (isIndexBusy(outcome)) {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      outcome = await runCommand(deps.run, argv, root, 'action-retry', deps.signal)
+    }
     const where = plan.argv.length > 1 ? ` (step ${step + 1}/${plan.argv.length}: ${argv.join(' ')})` : ''
     if ('failure' in outcome) {
       const message = outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure)
@@ -114,12 +155,26 @@ export async function runAction(
     lastOutput = outcome.run.stdout || outcome.run.stderr
     if (outcome.run.exitCode !== 0) {
       const stderr = outcome.run.stderr
+      const combined = stderr + lastOutput
+      // Order matters: a stash apply/pop conflict prints both "CONFLICT …" and
+      // "no changes added to commit", so match the conflict before the generic
+      // nothing-to-commit check below (which would otherwise swallow it). git
+      // keeps the stash entry on conflict, so recovery stays possible.
+      if (/CONFLICT|Merge conflict|needs merge|could not restore untracked/i.test(combined)) {
+        return { ok: false, error: { code: 'conflict', message: (stderr.trim() || 'merge conflict') + where } }
+      }
+      if (/index\.lock|Unable to create.*index|another git process/i.test(combined)) {
+        return { ok: false, error: { code: 'index-busy', message: stderr.trim() + where } }
+      }
       // "nothing to commit" exits non-zero: report it as a git-error with the
       // repo's own message rather than a bare exit code.
-      if (/nothing to commit|no changes added/i.test(stderr + lastOutput)) {
+      if (/nothing to commit|no changes added/i.test(combined)) {
         return { ok: false, error: { code: 'git-error', message: (stderr.trim() || 'nothing to commit') + where } }
       }
-      if (/would be overwritten by checkout|local changes/i.test(stderr)) {
+      if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision/i.test(combined)) {
+        return { ok: false, error: { code: 'not-found', message: (stderr.trim() || 'not found') + where } }
+      }
+      if (/would be overwritten by (checkout|merge)|local changes|overwritten by merge|Your local changes/i.test(stderr)) {
         return { ok: false, error: { code: 'local-changes-block', message: stderr.trim() + where } }
       }
       return { ok: false, error: { code: 'git-error', message: (stderr.trim() || `git exited ${outcome.run.exitCode}`) + where } }

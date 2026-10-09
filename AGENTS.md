@@ -7,8 +7,8 @@
 `dsh-git-panel` 是 DeepSeek Harness（dsh）的一个插件，在 Web GUI 里提供 Git 面板能力：
 
 - 工作区新增常驻面板 tab「Git」，位于「对话」「轨迹」之后，内部含三个子 tab：
-  - **Git 总览**：左=分支列表，中=提交历史图（支持 commit id 等字段搜索），右=提交详情 + comment。
-  - **变更记录**：左=变更统计（文件数 / 增删行数 / 最近变更时间）+ 本地未提交变更列表（勾选、手动提交、Amend），右=选中文件差异对比（图片走 `image-diff` 新旧双图对照）。
+  - **Git 总览**：左=分支列表，中=提交历史图（支持 commit id 等字段搜索），右=提交详情 + comment。提交详情顶部有「提交操作」区：为该提交创建标签（轻量 / 附注），已有标签以可删除标签片呈现（创建 / 删除走 modal + 二次确认）。
+  - **变更记录**：左=变更统计（文件数 / 增删行数 / 最近变更时间）+ 本地未提交变更列表（勾选、手动提交、Amend）+ 贮藏入口与贮藏列表（应用 / 弹出 / 丢弃），右=选中文件差异对比（图片走 `image-diff` 新旧双图对照）。
   - **文件浏览**：直接打开 Git tab 时，非 Git 目录默认进入此页、干净仓库默认 Git 总览、有未提交变更默认变更记录；输入框标记的显式跳转仍优先。非 Git 目录仅显示文件浏览，以 cwd 为根。系统未安装 git 时同样退化为文件浏览：在 git 目录（文件系统探测到 `.git`）会额外提示「未安装 Git」，非 git 目录则静默退化，两种情况输入框标记与状态圆点均不显示。左=按需加载目录树（`.git` 不可浏览，Git 忽略项半透明），右=文件预览（按类型显示 dsh 官方 `FileTypeIcon`，可复制相对路径；代码/文本用官方 `useCodeHighlighter` 语法高亮，Markdown 可切换官方 `MarkdownText` 渲染并默认渲染，HTML 可切换预览但默认源码、渲染走 `allow-scripts` 隔离源 iframe 不自动执行，图片内联，其余二进制占位）。Git 面板保留默认字号，可在顶部调节并记住选择。
 - inputBar 一个 zsh 风格 Git 标记：`<仓库名> (<分支>)`，绿色=已同步、橙色=有待提交；hover 显示完整路径；点击跳转面板（有未提交→变更记录，已提交→Git 总览）。非 Git 目录不显示此标记或状态圆点；插件详情页可隐藏 Git 仓库的标记，隐藏时改为在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
 - 插件详情页配置区：「显示输入框标记」开关 = host `static Config` volatile 字段 + client 注册 `plugins.bundle.config` 表单（`PillConfig.tsx`），经 `configForms` 热写；写入被接受后客户端立即 `resyncAll()`，不等轮询。
@@ -42,9 +42,9 @@ Host 半 (Cordis + typert, lib/host)
 - `index.ts`：`GitPanelService extends TypertRemoteService`，`inject = ['subprocess','sessions','sessionPersistence']`，仅做端点委托与生命周期接线。
 - `git.ts`：把 `subprocess` 服务适配成带超时的 `GitRunner`。
 - `core.ts`：workspace（cwd→仓库根 realpath）解析 + `snapshotForSession`；文件浏览使用 `resolveBrowseRoot`，非 Git 目录回退到 cwd realpath。
-- `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`）。
-- `queries.ts`：`history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / authors / last-commit-message / worktree-stats`。`file-lines` 按新侧行号取文件切片（worktree/staged 读工作区文件、commit 读 `<commit>:<path>`），供 diff 视图按需展开块间隐藏上下文。`dir-list` 列单个工作区目录（懒加载、跳过 `.git`、条目上限）、`file-content` 读单个工作区文件（文本切片 / 图片 data URL / 二进制标记，超上限降级）；两者的 path 经 `isSafePath` + realpath 逃逸守卫（软链指仓库外一律拒），是插件唯一直接读 git 未跟踪文件的信任边界。
-- `validate.ts`：host 信任边界的输入校验（`isSafePath` / `isSafeRev` / `isSafeBranchName`）。经 RPC 到来的 path/ref/分支名是唯一不可信 argv 素材；凡会把它们放进选项位的 git 命令都在此拦截，并额外用 `--end-of-options` 殿后（拒 `-` 开头的 `--output=<file>` 任意写向量）。
+- `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`；标签 `tag-create`（`-a -m` 为附注，否则轻量）/ `tag-delete`；贮藏 `stash-push`（可带 `-m`）/ `stash-apply` / `stash-pop` / `stash-drop`（`stash@{N}` 由校验过的整数 index 拼成））。错误映射分级：先判冲突（`CONFLICT`，贮藏保留）、`index.lock` 繁忙（自动重试一次后报 `index-busy`）、`not-found`，再落通用 `git-error`。
+- `queries.ts`：`history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / stash-list / authors / last-commit-message / worktree-stats`。`file-lines` 按新侧行号取文件切片（worktree/staged 读工作区文件、commit 读 `<commit>:<path>`），供 diff 视图按需展开块间隐藏上下文。`dir-list` 列单个工作区目录（懒加载、跳过 `.git`、条目上限）、`file-content` 读单个工作区文件（文本切片 / 图片 data URL / 二进制标记，超上限降级）；两者的 path 经 `isSafePath` + realpath 逃逸守卫（软链指仓库外一律拒），是插件唯一直接读 git 未跟踪文件的信任边界。`stash-list` 走 `git stash list -z --format` 经 `parseStashList` 解析；贮藏列表按需查询、不进常驻快照。
+- `validate.ts`：host 信任边界的输入校验（`isSafePath` / `isSafeRev` / `isSafeBranchName`）。经 RPC 到来的 path/ref/分支名/标签名是唯一不可信 argv 素材；凡会把它们放进选项位的 git 命令都在此拦截，并额外用 `--end-of-options` 殿后（拒 `-` 开头的 `--output=<file>` 任意写向量）。贮藏 index 另在 `actions.ts` 校验为非负整数。
 - `suggest.ts`：AI 生成提交信息端点——`git status -z` 文件清单 + `git diff HEAD`（unborn 退化为 `--cached` + worktree，`paths` 全过 `isSafePath`），untracked 新文件再按 `git diff --no-index` 折入 diff（`suggestMaxBytes` 预算内、`UNTRACKED_FILE_CAP` 封顶），JSON framing 组 prompt；经 `llm` 面（`ctx.llm.stream`）一次性生成，手写 deadline 超时、finish→错误映射（读真实 chunk 的 `reason` 信封）、`suggestEnabled=false` 入口兜底为 `suggest-disabled`。`llm`/`agentDefaultModel` 走 `getLlm`/`getAgentDefaultModel` **按请求解析**（不构造期冻结、**不进 `static inject`**）；模型路由为 config 覆盖对（provider/model 必须成对）优先，否则 `agentDefaultModel.currentSelection()`；`llm-face.ts` 用 `@deepseek-ai/dsh-llm` 的 type-only 官方类型钉住 wire 契约（零运行时依赖）。
 - `parser.ts`：`git status --porcelain` / `--numstat` / `log` 输出解析为结构化数据。
 - `version.ts`：读本包 `package.json` 版本 + 查 GitHub release 做更新检查，失败降级。
@@ -57,9 +57,10 @@ Host 半 (Cordis + typert, lib/host)
 - `index.ts`：Cordis `apply` —— 挂 RPC 面、注册三个 slot（`conversation.view` / `conversation.input.left` / `plugins.bundle.config`）、注册 i18n。
 - `Panel.tsx`：主面板壳，内部子 tab 路由 + 焦点消费 + 版本条；用 `layout.ts` 的 `usePanelLayout` 观测面板宽度，≤620px 时在根节点标 `data-layout="compact"` 并把 `compact` 下发给三个子 tab，触发单栏「钻取」布局。
 - `layout.ts`：`usePanelLayout`——ResizeObserver 观测面板宽（`COMPACT_BP=620`，与 GitPill 的 `COMPACT_WIDTH` 同值），返回是否进入 compact 单栏布局。compact 的所有样式挂在 `.gp-panel[data-layout="compact"]` 下，宽布局行为不变（e2e 断言覆盖）；portaled 的 modal / bottom sheet 在 `.gp-panel` 之外，分别用自身 class / viewport media query 适配。
-- `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment）的组合层，含 hover 卡；取数状态拆进 `overview-hooks.ts`。compact 时折叠为单栏：历史列表 ↔ 提交详情按 `pane` 钻取（带返回条），分支筛选走 bottom sheet，提交行两行式、graph svg 高度随行高拉伸以保证连线，禁用 hover 卡。
+- `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment）的组合层，含 hover 卡；取数状态拆进 `overview-hooks.ts`。提交详情顶部「提交操作」区：创建标签（`TagCreateModal`）、删除该提交上已有标签（标签片 ×）——走 `run` 的 `tag-create` / `tag-delete`，操作后以本地 `opBump` 并进 reload key 刷新历史图与分支/标签列表（标签不动工作区，不会 bump 快照）。compact 时折叠为单栏：历史列表 ↔ 提交详情按 `pane` 钻取（带返回条），分支筛选走 bottom sheet，提交行两行式、graph svg 高度随行高拉伸以保证连线，禁用 hover 卡。
 - `overview-hooks.ts`：`useBranchTree` / `useHistory`（分页 + 分代守卫 + `total:-1`）/ `useCommitDetail`（`show` LRU 缓存 + 文件 diff overlay + hover）三个数据 hook，`OverviewTab` 只做组合与渲染。
-- `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条（读快照上的 `stats`，不再单发查询）、差异视图（`DiffView` 已 `memo`；支持统一（`unified`，单栏行内）/ 并排（`split`，左右分栏）两种布局，默认视图由快照上的 `defaultDiffView` 决定，可在工具栏临时切换）。
+- `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条（读快照上的 `stats`，不再单发查询）、差异视图（`DiffView` 已 `memo`；支持统一（`unified`，单栏行内）/ 并排（`split`，左右分栏）两种布局，默认视图由快照上的 `defaultDiffView` 决定，可在工具栏临时切换）。变更页还含贮藏：工具栏「贮藏」按钮（`StashPushModal`）、`stash-list` 查询出的可折叠贮藏列表（应用 / 弹出 / 丢弃，丢弃走确认 modal），操作经 `onAction`（失败也 `resync` 以反映冲突后的工作区）。
+- `ops-modals.tsx`：写操作共享的 portaled 弹窗原语——`renderConfirmModal`（确认框）、`renderModalFooter`（统一「信任 AI」提示 + 取消/确认按钮）、`opErrorText`（错误码→文案）。标签 / 贮藏弹窗都复用它，弹窗底部恒显 `ops.aiHint`。
 - `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换 + 「提交框显示 AI 生成」开关。
 - `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
 - `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果）。

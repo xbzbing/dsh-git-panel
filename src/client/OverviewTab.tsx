@@ -19,6 +19,7 @@ import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
+import { opErrorText, renderConfirmModal, renderModalFooter, type OpT } from './ops-modals'
 import type { DiffViewMode } from './types'
 
 interface OverviewProps {
@@ -65,6 +66,16 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
   const searchNarrow = useNarrow(searchEl, SEARCH_HINT_MIN_W)
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
+  // Tag write ops (create/delete) don't change the work tree, so they never bump
+  // the snapshot's refreshKey; a local counter folds into the reload key so the
+  // history graph and branch/tag list pick up the new ref set.
+  const [opBump, setOpBump] = useState(0)
+  const effRefresh = refreshKey + opBump
+  const afterTagOp = (): void => setOpBump((n) => n + 1)
+  // Tag create modal (anchored to a commit) and tag delete confirm.
+  const [tagForm, setTagForm] = useState<{ hash: string; shortHash: string } | null>(null)
+  const [tagToDelete, setTagToDelete] = useState<string | null>(null)
+  const [opError, setOpError] = useState<string | null>(null)
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
   // Ignored by the wide layout, which renders both columns at once.
   const [pane, setPane] = useState<'list' | 'detail'>('list')
@@ -84,10 +95,10 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
     if (!compact && sheetOpen) setSheetOpen(false)
   }, [compact, sheetOpen])
 
-  const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, refreshKey)
+  const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, effRefresh)
   const detail = useCommitDetail(remote, sessionId, defaultDiffView)
   const { commits, loading, listError, hasMore, listRef, loadMore } = useHistory(
-    remote, sessionId, filter, refreshKey, detail.clearSelection,
+    remote, sessionId, filter, effRefresh, detail.clearSelection,
   )
 
   // Search debounce → filter change (which reloads history from page 0).
@@ -126,6 +137,22 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
 
   const setRef = (ref: string | null): void => setFilter((prev) => ({ ...prev, ref }))
 
+  // Tag write ops go straight through `run` (the work tree is untouched, so no
+  // snapshot is needed); afterTagOp reloads the history graph + branch/tag list.
+  const runTagCreate = async (name: string, message: string): Promise<void> => {
+    if (tagForm === null) return
+    setOpError(null)
+    const res = await remote.run({ sessionId, action: { kind: 'tag-create', name, commit: tagForm.hash, ...(message.trim() !== '' ? { message } : {}) } })
+    if (res.ok) { setTagForm(null); afterTagOp() }
+    else setOpError(opErrorText(res.error.code, res.error.message, t))
+  }
+  const runTagDelete = async (name: string): Promise<void> => {
+    setOpError(null)
+    const res = await remote.run({ sessionId, action: { kind: 'tag-delete', name } })
+    if (res.ok) { setTagToDelete(null); afterTagOp() }
+    else setOpError(opErrorText(res.error.code, res.error.message, t))
+  }
+
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     text: detail.fileDiffText,
     error: detail.fileDiffError,
@@ -139,6 +166,21 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
     compact,
     t,
   })
+
+  // Tag create modal + delete confirm, portaled; included in both layouts.
+  const tagModals: (JSX.Element | null)[] = [
+    tagForm !== null ? renderTagCreateModal(tagForm, { onClose: () => setTagForm(null), onCreate: runTagCreate, error: opError, compact, t }) : null,
+    tagToDelete !== null ? renderConfirmModal({
+      title: t('tag.deleteTitle'),
+      body: t('tag.deleteConfirm', { name: tagToDelete }),
+      confirmLabel: t('tag.deleteTitle'),
+      danger: true,
+      error: opError,
+      onConfirm: () => void runTagDelete(tagToDelete),
+      onClose: () => setTagToDelete(null),
+      t,
+    }) : null,
+  ]
 
   // The history middle column: a toolbar (search / author / since / fetch, plus
   // a filter trigger in compact) over the scrolling commit list.
@@ -204,6 +246,17 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
           h('span', { key: 'a' }, selected.author),
           h('span', { key: 't' }, absoluteDateTime(selected.dateIso)),
         ]),
+        // Commit action area (low-frequency ops; shown only with a selection).
+        // Existing tags on this commit are listed as deletable chips, plus a
+        // "create tag" entry. revert/reset land here in a later phase.
+        h('div', { key: 'ops', className: 'gp-detail__ops' }, [
+          ...selected.refs.filter((r) => r.kind === 'tag').map((r) => h('span', { key: `tag-${r.name}`, className: 'gp-ref-chip gp-ref-chip--tag gp-ref-chip--del' }, [
+            h(TagIcon, { key: 'i', size: 11 }),
+            h('span', { key: 'n' }, r.name),
+            h('button', { key: 'x', type: 'button', className: 'gp-ref-chip__x', title: t('tag.deleteOne', { name: r.name }), onClick: () => { setOpError(null); setTagToDelete(r.name) } }, h(CloseIcon, { size: 11 })),
+          ])),
+          h('button', { key: 'addtag', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.createTag'), onClick: () => { setOpError(null); setTagForm({ hash: selected.hash, shortHash: selected.shortHash }) } }, [h(TagIcon, { key: 'i', size: 12 }), t('overview.createTag')]),
+        ]),
         detail.detail !== null && detail.detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
       ]),
     ]
@@ -213,6 +266,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   if (compact) {
     return h('div', { className: 'gp-overview gp-overview--compact' }, [
       fileDiffModal,
+      ...tagModals,
       pane === 'detail'
         ? h('div', { key: 'detail', className: 'gp-col gp-col--mid gp-detail' }, [
           h('div', { key: 'back', className: 'gp-subhead' }, [
@@ -235,6 +289,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   return h('div', { className: 'gp-overview' }, [
     // file-diff modal (click a changed file in the right column)
     fileDiffModal,
+    ...tagModals,
     // left: branches
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, renderBranchList(tree, treeError, filter.ref, closedSections, {
       onFilter: (ref) => setRef(ref),
@@ -528,3 +583,59 @@ function renderPathParts(path: string): JSX.Element[] {
     h('span', { key: 'n', className: 'gp-modal__name' }, path.slice(slash + 1)),
   ]
 }
+
+interface TagCreateCbs {
+  onClose: () => void
+  onCreate: (name: string, message: string) => void | Promise<void>
+  error: string | null
+  compact: boolean
+  t: OpT
+}
+
+/** Portaled dialog: name a tag (optionally annotated) at the chosen commit. */
+function renderTagCreateModal(target: { hash: string; shortHash: string }, cb: TagCreateCbs): JSX.Element | null {
+  if (typeof document === 'undefined') return null
+  return h(TagCreateModal, { target, ...cb })
+}
+
+function TagCreateModal({ target, onClose, onCreate, error, t }: TagCreateCbs & { target: { hash: string; shortHash: string } }): JSX.Element {
+  const [name, setName] = useState('')
+  const [annotated, setAnnotated] = useState(false)
+  const [message, setMessage] = useState('')
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+  const submit = (): void => { if (name.trim() !== '') void onCreate(name.trim(), annotated ? message : '') }
+  const modal = h('div', {
+    className: 'gp-modal-backdrop',
+    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
+  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
+    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
+      h('span', { key: 'ic', className: 'gp-modal__fileicon' }, h(TagIcon, { size: 15 })),
+      h('span', { key: 'title', className: 'gp-modal__path' }, t('tag.createTitle')),
+      h('span', { key: 'hash', className: 'gp-modal__hash' }, target.shortHash),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
+    ]),
+    h('div', { key: 'body', className: 'gp-modal__form' }, [
+      h('input', {
+        key: 'name', className: 'gp-input', placeholder: t('tag.namePlaceholder'), value: name, autoFocus: true,
+        onChange: (e: { target: { value: string } }) => setName(e.target.value),
+        onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') submit() },
+      }),
+      h('label', { key: 'ann', className: 'gp-modal__check' }, [
+        h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: annotated, onChange: () => setAnnotated((v) => !v) }),
+        t('tag.annotated'),
+      ]),
+      annotated ? h('textarea', {
+        key: 'msg', className: 'gp-input gp-input--area', placeholder: t('tag.messagePlaceholder'), value: message,
+        onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
+      }) : null,
+      error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
+    ]),
+    renderModalFooter({ onClose, onConfirm: submit, confirmLabel: t('tag.create'), confirmDisabled: name.trim() === '', danger: false, t }),
+  ]))
+  return createPortal(modal, document.body, 'tag-create-modal')
+}
+

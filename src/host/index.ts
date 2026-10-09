@@ -22,13 +22,13 @@ import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryRespon
 export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
-  GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats,
+  GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry,
   GitSuggestRequest, GitSuggestResult,
 } from './types.ts'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts'
 export { createGitRunner } from './git.ts'
-export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, sumNumstat } from './parser.ts'
+export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.ts'
 export { isSafePath, planAction, runAction } from './actions.ts'
 export { runQuery } from './queries.ts'
 export { runSuggest } from './suggest.ts'

@@ -126,6 +126,14 @@ export type GitAction =
   }
   | { readonly kind: 'branch-checkout'; readonly name: string }
   | { readonly kind: 'fetch' }
+  // Tag write operations (issue #12). `message` non-empty → annotated tag (-a).
+  | { readonly kind: 'tag-create'; readonly name: string; readonly commit: string; readonly message?: string }
+  | { readonly kind: 'tag-delete'; readonly name: string }
+  // Stash operations (issue #12). `index` is the stash stack position (0 = top).
+  | { readonly kind: 'stash-push'; readonly message?: string }
+  | { readonly kind: 'stash-apply'; readonly index: number }
+  | { readonly kind: 'stash-pop'; readonly index: number }
+  | { readonly kind: 'stash-drop'; readonly index: number }
 
 export type GitErrorCode =
   | 'cwd-unavailable'
@@ -133,11 +141,18 @@ export type GitErrorCode =
   | 'git-unavailable'
   | 'invalid-path'
   | 'invalid-name'
+  | 'invalid-index'
   | 'git-error'
   | 'timeout'
   | 'cancelled'
   | 'empty-message'
   | 'local-changes-block'
+  // Stash apply/pop left the work tree with merge conflicts (stash kept).
+  | 'conflict'
+  // A named tag / stash entry does not exist.
+  | 'not-found'
+  // Another git process holds the index lock (.git/index.lock).
+  | 'index-busy'
   // AI commit-message suggestion endpoint.
   | 'empty-diff'
   | 'llm-unavailable'
@@ -187,6 +202,7 @@ export type GitQuery =
   | { readonly kind: 'show'; readonly ref: string }
   | { readonly kind: 'branches' }
   | { readonly kind: 'tags' }
+  | { readonly kind: 'stash-list' }
   | { readonly kind: 'authors' }
   | { readonly kind: 'last-commit-message' }
   | { readonly kind: 'worktree-stats' }
@@ -212,6 +228,18 @@ export interface GitBranch {
   readonly shortHash: string | null
   readonly ahead?: number
   readonly behind?: number
+}
+
+/** One entry in the stash stack (`git stash list`). */
+export interface StashEntry {
+  /** Stack position (0 = most recent). */
+  readonly index: number
+  /** The stash message (custom `-m` text, or the auto "WIP on …" subject). */
+  readonly message: string
+  /** Branch the stash was taken on; null when it could not be parsed. */
+  readonly branch: string | null
+  /** Human relative time (e.g. "2 hours ago"). */
+  readonly relTime: string
 }
 
 /** Working-tree statistics for the changes page header. */
@@ -265,6 +293,7 @@ export type GitQueryResult =
   }
   | { readonly kind: 'branches'; readonly current: string | null; readonly defaultBranch: string | null; readonly local: readonly GitBranch[]; readonly remote: readonly GitBranch[] }
   | { readonly kind: 'tags'; readonly tags: readonly GitBranch[] }
+  | { readonly kind: 'stash-list'; readonly entries: readonly StashEntry[] }
   | { readonly kind: 'authors'; readonly authors: readonly string[] }
   | { readonly kind: 'last-commit-message'; readonly message: string }
   | { readonly kind: 'worktree-stats'; readonly stats: WorktreeStats }

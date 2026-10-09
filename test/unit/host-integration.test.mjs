@@ -726,3 +726,99 @@ test('file-content refuses a worktree symlink escaping the repo root', async () 
     rmSync(secret, { recursive: true, force: true })
   }
 })
+
+/** Build a throwaway repo with one commit and a dirty working file. */
+async function freshRepo(prefix) {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  await runGit(dir, ['init', '-q'])
+  await runGit(dir, ['config', 'user.email', 't@t.co'])
+  await runGit(dir, ['config', 'user.name', 'Tester'])
+  const { writeFileSync } = await import('node:fs')
+  writeFileSync(join(dir, 'a.txt'), 'one\n')
+  await runGit(dir, ['add', 'a.txt'])
+  await runGit(dir, ['commit', '-qm', 'init'])
+  return dir
+}
+
+test('tag-create (lightweight + annotated) then tag-delete flow through run + tags query', async () => {
+  const dir = await freshRepo('gp-tag-')
+  try {
+    const d = depsAt(dir)
+    const head = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 1, skip: 0 } })
+    const hash = head.value.commits[0].hash
+    const light = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'tag-create', name: 'v1.0', commit: hash } })
+    assert.equal(light.ok, true, 'lightweight tag created')
+    const ann = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'tag-create', name: 'v2.0', commit: hash, message: 'release two' } })
+    assert.equal(ann.ok, true, 'annotated tag created')
+    const listed = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'tags' } })
+    const names = listed.value.tags.map((t) => t.name).sort()
+    assert.deepEqual(names, ['v1.0', 'v2.0'])
+    const del = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'tag-delete', name: 'v1.0' } })
+    assert.equal(del.ok, true, 'tag deleted')
+    const after = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'tags' } })
+    assert.deepEqual(after.value.tags.map((t) => t.name), ['v2.0'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('tag-delete of a missing tag maps to not-found', async () => {
+  const dir = await freshRepo('gp-tag-nf-')
+  try {
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'tag-delete', name: 'nope' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'not-found')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('stash push → list → apply → drop lifecycle', async () => {
+  const dir = await freshRepo('gp-stash-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\n')
+    const push = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-push', message: 'wip change' } })
+    assert.equal(push.ok, true, 'stash push ok')
+    assert.equal(push.snapshot.dirty, false, 'work tree clean after stash')
+    const list = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(list.value.entries.length, 1)
+    assert.equal(list.value.entries[0].index, 0)
+    assert.equal(list.value.entries[0].message, 'wip change')
+    const apply = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-apply', index: 0 } })
+    assert.equal(apply.ok, true, 'apply restores the change')
+    assert.equal(apply.snapshot.dirty, true, 'work tree dirty again')
+    const stillThere = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(stillThere.value.entries.length, 1, 'apply keeps the stash entry')
+    const drop = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-drop', index: 0 } })
+    assert.equal(drop.ok, true, 'drop ok')
+    const empty = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(empty.value.entries.length, 0, 'stack empty after drop')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('stash pop that conflicts reports conflict and keeps the stash entry', async () => {
+  const dir = await freshRepo('gp-stash-cf-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    // Stash an edit, then commit a *different* edit to the same line; popping
+    // now triggers a real 3-way merge conflict (not a "local changes" refusal),
+    // and git keeps the stash entry so recovery stays possible.
+    writeFileSync(join(dir, 'a.txt'), 'stashed\n')
+    await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-push', message: 'first' } })
+    writeFileSync(join(dir, 'a.txt'), 'committed\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'conflicting commit'])
+    const pop = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'stash-pop', index: 0 } })
+    assert.equal(pop.ok, false, 'pop into a conflicting commit fails')
+    assert.equal(pop.error.code, 'conflict')
+    const kept = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(kept.value.entries.length, 1, 'conflicted pop keeps the stash entry')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

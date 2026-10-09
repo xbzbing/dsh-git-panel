@@ -2,7 +2,7 @@
  * git output parsers: porcelain status, log, branch, numstat, name-status.
  * Pure functions over raw stdout, no I/O.
  */
-import type { GitBranch, GitChange, GitChangeStatus, GitCommit, GitFileStat, GraphCommit, GitRef } from './types.ts'
+import type { GitBranch, GitChange, GitChangeStatus, GitCommit, GitFileStat, GraphCommit, GitRef, StashEntry } from './types.ts'
 
 /**
  * Build a GitCommit from a `%H\x1f%h\x1f%s\x1f%an\x1f%aI`-ordered field array
@@ -156,6 +156,34 @@ export function parseTags(stdout: string): GitBranch[] {
     if (line.trim() === '') continue
     const [name, shortHash = ''] = line.split('\0')
     if (name) out.push({ name, shortHash: shortHash === '' ? null : shortHash })
+  }
+  return out
+}
+
+/**
+ * Parse `git stash list -z --format=%gd%x1f%gs%x1f%cr` into stash entries.
+ * Each NUL-separated record is: selector (`stash@{N}`), reflog subject, and a
+ * relative time. The subject is either auto ("WIP on <branch>: <sha> <subj>")
+ * or custom ("On <branch>: <message>"); the branch is the text between "on "
+ * and the first ": ", and the message is everything after that colon.
+ */
+export function parseStashList(stdout: string): StashEntry[] {
+  const out: StashEntry[] = []
+  for (const record of stdout.split('\0')) {
+    if (record.trim() === '') continue
+    const [selector = '', subject = '', relTime = ''] = record.split('\x1f')
+    const idxMatch = /stash@\{(\d+)\}/.exec(selector)
+    if (idxMatch === null) continue
+    const index = Number(idxMatch[1])
+    let branch: string | null = null
+    let message = subject
+    // "WIP on main: 1234567 subj" / "On main: custom msg"
+    const m = /^(?:WIP on|On) (.+?): (.*)$/s.exec(subject)
+    if (m !== null) {
+      branch = m[1] === '(no branch)' ? null : (m[1] ?? null)
+      message = m[2] ?? ''
+    }
+    out.push({ index, message: message.trim(), branch, relTime: relTime.trim() })
   }
   return out
 }

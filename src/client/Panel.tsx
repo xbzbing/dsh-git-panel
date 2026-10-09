@@ -99,6 +99,10 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       controllerFor(sessionId).accept(result.snapshot)
       return { ok: true }
     }
+    // A failed write may still have changed the work tree (e.g. a stash pop that
+    // hit a conflict applies the diff but keeps the stash); resync so the panel
+    // reflects the real state rather than the pre-action snapshot.
+    controllerFor(sessionId).resync()
     return { ok: false, error: errorText(result.error.code, result.error.message, t) }
   }
 
@@ -186,6 +190,10 @@ function errorText(code: string, message: string | undefined, t: (key: GitKey) =
     case 'not-a-git-repo': return t('error.notARepo')
     case 'cwd-unavailable': return t('error.noCwd')
     case 'local-changes-block': return t('error.localChangesBlock')
+    case 'conflict': return t('error.conflict')
+    case 'index-busy': return t('error.indexBusy')
+    case 'not-found': return t('error.notFound')
+    case 'invalid-name': return t('error.invalidName')
     default: return message ?? t('error.generic')
   }
 }
