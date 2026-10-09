@@ -32,7 +32,13 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
   }
 }
 
-/** Shared modal footer: the AI-operation hint over Cancel / Confirm buttons. */
+/** The shared "trust the AI" hint. Lives in the dialog body (below the main
+ * text), not in the footer, so it never shares a row with the action buttons. */
+export function renderAiHint(t: OpT): JSX.Element {
+  return h('div', { key: 'aihint', className: 'gp-modal__hint' }, t('ops.aiHint'))
+}
+
+/** Shared modal footer: right-aligned Cancel / Confirm buttons. */
 export function renderModalFooter(cb: {
   onClose: () => void
   onConfirm: () => void
@@ -42,15 +48,12 @@ export function renderModalFooter(cb: {
   t: OpT
 }): JSX.Element {
   return h('div', { key: 'footer', className: 'gp-modal__footer' }, [
-    h('div', { key: 'hint', className: 'gp-modal__hint' }, cb.t('ops.aiHint')),
-    h('div', { key: 'btns', className: 'gp-modal__btns' }, [
-      h('button', { key: 'cancel', type: 'button', className: 'gp-btn', onClick: cb.onClose }, cb.t('common.cancel')),
-      h('button', {
-        key: 'ok', type: 'button',
-        className: `gp-btn ${cb.danger ? 'gp-btn--danger' : 'gp-btn--primary'}`,
-        disabled: cb.confirmDisabled, onClick: cb.onConfirm,
-      }, cb.confirmLabel),
-    ]),
+    h('button', { key: 'cancel', type: 'button', className: 'gp-btn', onClick: cb.onClose }, cb.t('common.cancel')),
+    h('button', {
+      key: 'ok', type: 'button',
+      className: `gp-btn ${cb.danger ? 'gp-btn--danger' : 'gp-btn--primary'}`,
+      disabled: cb.confirmDisabled, onClick: cb.onConfirm,
+    }, cb.confirmLabel),
   ])
 }
 
@@ -89,6 +92,7 @@ function ConfirmModal(cb: ConfirmCbs): JSX.Element {
     ]),
     h('div', { key: 'body', className: 'gp-modal__form' }, [
       h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, cb.body),
+      renderAiHint(cb.t),
       cb.error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, cb.error) : null,
     ]),
     renderModalFooter({ onClose: cb.onClose, onConfirm: cb.onConfirm, confirmLabel: cb.confirmLabel, confirmDisabled: false, danger: cb.danger, t: cb.t }),

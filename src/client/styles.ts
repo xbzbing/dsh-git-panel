@@ -306,9 +306,8 @@ const CSS = `
 .gp-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
 .gp-input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
 .gp-input--area{height:auto;min-height:60px;padding:8px 10px;resize:vertical;line-height:1.5}
-.gp-modal__footer{flex:none;display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2)}
-.gp-modal__hint{flex:1;min-width:0;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
-.gp-modal__btns{flex:none;display:flex;gap:8px}
+.gp-modal__footer{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2)}
+.gp-modal__hint{font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
 .gp-btn--sm{height:24px;padding:0 8px;font-size:11px}
 .gp-btn--danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}
 .gp-btn--danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 85%,#000);color:#fff}

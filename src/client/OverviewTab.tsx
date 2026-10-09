@@ -19,7 +19,7 @@ import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
-import { opErrorText, renderConfirmModal, renderModalFooter, type OpT } from './ops-modals'
+import { opErrorText, renderAiHint, renderConfirmModal, renderModalFooter, type OpT } from './ops-modals'
 import type { DiffViewMode } from './types'
 
 interface OverviewProps {
@@ -663,6 +663,7 @@ function TagCreateModal({ target, onClose, onCreate, error, t }: TagCreateCbs & 
         key: 'msg', className: 'gp-input gp-input--area', placeholder: t('tag.messagePlaceholder'), value: message,
         onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
       }) : null,
+      renderAiHint(t),
       error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     ]),
     renderModalFooter({ onClose, onConfirm: submit, confirmLabel: t('tag.create'), confirmDisabled: name.trim() === '', danger: false, t }),

@@ -15,7 +15,7 @@ import { ArrowLeftIcon, ChevronIcon, CloseIcon, SparkleIcon, StashIcon, TrashIco
 import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
-import { renderConfirmModal, renderModalFooter } from './ops-modals'
+import { renderAiHint, renderConfirmModal, renderModalFooter } from './ops-modals'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -434,6 +434,7 @@ function StashPushBody({ onClose, onStash, error, t }: StashPushCbs): JSX.Elemen
         onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
         onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') void onStash(message) },
       }),
+      renderAiHint(t),
       error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     ]),
     renderModalFooter({ onClose, onConfirm: () => void onStash(message), confirmLabel: t('stash.save'), confirmDisabled: false, danger: false, t }),
