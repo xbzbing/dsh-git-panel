@@ -8,9 +8,9 @@ import { createElement as h, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
-import type { GitBranch, GraphCommit } from './types'
+import type { GitAction, GitBranch, GitSnapshot, GraphCommit } from './types'
 import type { GitKey } from './locales'
-import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, TagIcon } from './icons'
+import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time'
@@ -29,6 +29,11 @@ interface OverviewProps {
   readonly refreshKey: number
   /** Default diff layout new file-diff overlays open with. */
   readonly defaultDiffView: DiffViewMode
+  /** Live snapshot — the dirty flag + change list feed the reset/revert guards. */
+  readonly snapshot: GitSnapshot
+  /** HEAD-moving write path (revert/reset) routed through the controller so the
+   * fresh snapshot refreshes the panel; tag ops bypass it (work tree untouched). */
+  readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
@@ -69,7 +74,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, compact, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, snapshot, onAction, compact, t }: OverviewProps): JSX.Element {
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
@@ -84,6 +89,9 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   // Tag create modal (anchored to a commit) and tag delete confirm.
   const [tagForm, setTagForm] = useState<{ hash: string; shortHash: string } | null>(null)
   const [tagToDelete, setTagToDelete] = useState<string | null>(null)
+  // Commit-undo targets (revert confirm + reset mode dialog), each a selected commit.
+  const [revertTarget, setRevertTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
+  const [resetTarget, setResetTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
   // In-flight guard so a double-click on confirm can't fire two tag RPCs.
   const [opBusy, setOpBusy] = useState(false)
@@ -184,6 +192,30 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
     } finally { setOpBusy(false) }
   }
 
+  // Revert / reset move HEAD or the work tree, so they go through `onAction`
+  // (controller feeds the fresh snapshot back → refreshKey advances → history
+  // reloads). The returned error is already localized by Panel's opErrorText.
+  const runRevert = async (): Promise<void> => {
+    if (revertTarget === null || opBusy) return
+    setOpError(null)
+    setOpBusy(true)
+    try {
+      const res = await onAction({ kind: 'revert', commit: revertTarget.hash })
+      if (res.ok) setRevertTarget(null)
+      else setOpError(res.error ?? t('error.generic'))
+    } finally { setOpBusy(false) }
+  }
+  const runReset = async (mode: 'soft' | 'mixed' | 'hard'): Promise<void> => {
+    if (resetTarget === null || opBusy) return
+    setOpError(null)
+    setOpBusy(true)
+    try {
+      const res = await onAction({ kind: 'reset', commit: resetTarget.hash, mode })
+      if (res.ok) setResetTarget(null)
+      else setOpError(res.error ?? t('error.generic'))
+    } finally { setOpBusy(false) }
+  }
+
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     text: detail.fileDiffText,
     error: detail.fileDiffError,
@@ -198,8 +230,10 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
     t,
   })
 
-  // Tag create modal + delete confirm, portaled; included in both layouts.
-  const tagModals: (JSX.Element | null)[] = [
+  // Tag create modal + delete confirm, plus commit-undo dialogs (revert confirm
+  // and the reset mode dialog), portaled; included in both layouts.
+  const dirtyChanges = snapshot.staged + snapshot.modified + snapshot.untracked
+  const opModals: (JSX.Element | null)[] = [
     tagForm !== null ? renderTagCreateModal(tagForm, { onClose: () => setTagForm(null), onCreate: runTagCreate, error: opError, compact, t }) : null,
     tagToDelete !== null ? renderConfirmModal({
       title: t('tag.deleteTitle'),
@@ -209,6 +243,31 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
       error: opError,
       onConfirm: () => void runTagDelete(tagToDelete),
       onClose: () => setTagToDelete(null),
+      t,
+    }) : null,
+    revertTarget !== null ? renderConfirmModal({
+      title: t('revert.title'),
+      // Revert keeps the work tree, but a dirty tree can make it conflict/refuse;
+      // the dirty note (if any) rides in the body so the pre-wrap text shows it.
+      body: t('revert.body', { ref: `${revertTarget.shortHash} ${revertTarget.subject}` })
+        + (snapshot.dirty ? `\n\n${t('ops.dirtyWarn')}` : ''),
+      confirmLabel: t('revert.confirm'),
+      danger: false,
+      error: opError,
+      onConfirm: () => void runRevert(),
+      onClose: () => setRevertTarget(null),
+      t,
+    }) : null,
+    resetTarget !== null ? renderResetModal(resetTarget, {
+      from: snapshot.head ?? resetTarget.shortHash,
+      dirty: snapshot.dirty,
+      lostFiles: snapshot.changes.map((c) => c.path),
+      lostTotal: dirtyChanges,
+      lostTruncated: snapshot.truncated,
+      busy: opBusy,
+      error: opError,
+      onReset: runReset,
+      onClose: () => setResetTarget(null),
       t,
     }) : null,
   ]
@@ -277,10 +336,11 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
           h('span', { key: 'a' }, selected.author),
           h('span', { key: 't' }, absoluteDateTime(selected.dateIso)),
         ]),
-        // Commit action area (low-frequency ops; shown only with a selection).
-        // Existing tags on this commit are listed as deletable chips, plus a
-        // "create tag" entry. revert/reset land here in a later phase.
+        // Commit action area (low-frequency ops; shown only with a selection):
+        // revert / reset HEAD moves, then existing-tag chips + create-tag.
         h('div', { key: 'ops', className: 'gp-detail__ops' }, [
+          h('button', { key: 'revert', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.revert'), onClick: () => { setOpError(null); setRevertTarget({ hash: selected.hash, shortHash: selected.shortHash, subject: selected.subject }) } }, [h(RevertIcon, { key: 'i', size: 12 }), t('overview.revert')]),
+          h('button', { key: 'reset', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.reset'), onClick: () => { setOpError(null); setResetTarget({ hash: selected.hash, shortHash: selected.shortHash, subject: selected.subject }) } }, [h(ResetIcon, { key: 'i', size: 12 }), t('overview.reset')]),
           ...selected.refs.filter((r) => r.kind === 'tag').map((r) => h('span', { key: `tag-${r.name}`, className: 'gp-ref-chip gp-ref-chip--tag gp-ref-chip--del' }, [
             h(TagIcon, { key: 'i', size: 11 }),
             h('span', { key: 'n' }, r.name),
@@ -297,7 +357,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   if (compact) {
     return h('div', { className: 'gp-overview gp-overview--compact' }, [
       fileDiffModal,
-      ...tagModals,
+      ...opModals,
       pane === 'detail'
         ? h('div', { key: 'detail', className: 'gp-col gp-col--mid gp-detail' }, [
           h('div', { key: 'back', className: 'gp-subhead' }, [
@@ -320,7 +380,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   return h('div', { className: 'gp-overview' }, [
     // file-diff modal (click a changed file in the right column)
     fileDiffModal,
-    ...tagModals,
+    ...opModals,
     // left: branches
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, renderBranchList(tree, treeError, filter.ref, closedSections, {
       onFilter: (ref) => setRef(ref),
@@ -670,5 +730,86 @@ function TagCreateModal({ target, onClose, onCreate, error, t }: TagCreateCbs & 
     renderModalFooter({ onClose, onConfirm: submit, confirmLabel: t('tag.create'), confirmDisabled: name.trim() === '', danger: false, t }),
   ]))
   return createPortal(modal, document.body, 'tag-create-modal')
+}
+
+type ResetMode = 'soft' | 'mixed' | 'hard'
+
+interface ResetCbs {
+  from: string
+  dirty: boolean
+  lostFiles: readonly string[]
+  lostTotal: number
+  lostTruncated: boolean
+  busy: boolean
+  error: string | null
+  onReset: (mode: ResetMode) => void | Promise<void>
+  onClose: () => void
+  t: OpT
+}
+
+/** Portaled dialog: choose a reset mode (soft/mixed/hard) for the current branch.
+ * `hard` is the only mode that discards uncommitted work, so it reveals the
+ * lost-file list and gates the confirm behind an explicit acknowledgement. */
+function renderResetModal(target: { hash: string; shortHash: string; subject: string }, cb: ResetCbs): JSX.Element | null {
+  if (typeof document === 'undefined') return null
+  return h(ResetModal, { target, ...cb })
+}
+
+function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, busy, error, onReset, onClose, t }: ResetCbs & { target: { hash: string; shortHash: string; subject: string } }): JSX.Element {
+  const [mode, setMode] = useState<ResetMode>('mixed')
+  const [ack, setAck] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+  // Switching away from hard clears a stale acknowledgement.
+  useEffect(() => { if (mode !== 'hard') setAck(false) }, [mode])
+  const modes: Array<{ value: ResetMode; label: GitKey; hint: GitKey }> = [
+    { value: 'mixed', label: 'reset.modeMixed', hint: 'reset.mixedHint' },
+    { value: 'soft', label: 'reset.modeSoft', hint: 'reset.softHint' },
+    { value: 'hard', label: 'reset.modeHard', hint: 'reset.hardHint' },
+  ]
+  const confirmDisabled = busy || (mode === 'hard' && !ack)
+  const modal = h('div', {
+    className: 'gp-modal-backdrop',
+    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
+  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
+    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
+      h('span', { key: 'ic', className: 'gp-modal__fileicon' }, h(ResetIcon, { size: 15 })),
+      h('span', { key: 'title', className: 'gp-modal__path' }, t('reset.title')),
+      h('span', { key: 'hash', className: 'gp-modal__hash' }, target.shortHash),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
+    ]),
+    h('div', { key: 'body', className: 'gp-modal__form' }, [
+      h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, t('reset.body', { from, to: target.shortHash })),
+      h('div', { key: 'modes', className: 'gp-reset__modes' }, modes.map((m) => h('label', {
+        key: m.value, className: `gp-reset__mode${mode === m.value ? ' gp-reset__mode--on' : ''}${m.value === 'hard' ? ' gp-reset__mode--danger' : ''}`,
+      }, [
+        h('input', { key: 'r', type: 'radio', name: 'gp-reset-mode', className: 'gp-check', checked: mode === m.value, onChange: () => setMode(m.value) }),
+        h('span', { key: 'tx', className: 'gp-reset__modetext' }, [
+          h('span', { key: 'l', className: 'gp-reset__modelabel' }, t(m.label)),
+          h('span', { key: 'h', className: 'gp-reset__modehint' }, t(m.hint)),
+        ]),
+      ]))),
+      // Hard mode: show exactly what gets discarded and require an explicit ack.
+      mode === 'hard' && lostTotal > 0 ? h('div', { key: 'lost', className: 'gp-reset__lost' }, [
+        h('div', { key: 'w', className: 'gp-reset__warn' }, t('reset.hardWarn')),
+        h('ul', { key: 'ul', className: 'gp-reset__lostlist' }, [
+          ...lostFiles.map((p) => h('li', { key: p, title: p }, p)),
+          lostTruncated ? h('li', { key: '_more', className: 'gp-reset__lostmore' }, t('reset.lostMore', { n: lostTotal })) : null,
+        ]),
+      ]) : null,
+      mode === 'hard' ? h('label', { key: 'ack', className: 'gp-modal__check gp-reset__ack' }, [
+        h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: ack, onChange: () => setAck((v) => !v) }),
+        t('reset.hardAck'),
+      ]) : null,
+      dirty ? h('div', { key: 'dirty', className: 'gp-reset__dirtywarn' }, t('ops.dirtyWarn')) : null,
+      renderAiHint(t),
+      error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
+    ]),
+    renderModalFooter({ onClose, onConfirm: () => void onReset(mode), confirmLabel: t('reset.confirm'), confirmDisabled, danger: mode === 'hard', t }),
+  ]))
+  return createPortal(modal, document.body, 'reset-modal')
 }
 

@@ -136,6 +136,12 @@ export type GitAction =
   | { readonly kind: 'stash-apply'; readonly index: number; readonly sha: string }
   | { readonly kind: 'stash-pop'; readonly index: number; readonly sha: string }
   | { readonly kind: 'stash-drop'; readonly index: number; readonly sha: string }
+  // Commit undo operations (issue #12 P2). `revert` appends a reverse commit
+  // (keeps the work tree); `reset` moves the current branch HEAD to `commit`.
+  // `hard` additionally discards every uncommitted change — the one mode that
+  // can wipe in-flight work (incl. the dsh AI's), so the UI gates it hardest.
+  | { readonly kind: 'revert'; readonly commit: string }
+  | { readonly kind: 'reset'; readonly commit: string; readonly mode: 'soft' | 'mixed' | 'hard' }
 
 export type GitErrorCode =
   | 'cwd-unavailable'

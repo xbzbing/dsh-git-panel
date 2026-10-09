@@ -312,6 +312,24 @@ const CSS = `
 .gp-btn--danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}
 .gp-btn--danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 85%,#000);color:#fff}
 
+/* reset dialog: mode radios + hard-mode lost-files warning */
+.gp-reset__modes{display:flex;flex-direction:column;gap:6px}
+.gp-reset__mode{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;cursor:pointer}
+.gp-reset__mode--on{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-bg-layer-2)}
+.gp-reset__mode--danger.gp-reset__mode--on{border-color:var(--dsw-alias-state-error-primary)}
+.gp-reset__mode .gp-check{margin-top:2px;flex:none}
+.gp-reset__modetext{display:flex;flex-direction:column;gap:2px;min-width:0}
+.gp-reset__modelabel{font-size:12px;color:var(--dsw-alias-label-primary)}
+.gp-reset__mode--danger .gp-reset__modelabel{color:var(--dsw-alias-state-error-primary);font-weight:600}
+.gp-reset__modehint{font-size:11px;line-height:1.4;color:var(--dsw-alias-label-tertiary)}
+.gp-reset__lost{border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;padding:8px 10px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 8%,transparent)}
+.gp-reset__warn{font-size:12px;font-weight:600;color:var(--dsw-alias-state-error-primary);margin-bottom:4px}
+.gp-reset__lostlist{margin:0;padding-left:16px;max-height:120px;overflow-y:auto;font-size:11px;font-family:var(--dsw-font-mono,ui-monospace,monospace);color:var(--dsw-alias-label-secondary)}
+.gp-reset__lostlist li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-reset__lostmore{font-family:inherit;color:var(--dsw-alias-label-tertiary);list-style:none;margin-left:-16px}
+.gp-reset__ack{color:var(--dsw-alias-state-error-primary)}
+.gp-reset__dirtywarn{font-size:11px;line-height:1.5;color:var(--dsw-alias-state-warn-primary,#e0982e)}
+
 /* commit detail action area (tag create + existing-tag delete chips) */
 .gp-detail__ops{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
 .gp-ref-chip--del{display:inline-flex;align-items:center;gap:4px}
