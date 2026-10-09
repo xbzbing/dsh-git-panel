@@ -401,6 +401,12 @@ const CSS = `
 .gp-files--compact .gp-files__tree,
 .gp-files--compact .gp-files__preview{flex:1 1 100%;min-width:0;width:100%}
 
+/* Image compare stacks vertically in compact: two ~195px columns are unusable
+ * on a phone. The single-image before/after mode keeps its full-height row.
+ * The portaled diff modal lives outside .gp-panel, so it keeps side-by-side
+ * (near-fullscreen at small viewports, where two columns still fit). */
+.gp-panel[data-layout="compact"] .gp-imgcmp:not(.gp-imgcmp--single){grid-template-columns:1fr;grid-template-rows:1fr 1fr}
+
 /* Bottom sheet (compact branch/ref filter): slides up from the bottom edge,
  * portaled over the panel. Honors the home-indicator safe area. */
 .gp-sheet-backdrop{position:fixed;inset:0;z-index:1000;display:flex;align-items:flex-end;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 50%,transparent);animation:gp-fade-in .12s ease}
@@ -417,6 +423,7 @@ const CSS = `
 @media (hover:none){
   .gp-file-row__actions{visibility:visible}
   .gp-icon-btn{width:34px;height:34px}
+  .gp-btn{height:36px}
   .gp-tree-row{padding-top:7px;padding-bottom:7px}
   .gp-branch-row{padding-top:8px;padding-bottom:8px}
 }

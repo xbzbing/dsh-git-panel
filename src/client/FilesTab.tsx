@@ -66,6 +66,8 @@ interface FilesState {
   readonly selected: string | null
   readonly file: FileState
   readonly renderMarkdown: boolean
+  /** Compact drill pane ('tree' = list, 'preview' = open file); wide ignores it. */
+  readonly pane: 'tree' | 'preview'
 }
 const FILES_STICKY_MS = 60_000
 const filesCache = new Map<string, { state: FilesState; leftAt: number }>()
@@ -100,7 +102,7 @@ export function FilesTab({ remote, sessionId, compact, t }: FilesTabProps): JSX.
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
   // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
   // Ignored by the wide layout (tree + preview side by side).
-  const [pane, setPane] = useState<'tree' | 'preview'>(() => (init?.selected != null ? 'preview' : 'tree'))
+  const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
   const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
   const fileSeq = useRef(0)
 
@@ -163,8 +165,8 @@ export function FilesTab({ remote, sessionId, compact, t }: FilesTabProps): JSX.
   // Persist the browsing state when the panel unmounts (view-tab switch or
   // session change) so a quick return restores it; a ref carries the latest
   // values into the unmount-only cleanup.
-  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown })
-  liveRef.current = { dirs, open, selected, file, renderMarkdown }
+  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown, pane })
+  liveRef.current = { dirs, open, selected, file, renderMarkdown, pane }
   useEffect(() => () => { stashFilesState(sessionId, liveRef.current) }, [sessionId])
 
   // A restored selection whose preview was still loading at unmount comes back

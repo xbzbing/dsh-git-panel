@@ -71,6 +71,18 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   // Compact branch/ref filter lives in a bottom sheet (a side column has no room
   // on a phone); the wide layout keeps the always-visible left column instead.
   const [sheetOpen, setSheetOpen] = useState(false)
+  // Escape dismisses the sheet, matching the file-diff modal's dialog contract.
+  useEffect(() => {
+    if (!sheetOpen) return
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setSheetOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sheetOpen])
+  // The sheet is a compact-only surface; widening the panel dismisses it so it
+  // never hangs over the three-column layout.
+  useEffect(() => {
+    if (!compact && sheetOpen) setSheetOpen(false)
+  }, [compact, sheetOpen])
 
   const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, refreshKey)
   const detail = useCommitDetail(remote, sessionId, defaultDiffView)

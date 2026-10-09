@@ -1,9 +1,10 @@
 /**
  * E2E: compact (mobile) layout — the panel at a phone width switches to the
  * single-column drill-in UX. Asserts: the layout attribute flips, overview
- * drills list → detail → back, the branch filter opens as a bottom sheet,
- * Changes drills list → diff → back, Files drills tree → preview → back, and
- * widening the panel restores the three-column wide layout.
+ * drills list → detail → back, the branch filter opens as a bottom sheet
+ * (Escape and backdrop both dismiss), Changes drills list → diff → back with
+ * the split default rendering unified, Files drills tree → preview → back,
+ * no subpage scrolls horizontally, and widening restores the wide layout.
  *
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
@@ -98,6 +99,10 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 500))
   const panelRoot = document.querySelector('.gp-panel')
   result.compactLayout = panelRoot.getAttribute('data-layout')
+  // Design-doc guard: a phone-width panel must never scroll horizontally.
+  // Checks both the panel root (nothing may escape any pane) and the specific
+  // pane/root being exercised, so an intermediate overflow:hidden can't mask it.
+  const rootFits = (el) => el != null && el.scrollWidth <= el.clientWidth
 
   // Dirty workspace defaults to Changes; go to the Overview tab first.
   const tabByText = (txt) => [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes(txt))
@@ -110,6 +115,7 @@ const out = await page.evaluate(async (snap) => {
   result.ovTwoLineRows = document.querySelector('.gp-commit-row--compact .gp-commit-lines') !== null
   result.ovGraphStillDrawn = document.querySelector('.gp-commit-row--compact .gp-graph-svg') !== null
   result.ovNoHoverCard = document.querySelector('.gp-hovercard') === null
+  result.ovfOverview = rootFits(panelRoot) && rootFits(document.querySelector('.gp-overview--compact'))
 
   // Branch filter is a bottom sheet: open it, select 'feature', it closes and
   // the filter button reflects the active ref.
@@ -118,6 +124,12 @@ const out = await page.evaluate(async (snap) => {
   filterBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
   result.sheetOpened = document.querySelector('.gp-sheet') !== null
+  // Escape dismisses the dialog (a11y parity with the file-diff modal).
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await new Promise((r) => setTimeout(r, 150))
+  result.sheetClosedByEscape = document.querySelector('.gp-sheet') === null
+  filterBtn?.click()
+  await new Promise((r) => setTimeout(r, 200))
   const featureRow = [...document.querySelectorAll('.gp-sheet .gp-branch-row')].find((r) => (r.textContent || '').includes('feature'))
   featureRow?.click()
   await new Promise((r) => setTimeout(r, 300))
@@ -131,6 +143,7 @@ const out = await page.evaluate(async (snap) => {
   result.ovDrilledToDetail = document.querySelector('.gp-overview--compact .gp-detail') !== null && document.querySelector('.gp-overview--compact .gp-commit-row') === null
   result.ovDetailHasBack = [...document.querySelectorAll('.gp-subhead__back')].some((b) => (b.textContent || '').includes('overview.backToList'))
   result.ovDetailShowsFiles = document.querySelector('.gp-detail__files') !== null
+  result.ovfOverviewDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-detail'))
   document.querySelector('.gp-subhead__back')?.click()
   await new Promise((r) => setTimeout(r, 300))
   result.ovBackToList = document.querySelector('.gp-overview--compact .gp-commit-row') !== null
@@ -140,6 +153,7 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 400))
   result.chSingleColumn = document.querySelector('.gp-changes--compact') !== null
   result.chListShown = document.querySelector('.gp-changes--compact .gp-changes__left') !== null && document.querySelector('.gp-changes--compact .gp-commitbox') !== null
+  result.ovfChangesList = rootFits(panelRoot) && rootFits(document.querySelector('.gp-changes--compact'))
   const chFileRow = document.querySelector('.gp-file-row')
   chFileRow?.click()
   await new Promise((r) => setTimeout(r, 400))
@@ -147,6 +161,12 @@ const out = await page.evaluate(async (snap) => {
   result.chDiffHasBack = [...document.querySelectorAll('.gp-diff__toolbar .gp-subhead__back')].some((b) => (b.textContent || '').includes('changes.backToList'))
   // Compact drops the side-by-side mode button from the diff seg.
   result.chNoSplitButton = [...document.querySelectorAll('.gp-diff__toolbar .gp-seg__btn')].every((b) => (b.textContent || '') !== 'diff.split')
+  // The fixture's defaultDiffView is 'split', so compact must fall back to
+  // rendering unified — button absence alone wouldn't prove the render mode.
+  result.chUnifiedRender = document.querySelector('.gp-changes--compact .gp-diff__unified') !== null
+  result.chNoSideRender = document.querySelector('.gp-changes--compact .gp-diff__side') === null
+  result.chUnifiedActive = [...document.querySelectorAll('.gp-diff__toolbar .gp-seg__btn--active')].some((b) => (b.textContent || '') === 'diff.unified')
+  result.ovfChangesDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-changes--compact'))
   document.querySelector('.gp-diff__toolbar .gp-subhead__back')?.click()
   await new Promise((r) => setTimeout(r, 300))
   result.chBackToList = document.querySelector('.gp-changes--compact .gp-commitbox') !== null
@@ -155,11 +175,13 @@ const out = await page.evaluate(async (snap) => {
   tabByText('tab.files')?.click()
   await new Promise((r) => setTimeout(r, 400))
   result.flTreeShown = document.querySelector('.gp-files--compact .gp-files__tree') !== null
+  result.ovfFilesTree = rootFits(panelRoot) && rootFits(document.querySelector('.gp-files--compact'))
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   txtRow?.click()
   await new Promise((r) => setTimeout(r, 400))
   result.flDrilledToPreview = document.querySelector('.gp-files--compact .gp-files__preview') !== null && document.querySelector('.gp-files--compact .gp-files__tree') === null
   result.flPreviewHasBack = [...document.querySelectorAll('.gp-files__bar .gp-subhead__back')].some((b) => (b.textContent || '').includes('files.backToTree'))
+  result.ovfFilesDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-files--compact'))
   document.querySelector('.gp-files__bar .gp-subhead__back')?.click()
   await new Promise((r) => setTimeout(r, 300))
   result.flBackToTree = document.querySelector('.gp-files--compact .gp-files__tree') !== null
@@ -168,6 +190,7 @@ const out = await page.evaluate(async (snap) => {
   panelHost.style.width = '1000px'
   await new Promise((r) => setTimeout(r, 200))
   result.restoredWide = panelRoot.getAttribute('data-layout') === 'wide'
+  result.ovfWide = rootFits(panelRoot)
   tabByText('tab.overview')?.click()
   await new Promise((r) => setTimeout(r, 300))
   result.wideHasThreeColumns = document.querySelector('.gp-col--left') !== null && document.querySelector('.gp-col--mid') !== null && document.querySelector('.gp-col--right') !== null
@@ -184,8 +207,11 @@ try {
   assert.equal(out.ovTwoLineRows, true, 'compact commit rows stack subject + meta on two lines')
   assert.equal(out.ovGraphStillDrawn, true, 'the commit graph still renders in compact rows')
   assert.equal(out.ovNoHoverCard, true, 'no hover card in compact (tap drills in instead)')
+  assert.equal(out.ovfOverview, true, 'compact overview fits without horizontal overflow')
+  assert.equal(out.ovfOverviewDrill, true, 'the commit detail pane fits without horizontal overflow')
   assert.equal(out.ovHasFilterButton, true, 'compact overview exposes a branch-filter button')
   assert.equal(out.sheetOpened, true, 'the branch filter opens as a bottom sheet')
+  assert.equal(out.sheetClosedByEscape, true, 'Escape dismisses the bottom sheet')
   assert.equal(out.sheetClosedAfterPick, true, 'picking a branch closes the sheet')
   assert.equal(out.filterButtonShowsRef, true, 'the filter button reflects the active ref')
   assert.equal(out.ovDrilledToDetail, true, 'tapping a commit drills into the detail pane')
@@ -194,15 +220,23 @@ try {
   assert.equal(out.ovBackToList, true, 'back returns to the commit list')
   assert.equal(out.chSingleColumn, true, 'changes collapses to a single compact column')
   assert.equal(out.chListShown, true, 'the compact changes list shows the commit box')
+  assert.equal(out.ovfChangesList, true, 'the compact changes list fits without horizontal overflow')
   assert.equal(out.chDrilledToDiff, true, 'tapping a change drills into the diff pane')
   assert.equal(out.chDiffHasBack, true, 'the compact diff pane shows a back-to-list button')
   assert.equal(out.chNoSplitButton, true, 'the compact diff drops the side-by-side mode')
+  assert.equal(out.chUnifiedRender, true, 'the split default falls back to unified rendering')
+  assert.equal(out.chNoSideRender, true, 'compact never renders the side-by-side diff layout')
+  assert.equal(out.chUnifiedActive, true, 'the unified seg button is the active one')
+  assert.equal(out.ovfChangesDrill, true, 'the compact diff pane fits without horizontal overflow')
   assert.equal(out.chBackToList, true, 'back returns to the change list')
   assert.equal(out.flTreeShown, true, 'files shows the tree full width in compact')
+  assert.equal(out.ovfFilesTree, true, 'the compact file tree fits without horizontal overflow')
   assert.equal(out.flDrilledToPreview, true, 'tapping a file drills into the preview pane')
   assert.equal(out.flPreviewHasBack, true, 'the compact preview shows a back-to-tree button')
+  assert.equal(out.ovfFilesDrill, true, 'the compact preview fits without horizontal overflow')
   assert.equal(out.flBackToTree, true, 'back returns to the file tree')
   assert.equal(out.restoredWide, true, 'widening the panel restores the wide layout')
+  assert.equal(out.ovfWide, true, 'the widened panel fits without horizontal overflow')
   assert.equal(out.wideHasThreeColumns, true, 'the wide overview shows all three columns again')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run3.mjs: PASS', JSON.stringify(out))
