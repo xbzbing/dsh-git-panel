@@ -9,13 +9,14 @@
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { Context } from '@deepseek-ai/cordis';
 import Schema from '@deepseek-ai/schemastery';
-import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitVersionInfo, GitVersionRequest } from './types.ts';
-export type { GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef, GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry, } from './types.ts';
+import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.ts';
+export type { GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef, GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry, GitSuggestRequest, GitSuggestResult, } from './types.ts';
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts';
 export { createGitRunner } from './git.ts';
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, sumNumstat } from './parser.ts';
 export { isSafePath, planAction, runAction } from './actions.ts';
 export { runQuery } from './queries.ts';
+export { runSuggest } from './suggest.ts';
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.ts';
 export declare class GitPanelService extends TypertRemoteService {
     static inject: string[];
@@ -28,9 +29,11 @@ export declare class GitPanelService extends TypertRemoteService {
     static Config: Schema<Schemastery.ObjectS<NoInfer<{
         showInputPill: Schema<boolean, boolean, "volatile-defined">;
         defaultDiffView: Schema<"split" | "unified", "split" | "unified", "volatile-defined">;
+        suggestEnabled: Schema<boolean, boolean, "volatile-defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
         showInputPill: Schema<boolean, boolean, "volatile-defined">;
         defaultDiffView: Schema<"split" | "unified", "split" | "unified", "volatile-defined">;
+        suggestEnabled: Schema<boolean, boolean, "volatile-defined">;
     }>>, "plain">;
     private readonly deps;
     private config;
@@ -40,6 +43,7 @@ export declare class GitPanelService extends TypertRemoteService {
     snapshot(request: GitSnapshotRequest, signal?: AbortSignal): Promise<GitSnapshotResult>;
     run(request: GitActionRequest, signal?: AbortSignal): Promise<GitActionResult>;
     query(request: GitQueryRequest, signal?: AbortSignal): Promise<GitQueryResponse>;
+    suggest(request: GitSuggestRequest, signal?: AbortSignal): Promise<GitSuggestResult>;
     version(request: GitVersionRequest): Promise<GitVersionInfo>;
     /** Re-read config so a live-edited volatile field (showInputPill) is current. */
     private liveConfig;

@@ -1,4 +1,5 @@
 import type { GitRunner } from './git.ts';
+import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts';
 import type { DiffViewMode, GitChange, GitErrorCode, GitSnapshotResult } from './types.ts';
 export interface GitPanelConfig {
     readonly timeoutMs: number;
@@ -10,6 +11,15 @@ export interface GitPanelConfig {
     readonly showInputPill: boolean;
     /** Default diff layout the views open with (user can switch per-diff). */
     readonly defaultDiffView: DiffViewMode;
+    /** Whether the "AI suggest" button shows in the commit box. */
+    readonly suggestEnabled: boolean;
+    /** Max diff bytes sent to the model; beyond this the diff is truncated. */
+    readonly suggestMaxBytes: number;
+    readonly suggestMaxOutputTokens: number;
+    readonly suggestTimeoutMs: number;
+    /** Optional provider/model route override; absent → the agent default. */
+    readonly suggestProvider?: string;
+    readonly suggestModel?: string;
 }
 export declare const DEFAULT_CONFIG: GitPanelConfig;
 export declare function normalizeConfig(raw: unknown): GitPanelConfig;
@@ -61,6 +71,15 @@ export interface SnapshotDeps {
      * cwd is picked up soon after.
      */
     readonly rootNegCache?: Map<string, number>;
+    /**
+     * Optional per-request resolvers for the host `llm` and `agentDefaultModel`
+     * services (see llm-face.ts). Resolved on every suggest call — never frozen
+     * at construction — so a provider fiber that activates late or restarts is
+     * picked up. Absent in deployments without a model backend; the suggest
+     * endpoint then reports `llm-unavailable` instead of failing activation.
+     */
+    readonly getLlm?: () => LlmFace | undefined;
+    readonly getAgentDefaultModel?: () => AgentDefaultModelFace | undefined;
 }
 export type WorkspaceResolution = {
     readonly ok: true;

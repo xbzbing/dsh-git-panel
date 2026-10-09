@@ -29,8 +29,9 @@ Client 半 (React bundle, lib/client.js)
         ▼
 Host 半 (Cordis + typert, lib/host)
   - GitPanelService（命名空间 gitPanel）
-        - snapshot / run / query / version 四个 @Remote 端点
+        - snapshot / run / query / suggest / version 五个 @Remote 端点
         │ subprocess 服务（argv 数组、无 shell、cwd 锁仓库根、超时+输出上限）
+        │ suggest 端点另经宿主 llm 服务（ctx.get 可选获取）一次性生成提交信息
         ▼
   git CLI
 ```
@@ -44,6 +45,7 @@ Host 半 (Cordis + typert, lib/host)
 - `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`）。
 - `queries.ts`：`history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / authors / last-commit-message / worktree-stats`。`file-lines` 按新侧行号取文件切片（worktree/staged 读工作区文件、commit 读 `<commit>:<path>`），供 diff 视图按需展开块间隐藏上下文。`dir-list` 列单个工作区目录（懒加载、跳过 `.git`、条目上限）、`file-content` 读单个工作区文件（文本切片 / 图片 data URL / 二进制标记，超上限降级）；两者的 path 经 `isSafePath` + realpath 逃逸守卫（软链指仓库外一律拒），是插件唯一直接读 git 未跟踪文件的信任边界。
 - `validate.ts`：host 信任边界的输入校验（`isSafePath` / `isSafeRev` / `isSafeBranchName`）。经 RPC 到来的 path/ref/分支名是唯一不可信 argv 素材；凡会把它们放进选项位的 git 命令都在此拦截，并额外用 `--end-of-options` 殿后（拒 `-` 开头的 `--output=<file>` 任意写向量）。
+- `suggest.ts`：AI 生成提交信息端点——`git status -z` 文件清单 + `git diff HEAD`（unborn 退化为 `--cached` + worktree，`paths` 全过 `isSafePath`），untracked 新文件再按 `git diff --no-index` 折入 diff（`suggestMaxBytes` 预算内、`UNTRACKED_FILE_CAP` 封顶），JSON framing 组 prompt；经 `llm` 面（`ctx.llm.stream`）一次性生成，手写 deadline 超时、finish→错误映射（读真实 chunk 的 `reason` 信封）、`suggestEnabled=false` 入口兜底为 `suggest-disabled`。`llm`/`agentDefaultModel` 走 `getLlm`/`getAgentDefaultModel` **按请求解析**（不构造期冻结、**不进 `static inject`**）；模型路由为 config 覆盖对（provider/model 必须成对）优先，否则 `agentDefaultModel.currentSelection()`；`llm-face.ts` 用 `@deepseek-ai/dsh-llm` 的 type-only 官方类型钉住 wire 契约（零运行时依赖）。
 - `parser.ts`：`git status --porcelain` / `--numstat` / `log` 输出解析为结构化数据。
 - `version.ts`：读本包 `package.json` 版本 + 查 GitHub release 做更新检查，失败降级。
 
@@ -57,7 +59,7 @@ Host 半 (Cordis + typert, lib/host)
 - `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment）的组合层，含 hover 卡；取数状态拆进 `overview-hooks.ts`。
 - `overview-hooks.ts`：`useBranchTree` / `useHistory`（分页 + 分代守卫 + `total:-1`）/ `useCommitDetail`（`show` LRU 缓存 + 文件 diff overlay + hover）三个数据 hook，`OverviewTab` 只做组合与渲染。
 - `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条（读快照上的 `stats`，不再单发查询）、差异视图（`DiffView` 已 `memo`；支持统一（`unified`，单栏行内）/ 并排（`split`，左右分栏）两种布局，默认视图由快照上的 `defaultDiffView` 决定，可在工具栏临时切换）。
-- `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换。
+- `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换 + 「提交框显示 AI 生成」开关。
 - `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
 - `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果）。
 - `jump.ts`：面板/子 tab 一次性焦点中继（模块级 per-session Map）。

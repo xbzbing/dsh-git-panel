@@ -37,6 +37,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [failed, setFailed] = useState(false)
   const [pending, setPending] = useState<boolean | null>(null)
   const [pendingView, setPendingView] = useState<DiffView | null>(null)
+  const [pendingSuggest, setPendingSuggest] = useState<boolean | null>(null)
   const bump = (): void => { setTick((n) => n + 1) }
 
   const forms = ctx.get('configForms') as ConfigFormsFace | undefined
@@ -68,6 +69,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const mirrorStatus = mirror?.getSnapshot().status
   const checked = pending ?? (typeof snap?.value?.showInputPill === 'boolean' ? (snap.value.showInputPill as boolean) : true)
   const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
+  const suggestEnabled = pendingSuggest ?? (typeof snap?.value?.suggestEnabled === 'boolean' ? (snap.value.suggestEnabled as boolean) : true)
 
   // Write one config field, then resync so the pill/tab-dot reflect it without
   // waiting for the next poll; `clearPending` resets that field's optimistic
@@ -101,6 +103,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     return commitField('defaultDiffView', next, () => setPendingView(null))
   }
 
+  const toggleSuggest = (next: boolean): Promise<void> => {
+    setPendingSuggest(next)
+    return commitField('suggestEnabled', next, () => setPendingSuggest(null))
+  }
+
   if (forms === undefined) return h('p', { className: 'gp-cfg__hint' }, t('cfg.notLoaded'))
   if (!loaded) {
     if (mirrorStatus === 'idle' || mirrorStatus === 'loading') return h('p', { className: 'gp-cfg__hint' }, t('common.loading'))
@@ -123,6 +130,16 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       segButtons<DiffView>(['unified', 'split'], diffView, (v) => { void setView(v) },
         (v) => t(v === 'unified' ? 'cfg.diffUnified' : 'cfg.diffSplit'), busy || snap?.writable === false)),
     h('p', { key: 'diffhint', className: 'gp-cfg__hint' }, t('cfg.diffHint')),
+    h('h3', { key: 'sgtitle', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.suggestTitle')),
+    h('label', { key: 'sgrow', className: 'gp-cfg__row' }, [
+      h('input', {
+        key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+        checked: suggestEnabled, disabled: busy || snap?.writable === false,
+        onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleSuggest(e.currentTarget.checked) },
+      }),
+      h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.suggestToggle')),
+    ]),
+    h('p', { key: 'sghint', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
     failed ? h('p', { key: 'error', className: 'gp-cfg__err', role: 'alert' }, t('cfg.saveFailed')) : null,
   ])
 }

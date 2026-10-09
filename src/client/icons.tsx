@@ -36,6 +36,14 @@ export function RefreshIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M13 8a5 5 0 1 1-1.5-3.5' }), h('path', { key: 'b', d: 'M13 2v3h-3' })], size)
 }
 
+/** Four-point sparkle (the AI-suggest action). */
+export function SparkleIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'a', d: 'M8 2.6l1.4 4 4 1.4-4 1.4-1.4 4-1.4-4-4-1.4 4-1.4z' }),
+    h('path', { key: 'b', d: 'M13 11.6v2.8M11.6 13h2.8' }),
+  ], size)
+}
+
 export function FileIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
 }
