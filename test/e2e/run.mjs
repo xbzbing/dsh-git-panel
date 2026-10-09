@@ -97,6 +97,7 @@ const out = await page.evaluate(async (snap) => {
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
+          if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }] } } }
         }
         if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
@@ -176,6 +177,19 @@ const out = await page.evaluate(async (snap) => {
   result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
   result.changeRows = document.querySelectorAll('.gp-file-row').length
   result.hasAmend = document.querySelector('.gp-commitbox__amend') !== null
+  // Stash: the toolbar carries a stash button; the stash list (mock → one entry)
+  // expands to a row, and the drop confirm shows the shared AI hint.
+  result.hasStashBtn = [...document.querySelectorAll('.gp-toolbar .gp-btn')].some((b) => (b.textContent || '').includes('changes.stash'))
+  const stashHead = document.querySelector('.gp-stash .gp-group-head')
+  if (stashHead) { stashHead.click(); await new Promise((r) => setTimeout(r, 150)) }
+  result.stashRows = document.querySelectorAll('.gp-stash-row').length
+  const dropBtn = document.querySelector('.gp-stash-row__actions .gp-icon-btn')
+  if (dropBtn) { dropBtn.click(); await new Promise((r) => setTimeout(r, 150)) }
+  result.stashDropHint = (document.querySelector('.gp-modal--sm .gp-modal__hint')?.textContent || '') === 'ops.aiHint'
+  // Escape dismisses the confirm dialog (matches the panel's dialog contract).
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.stashDropEscClosed = document.querySelector('.gp-modal--sm') === null
   const commitBtn = [...document.querySelectorAll('.gp-commitbox__actions .gp-btn--primary')][0]
   result.commitDisabledEmpty = commitBtn?.disabled === true
   const primaryStyle = getComputedStyle(commitBtn)
@@ -251,6 +265,15 @@ const out = await page.evaluate(async (snap) => {
   if (firstCommit) { firstCommit.click(); await new Promise((r) => setTimeout(r, 400)) }
   const fileRow = document.querySelector('.gp-detail__files .gp-tree-row')
   result.hasDetailFileRow = fileRow !== null
+  // Commit detail action area: a create-tag button opens the tag dialog, which
+  // carries the shared "trust the AI" hint. Close it before the file-diff test.
+  const createTagBtn = [...document.querySelectorAll('.gp-detail__ops .gp-btn')].find((b) => (b.textContent || '').includes('overview.createTag'))
+  result.hasCreateTagBtn = createTagBtn != null
+  if (createTagBtn) { createTagBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
+  result.tagModalOpened = document.querySelector('.gp-modal--sm') !== null
+  result.tagModalHint = (document.querySelector('.gp-modal--sm .gp-modal__hint')?.textContent || '') === 'ops.aiHint'
+  const tagClose = document.querySelector('.gp-modal--sm .gp-modal__close')
+  if (tagClose) { tagClose.click(); await new Promise((r) => setTimeout(r, 150)) }
   // Click a changed file → the diff modal opens (portaled to document.body).
   if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasModal = document.querySelector('.gp-modal') !== null
@@ -491,6 +514,10 @@ try {
   assert.equal(out.hasStats, true, 'stats bar rendered')
   assert.equal(out.hasCommitBox, true, 'commit box rendered')
   assert.equal(out.hasAmend, true, 'amend checkbox present')
+  assert.equal(out.hasStashBtn, true, 'stash button present in the changes toolbar')
+  assert.equal(out.stashRows, 1, 'the stash list expands to its one entry')
+  assert.equal(out.stashDropHint, true, 'the stash drop confirm shows the AI hint')
+  assert.equal(out.stashDropEscClosed, true, 'Escape dismisses the stash drop confirm')
   assert.equal(out.commitDisabledEmpty, true, 'commit button is disabled without a message')
   assert.equal(out.commitEnabledWithMessage, true, 'commit button enables once a message is typed')
   assert.equal(out.commitPrimaryHoverKeepsColor, true, 'primary button defines a hover style that keeps its color')
@@ -512,6 +539,9 @@ try {
   assert.equal(out.commitRows, 2, 'two commit rows')
   assert.equal(out.hasGraph, true, 'commit graph svg rendered')
   assert.equal(out.hasDetailFileRow, true, 'selecting a commit lists its changed files')
+  assert.equal(out.hasCreateTagBtn, true, 'commit detail shows a create-tag action')
+  assert.equal(out.tagModalOpened, true, 'the create-tag dialog opens')
+  assert.equal(out.tagModalHint, true, 'the create-tag dialog shows the AI hint')
   assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
   assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
   assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')

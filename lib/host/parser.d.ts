@@ -2,7 +2,7 @@
  * git output parsers: porcelain status, log, branch, numstat, name-status.
  * Pure functions over raw stdout, no I/O.
  */
-import type { GitBranch, GitChange, GitCommit, GitFileStat, GraphCommit, GitRef } from './types.ts';
+import type { GitBranch, GitChange, GitCommit, GitFileStat, GraphCommit, GitRef, StashEntry } from './types.ts';
 /**
  * Build a GitCommit from a `%H\x1f%h\x1f%s\x1f%an\x1f%aI`-ordered field array
  * (the body, when present, is the caller's `parts.slice(5)`). Null when the
@@ -27,6 +27,14 @@ export declare function parseRefs(decoration: string): GitRef[];
 export declare function parseBranches(stdout: string): GitBranch[];
 /** Parse `git for-each-ref` tag lines: `name\0shortHash` per line. */
 export declare function parseTags(stdout: string): GitBranch[];
+/**
+ * Parse `git stash list -z --format=%gd%x1f%H%x1f%gs%x1f%cr` into stash entries.
+ * Each NUL-separated record is: selector (`stash@{N}`), the stash commit SHA, the
+ * reflog subject, and a relative time. The subject is either auto ("WIP on
+ * <branch>: <sha> <subj>") or custom ("On <branch>: <message>"); the branch is
+ * the text between "on " and the first ": ", and the message is after it.
+ */
+export declare function parseStashList(stdout: string): StashEntry[];
 /**
  * Parse `git show --name-status -z` into stats with an explicit state machine:
  * read a status token, then consume exactly the paths it owns (2 for R/C, 1

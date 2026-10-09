@@ -4,7 +4,7 @@
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
-import { isSafeBranchName, isSafePath } from './validate.ts'
+import { isSafeBranchName, isSafePath, isSafeRev } from './validate.ts'
 import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.ts'
 
 export { isSafePath }
@@ -61,7 +61,75 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       return { argv: [['git', 'checkout', '--end-of-options', action.name]] }
     case 'fetch':
       return { argv: [['git', 'fetch', '--all', '--prune']] }
+    case 'tag-create': {
+      if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe tag name: ${action.name}` }
+      if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
+      const msg = action.message?.trim() ?? ''
+      // A message makes it an annotated tag (-a -m); otherwise a lightweight tag.
+      const flags = msg === '' ? [] : ['-a', '-m', msg]
+      return { argv: [['git', 'tag', ...flags, '--end-of-options', action.name, action.commit]] }
+    }
+    case 'tag-delete':
+      if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe tag name: ${action.name}` }
+      return { argv: [['git', 'tag', '-d', '--end-of-options', action.name]] }
+    case 'stash-push': {
+      const msg = action.message?.trim() ?? ''
+      // `-m` makes the stash subject the user's text; without it git auto-labels
+      // ("WIP on <branch>: …"). `--` would need a pathspec, so it is omitted.
+      return { argv: [msg === '' ? ['git', 'stash', 'push'] : ['git', 'stash', 'push', '-m', msg]] }
+    }
+    case 'stash-apply':
+    case 'stash-pop':
+    case 'stash-drop': {
+      if (!Number.isInteger(action.index) || action.index < 0) {
+        return { error: 'invalid-index', message: `invalid stash index: ${action.index}` }
+      }
+      const verb = action.kind === 'stash-apply' ? 'apply' : action.kind === 'stash-pop' ? 'pop' : 'drop'
+      // `stash@{N}` is built from a validated non-negative integer, never raw
+      // user text; `--end-of-options` keeps it an operand belt-and-suspenders.
+      return { argv: [['git', 'stash', verb, '--end-of-options', `stash@{${action.index}}`]] }
+    }
   }
+}
+
+/** True when a command outcome failed specifically on the git index lock. */
+function isIndexBusy(outcome: Awaited<ReturnType<typeof runCommand>>): boolean {
+  if (!('run' in outcome) || outcome.run.exitCode === 0) return false
+  return /index\.lock|Unable to create.*index|another git process/i.test(outcome.run.stderr + outcome.run.stdout)
+}
+
+/**
+ * Classify a non-zero git exit into a wire error code + message. Order is
+ * semantic and must not be reshuffled:
+ *  - conflict first — a stash apply/pop conflict prints both "CONFLICT …" and
+ *    "no changes added to commit", so it must win over the nothing-to-commit
+ *    rule below (git keeps the stash entry on conflict → recoverable).
+ *  - index.lock busy (another process holds the lock).
+ *  - nothing-to-commit / no changes added (a real commit no-op).
+ *  - not-found (missing ref / tag / stash).
+ *  - local-changes-block (a dirty-worktree refusal; neutral wording covers both
+ *    `git checkout` and `git stash apply`).
+ *  - git-error fallback (surface the repo's own stderr).
+ */
+export function classifyActionFailure(stdout: string, stderr: string, exitCode: number): { code: GitErrorCode; message: string } {
+  const combined = stderr + stdout
+  const err = stderr.trim()
+  if (/CONFLICT|Merge conflict|needs merge|could not restore untracked/i.test(combined)) {
+    return { code: 'conflict', message: err || 'merge conflict' }
+  }
+  if (/index\.lock|Unable to create.*index|another git process/i.test(combined)) {
+    return { code: 'index-busy', message: err }
+  }
+  if (/nothing to commit|no changes added/i.test(combined)) {
+    return { code: 'git-error', message: err || 'nothing to commit' }
+  }
+  if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision/i.test(combined)) {
+    return { code: 'not-found', message: err || 'not found' }
+  }
+  if (/would be overwritten by (checkout|merge)|local changes|overwritten by merge|Your local changes/i.test(stderr)) {
+    return { code: 'local-changes-block', message: err }
+  }
+  return { code: 'git-error', message: err || `git exited ${exitCode}` }
 }
 
 /** Execute a management action, returning the fresh snapshot on success. */
@@ -77,6 +145,23 @@ export async function runAction(
   // Detect unborn for correct unstage semantics.
   const headProbe = await runCommand(deps.run, ['git', 'rev-parse', '--verify', 'HEAD'], root, 'head-probe', deps.signal)
   const unborn = !('run' in headProbe) || headProbe.run.exitCode !== 0
+
+  // Stash is a stack addressed by position; under a shared worktree another
+  // actor can push/pop/drop between the list query and this action, shifting
+  // every index. Resolve `stash@{N}` to its SHA now and reject if it no longer
+  // matches the entry the client acted on — otherwise a drop could destroy the
+  // wrong (unrecoverable) stash. TOCTOU window is cut to this rev-parse.
+  const act = request.action
+  if (act.kind === 'stash-apply' || act.kind === 'stash-pop' || act.kind === 'stash-drop') {
+    if (!Number.isInteger(act.index) || act.index < 0) {
+      return { ok: false, error: { code: 'invalid-index', message: `invalid stash index: ${act.index}` } }
+    }
+    const probe = await runCommand(deps.run, ['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', `stash@{${act.index}}`], root, 'stash-verify', deps.signal)
+    const sha = 'run' in probe && probe.run.exitCode === 0 ? probe.run.stdout.trim() : ''
+    if (sha === '' || sha !== act.sha) {
+      return { ok: false, error: { code: 'not-found', message: 'stash entry changed; refresh and retry' } }
+    }
+  }
 
   // Discard of an untracked path can't go through `git restore` (pathspec does
   // not match a known file); delete those from the work tree directly, with a
@@ -103,7 +188,14 @@ export async function runAction(
   // broke (the sequence is not atomic — the add may have staged already).
   for (let step = 0; step < plan.argv.length; step += 1) {
     const argv = plan.argv[step]!
-    const outcome = await runCommand(deps.run, argv, root, 'action', deps.signal)
+    let outcome = await runCommand(deps.run, argv, root, 'action', deps.signal)
+    // Shared-worktree contention: another git process (often the dsh AI agent)
+    // holds .git/index.lock. Retry once after a short delay before surfacing a
+    // friendly "git busy" error instead of the raw lock message.
+    if (isIndexBusy(outcome)) {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      outcome = await runCommand(deps.run, argv, root, 'action-retry', deps.signal)
+    }
     const where = plan.argv.length > 1 ? ` (step ${step + 1}/${plan.argv.length}: ${argv.join(' ')})` : ''
     if ('failure' in outcome) {
       const message = outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure)
@@ -113,16 +205,14 @@ export async function runAction(
     if (outcome.run.timedOut) return { ok: false, error: { code: 'timeout' } }
     lastOutput = outcome.run.stdout || outcome.run.stderr
     if (outcome.run.exitCode !== 0) {
-      const stderr = outcome.run.stderr
-      // "nothing to commit" exits non-zero: report it as a git-error with the
-      // repo's own message rather than a bare exit code.
-      if (/nothing to commit|no changes added/i.test(stderr + lastOutput)) {
-        return { ok: false, error: { code: 'git-error', message: (stderr.trim() || 'nothing to commit') + where } }
-      }
-      if (/would be overwritten by checkout|local changes/i.test(stderr)) {
-        return { ok: false, error: { code: 'local-changes-block', message: stderr.trim() + where } }
-      }
-      return { ok: false, error: { code: 'git-error', message: (stderr.trim() || `git exited ${outcome.run.exitCode}`) + where } }
+      const failure = classifyActionFailure(outcome.run.stdout, outcome.run.stderr, outcome.run.exitCode ?? -1)
+      return { ok: false, error: { code: failure.code, message: failure.message + where } }
+    }
+    // `git stash push` with nothing to stash (e.g. only untracked files) prints
+    // "No local changes to save" and exits 0 — a silent no-op that would look
+    // like a successful stash. Surface it as a failure so the UI reports it.
+    if (request.action.kind === 'stash-push' && /No local changes to save/i.test(outcome.run.stdout + outcome.run.stderr)) {
+      return { ok: false, error: { code: 'git-error', message: (outcome.run.stdout.trim() || 'No local changes to save') + where } }
     }
   }
 

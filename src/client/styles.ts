@@ -298,6 +298,35 @@ const CSS = `
 .gp-modal__close{flex:none}
 .gp-modal__scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-bg-layer-2)}
 
+/* small dialog (tag create/delete, stash push/drop): auto-height form modal */
+.gp-modal--sm{width:min(460px,92vw);height:auto;max-height:min(560px,86vh)}
+.gp-modal__form{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.gp-modal__confirmtext{font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word}
+.gp-modal__check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer;user-select:none}
+.gp-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
+.gp-input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
+.gp-input--area{height:auto;min-height:60px;padding:8px 10px;resize:vertical;line-height:1.5}
+.gp-modal__footer{flex:none;display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2)}
+.gp-modal__hint{flex:1;min-width:0;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+.gp-modal__btns{flex:none;display:flex;gap:8px}
+.gp-btn--sm{height:24px;padding:0 8px;font-size:11px}
+.gp-btn--danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}
+.gp-btn--danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 85%,#000);color:#fff}
+
+/* commit detail action area (tag create + existing-tag delete chips) */
+.gp-detail__ops{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
+.gp-ref-chip--del{display:inline-flex;align-items:center;gap:4px}
+.gp-ref-chip__x{display:inline-flex;align-items:center;padding:0;margin-left:2px;border:none;background:none;color:inherit;cursor:pointer;opacity:.7}
+.gp-ref-chip__x:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}
+
+/* stash list (changes page, below the change list) */
+.gp-stash{flex:none;border-top:1px solid var(--dsw-alias-border-l2)}
+.gp-stash-row{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px}
+.gp-stash-row__info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.gp-stash-row__msg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}
+.gp-stash-row__meta{display:flex;gap:8px;font-size:10px;color:var(--dsw-alias-label-tertiary)}
+.gp-stash-row__actions{flex:none;display:flex;align-items:center;gap:4px}
+
 /* commit hover card (middle column): pointer-anchored, lists changed files */
 .gp-hovercard{position:fixed;z-index:70;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 8px 28px rgba(0,0,0,.2),0 1px 3px rgba(0,0,0,.12);font-size:12px;pointer-events:none;max-height:60vh;overflow:hidden;display:flex;flex-direction:column}
 .gp-hovercard__subject{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px;white-space:normal;word-break:break-word;overflow-wrap:anywhere}

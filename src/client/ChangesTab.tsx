@@ -3,17 +3,19 @@
  * (with Amend) on the left; the selected file's diff on the right.
  */
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import type { GitAction, GitChange, GitErrorCode, GitSnapshot } from './types'
+import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types'
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
-import { ArrowLeftIcon, ChevronIcon, SparkleIcon } from './icons'
+import { ArrowLeftIcon, ChevronIcon, CloseIcon, SparkleIcon, StashIcon, TrashIcon } from './icons'
 import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
+import { renderConfirmModal, renderModalFooter } from './ops-modals'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -46,8 +48,24 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   // Compact drill-in: 'list' shows the change list + commit box, 'diff' the
   // selected file's diff. Ignored by the wide layout (both columns at once).
   const [pane, setPane] = useState<'list' | 'diff'>('list')
+  // Stash stack (queried on demand), its collapse state, the push dialog, and
+  // the drop-confirm target index.
+  const [stashes, setStashes] = useState<readonly StashEntry[]>([])
+  const [stashClosed, setStashClosed] = useState(true)
+  const [stashPushOpen, setStashPushOpen] = useState(false)
+  const [stashDrop, setStashDrop] = useState<StashEntry | null>(null)
   const msgRef = useRef<HTMLTextAreaElement | null>(null)
   const diffSeq = useRef(0)
+
+  const loadStashes = useCallback(async () => {
+    const res = await remote.query({ sessionId, query: { kind: 'stash-list' } })
+    const sl = queryAs(res, 'stash-list')
+    setStashes(sl?.entries ?? [])
+  }, [remote, sessionId])
+
+  // Reload the stash list whenever the snapshot advances (a push/pop changes the
+  // work tree and bumps checkedAt) and on first mount.
+  useEffect(() => { void loadStashes() }, [loadStashes, snapshot.checkedAt])
 
   const staged = useMemo(() => snapshot.changes.filter((c) => c.staged).sort(byPath), [snapshot])
   const unstaged = useMemo(() => snapshot.changes.filter((c) => !c.staged && c.status !== 'untracked').sort(byPath), [snapshot])
@@ -153,6 +171,20 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false) }
   }
 
+  // Stash: push the current changes (optional message), then apply / pop / drop
+  // stack entries. The snapshot-driven effect reloads the list, but push/drop
+  // also reload immediately so the dialog closes against a fresh stack.
+  const stashPush = async (message: string): Promise<void> => {
+    const ok = await run({ kind: 'stash-push', ...(message.trim() !== '' ? { message } : {}) })
+    if (ok) { setStashPushOpen(false); void loadStashes() }
+  }
+  const stashApply = (index: number, sha: string): void => { void run({ kind: 'stash-apply', index, sha }).then((ok) => { if (ok) void loadStashes() }) }
+  const stashPop = (index: number, sha: string): void => { void run({ kind: 'stash-pop', index, sha }).then((ok) => { if (ok) void loadStashes() }) }
+  const stashDropConfirmed = async (index: number, sha: string): Promise<void> => {
+    const ok = await run({ kind: 'stash-drop', index, sha })
+    if (ok) { setStashDrop(null); void loadStashes() }
+  }
+
   /** Map a suggest-endpoint failure to display text; the provider detail rides along. */
   const suggestErrorText = (code: GitErrorCode, detail: string | undefined): string => {
     switch (code) {
@@ -230,6 +262,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     h('div', { key: 'toolbar', className: 'gp-toolbar' }, [
       h('button', { key: 'sa', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, onClick: () => void run({ kind: 'stage-all' }) }, t('changes.stageAll')),
       h('button', { key: 'ua', type: 'button', className: 'gp-btn', disabled: busy || snapshot.staged === 0, onClick: () => void run({ kind: 'unstage-all' }) }, t('changes.unstageAll')),
+      h('button', { key: 'stash', type: 'button', className: 'gp-btn', disabled: busy || (snapshot.staged === 0 && snapshot.modified === 0), title: t('changes.stash'), onClick: () => { setError(null); setStashPushOpen(true) } }, [h(StashIcon, { key: 'ic', size: 13 }), t('changes.stash')]),
     ]),
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
@@ -262,6 +295,20 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
             })
           }),
         ]))),
+    // stash list (collapsible)
+    stashes.length > 0 ? h('div', { key: 'stashes', className: 'gp-stash' }, [
+      h('div', { key: 'head', className: 'gp-group-head', onClick: () => setStashClosed((v) => !v) }, [
+        h(ChevronIcon, { key: 'chev', size: 12, open: !stashClosed }),
+        `${t('stash.section')} (${stashes.length})`,
+      ]),
+      stashClosed ? null : h('div', { key: 'items' }, stashes.map((s) => renderStashRow(s, {
+        busy,
+        onApply: () => stashApply(s.index, s.sha),
+        onPop: () => stashPop(s.index, s.sha),
+        onDrop: () => { setError(null); setStashDrop(s) },
+        t,
+      }))),
+    ]) : null,
     // commit box
     h('div', { key: 'box', className: 'gp-commitbox' }, [
       h('textarea', {
@@ -317,20 +364,105 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
         diffText === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffText, mode: effDiffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, t })),
     ])
 
+  // Stash dialogs (push + drop confirm), portaled; included in both layouts.
+  const stashModals: (JSX.Element | null)[] = [
+    stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,
+    stashDrop !== null ? renderConfirmModal({
+      title: t('stash.dropTitle'),
+      body: t('stash.dropConfirm', { name: stashDrop.message }),
+      confirmLabel: t('stash.drop'),
+      danger: true,
+      error,
+      onConfirm: () => void stashDropConfirmed(stashDrop.index, stashDrop.sha),
+      onClose: () => setStashDrop(null),
+      t,
+    }) : null,
+  ]
+
   // Compact: a single column drilling from the change list into the diff.
   if (compact) {
-    return h('div', { className: 'gp-changes gp-changes--compact' },
+    return h('div', { className: 'gp-changes gp-changes--compact' }, [
+      ...stashModals,
       pane === 'diff'
         ? h('div', { key: 'right', className: 'gp-changes__right' }, diffBlock)
-        : h('div', { key: 'left', className: 'gp-changes__left' }, leftChildren))
+        : h('div', { key: 'left', className: 'gp-changes__left' }, leftChildren),
+    ])
   }
 
   return h('div', { className: 'gp-changes' }, [
+    ...stashModals,
     // left
     h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${leftCol.width}px` } }, leftChildren),
     leftCol.divider,
     // right diff
     h('div', { key: 'right', className: 'gp-changes__right' }, diffBlock),
+  ])
+}
+
+interface StashPushCbs {
+  onClose: () => void
+  onStash: (message: string) => void | Promise<void>
+  error: string | null
+  t: (key: GitKey, params?: Record<string, string | number>) => string
+}
+
+/** Portaled dialog: an optional message for the stash about to be pushed. */
+function StashPushModal({ onClose, onStash, error, t }: StashPushCbs): JSX.Element | null {
+  if (typeof document === 'undefined') return null
+  return h(StashPushBody, { onClose, onStash, error, t })
+}
+
+function StashPushBody({ onClose, onStash, error, t }: StashPushCbs): JSX.Element {
+  const [message, setMessage] = useState('')
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+  const modal = h('div', {
+    className: 'gp-modal-backdrop',
+    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
+  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
+    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
+      h('span', { key: 'ic', className: 'gp-modal__fileicon' }, h(StashIcon, { size: 15 })),
+      h('span', { key: 'title', className: 'gp-modal__path' }, t('stash.title')),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
+    ]),
+    h('div', { key: 'body', className: 'gp-modal__form' }, [
+      h('input', {
+        key: 'msg', className: 'gp-input', placeholder: t('stash.messagePlaceholder'), value: message, autoFocus: true,
+        onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
+        onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') void onStash(message) },
+      }),
+      error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
+    ]),
+    renderModalFooter({ onClose, onConfirm: () => void onStash(message), confirmLabel: t('stash.save'), confirmDisabled: false, danger: false, t }),
+  ]))
+  return createPortal(modal, document.body, 'stash-push-modal')
+}
+
+interface StashRowCbs {
+  busy: boolean
+  onApply: () => void
+  onPop: () => void
+  onDrop: () => void
+  t: (key: GitKey, params?: Record<string, string | number>) => string
+}
+
+function renderStashRow(s: StashEntry, cb: StashRowCbs): JSX.Element {
+  return h('div', { key: s.index, className: 'gp-stash-row' }, [
+    h('div', { key: 'info', className: 'gp-stash-row__info' }, [
+      h('span', { key: 'm', className: 'gp-stash-row__msg', title: s.message }, s.message),
+      h('span', { key: 'meta', className: 'gp-stash-row__meta' }, [
+        s.branch !== null ? h('span', { key: 'b' }, cb.t('stash.onBranch', { branch: s.branch })) : null,
+        s.relTime !== '' ? h('span', { key: 't' }, s.relTime) : null,
+      ]),
+    ]),
+    h('div', { key: 'act', className: 'gp-stash-row__actions' }, [
+      h('button', { key: 'apply', type: 'button', className: 'gp-btn gp-btn--sm', disabled: cb.busy, onClick: cb.onApply }, cb.t('stash.apply')),
+      h('button', { key: 'pop', type: 'button', className: 'gp-btn gp-btn--sm', disabled: cb.busy, onClick: cb.onPop }, cb.t('stash.pop')),
+      h('button', { key: 'drop', type: 'button', className: 'gp-icon-btn', disabled: cb.busy, title: cb.t('stash.drop'), onClick: cb.onDrop }, h(TrashIcon, { size: 14 })),
+    ]),
   ])
 }
 

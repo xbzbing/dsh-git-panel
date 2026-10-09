@@ -58,6 +58,16 @@ export function FileIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
 }
 
+/** Archive box glyph for the stash action. */
+export function StashIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M2 5.5h12V13H2z' }), h('path', { key: 'b', d: 'M1.5 3h13v2.5h-13z' }), h('path', { key: 'c', d: 'M6.5 8.5h3' })], size)
+}
+
+/** Trash glyph for destructive delete (tag / stash drop). */
+export function TrashIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M3 4.5h10' }), h('path', { key: 'b', d: 'M5.5 4.5V3h5v1.5' }), h('path', { key: 'c', d: 'M4.5 4.5l.7 9h5.6l.7-9' })], size)
+}
+
 export function FilesIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M5 2.5h4l2.5 2.5v7.5h-6.5z' }), h('path', { key: 'b', d: 'M9 2.5V5h2.5' }), h('path', { key: 'c', d: 'M11 12.5v1.5h-6.5V6' })], size)
 }

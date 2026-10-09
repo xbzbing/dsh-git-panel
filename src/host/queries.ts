@@ -6,8 +6,8 @@ import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
-import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseTags } from './parser.ts'
-import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit } from './types.ts'
+import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags } from './parser.ts'
+import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.ts'
 import { imageMimeFor } from './types.ts'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
@@ -62,6 +62,7 @@ export async function runQuery(
       case 'show': return await queryShow(deps, root, q.ref)
       case 'branches': return await queryBranches(deps, root)
       case 'tags': return await queryTags(deps, root)
+      case 'stash-list': return await queryStashList(deps, root)
       case 'authors': return await queryAuthors(deps, root)
       case 'last-commit-message': return await queryLastCommitMessage(deps, root)
       case 'worktree-stats': return await queryWorktreeStats(deps, config, request.sessionId)
@@ -549,6 +550,16 @@ async function queryTags(deps: SnapshotDeps, root: string): Promise<GitQueryResp
   const res = await runCommand(deps.run, ['git', 'for-each-ref', '--sort=-creatordate', '--format=%(refname:short)%00%(objectname:short)', 'refs/tags'], root, 'tags', deps.signal)
   const tags: GitBranch[] = 'run' in res && res.run.exitCode === 0 ? parseTags(res.run.stdout) : []
   return { ok: true, value: { kind: 'tags', tags } }
+}
+
+async function queryStashList(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
+  // `git stash list` is `git log -g refs/stash`; a custom format with -z gives
+  // NUL-separated records of selector / reflog-subject / relative-time, which
+  // parseStashList turns into { index, message, branch, relTime }. No stash
+  // ref (never stashed) exits non-zero → an empty list, not an error.
+  const res = await runCommand(deps.run, ['git', 'stash', 'list', '-z', '--format=%gd%x1f%H%x1f%gs%x1f%cr'], root, 'stash-list', deps.signal)
+  const entries: StashEntry[] = 'run' in res && res.run.exitCode === 0 ? parseStashList(res.run.stdout) : []
+  return { ok: true, value: { kind: 'stash-list', entries } }
 }
 
 async function queryAuthors(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
