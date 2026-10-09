@@ -1,7 +1,8 @@
 /**
- * Reproduce issue #9: run the plugin's exact history query (same GRAPH_FORMAT,
- * no --topo-order) through parseGraphLog + layoutGraph, dump rows/edges, and
- * compare row order against `git log --graph --oneline --all` (topo order).
+ * Reproduce issue #9: run the plugin's history query (same GRAPH_FORMAT,
+ * --topo-order, visible-refs refset) through parseGraphLog + layoutGraph,
+ * dump rows/edges, and compare row order against `git log --graph`
+ * (topo order, same refset).
  */
 import { execFileSync } from 'node:child_process'
 import { parseGraphLog, layoutGraph, graphWidth } from '../../lib/testkit.mjs'

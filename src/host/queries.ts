@@ -12,6 +12,16 @@ import { imageMimeFor } from './types.ts'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
+/**
+ * Refs the history graph and the author dropdown both walk: the standard
+ * visible branches/remotes/tags plus HEAD. `--all` officially means "refs/
+ * along with HEAD", so HEAD must ride along — otherwise a detached-HEAD
+ * chain (bisect, rebase in flight, checkout <sha>) disappears from both
+ * surfaces — while the hidden refs `--all` drags in (refs/original from a
+ * rebase, refs/notes) stay excluded (issue #9 follow-up).
+ */
+const VISIBLE_REFS: readonly string[] = ['--branches', '--remotes', '--tags', 'HEAD']
+
 /** 7+ hex chars → treat search as a commit hash prefix. */
 function isHexLike(text: string): boolean {
   return /^[0-9a-fA-F]{7,40}$/.test(text.trim())
@@ -91,10 +101,7 @@ async function queryHistory(
       if (!isSafeRev(q.ref)) return { ok: false, error: { code: 'invalid-name', message: `unsafe ref: ${q.ref}` } }
       filters.push('--end-of-options', q.ref)
     } else {
-      // Standard visible refs only: `--all` would also walk hidden backup
-      // refs (refs/original from a rebase) and draw their stale pre-rebase
-      // chains as phantom parallel lanes (issue #9 follow-up).
-      filters.push('--branches', '--remotes', '--tags')
+      filters.push(...VISIBLE_REFS)
     }
     args.push(...filters)
     countArgs.push(...filters)
@@ -545,7 +552,9 @@ async function queryTags(deps: SnapshotDeps, root: string): Promise<GitQueryResp
 }
 
 async function queryAuthors(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
-  const res = await runCommand(deps.run, ['git', 'log', '--all', '--format=%an', '--max-count=2000'], root, 'authors', deps.signal)
+  // Same refset as the history graph so an author picked from this list can
+  // never point the graph at a chain it does not display (and vice versa).
+  const res = await runCommand(deps.run, ['git', 'log', ...VISIBLE_REFS, '--format=%an', '--max-count=2000'], root, 'authors', deps.signal)
   const authors = 'run' in res && res.run.exitCode === 0
     ? [...new Set(res.run.stdout.split('\n').map((s) => s.trim()).filter((s) => s !== ''))].sort((a, b) => a.localeCompare(b))
     : []

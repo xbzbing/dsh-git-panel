@@ -92,7 +92,10 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
     // every parent is awaited elsewhere this lane simply goes free.
     const parents = commit.parents
     const merge = parents.length >= 2
-    // Any other lane also awaiting this same commit collapses (fast-forward merge target).
+    // Defensive guard: with the dedupe rule below, two lanes awaiting the
+    // same commit cannot arise (assignLane reuses an awaiting slot and the
+    // successor check rejects taken parents), so this loop never fires today
+    // — kept so a future rule change cannot silently double-book a slot.
     for (let i = 0; i < lanes.length; i++) {
       if (i !== lane && lanes[i] === commit.hash) lanes[i] = null
     }
