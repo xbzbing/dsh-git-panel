@@ -300,7 +300,7 @@ const CSS = `
 
 /* commit hover card (middle column): pointer-anchored, lists changed files */
 .gp-hovercard{position:fixed;z-index:70;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 8px 28px rgba(0,0,0,.2),0 1px 3px rgba(0,0,0,.12);font-size:12px;pointer-events:none;max-height:60vh;overflow:hidden;display:flex;flex-direction:column}
-.gp-hovercard__subject{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-hovercard__subject{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px;white-space:normal;word-break:break-word;overflow-wrap:anywhere}
 .gp-hovercard__meta{display:flex;gap:8px;font-size:11px;color:var(--dsw-alias-label-tertiary);margin-bottom:8px}
 .gp-hovercard__loading{font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .gp-hovercard__body{margin:0;font-family:inherit;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;word-break:break-word;overflow-y:auto;min-height:0}
