@@ -8,6 +8,7 @@ export type {
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats,
   GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry,
+  GitSuggestRequest, GitSuggestResult,
 } from '../host/types.ts'
 
 export { imageMimeFor } from '../host/types.ts'

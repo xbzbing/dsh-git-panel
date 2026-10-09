@@ -14,20 +14,24 @@ import { createGitRunner, type SubprocessLike } from './git.ts'
 import { normalizeConfig, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.ts'
 import { runAction } from './actions.ts'
 import { runQuery } from './queries.ts'
+import { runSuggest } from './suggest.ts'
+import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts'
 import { checkLatestVersion, readVersionInfo } from './version.ts'
-import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitVersionInfo, GitVersionRequest } from './types.ts'
+import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.ts'
 
 export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats,
   GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry,
+  GitSuggestRequest, GitSuggestResult,
 } from './types.ts'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts'
 export { createGitRunner } from './git.ts'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, sumNumstat } from './parser.ts'
 export { isSafePath, planAction, runAction } from './actions.ts'
 export { runQuery } from './queries.ts'
+export { runSuggest } from './suggest.ts'
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.ts'
 
 /** Structural slice of the Cordis sessions store (live cwd). */
@@ -55,6 +59,7 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const('unified').description('统一视图（单栏行内对比）'),
       Schema.const('split').description('并排视图（左右分栏对比）'),
     ]).default('unified').volatile().description('差异对比默认视图'),
+    suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
   })
 
   private readonly deps: SnapshotDeps
@@ -102,6 +107,11 @@ export class GitPanelService extends TypertRemoteService {
       },
       rootCache,
       rootNegCache,
+      // Optional model services: absent in deployments without a model
+      // backend — the suggest endpoint then reports `llm-unavailable` rather
+      // than failing activation (kept out of `static inject` on purpose).
+      llm: get('llm') as LlmFace | undefined,
+      agentDefaultModel: get('agentDefaultModel') as AgentDefaultModelFace | undefined,
     }
   }
 
@@ -118,6 +128,11 @@ export class GitPanelService extends TypertRemoteService {
   @Remote('query')
   async query(request: GitQueryRequest, signal?: AbortSignal): Promise<GitQueryResponse> {
     return runQuery(this.withSignal(signal), this.liveConfig(), request)
+  }
+
+  @Remote('suggest')
+  async suggest(request: GitSuggestRequest, signal?: AbortSignal): Promise<GitSuggestResult> {
+    return runSuggest(this.withSignal(signal), this.liveConfig(), request)
   }
 
   @Remote('version')

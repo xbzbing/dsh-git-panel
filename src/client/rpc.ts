@@ -9,7 +9,8 @@
  */
 import type {
   GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitQueryResult,
-  GitSnapshotRequest, GitSnapshotResult, GitVersionInfo, GitVersionRequest,
+  GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult,
+  GitVersionInfo, GitVersionRequest,
 } from './types'
 
 const API_CHANNEL = '/api'
@@ -97,6 +98,7 @@ export interface GitPanelRemote {
   snapshot(request: GitSnapshotRequest, signal?: AbortSignal): Promise<GitSnapshotResult>
   run(request: GitActionRequest, signal?: AbortSignal): Promise<GitActionResult>
   query(request: GitQueryRequest, signal?: AbortSignal): Promise<GitQueryResponse>
+  suggest(request: GitSuggestRequest, signal?: AbortSignal): Promise<GitSuggestResult>
   version(request: GitVersionRequest, signal?: AbortSignal): Promise<GitVersionInfo | { ok: false; error: { code: string; message?: string } }>
 }
 
@@ -143,6 +145,7 @@ export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
     snapshot: (request, signal) => invoke<GitSnapshotResult>('snapshot', request, signal) as Promise<GitSnapshotResult>,
     run: (request, signal) => invoke<GitActionResult>('run', request, signal) as Promise<GitActionResult>,
     query: (request, signal) => invoke<GitQueryResponse>('query', request, signal) as Promise<GitQueryResponse>,
+    suggest: (request, signal) => invoke<GitSuggestResult>('suggest', request, signal) as Promise<GitSuggestResult>,
     version: (request, signal) => invoke<GitVersionInfo>('version', request, signal),
   }
   remoteCache.set(ctx, remote)

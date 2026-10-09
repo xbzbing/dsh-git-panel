@@ -121,7 +121,7 @@ export type GitAction = {
 } | {
     readonly kind: 'fetch';
 };
-export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;
@@ -325,6 +325,34 @@ export interface GitQueryRequest {
     readonly sessionId: string;
     readonly query: GitQuery;
 }
+/**
+ * Wire request for the suggest endpoint: ask the configured model to write a
+ * commit message from the repository's uncommitted changes. `paths` restricts
+ * the diff to the user's selection (bare repo-relative paths); absent means
+ * all uncommitted changes.
+ */
+export interface GitSuggestRequest {
+    readonly sessionId: string;
+    readonly paths?: readonly string[];
+}
+export type GitSuggestResult = {
+    readonly ok: true;
+    readonly value: {
+        /** The generated message, ready for the user to edit and commit. */
+        readonly message: string;
+        /** Actual provider/model route used (display only). */
+        readonly provider?: string;
+        readonly model?: string;
+        /** The diff exceeded the model input cap and was truncated. */
+        readonly truncated?: boolean;
+    };
+} | {
+    readonly ok: false;
+    readonly error: {
+        readonly code: GitErrorCode;
+        readonly message?: string;
+    };
+};
 /**
  * Extensions the image-diff query serves, mapped to MIME types. Part of the
  * query's contract, so both halves gate on this one list and cannot drift.

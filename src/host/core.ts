@@ -3,6 +3,7 @@
  */
 import { dirname, join } from 'node:path'
 import type { GitRunner } from './git.ts'
+import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.ts'
 import { isSafePath } from './validate.ts'
 import type { DiffViewMode, GitChange, GitCommit, GitErrorCode, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
@@ -17,6 +18,15 @@ export interface GitPanelConfig {
   readonly showInputPill: boolean
   /** Default diff layout the views open with (user can switch per-diff). */
   readonly defaultDiffView: DiffViewMode
+  /** Whether the "AI suggest" button shows in the commit box. */
+  readonly suggestEnabled: boolean
+  /** Max diff bytes sent to the model; beyond this the diff is truncated. */
+  readonly suggestMaxBytes: number
+  readonly suggestMaxOutputTokens: number
+  readonly suggestTimeoutMs: number
+  /** Optional provider/model route override; absent → the agent default. */
+  readonly suggestProvider?: string
+  readonly suggestModel?: string
 }
 
 export const DEFAULT_CONFIG: GitPanelConfig = {
@@ -26,6 +36,10 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   refreshIntervalMs: 30000,
   showInputPill: true,
   defaultDiffView: 'unified',
+  suggestEnabled: true,
+  suggestMaxBytes: 64 * 1024,
+  suggestMaxOutputTokens: 200,
+  suggestTimeoutMs: 15000,
 }
 
 export function normalizeConfig(raw: unknown): GitPanelConfig {
@@ -34,6 +48,11 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
   // default, so a stray `maxChanges: 1.5` can't reach `slice(0, 1.5)`.
   const num = (v: unknown, d: number): number =>
     (typeof v === 'number' && Number.isFinite(v) && v >= 1 ? Math.floor(v) : d)
+  // Provider/model overrides must be supplied together; a lone half is ignored
+  // so a mistyped profile degrades to the agent default route.
+  const hasProvider = typeof c.suggestProvider === 'string' && c.suggestProvider !== ''
+  const hasModel = typeof c.suggestModel === 'string' && c.suggestModel !== ''
+  const route = hasProvider && hasModel ? { suggestProvider: c.suggestProvider, suggestModel: c.suggestModel } : {}
   return {
     timeoutMs: num(c.timeoutMs, DEFAULT_CONFIG.timeoutMs),
     maxBytes: num(c.maxBytes, DEFAULT_CONFIG.maxBytes),
@@ -41,6 +60,11 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
+    suggestEnabled: readBool(c.suggestEnabled, DEFAULT_CONFIG.suggestEnabled),
+    suggestMaxBytes: num(c.suggestMaxBytes, DEFAULT_CONFIG.suggestMaxBytes),
+    suggestMaxOutputTokens: num(c.suggestMaxOutputTokens, DEFAULT_CONFIG.suggestMaxOutputTokens),
+    suggestTimeoutMs: num(c.suggestTimeoutMs, DEFAULT_CONFIG.suggestTimeoutMs),
+    ...route,
   }
 }
 
@@ -100,6 +124,14 @@ export interface SnapshotDeps {
    * cwd is picked up soon after.
    */
   readonly rootNegCache?: Map<string, number>
+  /**
+   * Optional host `llm` service face (see llm-face.ts). Absent in deployments
+   * without a model backend — the suggest endpoint then reports
+   * `llm-unavailable` instead of failing to activate.
+   */
+  readonly llm?: LlmFace
+  /** Optional host `agentDefaultModel` service face. */
+  readonly agentDefaultModel?: AgentDefaultModelFace
 }
 
 /** Non-repo negative-cache lifetime; short so a freshly-created repo is seen. */

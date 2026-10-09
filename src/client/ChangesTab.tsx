@@ -6,11 +6,11 @@ import { createElement as h, useCallback, useEffect, useMemo, useRef, useState }
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import type { GitAction, GitChange, GitSnapshot } from './types'
+import type { GitAction, GitChange, GitErrorCode, GitSnapshot } from './types'
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
-import { ChevronIcon } from './icons'
+import { ChevronIcon, SparkleIcon } from './icons'
 import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
@@ -38,6 +38,8 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
   const [diffMode, setDiffMode] = useState<DiffMode>(() => snapshot.defaultDiffView)
   const [expanded, setExpanded] = useState(false)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
+  const msgRef = useRef<HTMLTextAreaElement | null>(null)
   const diffSeq = useRef(0)
 
   const staged = useMemo(() => snapshot.changes.filter((c) => c.staged).sort(byPath), [snapshot])
@@ -140,6 +142,41 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
     if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false) }
   }
 
+  /** Map a suggest-endpoint failure to display text; the provider detail rides along. */
+  const suggestErrorText = (code: GitErrorCode, detail: string | undefined): string => {
+    switch (code) {
+      case 'empty-diff': return t('error.emptyDiff')
+      case 'llm-unavailable': return t('error.llmUnavailable')
+      case 'llm-error':
+      case 'llm-output': return detail === undefined ? t('error.llmFailed') : `${t('error.llmFailed')}: ${detail}`
+      default: return detail ?? t('error.generic')
+    }
+  }
+
+  // Generate a commit message from the current changes (scoped to the
+  // selection) and fill the box. On failure the typed error shows above; the
+  // user's existing draft is never overwritten by a failed generation.
+  const suggest = async (): Promise<void> => {
+    if (suggesting) return
+    // Selection keys carry a :s/:w side suffix; the suggestion scopes to bare paths.
+    const paths = selected.size > 0 ? [...new Set([...selected].map((k) => k.replace(/:[sw]$/, '')))] : undefined
+    setSuggesting(true)
+    setError(null)
+    try {
+      const res = await remote.suggest({ sessionId, ...(paths && paths.length > 0 ? { paths } : {}) })
+      if (res.ok) {
+        setMessage(res.value.message)
+        msgRef.current?.focus()
+      } else {
+        setError(suggestErrorText(res.error.code, res.error.message))
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('error.generic'))
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
   const toggleGroup = (key: GroupKey): void => {
     setClosed((prev) => {
       const next = new Set(prev)
@@ -199,6 +236,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
           className: 'gp-commitbox__msg',
           placeholder: t('commit.placeholder'),
           value: message,
+          ref: msgRef,
           onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
         }),
         h('div', { key: 'row', className: 'gp-commitbox__row' }, [
@@ -207,7 +245,13 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, t }: Changes
             t('commit.amend'),
           ]),
           h('div', { key: 'actions', className: 'gp-commitbox__actions' }, [
-            h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: busy || message.trim() === '', onClick: () => void commit() }, t('commit.commit')),
+            h('button', {
+              key: 'suggest', type: 'button', className: 'gp-btn',
+              disabled: busy || suggesting || snapshot.changes.length === 0,
+              onClick: () => void suggest(),
+              title: t('commit.suggest'),
+            }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')]),
+            h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: busy || suggesting || message.trim() === '', onClick: () => void commit() }, t('commit.commit')),
           ]),
         ]),
       ]),
