@@ -291,16 +291,23 @@ const PALETTE = ['#4e9bff', '#3fb950', '#e0982e', '#d05ce3', '#e5534b', '#2dc6c6
 function renderGraphCell(row: GraphRow, laneCount: number): JSX.Element {
   const w = Math.max(LANE_W, laneCount * LANE_W)
   const cx = (lane: number): number => lane * LANE_W + LANE_W / 2
+  const mid = ROW_H / 2
   const els: JSX.Element[] = []
   for (const e of row.edges) {
     const color = PALETTE[e.color % PALETTE.length]
+    // Vertical span per edge kind: into stops at the node, out starts there,
+    // pass crosses the whole row. Control points sit at each span's midpoint,
+    // so both halves leave/join the node on a vertical tangent.
+    const y0 = e.kind === 'out' ? mid : 0
+    const y1 = e.kind === 'into' ? mid : ROW_H
+    const cy = (y0 + y1) / 2
     els.push(h('path', {
-      key: `e${e.fromLane}-${e.toLane}-${e.color}`,
-      d: `M ${cx(e.fromLane)} 0 C ${cx(e.fromLane)} ${ROW_H / 2}, ${cx(e.toLane)} ${ROW_H / 2}, ${cx(e.toLane)} ${ROW_H}`,
+      key: `e${e.kind}-${e.fromLane}-${e.toLane}-${e.color}`,
+      d: `M ${cx(e.fromLane)} ${y0} C ${cx(e.fromLane)} ${cy}, ${cx(e.toLane)} ${cy}, ${cx(e.toLane)} ${y1}`,
       stroke: color, strokeWidth: 1.6, fill: 'none',
     }))
   }
-  els.push(h('circle', { key: 'node', cx: cx(row.lane), cy: ROW_H / 2, r: row.merge ? 4 : 3.2, fill: PALETTE[row.color % PALETTE.length], stroke: 'var(--dsw-alias-bg-layer-1)', strokeWidth: 1 }))
+  els.push(h('circle', { key: 'node', cx: cx(row.lane), cy: mid, r: row.merge ? 4 : 3.2, fill: PALETTE[row.color % PALETTE.length], stroke: 'var(--dsw-alias-bg-layer-1)', strokeWidth: 1 }))
   return h('svg', { className: 'gp-graph-svg', width: w, height: ROW_H }, els)
 }
 

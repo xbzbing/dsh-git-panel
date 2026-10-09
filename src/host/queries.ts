@@ -71,7 +71,10 @@ async function queryHistory(
   // history into the output cap, a non-number is a git fatal.
   const limit = Number.isFinite(q.limit) ? Math.min(500, Math.max(1, Math.trunc(q.limit))) : 100
   const skip = Number.isFinite(q.skip) ? Math.max(0, Math.trunc(q.skip)) : 0
-  const args = ['git', 'log', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
+  // Topological order is layoutGraph's contract (children before parents);
+  // the default date order interleaves rebased chains once committer dates
+  // skew, splitting a linear history into phantom parallel lanes.
+  const args = ['git', 'log', '--topo-order', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
   const search = q.search?.trim() ?? ''
   const hexJump = search !== '' && isHexLike(search)
   const countArgs = ['git', 'rev-list', '--count']
@@ -88,7 +91,10 @@ async function queryHistory(
       if (!isSafeRev(q.ref)) return { ok: false, error: { code: 'invalid-name', message: `unsafe ref: ${q.ref}` } }
       filters.push('--end-of-options', q.ref)
     } else {
-      filters.push('--all')
+      // Standard visible refs only: `--all` would also walk hidden backup
+      // refs (refs/original from a rebase) and draw their stale pre-rebase
+      // chains as phantom parallel lanes (issue #9 follow-up).
+      filters.push('--branches', '--remotes', '--tags')
     }
     args.push(...filters)
     countArgs.push(...filters)

@@ -37,3 +37,66 @@ test('every row carries edges array', () => {
   const rows = layoutGraph([commit('b', ['a']), commit('a', [])])
   assert.ok(Array.isArray(rows[0].edges))
 })
+
+test('issue #9: a second child of an already-awaited parent adds no phantom lane or per-row hooks', () => {
+  // Real topology from ivanant/dsh-simple-remote: the root has two children
+  // (Finish 1.0.0 merges [root, Finish init]; Finish init merges [root, side]),
+  // then a linear side chain back into the root. Before the fix the root was
+  // double-booked onto two lanes, widening the graph to 3 and painting a
+  // spurious hook on every row until the root landed.
+  const rows = layoutGraph([
+    commit('m1', ['root', 'fi']),
+    commit('fi', ['root', 'c1']),
+    commit('c1', ['c2']),
+    commit('c2', ['c3']),
+    commit('c3', ['c4']),
+    commit('c4', ['c5']),
+    commit('c5', ['root']),
+    commit('root', []),
+  ])
+  assert.equal(graphWidth(rows), 2, 'matches `git log --graph` (2 lanes, not 3)')
+  assert.deepEqual(rows.map((r) => r.lane), [0, 1, 1, 1, 1, 1, 1, 0])
+  // The side chain's end converges once into the root lane…
+  const converge = rows.find((r) => r.commit.hash === 'c5')
+  assert.ok(converge.edges.some((e) => e.fromLane === 1 && e.toLane === 0), 'chain end converges into lane 0')
+  // …and no identical non-straight edge repeats across consecutive rows
+  // (empty signatures are gaps, not repeats).
+  let prev = ''
+  for (const r of rows) {
+    const sig = r.edges.filter((e) => e.fromLane !== e.toLane).map((e) => `${e.fromLane}→${e.toLane}·${e.color}`).sort().join(',')
+    if (sig !== '') assert.notEqual(sig, prev, `repeated hook signature on row ${r.commit.hash}`)
+    prev = sig
+  }
+})
+
+test('date-order input (parent listed before child) still yields one lane per chain', () => {
+  // A parent appearing above its child must not strand the child on a new
+  // lane forever: the child reuses the lane already awaiting it.
+  const rows = layoutGraph([
+    commit('p', []),
+    commit('c', ['p']),
+  ])
+  assert.equal(graphWidth(rows), 1)
+})
+
+test('edge kinds anchor at the node: into targets the row lane, out originates from it', () => {
+  // The renderer draws into edges top→node, out edges node→bottom and pass
+  // edges full-height; the anchors are what keep a lane's stub from trailing
+  // below its last commit (the "tail protrusion").
+  const rows = layoutGraph([
+    commit('m', ['a', 'b']),
+    commit('b', ['a']),
+    commit('a', []),
+  ])
+  for (const r of rows) {
+    for (const e of r.edges) {
+      if (e.kind === 'into') assert.equal(e.toLane, r.lane, `into edge must end at the node on ${r.commit.hash}`)
+      if (e.kind === 'out') assert.equal(e.fromLane, r.lane, `out edge must start at the node on ${r.commit.hash}`)
+    }
+  }
+  // The chain tail (b, whose parent sits on the merge's lane) converges with
+  // a single out edge instead of a full-height cross.
+  const tail = rows.find((r) => r.commit.hash === 'b')
+  const conv = tail.edges.find((e) => e.fromLane === 1 && e.toLane === 0)
+  assert.equal(conv?.kind, 'out')
+})
