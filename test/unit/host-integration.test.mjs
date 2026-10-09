@@ -9,7 +9,7 @@
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn as nodeSpawn } from 'node:child_process'
+import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -651,6 +651,38 @@ test('history hash-jump ignores filters and returns total -1 (N5)', async () => 
     assert.equal(jump.ok, true)
     assert.equal(jump.value.total, -1, 'hash-jump reports -1 (page-by-fill), not a fixed count')
     assert.ok(jump.value.commits.length >= 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('history keeps a detached HEAD chain visible (visible-refset rides HEAD)', async () => {
+  // Bisect / rebase-in-flight / checkout <sha> shape: a commit no branch,
+  // remote, or tag points at. The visible-refset walk must still list it
+  // (`--all` officially covers refs/ "along with HEAD"); a branches-only
+  // refset would drop it from the graph and desync the total count.
+  const dir = mkdtempSync(join(tmpdir(), 'gp-detached-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'one'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'two'])
+    const at = (expr) => execFileSync('git', ['rev-parse', expr], { cwd: dir, encoding: 'utf8' }).trim()
+    const dangling = execFileSync(
+      'git',
+      ['commit-tree', at('HEAD^{tree}'), '-p', at('HEAD'), '-m', 'detached'],
+      { cwd: dir, encoding: 'utf8' },
+    ).trim()
+    await runGit(dir, ['checkout', '-q', '--detach', dangling])
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 10, skip: 0 } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.kind, 'history')
+    assert.ok(
+      res.value.commits.some((c) => c.hash === dangling),
+      'the ref-less detached HEAD commit must appear in the history',
+    )
+    assert.equal(res.value.total, 3, 'page log and count share the refset')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

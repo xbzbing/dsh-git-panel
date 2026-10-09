@@ -12,6 +12,14 @@ export interface GraphEdge {
   /** Lane the edge occupies at the bottom of the row. */
   readonly toLane: number
   readonly color: number
+  /**
+   * Vertical span within the row: `into` flows top → node (drawn to ROW_H/2),
+   * `out` flows node → bottom (drawn from ROW_H/2), `pass` crosses the whole
+   * row. Into/out edges meeting at the node keep a lane's stub from trailing
+   * below its last commit and keep a converging curve from being overdrawn
+   * by a full-height straight.
+   */
+  readonly kind: 'into' | 'out' | 'pass'
 }
 
 export interface GraphRow {
@@ -76,23 +84,34 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
     // Snapshot lanes before mutation (top of the row).
     const before = [...lanes]
 
-    // This lane now awaits the first parent; extra parents open new lanes.
+    // This lane continues with the first parent not already awaited elsewhere.
+    // A parent another lane already awaits must not be double-booked: two
+    // slots holding one hash make the continue-edge resolve to the other slot
+    // on every row until it lands, painting a spurious hook each time (issue
+    // #9). The connecting edge is drawn below via the outgoing findIndex; when
+    // every parent is awaited elsewhere this lane simply goes free.
     const parents = commit.parents
     const merge = parents.length >= 2
-    // Any other lane also awaiting this same commit collapses (fast-forward merge target).
+    // Defensive guard: with the dedupe rule below, two lanes awaiting the
+    // same commit cannot arise (assignLane reuses an awaiting slot and the
+    // successor check rejects taken parents), so this loop never fires today
+    // — kept so a future rule change cannot silently double-book a slot.
     for (let i = 0; i < lanes.length; i++) {
       if (i !== lane && lanes[i] === commit.hash) lanes[i] = null
     }
     if (parents.length === 0) {
       lanes[lane] = null
     } else {
-      lanes[lane] = parents[0]!
-      colorFor(parents[0]!)
+      // `lanes[lane]` still holds commit.hash here, so `includes` only sees
+      // the other lanes' expectations.
+      const successor = parents.find((p) => !lanes.includes(p))
+      lanes[lane] = successor === undefined ? null : successor
       for (let p = 1; p < parents.length; p++) {
         const parent = parents[p]!
         assignLane(parent)
         colorFor(parent)
       }
+      if (lanes[lane] !== null) colorFor(lanes[lane]!)
     }
 
     // Edges: for every lane active before, connect its top position to where
@@ -103,18 +122,18 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
       const awaited = before[i]
       if (awaited === null) continue
       if (awaited === commit.hash) {
-        // Edge flowing into this node.
-        edges.push({ fromLane: i, toLane: lane, color })
+        // Edge flowing into this node (top → node).
+        edges.push({ fromLane: i, toLane: lane, color, kind: 'into' })
       } else {
         // Lane continues awaiting the same commit; find its post position.
         const toLane = after.findIndex((h) => h === awaited)
-        if (toLane !== -1) edges.push({ fromLane: i, toLane, color: colorFor(awaited) })
+        if (toLane !== -1) edges.push({ fromLane: i, toLane, color: colorFor(awaited), kind: 'pass' })
       }
     }
     // Outgoing edges to parents (node → parent lanes).
     for (const parent of parents) {
       const toLane = after.findIndex((h) => h === parent)
-      if (toLane !== -1) edges.push({ fromLane: lane, toLane, color: colorFor(parent) })
+      if (toLane !== -1) edges.push({ fromLane: lane, toLane, color: colorFor(parent), kind: 'out' })
     }
 
     rows.push({ commit, lane, color, edges, merge })
