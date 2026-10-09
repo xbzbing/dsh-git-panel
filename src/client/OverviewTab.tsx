@@ -10,7 +10,7 @@ import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import type { GitBranch, GraphCommit } from './types'
 import type { GitKey } from './locales'
-import { BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, RefreshIcon, TagIcon } from './icons'
+import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time'
@@ -28,11 +28,17 @@ interface OverviewProps {
   readonly refreshKey: number
   /** Default diff layout new file-diff overlays open with. */
   readonly defaultDiffView: DiffViewMode
+  /** Compact (single-column drill-in) layout for a narrow panel. */
+  readonly compact: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
 const LANE_W = 14
 const ROW_H = 30
+/** Taller commit row in compact so each is a comfortable touch target and the
+ * subject + meta can stack on two lines. The graph svg stretches to match it so
+ * lane edges still connect between consecutive rows. */
+const ROW_H_COMPACT = 46
 /** Toolbar width below which the search placeholder drops its "(message / hash)"
  * hint — a placeholder is a DOM attribute CSS can't rewrite, so swap it here.
  * Measured on the toolbar (not the input): flex-wrap keeps the input's own
@@ -53,12 +59,18 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, compact, t }: OverviewProps): JSX.Element {
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
   const searchNarrow = useNarrow(searchEl, SEARCH_HINT_MIN_W)
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
+  // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
+  // Ignored by the wide layout, which renders both columns at once.
+  const [pane, setPane] = useState<'list' | 'detail'>('list')
+  // Compact branch/ref filter lives in a bottom sheet (a side column has no room
+  // on a phone); the wide layout keeps the always-visible left column instead.
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, refreshKey)
   const detail = useCommitDetail(remote, sessionId, defaultDiffView)
@@ -76,12 +88,19 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t 
   const rows: GraphRow[] = useMemo(() => (searching ? commits.map((c) => ({ commit: c, lane: 0, color: 0, edges: [], merge: false })) : layoutGraph(commits)), [commits, searching])
   const laneCount = useMemo(() => (searching ? 0 : graphWidth(rows)), [rows, searching])
   const graphW = searching ? 12 : Math.max(LANE_W, laneCount * LANE_W)
-  const gridTpl = `${graphW}px minmax(120px,1fr) 72px 120px 96px`
+  const rowH = compact ? ROW_H_COMPACT : ROW_H
+  // Wide: graph | subject | hash | author | date. Compact: graph | stacked text.
+  const gridTpl = compact ? `${graphW}px minmax(0,1fr)` : `${graphW}px minmax(120px,1fr) 72px 120px 96px`
 
   const onScroll = (): void => {
     const el = listRef.current
     if (el === null || !hasMore) return
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) loadMore()
+  }
+
+  const selectCommit = (commit: GraphCommit): void => {
+    void detail.select(commit)
+    if (compact) setPane('detail')
   }
 
   const now = useMemo(() => Date.now(), [commits])
@@ -93,88 +112,130 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, t 
   const leftCol = useResizableColumn({ storageKey: 'gp.overview.left', initial: 200, min: 130, reserve: 360, edge: 'end' })
   const rightCol = useResizableColumn({ storageKey: 'gp.overview.right', initial: 340, min: 190, reserve: 360, edge: 'start' })
 
+  const setRef = (ref: string | null): void => setFilter((prev) => ({ ...prev, ref }))
+
+  const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
+    text: detail.fileDiffText,
+    error: detail.fileDiffError,
+    mode: detail.fileDiffMode,
+    onMode: detail.setFileDiffMode,
+    expanded: detail.fileDiffExpanded,
+    onExpand: (expand) => { if (detail.fileDiff !== null) detail.openFileDiff(detail.fileDiff.path, detail.fileDiff.hash, detail.fileDiff.shortHash, expand) },
+    onClose: detail.closeFileDiff,
+    remote,
+    sessionId,
+    compact,
+    t,
+  })
+
+  // The history middle column: a toolbar (search / author / since / fetch, plus
+  // a filter trigger in compact) over the scrolling commit list.
+  const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
+    h('div', { key: 'tb', className: 'gp-toolbar', ref: setSearchEl }, [
+      compact ? h('button', {
+        key: 'filter', type: 'button',
+        className: `gp-btn${filter.ref !== null ? ' gp-btn--primary' : ''}`,
+        title: t('overview.filterBranch'), onClick: () => setSheetOpen(true),
+      }, [h(FilterIcon, { key: 'ic', size: 13 }), filter.ref ?? t('overview.filterBranch')]) : null,
+      h('input', {
+        key: 'search', className: 'gp-search', placeholder: t(searchNarrow || compact ? 'overview.searchShort' : 'overview.search'), value: searchInput,
+        onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
+      }),
+      h('select', {
+        key: 'author', className: 'gp-select', value: filter.author,
+        onChange: (e: { target: { value: string } }) => setFilter((prev) => ({ ...prev, author: e.target.value })),
+      }, [
+        h('option', { key: '', value: '' }, t('overview.allUsers')),
+        ...authors.map((a) => h('option', { key: a, value: a }, a)),
+      ]),
+      h('select', {
+        key: 'since', className: 'gp-select', value: filter.since,
+        onChange: (e: { target: { value: string } }) => setFilter((prev) => ({ ...prev, since: e.target.value })),
+      }, [
+        h('option', { key: '', value: '' }, t('overview.allTime')),
+        h('option', { key: 'today', value: '1 day ago' }, t('overview.today')),
+        h('option', { key: '7d', value: '7 days ago' }, t('overview.last7d')),
+        h('option', { key: '30d', value: '30 days ago' }, t('overview.last30d')),
+      ]),
+      h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), onClick: () => { void remote.run({ sessionId, action: { kind: 'fetch' } }).then(() => reloadTree()) } }, h(RefreshIcon, { size: 14 })),
+    ]),
+    h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
+      commits.length === 0
+        ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
+        : rows.map((row) => renderCommitRow(row, {
+          selected: selected?.hash === row.commit.hash,
+          gridTpl, graphW, laneCount, searching, now, compact, rowH,
+          onSelect: () => selectCommit(row.commit),
+          onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
+          t,
+        }))),
+  ])
+
+  // The right detail column body (changed files + message, or a placeholder) as
+  // a keyed child array. Shared by the wide right column and the compact detail
+  // pane. The container (.gp-detail) is supplied by each caller.
+  const detailBody: JSX.Element[] = selected === null
+    ? [h('div', { key: 'empty', className: 'gp-empty' }, [h(CommitIcon, { key: 'i', size: 20 }), t('overview.selectCommit')])]
+    : [
+      h('div', { key: 'files', className: 'gp-detail__files' },
+        detail.detail === null
+          ? h('div', { className: 'gp-empty' }, detail.detailError ? t('overview.detailFailed') : t('common.loading'))
+          : renderFileTree(fileTree, {
+            activePath: detail.fileDiff?.path ?? null,
+            openTitle: t('overview.openFileDiff'),
+            onOpen: (path) => { if (selected !== null) void detail.openFileDiff(path, selected.hash, selected.shortHash) },
+          })),
+      h('div', { key: 'msg', className: 'gp-detail__msg' }, [
+        h('div', { key: 'subj', className: 'gp-detail__subject' }, selected.subject),
+        h('div', { key: 'meta', className: 'gp-detail__meta' }, [
+          h('span', { key: 'h', className: 'gp-commit-hash' }, selected.shortHash),
+          h('span', { key: 'a' }, selected.author),
+          h('span', { key: 't' }, absoluteDateTime(selected.dateIso)),
+        ]),
+        detail.detail !== null && detail.detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
+      ]),
+    ]
+
+  // Compact: a single column that drills from the history list into the commit
+  // detail; the branch filter is a bottom sheet. No hover card (tap drills in).
+  if (compact) {
+    return h('div', { className: 'gp-overview gp-overview--compact' }, [
+      fileDiffModal,
+      pane === 'detail'
+        ? h('div', { key: 'detail', className: 'gp-col gp-col--mid gp-detail' }, [
+          h('div', { key: 'back', className: 'gp-subhead' }, [
+            h('button', { key: 'b', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('list') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('overview.backToList')]),
+            selected !== null ? h('span', { key: 'h', className: 'gp-subhead__title gp-commit-hash' }, selected.shortHash) : null,
+          ]),
+          ...detailBody,
+        ])
+        : historyCol,
+      sheetOpen ? renderBranchSheet(tree, treeError, filter.ref, closedSections, {
+        onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
+        onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+        onRetry: reloadTree,
+        onClose: () => setSheetOpen(false),
+        t,
+      }) : null,
+    ])
+  }
+
   return h('div', { className: 'gp-overview' }, [
     // file-diff modal (click a changed file in the right column)
-    renderFileDiffModal(detail.fileDiff, {
-      text: detail.fileDiffText,
-      error: detail.fileDiffError,
-      mode: detail.fileDiffMode,
-      onMode: detail.setFileDiffMode,
-      expanded: detail.fileDiffExpanded,
-      onExpand: (expand) => { if (detail.fileDiff !== null) detail.openFileDiff(detail.fileDiff.path, detail.fileDiff.hash, detail.fileDiff.shortHash, expand) },
-      onClose: detail.closeFileDiff,
-      remote,
-      sessionId,
-      t,
-    }),
+    fileDiffModal,
     // left: branches
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, renderBranchList(tree, treeError, filter.ref, closedSections, {
-      onFilter: (ref) => setFilter((prev) => ({ ...prev, ref })),
+      onFilter: (ref) => setRef(ref),
       onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
       onRetry: reloadTree,
       t,
     })),
     leftCol.divider,
     // middle: history
-    h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
-      h('div', { key: 'tb', className: 'gp-toolbar', ref: setSearchEl }, [
-        h('input', {
-          key: 'search', className: 'gp-search', placeholder: t(searchNarrow ? 'overview.searchShort' : 'overview.search'), value: searchInput,
-          onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
-        }),
-        h('select', {
-          key: 'author', className: 'gp-select', value: filter.author,
-          onChange: (e: { target: { value: string } }) => setFilter((prev) => ({ ...prev, author: e.target.value })),
-        }, [
-          h('option', { key: '', value: '' }, t('overview.allUsers')),
-          ...authors.map((a) => h('option', { key: a, value: a }, a)),
-        ]),
-        h('select', {
-          key: 'since', className: 'gp-select', value: filter.since,
-          onChange: (e: { target: { value: string } }) => setFilter((prev) => ({ ...prev, since: e.target.value })),
-        }, [
-          h('option', { key: '', value: '' }, t('overview.allTime')),
-          h('option', { key: 'today', value: '1 day ago' }, t('overview.today')),
-          h('option', { key: '7d', value: '7 days ago' }, t('overview.last7d')),
-          h('option', { key: '30d', value: '30 days ago' }, t('overview.last30d')),
-        ]),
-        h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), onClick: () => { void remote.run({ sessionId, action: { kind: 'fetch' } }).then(() => reloadTree()) } }, h(RefreshIcon, { size: 14 })),
-      ]),
-      h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
-        commits.length === 0
-          ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
-          : rows.map((row) => renderCommitRow(row, {
-            selected: selected?.hash === row.commit.hash,
-            gridTpl, graphW, laneCount, searching, now,
-            onSelect: () => void detail.select(row.commit),
-            onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
-            t,
-          }))),
-    ]),
+    historyCol,
     rightCol.divider,
     // right: detail
-    h('div', { key: 'right', className: 'gp-col gp-col--right gp-detail', style: { flex: `0 0 ${rightCol.width}px` } },
-      selected === null
-        ? h('div', { className: 'gp-empty' }, [h(CommitIcon, { key: 'i', size: 20 }), t('overview.selectCommit')])
-        : [
-          h('div', { key: 'files', className: 'gp-detail__files' },
-            detail.detail === null
-              ? h('div', { className: 'gp-empty' }, detail.detailError ? t('overview.detailFailed') : t('common.loading'))
-              : renderFileTree(fileTree, {
-                activePath: detail.fileDiff?.path ?? null,
-                openTitle: t('overview.openFileDiff'),
-                onOpen: (path) => { if (selected !== null) void detail.openFileDiff(path, selected.hash, selected.shortHash) },
-              })),
-          h('div', { key: 'msg', className: 'gp-detail__msg' }, [
-            h('div', { key: 'subj', className: 'gp-detail__subject' }, selected.subject),
-            h('div', { key: 'meta', className: 'gp-detail__meta' }, [
-              h('span', { key: 'h', className: 'gp-commit-hash' }, selected.shortHash),
-              h('span', { key: 'a' }, selected.author),
-              h('span', { key: 't' }, absoluteDateTime(selected.dateIso)),
-            ]),
-            detail.detail !== null && detail.detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
-          ]),
-        ]),
+    h('div', { key: 'right', className: 'gp-col gp-col--right gp-detail', style: { flex: `0 0 ${rightCol.width}px` } }, detailBody),
     // hover card: full commit message (comment) of the pointed-at commit
     renderHoverCard(detail.hover, detail.hoverBody, t),
   ])
@@ -249,6 +310,29 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
   ])
 }
 
+interface BranchSheetCbs extends BranchCbs {
+  onClose: () => void
+}
+
+/** Compact branch/ref filter: a bottom sheet carrying the same branch list,
+ * portaled over the panel. Selecting a ref applies the filter and closes it;
+ * the backdrop and the close button dismiss it. */
+function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchSheetCbs): JSX.Element | null {
+  if (typeof document === 'undefined') return null
+  const sheet = h('div', {
+    className: 'gp-sheet-backdrop',
+    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) cb.onClose() },
+  }, h('div', { className: 'gp-sheet', role: 'dialog', 'aria-modal': true }, [
+    h('div', { key: 'bar', className: 'gp-sheet__bar' }, [
+      h('span', { key: 'title', className: 'gp-sheet__title' }, cb.t('overview.filterBranch')),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-sheet__close', title: cb.t('common.close'), onClick: cb.onClose }, h(CloseIcon, { size: 15 })),
+    ]),
+    h('div', { key: 'body', className: 'gp-sheet__body' },
+      renderBranchList(tree, treeError, activeRef, closed, cb)),
+  ]))
+  return createPortal(sheet, document.body, 'branch-filter-sheet')
+}
+
 interface RowCbs {
   selected: boolean
   gridTpl: string
@@ -256,6 +340,8 @@ interface RowCbs {
   laneCount: number
   searching: boolean
   now: number
+  compact: boolean
+  rowH: number
   onSelect: () => void
   onHoverEnter: (commit: GraphCommit, x: number, y: number) => void
   onHoverLeave: () => void
@@ -264,6 +350,31 @@ interface RowCbs {
 
 function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
   const c = row.commit
+  const refChips = c.refs.map((r) => h('span', {
+    key: r.name,
+    className: `gp-ref-chip${r.head ? ' gp-ref-chip--head' : ''}${r.kind === 'remote' ? ' gp-ref-chip--remote' : ''}${r.kind === 'tag' ? ' gp-ref-chip--tag' : ''}`,
+  }, r.name))
+  const graphCell = h('div', { key: 'g', className: 'gp-graph-cell' }, cb.searching ? null : renderGraphCell(row, cb.laneCount, cb.rowH))
+  // Compact: two stacked lines (subject / hash·author·time) beside the graph,
+  // taller rows for touch, and no hover handlers (tap drills into the detail).
+  if (cb.compact) {
+    return h('div', {
+      key: c.hash,
+      className: `gp-commit-row gp-commit-row--compact${cb.selected ? ' gp-commit-row--active' : ''}`,
+      style: { gridTemplateColumns: cb.gridTpl, height: `${cb.rowH}px` },
+      onClick: cb.onSelect,
+    }, [
+      graphCell,
+      h('div', { key: 'tx', className: 'gp-commit-lines' }, [
+        h('div', { key: 's', className: 'gp-commit-subject' }, [...refChips, c.subject]),
+        h('div', { key: 'm', className: 'gp-commit-sub' }, [
+          h('span', { key: 'h', className: 'gp-commit-hash' }, c.shortHash),
+          h('span', { key: 'a', className: 'gp-commit-author' }, c.author),
+          h('span', { key: 'd', className: 'gp-commit-date' }, timeAgo(c.dateIso, cb.now, cb.t)),
+        ]),
+      ]),
+    ])
+  }
   return h('div', {
     key: c.hash,
     className: `gp-commit-row${cb.selected ? ' gp-commit-row--active' : ''}`,
@@ -272,14 +383,8 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
     onMouseEnter: (e: { clientX: number; clientY: number }) => cb.onHoverEnter(c, e.clientX, e.clientY),
     onMouseLeave: cb.onHoverLeave,
   }, [
-    h('div', { key: 'g', className: 'gp-graph-cell' }, cb.searching ? null : renderGraphCell(row, cb.laneCount)),
-    h('div', { key: 's', className: 'gp-commit-subject' }, [
-      ...c.refs.map((r) => h('span', {
-        key: r.name,
-        className: `gp-ref-chip${r.head ? ' gp-ref-chip--head' : ''}${r.kind === 'remote' ? ' gp-ref-chip--remote' : ''}${r.kind === 'tag' ? ' gp-ref-chip--tag' : ''}`,
-      }, r.name)),
-      c.subject,
-    ]),
+    graphCell,
+    h('div', { key: 's', className: 'gp-commit-subject' }, [...refChips, c.subject]),
     h('div', { key: 'h', className: 'gp-commit-hash' }, c.shortHash),
     h('div', { key: 'a', className: 'gp-commit-author' }, c.author),
     h('div', { key: 'd', className: 'gp-commit-date', title: absoluteTime(c.dateIso) }, timeAgo(c.dateIso, cb.now, cb.t)),
@@ -288,10 +393,10 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
 
 const PALETTE = ['#4e9bff', '#3fb950', '#e0982e', '#d05ce3', '#e5534b', '#2dc6c6', '#d29922', '#8b949e']
 
-function renderGraphCell(row: GraphRow, laneCount: number): JSX.Element {
+function renderGraphCell(row: GraphRow, laneCount: number, rowH: number = ROW_H): JSX.Element {
   const w = Math.max(LANE_W, laneCount * LANE_W)
   const cx = (lane: number): number => lane * LANE_W + LANE_W / 2
-  const mid = ROW_H / 2
+  const mid = rowH / 2
   const els: JSX.Element[] = []
   for (const e of row.edges) {
     const color = PALETTE[e.color % PALETTE.length]
@@ -299,7 +404,7 @@ function renderGraphCell(row: GraphRow, laneCount: number): JSX.Element {
     // pass crosses the whole row. Control points sit at each span's midpoint,
     // so both halves leave/join the node on a vertical tangent.
     const y0 = e.kind === 'out' ? mid : 0
-    const y1 = e.kind === 'into' ? mid : ROW_H
+    const y1 = e.kind === 'into' ? mid : rowH
     const cy = (y0 + y1) / 2
     els.push(h('path', {
       key: `e${e.kind}-${e.fromLane}-${e.toLane}-${e.color}`,
@@ -308,7 +413,7 @@ function renderGraphCell(row: GraphRow, laneCount: number): JSX.Element {
     }))
   }
   els.push(h('circle', { key: 'node', cx: cx(row.lane), cy: mid, r: row.merge ? 4 : 3.2, fill: PALETTE[row.color % PALETTE.length], stroke: 'var(--dsw-alias-bg-layer-1)', strokeWidth: 1 }))
-  return h('svg', { className: 'gp-graph-svg', width: w, height: ROW_H }, els)
+  return h('svg', { className: 'gp-graph-svg', width: w, height: rowH }, els)
 }
 
 interface FileTreeCbs {
@@ -357,6 +462,7 @@ interface FileDiffModalCbs {
   onClose: () => void
   remote: GitPanelRemote
   sessionId: string
+  compact: boolean
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -368,7 +474,11 @@ function renderFileDiffModal(
   cb: FileDiffModalCbs,
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
-  const { text, error, mode, onMode, expanded, onExpand, onClose, remote, sessionId, t } = cb
+  const { text, error, mode, onMode, expanded, onExpand, onClose, remote, sessionId, compact, t } = cb
+  // Compact drops the side-by-side mode (no room on a phone) and renders split
+  // as unified instead; the preference itself is left untouched.
+  const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
+  const effMode: DiffMode = compact && mode === 'split' ? 'unified' : mode
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
@@ -381,18 +491,18 @@ function renderFileDiffModal(
       h('button', {
         key: 'expand', type: 'button',
         className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
-        disabled: mode !== 'split' && mode !== 'unified',
+        disabled: effMode !== 'split' && effMode !== 'unified',
         title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
         onClick: () => onExpand(!expanded),
       }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
       h('div', { key: 'seg', className: 'gp-seg' },
-        segButtons<DiffMode>(['unified', 'split', 'before', 'after'], mode, onMode, (m) => t(`diff.${m}` as GitKey))),
+        segButtons<DiffMode>(modes, effMode, onMode, (m) => t(`diff.${m}` as GitKey))),
       h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       text === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : h(DiffView, { text, mode, path: fileDiff.path, remote, sessionId, imageSpec: { base: 'commit', commit: fileDiff.hash }, t })),
+        : h(DiffView, { text, mode: effMode, path: fileDiff.path, remote, sessionId, imageSpec: { base: 'commit', commit: fileDiff.hash }, t })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }

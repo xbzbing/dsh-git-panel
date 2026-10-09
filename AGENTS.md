@@ -55,8 +55,9 @@ Host 半 (Cordis + typert, lib/host)
 - `controller.ts`：`GitController`，每 session 的快照控制器（单航刷新 + `refreshIntervalMs` 轮询 + turn 完成边沿刷新 + `connection/reset` 重拉）。
 - `registry.ts`：per-session `GitController` 复用池 + 组件订阅入口。
 - `index.ts`：Cordis `apply` —— 挂 RPC 面、注册三个 slot（`conversation.view` / `conversation.input.left` / `plugins.bundle.config`）、注册 i18n。
-- `Panel.tsx`：主面板壳，内部子 tab 路由 + 焦点消费 + 版本条。
-- `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment）的组合层，含 hover 卡；取数状态拆进 `overview-hooks.ts`。
+- `Panel.tsx`：主面板壳，内部子 tab 路由 + 焦点消费 + 版本条；用 `layout.ts` 的 `usePanelLayout` 观测面板宽度，≤620px 时在根节点标 `data-layout="compact"` 并把 `compact` 下发给三个子 tab，触发单栏「钻取」布局。
+- `layout.ts`：`usePanelLayout`——ResizeObserver 观测面板宽（`COMPACT_BP=620`，与 GitPill 的 `COMPACT_WIDTH` 对齐），返回是否进入 compact 单栏布局。compact 的所有样式挂在 `.gp-panel[data-layout="compact"]` 下，宽布局字节级不变；portaled 的 modal / bottom sheet 在 `.gp-panel` 之外，分别用自身 class / viewport media query 适配。
+- `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment）的组合层，含 hover 卡；取数状态拆进 `overview-hooks.ts`。compact 时折叠为单栏：历史列表 ↔ 提交详情按 `pane` 钻取（带返回条），分支筛选走 bottom sheet，提交行两行式、graph svg 高度随行高拉伸以保证连线，禁用 hover 卡。
 - `overview-hooks.ts`：`useBranchTree` / `useHistory`（分页 + 分代守卫 + `total:-1`）/ `useCommitDetail`（`show` LRU 缓存 + 文件 diff overlay + hover）三个数据 hook，`OverviewTab` 只做组合与渲染。
 - `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条（读快照上的 `stats`，不再单发查询）、差异视图（`DiffView` 已 `memo`；支持统一（`unified`，单栏行内）/ 并排（`split`，左右分栏）两种布局，默认视图由快照上的 `defaultDiffView` 决定，可在工具栏临时切换）。
 - `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换 + 「提交框显示 AI 生成」开关。

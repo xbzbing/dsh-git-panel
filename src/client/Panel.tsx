@@ -13,6 +13,7 @@ import { OverviewTab } from './OverviewTab'
 import { ChangesTab } from './ChangesTab'
 import { FilesTab } from './FilesTab'
 import { CommitIcon, DiffIcon, FilesIcon, GitHubIcon, RefreshIcon } from './icons'
+import { usePanelLayout } from './layout'
 import type { GitAction, GitVersionInfo } from './types'
 import type { GitKey } from './locales'
 
@@ -35,6 +36,11 @@ interface PanelProps {
 export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const [fontDelta, setFontDelta] = useState<FontDelta>(readFontDelta)
   const [selection, setSelection] = useState<{ sessionId: string; tab: SubTab } | null>(null)
+  const [rootEl, setRootEl] = useState<HTMLElement | null>(null)
+  // Compact layout kicks in on a narrow panel (phone / squeezed split): the
+  // three-column tabs collapse to single-column drill-in. Width-driven, so it
+  // recovers the full layout as soon as the panel widens.
+  const compact = usePanelLayout(rootEl)
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
   // git not installed degrades to the file browser too; inside a repo we add a
@@ -114,7 +120,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     if (view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, t }) : null
+      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, t }) : null
       // git-not-installed inside a repo: stack a notice above the browser.
       if (gitMissingInRepo) {
         return h('div', { className: 'gp-files-wrap' }, [
@@ -133,14 +139,14 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     const snapshot = view.snapshot
     return h('div', { style: { display: 'contents' } }, [
       visited.current.tabs.has('overview') ? h('div', { key: 'overview', style: activeTab === 'overview' ? { display: 'contents' } : { display: 'none' } },
-        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, t })) : null,
+        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, compact, t })) : null,
       visited.current.tabs.has('changes') ? h('div', { key: 'changes', style: activeTab === 'changes' ? { display: 'contents' } : { display: 'none' } },
-        h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, t })) : null,
+        h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, compact, t })) : null,
       // Files tab mounts on first visit (keeps cold cost zero — no dir-list
       // until the user opens it), then stays mounted to retain its tree state.
       filesVisited
         ? h('div', { key: 'files', style: activeTab === 'files' ? { display: 'contents' } : { display: 'none' } },
-          h(FilesTab, { key: sessionId, remote, sessionId, t }))
+          h(FilesTab, { key: sessionId, remote, sessionId, compact, t }))
         : null,
     ])
   })()
@@ -149,7 +155,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // full-height layout: the view area is fixed to the visible height with its
   // own overflow, and the composer/input bar floats over the bottom. Without
   // it the view grows with content and the whole conversation scrolls.
-  return h('div', { className: 'gp-panel', 'data-conversation-composer-overlay': '', 'data-font-delta': fontDelta }, [
+  return h('div', { className: 'gp-panel', ref: setRootEl, 'data-conversation-composer-overlay': '', 'data-font-delta': fontDelta, 'data-layout': compact ? 'compact' : 'wide' }, [
     h('div', { key: 'tabs', className: 'gp-tabbar', role: 'tablist' }, [
       ...tabs.map((tb) =>
         h('button', {
@@ -158,12 +164,17 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
           className: `gp-tab${activeTab === tb.key ? ' gp-tab--active' : ''}`,
           onClick: () => { if (hasSession(sessionId)) setSelection({ sessionId, tab: tb.key }) },
         }, [h('span', { key: 'i', className: 'gp-tab__icon' }, tb.icon), h('span', { key: 'l', className: 'gp-tab__label' }, tb.label)])),
-      h('div', { key: 'font', className: 'gp-font' }, [
-        h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
-        h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
-        h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
+      // Trailing cluster (font stepper + version bar). `display:contents` in the
+      // wide layout keeps it transparent to the tab-bar flex (identical to the
+      // flat layout); in compact it becomes a wrapped second row.
+      h('div', { key: 'trailing', className: 'gp-tabbar__trailing' }, [
+        h('div', { key: 'font', className: 'gp-font' }, [
+          h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
+          h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
+          h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
+        ]),
+        h(VersionBar, { key: 'ver', remote, t }),
       ]),
-      h(VersionBar, { key: 'ver', remote, t }),
     ]),
     h('div', { key: 'body', className: 'gp-body' }, body),
   ])
