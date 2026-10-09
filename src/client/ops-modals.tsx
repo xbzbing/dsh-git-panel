@@ -24,6 +24,7 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'cwd-unavailable': return t('error.noCwd')
     case 'local-changes-block': return t('error.localChangesBlock')
     case 'conflict': return t('error.conflict')
+    case 'revert-conflict': return t('error.revertConflict')
     case 'index-busy': return t('error.indexBusy')
     case 'not-found': return t('error.notFound')
     case 'invalid-name':
@@ -63,6 +64,8 @@ export interface ConfirmCbs {
   confirmLabel: string
   danger: boolean
   error: string | null
+  /** Disable confirm while an op is in flight (parity with ResetModal). */
+  confirmBusy?: boolean
   onConfirm: () => void
   onClose: () => void
   t: OpT
@@ -95,7 +98,7 @@ function ConfirmModal(cb: ConfirmCbs): JSX.Element {
       renderAiHint(cb.t),
       cb.error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, cb.error) : null,
     ]),
-    renderModalFooter({ onClose: cb.onClose, onConfirm: cb.onConfirm, confirmLabel: cb.confirmLabel, confirmDisabled: false, danger: cb.danger, t: cb.t }),
+    renderModalFooter({ onClose: cb.onClose, onConfirm: cb.onConfirm, confirmLabel: cb.confirmLabel, confirmDisabled: cb.confirmBusy === true, danger: cb.danger, t: cb.t }),
   ]))
   return createPortal(modal, document.body, 'confirm-modal')
 }

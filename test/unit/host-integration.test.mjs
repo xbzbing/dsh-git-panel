@@ -901,6 +901,33 @@ test('revert into a conflicting dirty work tree is refused (local-changes-block)
   }
 })
 
+test('a content-conflicting revert is auto-aborted and reported as revert-conflict', async () => {
+  const dir = await freshRepo('gp-revert-cf-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    // init(a=one) → two(a=two) → three(a=three). Reverting the middle "two"
+    // commit while HEAD is "three" produces a content conflict on a.txt.
+    writeFileSync(join(dir, 'a.txt'), 'two\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'two'])
+    const two = (await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 1, skip: 0 } })).value.commits[0].hash
+    writeFileSync(join(dir, 'a.txt'), 'three\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'three'])
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'revert', commit: two } })
+    assert.equal(res.ok, false, 'the conflicting revert fails')
+    assert.equal(res.error.code, 'revert-conflict')
+    // Auto-abort cleared the sequencer: no REVERT_HEAD, work tree intact + clean.
+    assert.throws(() => execFileSync('git', ['rev-parse', '--verify', '--quiet', 'REVERT_HEAD'], { cwd: dir }), 'REVERT_HEAD is gone (revert aborted)')
+    assert.equal((await readFile(join(dir, 'a.txt'), 'utf8')), 'three\n', 'the work tree is restored')
+    const snap = await snapshotForSession(d, DEFAULT_CONFIG, SID)
+    assert.equal(snap.value.dirty, false, 'no half-applied conflict left behind')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('reset --mixed moves HEAD back and keeps the change in the work tree', async () => {
   const dir = await freshRepo('gp-reset-mixed-')
   try {

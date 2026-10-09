@@ -157,6 +157,8 @@ export type GitErrorCode =
   | 'local-changes-block'
   // Stash apply/pop left the work tree with merge conflicts (stash kept).
   | 'conflict'
+  // A revert hit a content conflict and was auto-aborted (work tree restored).
+  | 'revert-conflict'
   // A named tag / stash entry does not exist.
   | 'not-found'
   // Another git process holds the index lock (.git/index.lock).

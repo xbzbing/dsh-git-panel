@@ -219,6 +219,16 @@ export async function runAction(
     lastOutput = outcome.run.stdout || outcome.run.stderr
     if (outcome.run.exitCode !== 0) {
       const failure = classifyActionFailure(outcome.run.stdout, outcome.run.stderr, outcome.run.exitCode ?? -1)
+      // A conflicting `git revert` leaves the repository in the "reverting"
+      // state (REVERT_HEAD + sequencer), which the panel offers no way to
+      // continue/skip and which also blocks the shared-worktree dsh AI's own
+      // commits. The user has made no resolution yet, so abort immediately to
+      // restore the pre-revert state (unrelated dirty changes are preserved by
+      // --abort) and report a conflict that was cancelled, not one to resolve.
+      if (request.action.kind === 'revert' && failure.code === 'conflict') {
+        await runCommand(deps.run, ['git', 'revert', '--abort'], root, 'revert-abort', deps.signal)
+        return { ok: false, error: { code: 'revert-conflict', message: failure.message + where } }
+      }
       return { ok: false, error: { code: failure.code, message: failure.message + where } }
     }
     // `git stash push` with nothing to stash (e.g. only untracked files) prints
