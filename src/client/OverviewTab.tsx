@@ -11,7 +11,7 @@ import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
 import type { GitAction, GitBranch, GitSnapshot, GraphCommit, ResetMode } from './types'
 import type { GitKey } from './locales'
-import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, DownloadIcon, ExternalLinkIcon, FileIcon, FilterIcon, GitHubIcon, RefreshIcon, ResetIcon, RevertIcon, SyncIcon, TagIcon } from './icons'
+import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, DownloadIcon, FileIcon, FilterIcon, GitHubIcon, RefreshIcon, ResetIcon, RevertIcon, SyncIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time'
@@ -605,12 +605,13 @@ function renderStatusBar(snapshot: GitSnapshot, cb: StatusBarCbs): JSX.Element {
   const remote = snapshot.remote ?? null
   const hasUpstream = snapshot.hasUpstream === true
 
-  // ── left: remote link (icon only; the repo path rides in the hover title) ──
-  const repoNode = ((): JSX.Element => {
-    if (remote === null) return h('span', { key: 'r', className: 'gp-statusbar__repo gp-statusbar__repo--none', title: t('status.noRemote') }, h('span', { className: 'gp-statusbar__ic' }, h(ExternalLinkIcon, { size: 14 })))
-    const icon = remote.hostKind === 'github' ? h(GitHubIcon, { size: 14 }) : h(ExternalLinkIcon, { size: 14 })
+  // ── left: repo link, shown only for GitHub projects (icon only; path in title) ──
+  const repoNode = ((): JSX.Element | null => {
+    // Non-GitHub remotes (gitlab/gitee/other) and repos with no remote show nothing.
+    if (remote === null || remote.hostKind !== 'github') return null
+    const icon = h(GitHubIcon, { size: 14 })
     if (remote.webUrl === null) {
-      // A non-web remote (bare local path): icon only, URL in the title.
+      // A GitHub remote we couldn't turn into a web URL: icon only, URL in the title.
       return h('span', { key: 'r', className: 'gp-statusbar__repo gp-statusbar__repo--none', title: remote.url }, h('span', { className: 'gp-statusbar__ic' }, icon))
     }
     const title = remote.host !== null ? t('status.openRepoOn', { host: remote.host }) : t('status.openRepo')
