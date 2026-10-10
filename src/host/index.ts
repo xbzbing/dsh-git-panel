@@ -23,7 +23,7 @@ export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
-  GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry, ResetMode,
+  GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult,
 } from './types.ts'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts'
@@ -59,6 +59,10 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const('unified').description('统一视图（单栏行内对比）'),
       Schema.const('split').description('并排视图（左右分栏对比）'),
     ]).default('unified').volatile().description('差异对比默认视图'),
+    graphStyle: Schema.union([
+      Schema.const('parallel').description('平行线（VSCode 风格，分支各占一列）'),
+      Schema.const('compact').description('紧凑（git log 风格，共享祖先合并为一列）'),
+    ]).default('parallel').volatile().description('提交历史图线条样式'),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
   })
 

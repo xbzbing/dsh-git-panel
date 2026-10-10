@@ -6,7 +6,7 @@ import type { GitRunner } from './git.ts'
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.ts'
 import { isSafePath } from './validate.ts'
-import type { DiffViewMode, GitChange, GitCommit, GitErrorCode, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
+import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -18,6 +18,8 @@ export interface GitPanelConfig {
   readonly showInputPill: boolean
   /** Default diff layout the views open with (user can switch per-diff). */
   readonly defaultDiffView: DiffViewMode
+  /** Commit-graph line style (parallel = VSCode-like, compact = git log). */
+  readonly graphStyle: GraphStyle
   /** Whether the "AI suggest" button shows in the commit box. */
   readonly suggestEnabled: boolean
   /** Max diff bytes sent to the model; beyond this the diff is truncated. */
@@ -36,6 +38,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   refreshIntervalMs: 30000,
   showInputPill: true,
   defaultDiffView: 'unified',
+  graphStyle: 'parallel',
   suggestEnabled: true,
   suggestMaxBytes: 64 * 1024,
   suggestMaxOutputTokens: 200,
@@ -60,6 +63,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
+    graphStyle: readGraphStyle(c.graphStyle, DEFAULT_CONFIG.graphStyle),
     suggestEnabled: readBool(c.suggestEnabled, DEFAULT_CONFIG.suggestEnabled),
     suggestMaxBytes: num(c.suggestMaxBytes, DEFAULT_CONFIG.suggestMaxBytes),
     suggestMaxOutputTokens: num(c.suggestMaxOutputTokens, DEFAULT_CONFIG.suggestMaxOutputTokens),
@@ -80,6 +84,12 @@ function unwrapVolatile(value: unknown): unknown {
 export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode {
   const raw = unwrapVolatile(value)
   return raw === 'unified' || raw === 'split' ? raw : fallback
+}
+
+/** Read the commit-graph style field, unwrapping a schemastery volatile ref. */
+export function readGraphStyle(value: unknown, fallback: GraphStyle): GraphStyle {
+  const raw = unwrapVolatile(value)
+  return raw === 'parallel' || raw === 'compact' ? raw : fallback
 }
 
 /**
@@ -398,6 +408,7 @@ export async function snapshotForSession(
     refreshIntervalMs: config.refreshIntervalMs,
     showInputPill: config.showInputPill,
     defaultDiffView: config.defaultDiffView,
+    graphStyle: config.graphStyle,
     suggestEnabled: config.suggestEnabled,
     checkedAt: Date.now(),
   }

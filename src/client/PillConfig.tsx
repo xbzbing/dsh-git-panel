@@ -12,6 +12,7 @@ import type { ChangeEvent, JSX } from 'react'
 import { resyncAll } from './registry'
 import { segButtons } from './seg'
 import type { ClientCtx, ConfigFormsFace, SettingsNamespaceView } from './rpc'
+import type { GraphStyle } from './types'
 import type { GitKey } from './locales'
 
 interface PillConfigProps {
@@ -37,6 +38,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [failed, setFailed] = useState(false)
   const [pending, setPending] = useState<boolean | null>(null)
   const [pendingView, setPendingView] = useState<DiffView | null>(null)
+  const [pendingGraph, setPendingGraph] = useState<GraphStyle | null>(null)
   const [pendingSuggest, setPendingSuggest] = useState<boolean | null>(null)
   const bump = (): void => { setTick((n) => n + 1) }
 
@@ -69,6 +71,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const mirrorStatus = mirror?.getSnapshot().status
   const checked = pending ?? (typeof snap?.value?.showInputPill === 'boolean' ? (snap.value.showInputPill as boolean) : true)
   const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
+  const graphStyle: GraphStyle = pendingGraph ?? (snap?.value?.graphStyle === 'compact' ? 'compact' : 'parallel')
   const suggestEnabled = pendingSuggest ?? (typeof snap?.value?.suggestEnabled === 'boolean' ? (snap.value.suggestEnabled as boolean) : true)
 
   // Write one config field, then resync so the pill/tab-dot reflect it without
@@ -103,6 +106,12 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     return commitField('defaultDiffView', next, () => setPendingView(null))
   }
 
+  const setGraph = (next: GraphStyle): Promise<void> => {
+    if (next === graphStyle) return Promise.resolve()
+    setPendingGraph(next)
+    return commitField('graphStyle', next, () => setPendingGraph(null))
+  }
+
   const toggleSuggest = (next: boolean): Promise<void> => {
     setPendingSuggest(next)
     return commitField('suggestEnabled', next, () => setPendingSuggest(null))
@@ -130,6 +139,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       segButtons<DiffView>(['unified', 'split'], diffView, (v) => { void setView(v) },
         (v) => t(v === 'unified' ? 'cfg.diffUnified' : 'cfg.diffSplit'), busy || snap?.writable === false)),
     h('p', { key: 'diffhint', className: 'gp-cfg__hint' }, t('cfg.diffHint')),
+    h('h3', { key: 'graphtitle', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.graphTitle')),
+    h('div', { key: 'graphseg', className: 'gp-seg gp-cfg__seg' },
+      segButtons<GraphStyle>(['parallel', 'compact'], graphStyle, (v) => { void setGraph(v) },
+        (v) => t(v === 'parallel' ? 'cfg.graphParallel' : 'cfg.graphCompact'), busy || snap?.writable === false)),
+    h('p', { key: 'graphhint', className: 'gp-cfg__hint' }, t('cfg.graphHint')),
     h('h3', { key: 'sgtitle', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.suggestTitle')),
     h('label', { key: 'sgrow', className: 'gp-cfg__row' }, [
       h('input', {

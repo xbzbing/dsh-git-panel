@@ -93,7 +93,7 @@ const CSS = `
 /* overscroll-behavior:contain keeps a wheel gesture that reaches the top/bottom
  * of the commit list from bubbling out and scrolling the whole conversation. */
 .gp-history__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-.gp-commit-row{display:grid;align-items:center;gap:8px;height:30px;padding:0 10px;cursor:pointer;border-bottom:1px solid transparent}
+.gp-commit-row{display:grid;align-items:center;gap:8px;height:30px;padding:0 10px;cursor:pointer;box-sizing:border-box}
 .gp-commit-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-commit-row--active,.gp-commit-row--active:hover{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
 .gp-commit-subject{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
