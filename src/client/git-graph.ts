@@ -46,24 +46,24 @@ export function graphWidth(rows: readonly GraphRow[]): number {
 /**
  * Assign lanes. `lanes[i]` holds the commit hash the lane is currently waiting
  * to place (its next expected commit). We walk commits newest→oldest, place
- * each commit into the first lane awaiting it (or a new lane), then replace
- * that lane's expectation with the commit's first parent and open new lanes
- * for extra parents.
+ * each commit into the first lane awaiting it (or a new lane), continue that
+ * lane with the commit's first parent (converging leftward when the parent is
+ * already awaited elsewhere, so the main line stays left), and open new lanes
+ * for extra parents. Each lane carries one color for its whole run.
  */
 export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
   const rows: GraphRow[] = []
-  // Each active lane awaits a specific commit hash (its child already placed).
+  // Each active lane awaits a specific commit hash (its child already placed)
+  // and carries a color for its whole run, so a continuous line keeps one color
+  // (VSCode-style, issue #9) instead of recoloring at every commit. A lane's
+  // color is freed when the lane closes and reused lowest-first to keep the
+  // palette tight.
   let lanes: (string | null)[] = []
-  const colorOf = new Map<string, number>()
+  let laneColor: (number | null)[] = []
+  const freed: number[] = []
   let nextColor = 0
-  const colorFor = (hash: string): number => {
-    let c = colorOf.get(hash)
-    if (c === undefined) {
-      c = nextColor++
-      colorOf.set(hash, c)
-    }
-    return c
-  }
+  const openColor = (): number => (freed.length > 0 ? freed.splice(freed.indexOf(Math.min(...freed)), 1)[0]! : nextColor++)
+  const freeColor = (c: number | null): void => { if (c !== null && !freed.includes(c)) freed.push(c) }
 
   for (const commit of commits) {
     // Place a hash into the lane already awaiting it, else the first free lane,
@@ -72,73 +72,74 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
       let lane = lanes.findIndex((h) => h === hash)
       if (lane === -1) {
         lane = lanes.findIndex((h) => h === null)
-        if (lane === -1) { lane = lanes.length; lanes.push(null) }
+        if (lane === -1) { lane = lanes.length; lanes.push(null); laneColor.push(null) }
         lanes[lane] = hash
+        laneColor[lane] = openColor()
       }
       return lane
     }
 
     const lane = assignLane(commit.hash)
-    const color = colorFor(commit.hash)
+    const color = laneColor[lane]!
 
-    // Snapshot lanes before mutation (top of the row).
+    // Snapshot lanes + their colors before mutation (top of the row).
     const before = [...lanes]
+    const beforeColor = [...laneColor]
 
-    // This lane continues with the first parent not already awaited elsewhere.
-    // A parent another lane already awaits must not be double-booked: two
-    // slots holding one hash make the continue-edge resolve to the other slot
-    // on every row until it lands, painting a spurious hook each time (issue
-    // #9). The connecting edge is drawn below via the outgoing findIndex; when
-    // every parent is awaited elsewhere this lane simply goes free.
+    // This lane continues with the commit's FIRST parent, keeping a first-parent
+    // chain (the main line) straight in a single column; extra parents open new
+    // lanes to the right. When the first parent is already awaited by another
+    // lane the two converge into the leftmost of them, so the main line is
+    // pulled left and never drifts right (issue #9).
     const parents = commit.parents
     const merge = parents.length >= 2
-    // Defensive guard: with the dedupe rule below, two lanes awaiting the
-    // same commit cannot arise (assignLane reuses an awaiting slot and the
-    // successor check rejects taken parents), so this loop never fires today
-    // — kept so a future rule change cannot silently double-book a slot.
+    // A commit with several displayed children is awaited by more than one lane;
+    // the extras converge into this node (drawn below as into-edges).
     for (let i = 0; i < lanes.length; i++) {
-      if (i !== lane && lanes[i] === commit.hash) lanes[i] = null
+      if (i !== lane && lanes[i] === commit.hash) { freeColor(laneColor[i]); lanes[i] = null; laneColor[i] = null }
     }
     if (parents.length === 0) {
-      lanes[lane] = null
+      freeColor(laneColor[lane]); lanes[lane] = null; laneColor[lane] = null
     } else {
-      // `lanes[lane]` still holds commit.hash here, so `includes` only sees
-      // the other lanes' expectations.
-      const successor = parents.find((p) => !lanes.includes(p))
-      lanes[lane] = successor === undefined ? null : successor
-      for (let p = 1; p < parents.length; p++) {
-        const parent = parents[p]!
-        assignLane(parent)
-        colorFor(parent)
+      const fp = parents[0]!
+      const other = lanes.findIndex((h, i) => h === fp && i !== lane)
+      if (other === -1) {
+        lanes[lane] = fp // lane keeps its color across the continuation
+      } else {
+        // Two lanes want the same parent: keep the leftmost, close the other.
+        const keep = Math.min(lane, other)
+        const drop = Math.max(lane, other)
+        lanes[keep] = fp
+        freeColor(laneColor[drop]); lanes[drop] = null; laneColor[drop] = null
       }
-      if (lanes[lane] !== null) colorFor(lanes[lane]!)
+      for (let p = 1; p < parents.length; p++) assignLane(parents[p]!)
     }
 
     // Edges: for every lane active before, connect its top position to where
     // its awaited commit sits after mutation.
+    // Edge color is the color of the line it represents: an into/pass edge keeps
+    // the incoming lane's color up to the node; an out edge takes the color of
+    // the lane it lands in (the continuation, or the target line of a merge).
     const edges: GraphEdge[] = []
     const after = lanes
     for (let i = 0; i < before.length; i++) {
       const awaited = before[i]
       if (awaited === null) continue
       if (awaited === commit.hash) {
-        // Edge flowing into this node (top → node).
-        edges.push({ fromLane: i, toLane: lane, color, kind: 'into' })
+        edges.push({ fromLane: i, toLane: lane, color: beforeColor[i]!, kind: 'into' })
       } else {
-        // Lane continues awaiting the same commit; find its post position.
         const toLane = after.findIndex((h) => h === awaited)
-        if (toLane !== -1) edges.push({ fromLane: i, toLane, color: colorFor(awaited), kind: 'pass' })
+        if (toLane !== -1) edges.push({ fromLane: i, toLane, color: beforeColor[i]!, kind: 'pass' })
       }
     }
-    // Outgoing edges to parents (node → parent lanes).
     for (const parent of parents) {
       const toLane = after.findIndex((h) => h === parent)
-      if (toLane !== -1) edges.push({ fromLane: lane, toLane, color: colorFor(parent), kind: 'out' })
+      if (toLane !== -1) edges.push({ fromLane: lane, toLane, color: laneColor[toLane]!, kind: 'out' })
     }
 
     rows.push({ commit, lane, color, edges, merge })
     // Trim trailing null lanes to keep width tight.
-    while (lanes.length > 0 && lanes[lanes.length - 1] === null) lanes = lanes.slice(0, -1)
+    while (lanes.length > 0 && lanes[lanes.length - 1] === null) { lanes = lanes.slice(0, -1); laneColor = laneColor.slice(0, -1) }
   }
   return rows
 }

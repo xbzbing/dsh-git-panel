@@ -69,6 +69,42 @@ test('issue #9: a second child of an already-awaited parent adds no phantom lane
   }
 })
 
+test('a linear chain is a single lane color (no per-commit recolor)', () => {
+  const rows = layoutGraph([commit('c', ['b']), commit('b', ['a']), commit('a', [])])
+  const colors = new Set(rows.map((r) => r.color))
+  assert.equal(colors.size, 1, 'one continuous line keeps one color')
+  // Every edge on the chain also carries that one color.
+  const edgeColors = new Set(rows.flatMap((r) => r.edges.map((e) => e.color)))
+  assert.equal(edgeColors.size, 1)
+})
+
+test('issue #9: main line stays leftmost in lane 0 and the side chain is one color', () => {
+  // Real dsh-simple-remote topology: HEAD merges [root, side-head]; a second
+  // merge does the same; the side chain rejoins root at the bottom.
+  const rows = layoutGraph([
+    commit('m1', ['root', 'fi']),
+    commit('fi', ['root', 'c1']),
+    commit('c1', ['c2']),
+    commit('c2', ['c3']),
+    commit('c3', ['c4']),
+    commit('c4', ['c5']),
+    commit('c5', ['root']),
+    commit('root', []),
+  ])
+  // Main line (first-parent chain of HEAD) stays in lane 0 at top and bottom.
+  const byHash = Object.fromEntries(rows.map((r) => [r.commit.hash, r]))
+  assert.equal(byHash.m1.lane, 0)
+  assert.equal(byHash.root.lane, 0)
+  // Lane 0 is one color end to end; the side chain is a single, different color.
+  assert.equal(byHash.m1.color, byHash.root.color, 'main line keeps one color')
+  const chain = ['fi', 'c1', 'c2', 'c3', 'c4', 'c5']
+  const chainColors = new Set(chain.map((h) => byHash[h].color))
+  assert.equal(chainColors.size, 1, 'side chain keeps one color')
+  assert.notEqual([...chainColors][0], byHash.root.color, 'main and side differ')
+  // Exactly two colors across the whole graph (not a per-commit rainbow).
+  assert.equal(new Set(rows.map((r) => r.color)).size, 2)
+})
+
 test('date-order input (parent listed before child) still yields one lane per chain', () => {
   // A parent appearing above its child must not strand the child on a new
   // lane forever: the child reuses the lane already awaiting it.
