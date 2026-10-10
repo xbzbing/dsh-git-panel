@@ -86,7 +86,10 @@ async function queryHistory(
   // Topological order is layoutGraph's contract (children before parents);
   // the default date order interleaves rebased chains once committer dates
   // skew, splitting a linear history into phantom parallel lanes.
-  const args = ['git', 'log', '--topo-order', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
+  // `--decorate=full` makes %D emit full ref paths (refs/heads/…, refs/remotes/…,
+  // refs/tags/…) so parseRefs can tell a slashed local branch from a remote ref
+  // and not misclassify it (which mislabeled the current-branch chip).
+  const args = ['git', 'log', '--topo-order', '--decorate=full', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
   const search = q.search?.trim() ?? ''
   const hexJump = search !== '' && isHexLike(search)
   const countArgs = ['git', 'rev-list', '--count']

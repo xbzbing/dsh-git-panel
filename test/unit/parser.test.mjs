@@ -65,6 +65,20 @@ test('parseRefs classifies branch / remote / tag and HEAD', () => {
   assert.ok(refs.some((r) => r.kind === 'tag' && r.name === 'v1.0'))
 })
 
+test('parseRefs: a slashed local branch at HEAD is a branch, not remote', () => {
+  // Short form: HEAD -> always names the local branch even with slashes.
+  const short = parseRefs('HEAD -> feat/left-status-bar-sync, origin/feat/left-status-bar-sync')
+  assert.ok(short.some((r) => r.kind === 'branch' && r.name === 'feat/left-status-bar-sync' && r.head))
+  assert.ok(short.some((r) => r.kind === 'remote' && r.name === 'origin/feat/left-status-bar-sync' && !r.head))
+})
+
+test('parseRefs: --decorate=full ref paths classify unambiguously', () => {
+  const full = parseRefs('HEAD -> refs/heads/feat/x, refs/remotes/origin/feat/x, tag: refs/tags/v2.0')
+  assert.ok(full.some((r) => r.kind === 'branch' && r.name === 'feat/x' && r.head))
+  assert.ok(full.some((r) => r.kind === 'remote' && r.name === 'origin/feat/x' && !r.head))
+  assert.ok(full.some((r) => r.kind === 'tag' && r.name === 'v2.0'))
+})
+
 test('parseBranches reads name/hash/track with ahead·behind', () => {
   const out = parseBranches('main\x00abc1234\x00[ahead 2, behind 1]\nfeature\x00def5678\x00')
   const main = out.find((b) => b.name === 'main')

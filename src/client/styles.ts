@@ -119,10 +119,11 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-commit-hash{font-family:var(--dsw-font-mono,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .gp-commit-author{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-commit-date{font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
-.gp-ref-chip{display:inline-block;padding:0 6px;margin-right:4px;border-radius:8px;font-size:10px;line-height:16px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l2)}
-.gp-ref-chip--head{background:var(--dsw-alias-state-business-primary);color:#fff;border-color:transparent}
-.gp-ref-chip--remote{color:var(--dsw-alias-label-tertiary)}
+.gp-ref-chip{display:inline-block;padding:0 6px;margin-right:4px;border-radius:8px;font-size:10px;line-height:16px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l2)}
+.gp-ref-chip--remote{color:var(--dsw-alias-label-secondary)}
 .gp-ref-chip--tag{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
+/* --head last so the current-branch fill always wins if a ref carries two kinds */
+.gp-ref-chip--head{background:var(--dsw-alias-state-business-primary);color:#fff;border-color:transparent;font-weight:700;font-size:11px}
 .gp-graph-cell{position:relative}
 .gp-graph-svg{display:block}
 .gp-search{flex:1;min-width:60px;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;box-sizing:border-box}
