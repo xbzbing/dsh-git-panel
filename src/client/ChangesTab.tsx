@@ -405,13 +405,9 @@ interface StashPushCbs {
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-/** Portaled dialog: an optional message for the stash about to be pushed. */
+/** Portaled dialog: an optional message for the stash about to be pushed.
+ * renderModalShell owns the SSR/portal guard, so this is a single component. */
 function StashPushModal({ onClose, onStash, error, t }: StashPushCbs): JSX.Element | null {
-  if (typeof document === 'undefined') return null
-  return h(StashPushBody, { onClose, onStash, error, t })
-}
-
-function StashPushBody({ onClose, onStash, error, t }: StashPushCbs): JSX.Element | null {
   const [message, setMessage] = useState('')
   return renderModalShell({
     onClose, title: t('stash.title'), icon: h(StashIcon, { size: 15 }),

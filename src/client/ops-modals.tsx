@@ -69,7 +69,7 @@ export interface ModalShellProps {
   hash?: string
   /** Children of the scrollable `.gp-modal__form` body (keyed, nulls skipped). */
   body: (JSX.Element | null)[]
-  /** Footer node (usually `renderModalFooter(...)`); null for a footerless dialog. */
+  /** Footer node, usually `renderModalFooter(...)` (null renders no footer). */
   footer: JSX.Element | null
   /** Stable React portal key, unique per dialog kind. */
   portalKey: string
