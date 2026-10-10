@@ -284,6 +284,13 @@ export interface WorktreeStats {
   readonly lastChangeAt: number | null
   /** HEAD commit time ISO; null when unborn. */
   readonly headCommittedAt: string | null
+  /**
+   * True when the per-file fan-outs were skipped because the change set was too
+   * large (issue #16): `insertions` then omits untracked lines and
+   * `lastChangeAt` is null. Counts (fileCount/staged/modified/untracked) and
+   * tracked insertions/deletions stay exact.
+   */
+  readonly partial: boolean
 }
 
 export type GitQueryResult =

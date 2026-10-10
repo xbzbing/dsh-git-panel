@@ -25,6 +25,10 @@ export function ChangeStats({ stats, t }: StatsProps): JSX.Element {
   if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item' }, t('stats.staged', { n: stats.staged })))
   if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item' }, t('stats.modified', { n: stats.modified })))
   if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item' }, t('stats.untracked', { n: stats.untracked })))
+  // On a very large change set the host skips the per-file line/mtime fan-outs
+  // (issue #16); flag that the "+/-" count omits untracked lines so it isn't
+  // read as exact.
+  if (stats.partial) items.push(h('span', { key: 'partial', className: 'gp-stats__item gp-stats__partial', title: t('stats.partialHint') }, t('stats.partial')))
 
   // The two timestamps live in one wrap-together group so they always share a
   // line instead of the last-commit time dropping to its own row.

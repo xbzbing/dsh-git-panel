@@ -15,6 +15,7 @@ import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
 import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals'
+import { buildTops, windowRange } from './virtual-list'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -27,6 +28,21 @@ interface ChangesTabProps {
 }
 
 type GroupKey = 'staged' | 'unstaged' | 'untracked'
+
+// Change-list virtualization: only the rows in (or near) the viewport mount, so
+// a work tree with thousands of changes (issue #16) renders ~a screenful of
+// nodes instead of all of them. Heights are fixed per row kind so the window
+// math is exact; the CSS pins .gp-file-row / .gp-group-head to these values.
+const VROW_H = 28
+const VHEAD_H = 26
+const VOVERSCAN = 8
+// Assumed viewport height before the first layout measurement, so the initial
+// paint mounts a bounded window instead of the whole list.
+const VIEWPORT_FALLBACK = 600
+
+type ListItem =
+  | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number } }
+  | { readonly kind: 'row'; readonly c: GitChange }
 
 export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }: ChangesTabProps): JSX.Element {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -55,6 +71,27 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   const [stashDrop, setStashDrop] = useState<StashEntry | null>(null)
   const msgRef = useRef<HTMLTextAreaElement | null>(null)
   const diffSeq = useRef(0)
+  // Virtualized change-list viewport: the scroll container's top offset + height.
+  // A callback ref re-attaches the listeners if the list element remounts — in
+  // compact the left column unmounts while drilled into the diff pane.
+  const [viewport, setViewport] = useState({ top: 0, height: 0 })
+  const listCleanup = useRef<(() => void) | null>(null)
+  const setListEl = useCallback((el: HTMLDivElement | null) => {
+    if (listCleanup.current !== null) { listCleanup.current(); listCleanup.current = null }
+    if (el === null) return
+    // Skip the re-render when neither dimension changed (e.g. a ResizeObserver
+    // fire at identical size) by returning the previous state object.
+    const sync = (): void => setViewport((prev) => {
+      const top = el.scrollTop
+      const height = el.clientHeight
+      return prev.top === top && prev.height === height ? prev : { top, height }
+    })
+    sync()
+    el.addEventListener('scroll', sync, { passive: true })
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null
+    ro?.observe(el)
+    listCleanup.current = () => { el.removeEventListener('scroll', sync); ro?.disconnect() }
+  }, [])
 
   const loadStashes = useCallback(async () => {
     const res = await remote.query({ sessionId, query: { kind: 'stash-list' } })
@@ -76,6 +113,26 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     { key: 'untracked', labelKey: 'changes.groupUntracked', items: untracked },
   ]
   const groups = allGroups.filter((g) => g.items.length > 0)
+
+  // Flatten the visible (non-collapsed) groups into one row list and precompute
+  // each item's top offset, so the list can mount only the viewport window.
+  const { items, tops, totalH } = useMemo(() => {
+    const items: ListItem[] = []
+    for (const g of groups) {
+      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count: g.items.length } })
+      if (!closed.has(g.key)) for (const c of g.items) items.push({ kind: 'row', c })
+    }
+    const tops = buildTops(items.map((it) => (it.kind === 'head' ? VHEAD_H : VROW_H)))
+    return { items, tops, totalH: tops[items.length]! }
+    // staged/unstaged/untracked already memoize on snapshot; closed drives collapse.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staged, unstaged, untracked, closed])
+
+  // Mounted window [first, last): the items overlapping the viewport, padded by
+  // VOVERSCAN rows each side. Before the first layout measurement a fallback
+  // height bounds the initial paint.
+  const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
+  const { first, last } = windowRange(tops, viewport.top, effHeight, VOVERSCAN * VROW_H)
 
   // Prune selection to living paths (avoid a stale path aborting a commit).
   // Selection keys are `path:s`/`path:w`; a key survives only if a change with
@@ -265,20 +322,29 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     ]),
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
-    h('div', { key: 'list', className: 'gp-changes__list' },
+    h('div', { key: 'list', className: 'gp-changes__list', ref: setListEl },
       snapshot.changes.length === 0
         ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
-        : groups.map((g) => h('div', { key: g.key }, [
-          h('div', { key: 'head', className: 'gp-group-head', onClick: () => toggleGroup(g.key) }, [
-            h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) }),
-            `${t(g.labelKey)} (${g.items.length})`,
-          ]),
-          closed.has(g.key) ? null : g.items.map((c) => {
+        : h('div', { className: 'gp-changes__vlist', style: { height: totalH } },
+          items.slice(first, last).map((it, k) => {
+            const idx = first + k
+            if (it.kind === 'head') {
+              const g = it.g
+              return h('div', {
+                key: `h:${g.key}`, className: 'gp-changes__vrow', style: { top: tops[idx], height: VHEAD_H },
+              }, h('div', { className: 'gp-group-head', onClick: () => toggleGroup(g.key) }, [
+                h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) }),
+                `${t(g.labelKey)} (${g.count})`,
+              ]))
+            }
             // A path staged AND modified appears in two rows; key selection /
-            // active / armed by path+side so acting on one row doesn't light
-            // up the other (React key on the row is already path+side).
+            // active / armed by path+side so acting on one row doesn't light up
+            // the other.
+            const c = it.c
             const rowKey = c.path + (c.staged ? ':s' : ':w')
-            return renderFileRow(c, {
+            return h('div', {
+              key: rowKey, className: 'gp-changes__vrow', style: { top: tops[idx], height: VROW_H },
+            }, renderFileRow(c, {
               selected: selected.has(rowKey),
               active: diffPath?.path === c.path && diffPath.base === (c.staged ? 'staged' : 'worktree'),
               busy,
@@ -291,9 +357,8 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
                 else setArmedDiscard(rowKey)
               },
               t,
-            })
-          }),
-        ]))),
+            }))
+          }))),
     // stash list (collapsible)
     stashes.length > 0 ? h('div', { key: 'stashes', className: 'gp-stash' }, [
       h('div', { key: 'head', className: 'gp-group-head', onClick: () => setStashClosed((v) => !v) }, [

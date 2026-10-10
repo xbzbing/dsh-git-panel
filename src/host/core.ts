@@ -148,6 +148,17 @@ export interface SnapshotDeps {
 /** Non-repo negative-cache lifetime; short so a freshly-created repo is seen. */
 const NEG_CACHE_MS = 15_000
 
+/**
+ * Per-file stats fan-out ceiling. The untracked line-count fan-out (one
+ * `git diff --no-index` subprocess per untracked file) and the last-change
+ * mtime fan-out (one fs.stat per changed file) are both O(changes). On a work
+ * tree with thousands of changes — issue #16's pathological case, e.g. an
+ * un-ignored build/deps directory — they spawned hundreds of git processes on
+ * every poll and stalled the panel. Above this many total changes both are
+ * skipped and the stats are marked `partial`; the cheap O(n) counts stay exact.
+ */
+const STATS_FANOUT_LIMIT = 200
+
 export type WorkspaceResolution =
   | { readonly ok: true; readonly root: string }
   | { readonly ok: false; readonly failure: GitSnapshotResult & { ok: false } }
@@ -368,16 +379,22 @@ export async function snapshotForSession(
   // mtimes best-effort, HEAD time from lastCommit.
   const wt = 'run' in worktreeNumRes && worktreeNumRes.run.exitCode === 0 ? sumNumstat(worktreeNumRes.run.stdout) : { insertions: 0, deletions: 0 }
   const stg = 'run' in stagedNumRes && stagedNumRes.run.exitCode === 0 ? sumNumstat(stagedNumRes.run.stdout) : { insertions: 0, deletions: 0 }
+  // The two per-file fan-outs below are O(changes). On a huge work tree they
+  // flood the host with subprocess/stat calls every poll (issue #16), so above
+  // STATS_FANOUT_LIMIT we skip them and mark the stats partial.
+  const statsDetailed = allChanges.length <= STATS_FANOUT_LIMIT
   let untrackedInsertions = 0
-  const untrackedPaths = allChanges.filter((c) => c.status === 'untracked' && !c.isDirectory).map((c) => c.path)
-  const safeUntracked = untrackedPaths.filter(isSafePath).slice(0, 200)
-  if (safeUntracked.length > 0) {
-    const perFile = await Promise.all(
-      safeUntracked.map((p) => runCommand(deps.run, ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', p], root, 'numstat-untracked', deps.signal)),
-    )
-    for (const r of perFile) if ('run' in r) untrackedInsertions += sumNumstat(r.run.stdout).insertions
+  if (statsDetailed) {
+    const untrackedPaths = allChanges.filter((c) => c.status === 'untracked' && !c.isDirectory).map((c) => c.path)
+    const safeUntracked = untrackedPaths.filter(isSafePath)
+    if (safeUntracked.length > 0) {
+      const perFile = await Promise.all(
+        safeUntracked.map((p) => runCommand(deps.run, ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', p], root, 'numstat-untracked', deps.signal)),
+      )
+      for (const r of perFile) if ('run' in r) untrackedInsertions += sumNumstat(r.run.stdout).insertions
+    }
   }
-  const lastChangeAt = await maxChangeMtime(deps, root, allChanges)
+  const lastChangeAt = statsDetailed ? await maxChangeMtime(deps, root, allChanges) : null
   const distinct = new Set(allChanges.map((c) => c.path))
   const stats: WorktreeStats = {
     fileCount: distinct.size,
@@ -388,6 +405,7 @@ export async function snapshotForSession(
     deletions: wt.deletions + stg.deletions,
     lastChangeAt,
     headCommittedAt: lastCommit?.dateIso ?? null,
+    partial: !statsDetailed,
   }
 
   const snapshot: GitSnapshot = {
