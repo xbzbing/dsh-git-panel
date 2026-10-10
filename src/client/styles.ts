@@ -30,6 +30,9 @@ const CSS = `
 .gp-verbar__link:hover{text-decoration:underline}
 .gp-verbar__gh{color:var(--dsw-alias-label-secondary);text-decoration:none}
 .gp-verbar__gh:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
+/* star link: hollow by default, fills to a gold star on hover */
+.gp-verbar__gh--starred:hover{color:var(--dsw-alias-state-warn-primary,#e3b341)}
+.gp-verbar__gh--starred:hover svg{fill:currentColor}
 .gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;flex:none;transition:background .12s ease,color .12s ease}
 .gp-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
 /* Active tab: primary-tinted fill + primary text + medium weight + a soft ring.
