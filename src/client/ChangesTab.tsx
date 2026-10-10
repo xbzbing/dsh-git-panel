@@ -79,7 +79,13 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   const setListEl = useCallback((el: HTMLDivElement | null) => {
     if (listCleanup.current !== null) { listCleanup.current(); listCleanup.current = null }
     if (el === null) return
-    const sync = (): void => setViewport({ top: el.scrollTop, height: el.clientHeight })
+    // Skip the re-render when neither dimension changed (e.g. a ResizeObserver
+    // fire at identical size) by returning the previous state object.
+    const sync = (): void => setViewport((prev) => {
+      const top = el.scrollTop
+      const height = el.clientHeight
+      return prev.top === top && prev.height === height ? prev : { top, height }
+    })
     sync()
     el.addEventListener('scroll', sync, { passive: true })
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null

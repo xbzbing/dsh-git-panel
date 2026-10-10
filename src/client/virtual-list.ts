@@ -42,7 +42,8 @@ export function windowRange(
 ): { first: number; last: number } {
   const count = tops.length - 1
   if (count <= 0) return { first: 0, last: 0 }
-  const first = Math.max(0, lowerBound(tops, top - overscanPx))
+  // lowerBound already clamps to >= 0, so no extra Math.max is needed.
+  const first = lowerBound(tops, top - overscanPx)
   const last = Math.min(count, lowerBound(tops, top + height + overscanPx) + 1)
   return { first, last }
 }
