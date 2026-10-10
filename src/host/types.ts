@@ -141,7 +141,11 @@ export type GitAction =
   // `hard` additionally discards every uncommitted change — the one mode that
   // can wipe in-flight work (incl. the dsh AI's), so the UI gates it hardest.
   | { readonly kind: 'revert'; readonly commit: string }
-  | { readonly kind: 'reset'; readonly commit: string; readonly mode: 'soft' | 'mixed' | 'hard' }
+  | { readonly kind: 'reset'; readonly commit: string; readonly mode: ResetMode }
+
+/** `git reset` modes, from least to most destructive. Single source so the
+ * client dialog and the command builder cannot drift. */
+export type ResetMode = 'soft' | 'mixed' | 'hard'
 
 export type GitErrorCode =
   | 'cwd-unavailable'
@@ -159,6 +163,8 @@ export type GitErrorCode =
   | 'conflict'
   // A revert hit a content conflict and was auto-aborted (work tree restored).
   | 'revert-conflict'
+  // A revert conflicted AND the auto-abort failed: the repo is still mid-revert.
+  | 'revert-stuck'
   // A named tag / stash entry does not exist.
   | 'not-found'
   // Another git process holds the index lock (.git/index.lock).

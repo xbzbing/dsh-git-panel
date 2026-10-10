@@ -224,10 +224,21 @@ export async function runAction(
       // continue/skip and which also blocks the shared-worktree dsh AI's own
       // commits. The user has made no resolution yet, so abort immediately to
       // restore the pre-revert state (unrelated dirty changes are preserved by
-      // --abort) and report a conflict that was cancelled, not one to resolve.
+      // --abort). The abort can itself lose the index.lock race (the very
+      // contention this feature guards), so verify it (with the same one-shot
+      // retry) and, only if it cleared the state, report the cancelled
+      // conflict; otherwise tell the user the repo is still mid-revert rather
+      // than falsely claiming the work tree is untouched.
       if (request.action.kind === 'revert' && failure.code === 'conflict') {
-        await runCommand(deps.run, ['git', 'revert', '--abort'], root, 'revert-abort', deps.signal)
-        return { ok: false, error: { code: 'revert-conflict', message: failure.message + where } }
+        let abort = await runCommand(deps.run, ['git', 'revert', '--abort'], root, 'revert-abort', deps.signal)
+        if (isIndexBusy(abort)) {
+          await new Promise((resolve) => setTimeout(resolve, 150))
+          abort = await runCommand(deps.run, ['git', 'revert', '--abort'], root, 'revert-abort-retry', deps.signal)
+        }
+        const aborted = 'run' in abort && abort.run.exitCode === 0
+        return aborted
+          ? { ok: false, error: { code: 'revert-conflict', message: failure.message + where } }
+          : { ok: false, error: { code: 'revert-stuck', message: failure.message + where } }
       }
       return { ok: false, error: { code: failure.code, message: failure.message + where } }
     }

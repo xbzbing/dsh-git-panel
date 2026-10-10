@@ -25,6 +25,7 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'local-changes-block': return t('error.localChangesBlock')
     case 'conflict': return t('error.conflict')
     case 'revert-conflict': return t('error.revertConflict')
+    case 'revert-stuck': return t('error.revertStuck')
     case 'index-busy': return t('error.indexBusy')
     case 'not-found': return t('error.notFound')
     case 'invalid-name':

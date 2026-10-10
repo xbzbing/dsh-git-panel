@@ -8,7 +8,7 @@ import { createElement as h, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
-import type { GitAction, GitBranch, GitSnapshot, GraphCommit } from './types'
+import type { GitAction, GitBranch, GitSnapshot, GraphCommit, ResetMode } from './types'
 import type { GitKey } from './locales'
 import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
@@ -209,7 +209,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
       else setOpError(res.error ?? t('error.generic'))
     } finally { setOpBusy(false) }
   }
-  const runReset = async (mode: 'soft' | 'mixed' | 'hard'): Promise<void> => {
+  const runReset = async (mode: ResetMode): Promise<void> => {
     if (resetTarget === null || opBusy) return
     setOpError(null)
     setOpBusy(true)

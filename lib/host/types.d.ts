@@ -151,9 +151,12 @@ export type GitAction = {
 } | {
     readonly kind: 'reset';
     readonly commit: string;
-    readonly mode: 'soft' | 'mixed' | 'hard';
+    readonly mode: ResetMode;
 };
-export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'conflict' | 'revert-conflict' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
+/** `git reset` modes, from least to most destructive. Single source so the
+ * client dialog and the command builder cannot drift. */
+export type ResetMode = 'soft' | 'mixed' | 'hard';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'conflict' | 'revert-conflict' | 'revert-stuck' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;

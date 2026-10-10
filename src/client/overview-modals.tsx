@@ -11,6 +11,7 @@ import type { JSX } from 'react'
 import type { GitKey } from './locales'
 import { CloseIcon, ResetIcon, TagIcon } from './icons'
 import { renderAiHint, renderModalFooter, type OpT } from './ops-modals'
+import type { ResetMode } from './types'
 
 interface TagCreateCbs {
   onClose: () => void
@@ -67,8 +68,6 @@ function TagCreateModal({ target, onClose, onCreate, error, t }: TagCreateCbs & 
   ]))
   return createPortal(modal, document.body, 'tag-create-modal')
 }
-
-type ResetMode = 'soft' | 'mixed' | 'hard'
 
 interface ResetCbs {
   from: string
@@ -128,17 +127,22 @@ function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, 
           h('span', { key: 'h', className: 'gp-reset__modehint' }, t(m.hint)),
         ]),
       ]))),
-      // Hard mode: show exactly what gets discarded and require an explicit ack.
+      // Hard mode discards two separable things: uncommitted tracked changes
+      // (unrecoverable) and any commits ahead of the target (reflog-recoverable).
+      // Always state the orphaned-commit effect; list the uncommitted losses
+      // only when there are any.
+      mode === 'hard' ? h('div', { key: 'orphan', className: 'gp-reset__dirtywarn' }, t('reset.hardOrphan')) : null,
       mode === 'hard' && lostTotal > 0 ? h('div', { key: 'lost', className: 'gp-reset__lost' }, [
         h('div', { key: 'w', className: 'gp-reset__warn' }, t('reset.hardWarn')),
         h('ul', { key: 'ul', className: 'gp-reset__lostlist' }, [
           ...lostFiles.map((p) => h('li', { key: p, title: p }, p)),
-          lostTruncated ? h('li', { key: '_more', className: 'gp-reset__lostmore' }, t('reset.lostMore', { n: lostTotal })) : null,
+          lostTruncated ? h('li', { key: '_more', className: 'gp-reset__lostmore' }, t('reset.lostMore')) : null,
         ]),
       ]) : null,
+      // Ack wording tracks whether uncommitted work is actually at risk.
       mode === 'hard' ? h('label', { key: 'ack', className: 'gp-modal__check gp-reset__ack' }, [
         h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: ack, onChange: () => setAck((v) => !v) }),
-        t('reset.hardAck'),
+        t(lostTotal > 0 ? 'reset.hardAck' : 'reset.hardAckClean'),
       ]) : null,
       dirty ? h('div', { key: 'dirty', className: 'gp-reset__dirtywarn' }, t('ops.dirtyWarn')) : null,
       renderAiHint(t),

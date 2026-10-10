@@ -23,7 +23,7 @@ export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
-  GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry,
+  GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult,
 } from './types.ts'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts'
