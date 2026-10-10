@@ -151,6 +151,7 @@ test('worktree-stats totals files and +/- lines, plus times', async () => {
   assert.ok(st.insertions >= 2, 'a.txt +1 and d.txt +1 at least')
   assert.ok(st.lastChangeAt !== null)
   assert.ok(typeof st.headCommittedAt === 'string')
+  assert.equal(st.partial, false, 'a small change set keeps the detailed fan-out')
 })
 
 test('history returns commits with parents and refs', async () => {
@@ -612,6 +613,30 @@ test('snapshot counts reflect the full change set even when the list is truncate
     assert.equal(res.value.changes.length, 2, 'the list is capped')
     assert.equal(res.value.untracked, 5, 'but counts reflect all 5 files')
     assert.equal(res.value.dirty, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a huge change set skips the per-file stats fan-out and marks stats partial (issue #16)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-huge-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync } = await import('node:fs')
+    // 250 untracked files > STATS_FANOUT_LIMIT (200): the untracked numstat
+    // fan-out would otherwise spawn one `git diff --no-index` per file.
+    for (let i = 0; i < 250; i++) writeFileSync(join(dir, `u${i}.txt`), 'a\nb\nc\n')
+    const res = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(res.ok, true)
+    const st = res.value.stats
+    assert.equal(st.untracked, 250, 'counts stay exact')
+    assert.equal(st.fileCount, 250)
+    assert.equal(st.partial, true, 'stats flagged partial above the fan-out limit')
+    assert.equal(st.lastChangeAt, null, 'mtime fan-out skipped')
+    assert.equal(st.insertions, 0, 'untracked line counting skipped (only tracked diffs counted)')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

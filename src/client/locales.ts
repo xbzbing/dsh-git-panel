@@ -145,6 +145,8 @@ export const zh = {
   'stats.staged': '已暂存 {n}',
   'stats.modified': '已修改 {n}',
   'stats.untracked': '未跟踪 {n}',
+  'stats.partial': '统计已简化',
+  'stats.partialHint': '变更数量较多，已跳过未跟踪文件行数与最近变更时间的精确统计以保持面板流畅。',
   // commit box
   'commit.placeholder': '提交信息',
   'commit.commit': '提交',
@@ -345,6 +347,8 @@ export const en: Record<GitKey, string> = {
   'stats.staged': '{n} staged',
   'stats.modified': '{n} modified',
   'stats.untracked': '{n} untracked',
+  'stats.partial': 'simplified',
+  'stats.partialHint': 'Large change set — untracked line counts and last-change time are omitted to keep the panel responsive.',
   'commit.placeholder': 'Commit message',
   'commit.commit': 'Commit',
   'commit.amend': 'Amend previous commit',

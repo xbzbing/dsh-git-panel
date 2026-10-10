@@ -195,6 +195,12 @@ const CSS = `
 .gp-files__image{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:center;justify-content:center;padding:16px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-files__image img{max-width:100%;max-height:100%;object-fit:contain}
 .gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
+/* Virtualized change list: a fixed-height relative spacer owns the scrollbar;
+ * each mounted row/head is absolutely positioned at its offset and pinned to
+ * the fixed height the window math assumes (VROW_H / VHEAD_H). */
+.gp-changes__vlist{position:relative;width:100%}
+.gp-changes__vrow{position:absolute;left:0;right:0;box-sizing:border-box}
+.gp-changes__vrow>.gp-file-row,.gp-changes__vrow>.gp-group-head{height:100%;box-sizing:border-box}
 .gp-check{width:14px;height:14px;flex:none;cursor:pointer}
 .gp-group-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
 .gp-file-row{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 20px;cursor:pointer;font-size:12px;border-radius:4px}
@@ -215,6 +221,8 @@ const CSS = `
 .gp-stats__times{display:inline-flex;align-items:center;gap:14px;flex-wrap:nowrap}
 .gp-stats__add{color:var(--dsw-alias-state-success-primary)}
 .gp-stats__del{color:var(--dsw-alias-state-error-primary)}
+/* "simplified" marker on a huge change set: muted + help cursor + dotted hint. */
+.gp-stats__partial{color:var(--dsw-alias-label-tertiary);cursor:help;text-decoration:underline dotted;text-underline-offset:2px}
 
 /* commit box */
 .gp-commitbox{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px;display:flex;flex-direction:column;gap:8px}
