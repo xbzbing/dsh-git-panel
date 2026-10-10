@@ -61,11 +61,11 @@ Host 半 (Cordis + typert, lib/host)
 - `overview-hooks.ts`：`useBranchTree` / `useHistory`（分页 + 分代守卫 + `total:-1`）/ `useCommitDetail`（`show` LRU 缓存 + 文件 diff overlay + hover）三个数据 hook，`OverviewTab` 只做组合与渲染。
 - `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页、统计条（读快照上的 `stats`，不再单发查询）、差异视图（`DiffView` 已 `memo`；支持统一（`unified`，单栏行内）/ 并排（`split`，左右分栏）两种布局，默认视图由快照上的 `defaultDiffView` 决定，可在工具栏临时切换）。变更页还含贮藏：工具栏「贮藏」按钮（`StashPushModal`）、`stash-list` 查询出的可折叠贮藏列表（应用 / 弹出 / 丢弃，丢弃走确认 modal），操作经 `onAction`（失败也 `resync` 以反映冲突后的工作区）。
 - `ops-modals.tsx`：写操作共享的 portaled 弹窗原语——`renderModalShell`（小弹窗统一外壳：backdrop 点击外部关闭 + Escape + `createPortal` + `.gp-modal--sm` 框 + bar(图标/标题/短哈希/关闭)，确认框 / 标签 / 贮藏 / 重置四类对话框都只提供 body+footer 经它渲染，关闭契约单处收口）、`renderConfirmModal`（纯文本确认框）、`renderModalFooter`（取消/确认按钮，`confirmBusy` 可在途禁用）、`renderAiHint`（底部恒显 `ops.aiHint`）、`opErrorText`（错误码→文案）。
-- `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换 + 「提交框显示 AI 生成」开关。
+- `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换 + 「提交历史图线条样式」平行线（VSCode）/ 紧凑（git log）切换 + 「提交框显示 AI 生成」开关。
 - `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
 - `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果）。
 - `jump.ts`：面板/子 tab 一次性焦点中继（模块级 per-session Map）。
-- `git-graph.ts` / `file-tree.ts` / `diff.ts`：自研纯算法（提交图车道布局、路径折树、unified diff 拆行 → 并排行 + 块间隐藏上下文折叠为可展开 gap + 改动行前缀/后缀词级 diff）。
+- `git-graph.ts` / `file-tree.ts` / `diff.ts`：自研纯算法（提交图车道布局、路径折树、unified diff 拆行 → 并排行 + 块间隐藏上下文折叠为可展开 gap + 改动行前缀/后缀词级 diff）。提交图按车道（而非逐 commit）配色——一条连续线单色；车道续接跟随第一父，使主线钉在最左。线条样式由快照上的 `graphStyle` 决定：`parallel`（默认，VSCode 风格——合并的第一父各占一列，共享祖先以并行线表示、仅在祖先节点汇聚）/ `compact`（git log 风格——共享祖先提前合并为一列）。
 - `locales.ts` / `icons.tsx` / `time.ts` / `types.ts`：中英文案、图标、时间格式化、client 侧类型别名。
 
 ## 数据流铁律

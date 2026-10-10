@@ -1,6 +1,6 @@
 import type { GitRunner } from './git.ts';
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts';
-import type { DiffViewMode, GitChange, GitErrorCode, GitSnapshotResult } from './types.ts';
+import type { DiffViewMode, GraphStyle, GitChange, GitErrorCode, GitSnapshotResult } from './types.ts';
 export interface GitPanelConfig {
     readonly timeoutMs: number;
     /** Per-command stdout cap; also the per-side image-diff payload cap. */
@@ -11,6 +11,8 @@ export interface GitPanelConfig {
     readonly showInputPill: boolean;
     /** Default diff layout the views open with (user can switch per-diff). */
     readonly defaultDiffView: DiffViewMode;
+    /** Commit-graph line style (parallel = VSCode-like, compact = git log). */
+    readonly graphStyle: GraphStyle;
     /** Whether the "AI suggest" button shows in the commit box. */
     readonly suggestEnabled: boolean;
     /** Max diff bytes sent to the model; beyond this the diff is truncated. */
@@ -25,6 +27,8 @@ export declare const DEFAULT_CONFIG: GitPanelConfig;
 export declare function normalizeConfig(raw: unknown): GitPanelConfig;
 /** Read the default-diff-view field, unwrapping a schemastery volatile ref. */
 export declare function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode;
+/** Read the commit-graph style field, unwrapping a schemastery volatile ref. */
+export declare function readGraphStyle(value: unknown, fallback: GraphStyle): GraphStyle;
 /**
  * Read a boolean config field, unwrapping a schemastery volatile reference
  * (`{ get() }`) so a live-editable toggle reflects the latest value. Absent or

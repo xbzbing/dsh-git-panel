@@ -4,7 +4,7 @@
  * lane column and compute the passing edges for that row, so a canvas/SVG
  * layer can draw nodes and connecting lines.
  */
-import type { GraphCommit } from './types'
+import type { GraphCommit, GraphStyle } from './types'
 
 export interface GraphEdge {
   /** Lane the edge occupies at the top of the row. */
@@ -47,11 +47,17 @@ export function graphWidth(rows: readonly GraphRow[]): number {
  * Assign lanes. `lanes[i]` holds the commit hash the lane is currently waiting
  * to place (its next expected commit). We walk commits newest→oldest, place
  * each commit into the first lane awaiting it (or a new lane), continue that
- * lane with the commit's first parent (converging leftward when the parent is
- * already awaited elsewhere, so the main line stays left), and open new lanes
- * for extra parents. Each lane carries one color for its whole run.
+ * lane with the commit's first parent, and open new lanes for extra parents.
+ * Each lane carries one color for its whole run.
+ *
+ * `style` controls how a first parent already reached by another lane is drawn:
+ *  - `compact` (git log --graph): the two lanes converge into the leftmost one
+ *    right away, so the shared ancestor keeps a single column (fewer lanes).
+ *  - `parallel` (VSCode / GUI tools): each merge's first parent continues in its
+ *    own lane, so a shared ancestor shows as parallel lines that converge only
+ *    at the ancestor node (wider, straighter lines).
  */
-export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
+export function layoutGraph(commits: readonly GraphCommit[], style: GraphStyle = 'compact'): GraphRow[] {
   const rows: GraphRow[] = []
   // Each active lane awaits a specific commit hash (its child already placed)
   // and carries a color for its whole run, so a continuous line keeps one color
@@ -87,10 +93,10 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
     const beforeColor = [...laneColor]
 
     // This lane continues with the commit's FIRST parent, keeping a first-parent
-    // chain (the main line) straight in a single column; extra parents open new
-    // lanes to the right. When the first parent is already awaited by another
-    // lane the two converge into the leftmost of them, so the main line is
-    // pulled left and never drifts right (issue #9).
+    // chain straight in a single column; extra parents open new lanes to the
+    // right. In `compact` a first parent already awaited by another lane
+    // converges into the leftmost of the two (so the main line stays left and
+    // never drifts right, issue #9); in `parallel` it keeps its own lane.
     const parents = commit.parents
     const merge = parents.length >= 2
     // A commit with several displayed children is awaited by more than one lane;
@@ -98,25 +104,27 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
     for (let i = 0; i < lanes.length; i++) {
       if (i !== lane && lanes[i] === commit.hash) { freeColor(laneColor[i]); lanes[i] = null; laneColor[i] = null }
     }
+    let contLane = -1 // lane the first parent continues in (-1 = chain ends here)
+    const extraLanes: number[] = [] // lanes opened for a merge's 2nd+ parents
     if (parents.length === 0) {
       freeColor(laneColor[lane]); lanes[lane] = null; laneColor[lane] = null
     } else {
       const fp = parents[0]!
-      const other = lanes.findIndex((h, i) => h === fp && i !== lane)
+      const other = style === 'compact' ? lanes.findIndex((h, i) => h === fp && i !== lane) : -1
       if (other === -1) {
         lanes[lane] = fp // lane keeps its color across the continuation
+        contLane = lane
       } else {
-        // Two lanes want the same parent: keep the leftmost, close the other.
+        // Compact only: two lanes want the same parent — keep the leftmost.
         const keep = Math.min(lane, other)
         const drop = Math.max(lane, other)
         lanes[keep] = fp
         freeColor(laneColor[drop]); lanes[drop] = null; laneColor[drop] = null
+        contLane = keep
       }
-      for (let p = 1; p < parents.length; p++) assignLane(parents[p]!)
+      for (let p = 1; p < parents.length; p++) extraLanes.push(assignLane(parents[p]!))
     }
 
-    // Edges: for every lane active before, connect its top position to where
-    // its awaited commit sits after mutation.
     // Edge color is the color of the line it represents: an into/pass edge keeps
     // the incoming lane's color up to the node; an out edge takes the color of
     // the lane it lands in (the continuation, or the target line of a merge).
@@ -128,14 +136,14 @@ export function layoutGraph(commits: readonly GraphCommit[]): GraphRow[] {
       if (awaited === commit.hash) {
         edges.push({ fromLane: i, toLane: lane, color: beforeColor[i]!, kind: 'into' })
       } else {
-        const toLane = after.findIndex((h) => h === awaited)
+        // A lane still awaiting the same commit stays in place (parallel lines
+        // never collapse onto the first matching slot); otherwise follow it.
+        const toLane = lanes[i] === awaited ? i : after.findIndex((h) => h === awaited)
         if (toLane !== -1) edges.push({ fromLane: i, toLane, color: beforeColor[i]!, kind: 'pass' })
       }
     }
-    for (const parent of parents) {
-      const toLane = after.findIndex((h) => h === parent)
-      if (toLane !== -1) edges.push({ fromLane: lane, toLane, color: laneColor[toLane]!, kind: 'out' })
-    }
+    if (contLane !== -1) edges.push({ fromLane: lane, toLane: contLane, color: laneColor[contLane]!, kind: 'out' })
+    for (const lp of extraLanes) edges.push({ fromLane: lane, toLane: lp, color: laneColor[lp]!, kind: 'out' })
 
     rows.push({ commit, lane, color, edges, merge })
     // Trim trailing null lanes to keep width tight.

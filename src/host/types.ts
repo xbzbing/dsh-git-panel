@@ -9,6 +9,11 @@
 /** Diff layout: `unified` = single inline column, `split` = side-by-side. */
 export type DiffViewMode = 'unified' | 'split'
 
+/** Commit-graph line style: `compact` = converge a shared ancestor into one
+ * lane (git log --graph); `parallel` = keep each merge's first parent in its
+ * own lane, converging only at the ancestor (VSCode / GUI tools). */
+export type GraphStyle = 'compact' | 'parallel'
+
 /** Wire request: the browser sends only session identity, never a path. */
 export interface GitSnapshotRequest {
   readonly sessionId: string
@@ -60,6 +65,8 @@ export interface GitSnapshot {
   readonly showInputPill: boolean
   /** Default diff layout the views open with (user preference). */
   readonly defaultDiffView: DiffViewMode
+  /** Commit-graph line style (user preference). */
+  readonly graphStyle: GraphStyle
   /** Whether the commit box shows the AI-suggest button (user preference). */
   readonly suggestEnabled: boolean
   /** Epoch millis of the snapshot. */

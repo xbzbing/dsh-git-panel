@@ -131,7 +131,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
   }, [searchInput])
 
   const searching = filter.search !== ''
-  const rows: GraphRow[] = useMemo(() => (searching ? commits.map((c) => ({ commit: c, lane: 0, color: 0, edges: [], merge: false })) : layoutGraph(commits)), [commits, searching])
+  const rows: GraphRow[] = useMemo(() => (searching ? commits.map((c) => ({ commit: c, lane: 0, color: 0, edges: [], merge: false })) : layoutGraph(commits, snapshot.graphStyle)), [commits, searching, snapshot.graphStyle])
   const laneCount = useMemo(() => (searching ? 0 : graphWidth(rows)), [rows, searching])
   const graphW = searching ? 12 : Math.max(LANE_W, laneCount * LANE_W)
   const rowH = compact ? ROW_H_COMPACT : ROW_H
