@@ -11,7 +11,7 @@ import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
 import type { GitAction, GitBranch, GitSnapshot, GraphCommit, ResetMode } from './types'
 import type { GitKey } from './locales'
-import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, DownloadIcon, FileIcon, FilterIcon, GitHubIcon, RefreshIcon, ResetIcon, RevertIcon, SyncIcon, TagIcon } from './icons'
+import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time'
@@ -22,30 +22,8 @@ import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
 import { opErrorText, renderConfirmModal } from './ops-modals'
 import { renderResetModal, renderTagCreateModal } from './overview-modals'
+import { pullScopeNode, renderStatusBar } from './overview-statusbar'
 import type { DiffViewMode } from './types'
-
-type PullPreview = { commits: number; files: number; insertions: number; deletions: number }
-
-/** The incoming fast-forward scope, highlighted + bold in the pull confirm.
- * The ±line counts are colored like a diffstat; the `+N / −N` token is split
- * out of the interpolated string (identical in every locale) so only the
- * numbers carry the add/del color. */
-function pullScopeNode(preview: 'loading' | PullPreview | null, t: (key: GitKey, params?: Record<string, string | number>) => string): JSX.Element {
-  if (preview === 'loading' || preview === null) {
-    return h('div', { className: 'gp-pullscope gp-pullscope--loading' }, t('status.pullScopeLoading'))
-  }
-  const line = t('status.pullScope', { commits: preview.commits, files: preview.files, ins: preview.insertions, del: preview.deletions })
-  const m = line.match(/(\+\d+)\s*\/\s*([-−]\d+)/)
-  if (m === null) return h('div', { className: 'gp-pullscope' }, line)
-  const start = line.indexOf(m[0])
-  return h('div', { className: 'gp-pullscope' }, [
-    line.slice(0, start),
-    h('span', { key: 'add', className: 'gp-pullscope__add' }, m[1]),
-    ' / ',
-    h('span', { key: 'del', className: 'gp-pullscope__del' }, m[2]),
-    line.slice(start + m[0].length),
-  ])
-}
 
 interface OverviewProps {
   readonly remote: GitPanelRemote
@@ -573,88 +551,6 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
     section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 })),
     section('remote', 'overview.remote', tree.remote, h(BranchIcon, { size: 13 })),
     section('tags', 'overview.tags', tree.tags, h(TagIcon, { size: 13 })),
-  ])
-}
-
-interface StatusBarCbs {
-  readonly syncBusy: boolean
-  readonly pullBusy: boolean
-  readonly onCheck: () => void
-  readonly onPull: () => void
-  readonly t: (key: GitKey, params?: Record<string, string | number>) => string
-}
-
-/** Repo-page web link (last two path segments, e.g. `owner/repo`). */
-function repoLabel(webUrl: string): string {
-  const path = webUrl.replace(/^https?:\/\/[^/]+\//, '').replace(/\/+$/, '')
-  const parts = path.split('/')
-  return parts.length >= 2 ? parts.slice(-2).join('/') : path
-}
-
-/**
- * Left-column footer status bar: the repository's remote (GitHub mark or a
- * generic external-link icon, opening the repo page in a new tab) on the left,
- * and the current branch's sync state with a fetch-check and a fast-forward
- * pull on the right. A detached HEAD or an untracked branch shows the state
- * text only (no pull); a strictly-behind branch is the one case that offers the
- * pull.
- */
-function renderStatusBar(snapshot: GitSnapshot, cb: StatusBarCbs): JSX.Element {
-  const { t } = cb
-  // Tolerate a snapshot predating these fields (older host / cached snapshot):
-  // a missing remote reads as "no remote", a missing upstream flag as false.
-  const remote = snapshot.remote ?? null
-  const hasUpstream = snapshot.hasUpstream === true
-
-  // ── left: repo link, shown only for GitHub projects (icon only; path in title) ──
-  const repoNode = ((): JSX.Element | null => {
-    // Non-GitHub remotes (gitlab/gitee/other) and repos with no remote show nothing.
-    if (remote === null || remote.hostKind !== 'github') return null
-    const icon = h(GitHubIcon, { size: 14 })
-    if (remote.webUrl === null) {
-      // A GitHub remote we couldn't turn into a web URL: icon only, URL in the title.
-      return h('span', { key: 'r', className: 'gp-statusbar__repo gp-statusbar__repo--none', title: remote.url }, h('span', { className: 'gp-statusbar__ic' }, icon))
-    }
-    const title = remote.host !== null ? t('status.openRepoOn', { host: remote.host }) : t('status.openRepo')
-    return h('a', {
-      key: 'r', className: 'gp-statusbar__repo', href: remote.webUrl, target: '_blank', rel: 'noreferrer',
-      title: `${repoLabel(remote.webUrl)} · ${title}`, 'aria-label': `${repoLabel(remote.webUrl)} · ${title}`,
-    }, h('span', { className: 'gp-statusbar__ic' }, icon))
-  })()
-
-  // ── right: sync state + actions ──
-  const { ahead, behind, branch } = snapshot
-  const canPull = hasUpstream && behind > 0 && ahead === 0
-  const stateNode = ((): JSX.Element => {
-    let text: string
-    let tone = ''
-    if (branch === null) { text = t('status.detached') }
-    else if (!hasUpstream) { text = t('status.noUpstream') }
-    else if (ahead === 0 && behind === 0) { text = t('status.synced'); tone = ' gp-statusbar__state--ok' }
-    else if (ahead > 0 && behind > 0) { text = t('status.diverged', { ahead, behind }); tone = ' gp-statusbar__state--warn' }
-    else if (behind > 0) { text = t('status.behind', { n: behind }); tone = ' gp-statusbar__state--warn' }
-    else { text = t('status.ahead', { n: ahead }) }
-    return h('span', { key: 's', className: `gp-statusbar__state${tone}` }, text)
-  })()
-
-  const actions: (JSX.Element | null)[] = [
-    // Fetch-check is offered whenever a remote exists (even without an upstream,
-    // a fetch can populate the tracking refs the first time).
-    remote !== null ? h('button', {
-      key: 'check', type: 'button', className: 'gp-icon-btn gp-statusbar__btn',
-      disabled: cb.syncBusy, title: t('status.check'), 'aria-label': t('status.check'),
-      onClick: cb.onCheck,
-    }, h(SyncIcon, { size: 13 })) : null,
-    canPull ? h('button', {
-      key: 'pull', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
-      disabled: cb.pullBusy, title: t('status.pullTitle'),
-      onClick: cb.onPull,
-    }, [h(DownloadIcon, { key: 'i', size: 12 }), t('status.pull')]) : null,
-  ]
-
-  return h('div', { key: 'statusbar', className: `gp-statusbar${cb.syncBusy ? ' gp-statusbar--busy' : ''}` }, [
-    repoNode,
-    h('div', { key: 'sync', className: 'gp-statusbar__sync' }, [stateNode, ...actions]),
   ])
 }
 

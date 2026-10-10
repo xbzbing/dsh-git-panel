@@ -119,7 +119,7 @@ function ModalShell({ onClose, title, icon, hash, body, footer, overlay, portalK
  * progress bar — the single-shot `run` RPC returns only on completion, so there
  * is no real progress to report; the label alone states that work is in flight.
  */
-export function renderBusyOverlay(label: string): JSX.Element {
+function renderBusyOverlay(label: string): JSX.Element {
   return h('div', { key: 'overlay', className: 'gp-modal__overlay' }, [
     h('div', { key: 'sp', className: 'gp-spinner' }),
     h('div', { key: 'lb', className: 'gp-modal__overlay-label' }, label),
