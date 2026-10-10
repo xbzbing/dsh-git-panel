@@ -15,7 +15,7 @@ test('linear history stays in one lane', () => {
     commit('c', ['b']),
     commit('b', ['a']),
     commit('a', []),
-  ])
+  ], 'compact')
   assert.equal(rows.length, 3)
   assert.ok(rows.every((r) => r.lane === 0))
   assert.equal(graphWidth(rows), 1)
@@ -27,14 +27,14 @@ test('a merge commit is flagged and opens a second lane', () => {
     commit('m', ['a', 'b']),
     commit('b', []),
     commit('a', []),
-  ])
+  ], 'compact')
   const merge = rows.find((r) => r.commit.hash === 'm')
   assert.equal(merge.merge, true)
   assert.ok(graphWidth(rows) >= 2, 'branching widens the graph to >=2 lanes')
 })
 
 test('every row carries edges array', () => {
-  const rows = layoutGraph([commit('b', ['a']), commit('a', [])])
+  const rows = layoutGraph([commit('b', ['a']), commit('a', [])], 'compact')
   assert.ok(Array.isArray(rows[0].edges))
 })
 
@@ -53,7 +53,7 @@ test('issue #9: a second child of an already-awaited parent adds no phantom lane
     commit('c4', ['c5']),
     commit('c5', ['root']),
     commit('root', []),
-  ])
+  ], 'compact')
   assert.equal(graphWidth(rows), 2, 'matches `git log --graph` (2 lanes, not 3)')
   assert.deepEqual(rows.map((r) => r.lane), [0, 1, 1, 1, 1, 1, 1, 0])
   // The side chain's end converges once into the root lane…
@@ -70,7 +70,7 @@ test('issue #9: a second child of an already-awaited parent adds no phantom lane
 })
 
 test('a linear chain is a single lane color (no per-commit recolor)', () => {
-  const rows = layoutGraph([commit('c', ['b']), commit('b', ['a']), commit('a', [])])
+  const rows = layoutGraph([commit('c', ['b']), commit('b', ['a']), commit('a', [])], 'compact')
   const colors = new Set(rows.map((r) => r.color))
   assert.equal(colors.size, 1, 'one continuous line keeps one color')
   // Every edge on the chain also carries that one color.
@@ -90,7 +90,7 @@ test('issue #9: main line stays leftmost in lane 0 and the side chain is one col
     commit('c4', ['c5']),
     commit('c5', ['root']),
     commit('root', []),
-  ])
+  ], 'compact')
   // Main line (first-parent chain of HEAD) stays in lane 0 at top and bottom.
   const byHash = Object.fromEntries(rows.map((r) => [r.commit.hash, r]))
   assert.equal(byHash.m1.lane, 0)
@@ -133,14 +133,21 @@ test('parallel style keeps each merge first-parent in its own lane, converging a
   assert.equal(byHash.root.lane, 0)
 })
 
-test('compact is the default style', () => {
-  const topo = [
-    commit('m1', ['root', 'fi']),
-    commit('fi', ['root', 'c1']),
-    commit('c1', ['root']),
-    commit('root', []),
-  ]
-  assert.equal(graphWidth(layoutGraph(topo)), graphWidth(layoutGraph(topo, 'compact')))
+test('octopus merge (3+ parents) opens a lane per extra parent in both styles', () => {
+  // o merges three roots a/b/c. The two extra parents each open a lane; the
+  // first parent continues o's lane. Holds under both styles.
+  for (const style of ['parallel', 'compact']) {
+    const rows = layoutGraph([
+      commit('o', ['a', 'b', 'c']),
+      commit('c', []),
+      commit('b', []),
+      commit('a', []),
+    ], style)
+    const o = rows.find((r) => r.commit.hash === 'o')
+    assert.equal(o.merge, true)
+    assert.equal(o.edges.filter((e) => e.kind === 'out').length, 3, `three out-edges in ${style}`)
+    assert.equal(graphWidth(rows), 3, `three lanes in ${style}`)
+  }
 })
 
 test('date-order input (parent listed before child) still yields one lane per chain', () => {
@@ -149,7 +156,7 @@ test('date-order input (parent listed before child) still yields one lane per ch
   const rows = layoutGraph([
     commit('p', []),
     commit('c', ['p']),
-  ])
+  ], 'compact')
   assert.equal(graphWidth(rows), 1)
 })
 
@@ -161,7 +168,7 @@ test('edge kinds anchor at the node: into targets the row lane, out originates f
     commit('m', ['a', 'b']),
     commit('b', ['a']),
     commit('a', []),
-  ])
+  ], 'compact')
   for (const r of rows) {
     for (const e of r.edges) {
       if (e.kind === 'into') assert.equal(e.toLane, r.lane, `into edge must end at the node on ${r.commit.hash}`)

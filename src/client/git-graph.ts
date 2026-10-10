@@ -57,7 +57,7 @@ export function graphWidth(rows: readonly GraphRow[]): number {
  *    own lane, so a shared ancestor shows as parallel lines that converge only
  *    at the ancestor node (wider, straighter lines).
  */
-export function layoutGraph(commits: readonly GraphCommit[], style: GraphStyle = 'compact'): GraphRow[] {
+export function layoutGraph(commits: readonly GraphCommit[], style: GraphStyle): GraphRow[] {
   const rows: GraphRow[] = []
   // Each active lane awaits a specific commit hash (its child already placed)
   // and carries a color for its whole run, so a continuous line keeps one color
@@ -68,7 +68,13 @@ export function layoutGraph(commits: readonly GraphCommit[], style: GraphStyle =
   let laneColor: (number | null)[] = []
   const freed: number[] = []
   let nextColor = 0
-  const openColor = (): number => (freed.length > 0 ? freed.splice(freed.indexOf(Math.min(...freed)), 1)[0]! : nextColor++)
+  // Reuse the lowest freed color so the palette stays tight across the page.
+  const openColor = (): number => {
+    if (freed.length === 0) return nextColor++
+    const c = Math.min(...freed)
+    freed.splice(freed.indexOf(c), 1)
+    return c
+  }
   const freeColor = (c: number | null): void => { if (c !== null && !freed.includes(c)) freed.push(c) }
 
   for (const commit of commits) {
@@ -129,7 +135,6 @@ export function layoutGraph(commits: readonly GraphCommit[], style: GraphStyle =
     // the incoming lane's color up to the node; an out edge takes the color of
     // the lane it lands in (the continuation, or the target line of a merge).
     const edges: GraphEdge[] = []
-    const after = lanes
     for (let i = 0; i < before.length; i++) {
       const awaited = before[i]
       if (awaited === null) continue
@@ -138,7 +143,7 @@ export function layoutGraph(commits: readonly GraphCommit[], style: GraphStyle =
       } else {
         // A lane still awaiting the same commit stays in place (parallel lines
         // never collapse onto the first matching slot); otherwise follow it.
-        const toLane = lanes[i] === awaited ? i : after.findIndex((h) => h === awaited)
+        const toLane = lanes[i] === awaited ? i : lanes.findIndex((h) => h === awaited)
         if (toLane !== -1) edges.push({ fromLane: i, toLane, color: beforeColor[i]!, kind: 'pass' })
       }
     }
