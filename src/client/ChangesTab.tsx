@@ -15,6 +15,7 @@ import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
 import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals'
+import { buildTops, windowRange } from './virtual-list'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -42,18 +43,6 @@ const VIEWPORT_FALLBACK = 600
 type ListItem =
   | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number } }
   | { readonly kind: 'row'; readonly c: GitChange }
-
-/** Largest index i with tops[i] <= y (tops is ascending); clamped to [0, n]. */
-function lowerBound(tops: readonly number[], y: number): number {
-  let lo = 0
-  let hi = tops.length - 1
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1
-    if (tops[mid]! <= y) lo = mid
-    else hi = mid - 1
-  }
-  return lo
-}
 
 export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }: ChangesTabProps): JSX.Element {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -127,9 +116,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
       items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count: g.items.length } })
       if (!closed.has(g.key)) for (const c of g.items) items.push({ kind: 'row', c })
     }
-    const tops = new Array<number>(items.length + 1)
-    tops[0] = 0
-    for (let i = 0; i < items.length; i++) tops[i + 1] = tops[i]! + (items[i]!.kind === 'head' ? VHEAD_H : VROW_H)
+    const tops = buildTops(items.map((it) => (it.kind === 'head' ? VHEAD_H : VROW_H)))
     return { items, tops, totalH: tops[items.length]! }
     // staged/unstaged/untracked already memoize on snapshot; closed drives collapse.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -139,8 +126,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   // VOVERSCAN rows each side. Before the first layout measurement a fallback
   // height bounds the initial paint.
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
-  const first = Math.max(0, lowerBound(tops, viewport.top - VOVERSCAN * VROW_H))
-  const last = Math.min(items.length, lowerBound(tops, viewport.top + effHeight + VOVERSCAN * VROW_H) + 1)
+  const { first, last } = windowRange(tops, viewport.top, effHeight, VOVERSCAN * VROW_H)
 
   // Prune selection to living paths (avoid a stale path aborting a commit).
   // Selection keys are `path:s`/`path:w`; a key survives only if a change with
