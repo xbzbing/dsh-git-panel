@@ -22,6 +22,8 @@ export declare function planAction(action: GitAction, unborn: boolean): PlanResu
  *  - not-found (missing ref / tag / stash).
  *  - local-changes-block (a dirty-worktree refusal; neutral wording covers both
  *    `git checkout` and `git stash apply`).
+ *  - revert-merge (reverting a merge commit without a mainline parent — git
+ *    refuses before touching the work tree, so it is a plain refusal).
  *  - git-error fallback (surface the repo's own stderr).
  */
 export declare function classifyActionFailure(stdout: string, stderr: string, exitCode: number): {

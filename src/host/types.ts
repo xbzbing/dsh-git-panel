@@ -165,6 +165,8 @@ export type GitErrorCode =
   | 'revert-conflict'
   // A revert conflicted AND the auto-abort failed: the repo is still mid-revert.
   | 'revert-stuck'
+  // Reverting a merge commit needs a mainline parent the panel can't choose.
+  | 'revert-merge'
   // A named tag / stash entry does not exist.
   | 'not-found'
   // Another git process holds the index lock (.git/index.lock).

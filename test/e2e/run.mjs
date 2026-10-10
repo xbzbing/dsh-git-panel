@@ -190,6 +190,15 @@ const out = await page.evaluate(async (snap) => {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   await new Promise((r) => setTimeout(r, 120))
   result.stashDropEscClosed = document.querySelector('.gp-modal--sm') === null
+  // Stash push dialog (shares renderModalShell): the toolbar button opens it with
+  // the AI hint, and Escape dismisses it.
+  const stashPushBtn = [...document.querySelectorAll('.gp-toolbar .gp-btn')].find((b) => (b.textContent || '').includes('changes.stash'))
+  if (stashPushBtn) { stashPushBtn.click(); await new Promise((r) => setTimeout(r, 150)) }
+  result.stashPushOpened = document.querySelector('.gp-modal--sm') !== null
+  result.stashPushHint = (document.querySelector('.gp-modal--sm .gp-modal__hint')?.textContent || '') === 'ops.aiHint'
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.stashPushEscClosed = document.querySelector('.gp-modal--sm') === null
   const commitBtn = [...document.querySelectorAll('.gp-commitbox__actions .gp-btn--primary')][0]
   result.commitDisabledEmpty = commitBtn?.disabled === true
   const primaryStyle = getComputedStyle(commitBtn)
@@ -274,6 +283,7 @@ const out = await page.evaluate(async (snap) => {
   result.tagModalHint = (document.querySelector('.gp-modal--sm .gp-modal__hint')?.textContent || '') === 'ops.aiHint'
   const tagClose = document.querySelector('.gp-modal--sm .gp-modal__close')
   if (tagClose) { tagClose.click(); await new Promise((r) => setTimeout(r, 150)) }
+  result.tagModalClosed = document.querySelector('.gp-modal--sm') === null
   // Commit-undo actions: revert opens a confirm (with the AI hint); reset opens
   // the mode dialog carrying soft/mixed/hard radios + the hard-reset gate.
   const revertBtn = [...document.querySelectorAll('.gp-detail__ops .gp-btn')].find((b) => (b.textContent || '').includes('overview.revert'))
@@ -542,6 +552,9 @@ try {
   assert.equal(out.stashRows, 1, 'the stash list expands to its one entry')
   assert.equal(out.stashDropHint, true, 'the stash drop confirm shows the AI hint')
   assert.equal(out.stashDropEscClosed, true, 'Escape dismisses the stash drop confirm')
+  assert.equal(out.stashPushOpened, true, 'the stash push dialog opens from the toolbar button')
+  assert.equal(out.stashPushHint, true, 'the stash push dialog shows the AI hint')
+  assert.equal(out.stashPushEscClosed, true, 'Escape dismisses the stash push dialog')
   assert.equal(out.commitDisabledEmpty, true, 'commit button is disabled without a message')
   assert.equal(out.commitEnabledWithMessage, true, 'commit button enables once a message is typed')
   assert.equal(out.commitPrimaryHoverKeepsColor, true, 'primary button defines a hover style that keeps its color')
@@ -566,6 +579,7 @@ try {
   assert.equal(out.hasCreateTagBtn, true, 'commit detail shows a create-tag action')
   assert.equal(out.tagModalOpened, true, 'the create-tag dialog opens')
   assert.equal(out.tagModalHint, true, 'the create-tag dialog shows the AI hint')
+  assert.equal(out.tagModalClosed, true, 'the create-tag dialog closes via its close button')
   assert.equal(out.hasRevertBtn, true, 'commit detail shows a revert action')
   assert.equal(out.revertModalHint, true, 'the revert confirm shows the AI hint')
   assert.equal(out.hasResetBtn, true, 'commit detail shows a reset action')

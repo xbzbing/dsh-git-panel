@@ -122,6 +122,8 @@ function isIndexBusy(outcome: Awaited<ReturnType<typeof runCommand>>): boolean {
  *  - not-found (missing ref / tag / stash).
  *  - local-changes-block (a dirty-worktree refusal; neutral wording covers both
  *    `git checkout` and `git stash apply`).
+ *  - revert-merge (reverting a merge commit without a mainline parent — git
+ *    refuses before touching the work tree, so it is a plain refusal).
  *  - git-error fallback (surface the repo's own stderr).
  */
 export function classifyActionFailure(stdout: string, stderr: string, exitCode: number): { code: GitErrorCode; message: string } {
@@ -141,6 +143,12 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   }
   if (/would be overwritten by (checkout|merge)|local changes|overwritten by merge|Your local changes/i.test(stderr)) {
     return { code: 'local-changes-block', message: err }
+  }
+  // Reverting a merge commit without a mainline parent: git refuses before
+  // creating REVERT_HEAD, so this is a plain refusal (no stuck state) that the
+  // panel surfaces with a clear message instead of the raw hint.
+  if (/is a merge but no -m|mainline parent/i.test(combined)) {
+    return { code: 'revert-merge', message: err || 'cannot revert a merge commit from the panel' }
   }
   return { code: 'git-error', message: err || `git exited ${exitCode}` }
 }
