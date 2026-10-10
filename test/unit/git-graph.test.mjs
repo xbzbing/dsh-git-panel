@@ -21,6 +21,22 @@ test('linear history stays in one lane', () => {
   assert.equal(graphWidth(rows), 1)
 })
 
+test('the newest commit (a tip) draws no incoming stub above its node', () => {
+  // The first row has no child above it: its lane carries an `out` edge down to
+  // the parent but must never draw an `into` edge over its own node.
+  for (const style of ['compact', 'parallel']) {
+    const rows = layoutGraph([
+      commit('c', ['b']),
+      commit('b', ['a']),
+      commit('a', []),
+    ], style)
+    const tip = rows[0]
+    assert.equal(tip.edges.some((e) => e.kind === 'into' && e.toLane === tip.lane), false, `${style}: tip has no into-edge`)
+    assert.equal(tip.edges.some((e) => e.kind === 'out'), true, `${style}: tip has an out-edge`)
+    assert.equal(rows[1].edges.some((e) => e.kind === 'into' && e.toLane === rows[1].lane), true, `${style}: a continued commit keeps its into-edge`)
+  }
+})
+
 test('a merge commit is flagged and opens a second lane', () => {
   // m merges a and b; then b then a as roots.
   const rows = layoutGraph([
