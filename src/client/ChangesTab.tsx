@@ -16,6 +16,7 @@ import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
 import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals'
 import { buildTops, windowRange } from './virtual-list'
+import { useViewportTracker } from './use-viewport'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -71,27 +72,9 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   const [stashDrop, setStashDrop] = useState<StashEntry | null>(null)
   const msgRef = useRef<HTMLTextAreaElement | null>(null)
   const diffSeq = useRef(0)
-  // Virtualized change-list viewport: the scroll container's top offset + height.
-  // A callback ref re-attaches the listeners if the list element remounts — in
-  // compact the left column unmounts while drilled into the diff pane.
-  const [viewport, setViewport] = useState({ top: 0, height: 0 })
-  const listCleanup = useRef<(() => void) | null>(null)
-  const setListEl = useCallback((el: HTMLDivElement | null) => {
-    if (listCleanup.current !== null) { listCleanup.current(); listCleanup.current = null }
-    if (el === null) return
-    // Skip the re-render when neither dimension changed (e.g. a ResizeObserver
-    // fire at identical size) by returning the previous state object.
-    const sync = (): void => setViewport((prev) => {
-      const top = el.scrollTop
-      const height = el.clientHeight
-      return prev.top === top && prev.height === height ? prev : { top, height }
-    })
-    sync()
-    el.addEventListener('scroll', sync, { passive: true })
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null
-    ro?.observe(el)
-    listCleanup.current = () => { el.removeEventListener('scroll', sync); ro?.disconnect() }
-  }, [])
+  // Virtualized change-list viewport, tracked by the shared hook (re-attaches
+  // across the compact list↔diff remount).
+  const { setEl: setListEl, viewport } = useViewportTracker()
 
   const loadStashes = useCallback(async () => {
     const res = await remote.query({ sessionId, query: { kind: 'stash-list' } })
