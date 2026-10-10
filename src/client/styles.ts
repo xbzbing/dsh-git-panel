@@ -84,7 +84,7 @@ const CSS = `
 .gp-branch-group__head{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
 .gp-branch-row{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;cursor:pointer;border-radius:6px;font-size:12px;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gp-branch-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.gp-branch-row--active{color:var(--dsw-alias-state-business-primary)}
+.gp-branch-row--active,.gp-branch-row--active:hover{color:var(--dsw-alias-state-business-primary);background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
 .gp-branch-row--current{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
 .gp-branch-row__track{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-tertiary)}
 
