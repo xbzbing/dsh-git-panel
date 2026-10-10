@@ -861,3 +861,134 @@ test('stash pop that conflicts reports conflict and keeps the stash entry', asyn
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('revert appends a reverse commit and undoes the change (work tree kept)', async () => {
+  const dir = await freshRepo('gp-revert-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'two\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: two'])
+    const head = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 1, skip: 0 } })
+    const hash = head.value.commits[0].hash
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'revert', commit: hash } })
+    assert.equal(res.ok, true, 'revert succeeds')
+    assert.equal((await readFile(join(dir, 'a.txt'), 'utf8')), 'one\n', 'the change is undone on disk')
+    const msg = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'last-commit-message' } })
+    assert.match(msg.value.message, /^Revert /, 'HEAD is a reverse commit')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('revert into a conflicting dirty work tree is refused (local-changes-block)', async () => {
+  const dir = await freshRepo('gp-revert-dirty-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'two\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: two'])
+    const hash = (await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 1, skip: 0 } })).value.commits[0].hash
+    // An uncommitted edit to the same file git would overwrite on revert.
+    writeFileSync(join(dir, 'a.txt'), 'local edit\n')
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'revert', commit: hash } })
+    assert.equal(res.ok, false, 'revert refuses rather than clobbering the dirty file')
+    assert.equal(res.error.code, 'local-changes-block')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a content-conflicting revert is auto-aborted and reported as revert-conflict', async () => {
+  const dir = await freshRepo('gp-revert-cf-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    // init(a=one) → two(a=two) → three(a=three). Reverting the middle "two"
+    // commit while HEAD is "three" produces a content conflict on a.txt.
+    writeFileSync(join(dir, 'a.txt'), 'two\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'two'])
+    const two = (await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 1, skip: 0 } })).value.commits[0].hash
+    writeFileSync(join(dir, 'a.txt'), 'three\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'three'])
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'revert', commit: two } })
+    assert.equal(res.ok, false, 'the conflicting revert fails')
+    assert.equal(res.error.code, 'revert-conflict')
+    // Auto-abort cleared the sequencer: no REVERT_HEAD, work tree intact + clean.
+    assert.throws(() => execFileSync('git', ['rev-parse', '--verify', '--quiet', 'REVERT_HEAD'], { cwd: dir }), 'REVERT_HEAD is gone (revert aborted)')
+    assert.equal((await readFile(join(dir, 'a.txt'), 'utf8')), 'three\n', 'the work tree is restored')
+    const snap = await snapshotForSession(d, DEFAULT_CONFIG, SID)
+    assert.equal(snap.value.dirty, false, 'no half-applied conflict left behind')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('reset --mixed moves HEAD back and keeps the change in the work tree', async () => {
+  const dir = await freshRepo('gp-reset-mixed-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'two\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: two'])
+    const hist = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 5, skip: 0 } })
+    const first = hist.value.commits.find((c) => c.subject === 'init').hash
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'reset', commit: first, mode: 'mixed' } })
+    assert.equal(res.ok, true, 'reset --mixed succeeds')
+    assert.equal(res.snapshot.dirty, true, 'the undone change is now uncommitted')
+    assert.equal((await readFile(join(dir, 'a.txt'), 'utf8')), 'two\n', 'the file content is retained')
+    const msg = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'last-commit-message' } })
+    assert.equal(msg.value.message, 'init', 'HEAD moved back to the first commit')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('reset --hard moves HEAD back and discards the work-tree change', async () => {
+  const dir = await freshRepo('gp-reset-hard-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'two\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: two'])
+    const first = (await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 5, skip: 0 } })).value.commits.find((c) => c.subject === 'init').hash
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'reset', commit: first, mode: 'hard' } })
+    assert.equal(res.ok, true, 'reset --hard succeeds')
+    assert.equal(res.snapshot.dirty, false, 'the work tree is clean after a hard reset')
+    assert.equal((await readFile(join(dir, 'a.txt'), 'utf8')), 'one\n', 'the change is discarded on disk')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('reset to a nonexistent commit maps to not-found', async () => {
+  const dir = await freshRepo('gp-reset-nf-')
+  try {
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'reset', commit: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', mode: 'mixed' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'not-found')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('reset / revert reject an option-injecting commit', async () => {
+  const dir = await freshRepo('gp-undo-inject-')
+  try {
+    const d = depsAt(dir)
+    const r1 = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'reset', commit: '--hard', mode: 'hard' } })
+    assert.equal(r1.ok, false)
+    assert.equal(r1.error.code, 'invalid-name')
+    const r2 = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'revert', commit: '-n' } })
+    assert.equal(r2.ok, false)
+    assert.equal(r2.error.code, 'invalid-name')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

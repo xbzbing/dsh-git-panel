@@ -144,7 +144,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     const snapshot = view.snapshot
     return h('div', { style: { display: 'contents' } }, [
       visited.current.tabs.has('overview') ? h('div', { key: 'overview', style: activeTab === 'overview' ? { display: 'contents' } : { display: 'none' } },
-        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, compact, t })) : null,
+        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })) : null,
       visited.current.tabs.has('changes') ? h('div', { key: 'changes', style: activeTab === 'changes' ? { display: 'contents' } : { display: 'none' } },
         h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, compact, t })) : null,
       // Files tab mounts on first visit (keeps cold cost zero — no dir-list

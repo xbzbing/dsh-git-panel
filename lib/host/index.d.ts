@@ -10,7 +10,7 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { Context } from '@deepseek-ai/cordis';
 import Schema from '@deepseek-ai/schemastery';
 import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.ts';
-export type { GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef, GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry, GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry, GitSuggestRequest, GitSuggestResult, } from './types.ts';
+export type { GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef, GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry, GitVersionRequest, GitVersionInfo, DiffViewMode, DirEntry, ResetMode, GitSuggestRequest, GitSuggestResult, } from './types.ts';
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts';
 export { createGitRunner } from './git.ts';
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.ts';

@@ -68,6 +68,16 @@ export function TrashIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M3 4.5h10' }), h('path', { key: 'b', d: 'M5.5 4.5V3h5v1.5' }), h('path', { key: 'c', d: 'M4.5 4.5l.7 9h5.6l.7-9' })], size)
 }
 
+/** Curved undo arrow for revert (append a reverse commit). */
+export function RevertIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M3 7a5 5 0 1 1 1.3 3.4' }), h('path', { key: 'b', d: 'M3 3.5V7h3.5' })], size)
+}
+
+/** Rewind-to-marker glyph for reset (move HEAD back to a commit). */
+export function ResetIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M13 3v10' }), h('path', { key: 'b', d: 'M10.5 8L3 3.5v9z', fill: 'currentColor' })], size)
+}
+
 export function FilesIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M5 2.5h4l2.5 2.5v7.5h-6.5z' }), h('path', { key: 'b', d: 'M9 2.5V5h2.5' }), h('path', { key: 'c', d: 'M11 12.5v1.5h-6.5V6' })], size)
 }

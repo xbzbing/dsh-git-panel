@@ -89,6 +89,19 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       // user text; `--end-of-options` keeps it an operand belt-and-suspenders.
       return { argv: [['git', 'stash', verb, '--end-of-options', `stash@{${action.index}}`]] }
     }
+    case 'revert': {
+      if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
+      // `--no-edit` keeps git from opening an editor (there is no TTY); the
+      // default reverse-commit message is used.
+      return { argv: [['git', 'revert', '--no-edit', '--end-of-options', action.commit]] }
+    }
+    case 'reset': {
+      if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
+      if (action.mode !== 'soft' && action.mode !== 'mixed' && action.mode !== 'hard') {
+        return { error: 'invalid-name', message: `invalid reset mode: ${String(action.mode)}` }
+      }
+      return { argv: [['git', 'reset', `--${action.mode}`, '--end-of-options', action.commit]] }
+    }
   }
 }
 
@@ -123,7 +136,7 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   if (/nothing to commit|no changes added/i.test(combined)) {
     return { code: 'git-error', message: err || 'nothing to commit' }
   }
-  if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision/i.test(combined)) {
+  if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument/i.test(combined)) {
     return { code: 'not-found', message: err || 'not found' }
   }
   if (/would be overwritten by (checkout|merge)|local changes|overwritten by merge|Your local changes/i.test(stderr)) {
@@ -206,6 +219,27 @@ export async function runAction(
     lastOutput = outcome.run.stdout || outcome.run.stderr
     if (outcome.run.exitCode !== 0) {
       const failure = classifyActionFailure(outcome.run.stdout, outcome.run.stderr, outcome.run.exitCode ?? -1)
+      // A conflicting `git revert` leaves the repository in the "reverting"
+      // state (REVERT_HEAD + sequencer), which the panel offers no way to
+      // continue/skip and which also blocks the shared-worktree dsh AI's own
+      // commits. The user has made no resolution yet, so abort immediately to
+      // restore the pre-revert state (unrelated dirty changes are preserved by
+      // --abort). The abort can itself lose the index.lock race (the very
+      // contention this feature guards), so verify it (with the same one-shot
+      // retry) and, only if it cleared the state, report the cancelled
+      // conflict; otherwise tell the user the repo is still mid-revert rather
+      // than falsely claiming the work tree is untouched.
+      if (request.action.kind === 'revert' && failure.code === 'conflict') {
+        let abort = await runCommand(deps.run, ['git', 'revert', '--abort'], root, 'revert-abort', deps.signal)
+        if (isIndexBusy(abort)) {
+          await new Promise((resolve) => setTimeout(resolve, 150))
+          abort = await runCommand(deps.run, ['git', 'revert', '--abort'], root, 'revert-abort-retry', deps.signal)
+        }
+        const aborted = 'run' in abort && abort.run.exitCode === 0
+        return aborted
+          ? { ok: false, error: { code: 'revert-conflict', message: failure.message + where } }
+          : { ok: false, error: { code: 'revert-stuck', message: failure.message + where } }
+      }
       return { ok: false, error: { code: failure.code, message: failure.message + where } }
     }
     // `git stash push` with nothing to stash (e.g. only untracked files) prints

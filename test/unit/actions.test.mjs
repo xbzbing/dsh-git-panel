@@ -144,6 +144,22 @@ test('stash apply/pop/drop reference stash@{N} from a validated integer index', 
   assert.equal(planAction({ kind: 'stash-apply', index: 1.5, sha: 'x' }, false).error, 'invalid-index')
 })
 
+test('revert builds a no-edit reverse commit and guards the commit', () => {
+  assert.deepEqual(
+    planAction({ kind: 'revert', commit: 'abc123' }, false).argv,
+    [['git', 'revert', '--no-edit', '--end-of-options', 'abc123']],
+  )
+  assert.equal(planAction({ kind: 'revert', commit: '--output=x' }, false).error, 'invalid-name')
+})
+
+test('reset builds --soft/--mixed/--hard, guards the commit, and rejects a bad mode', () => {
+  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'soft' }, false).argv, [['git', 'reset', '--soft', '--end-of-options', 'abc123']])
+  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'mixed' }, false).argv, [['git', 'reset', '--mixed', '--end-of-options', 'abc123']])
+  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'hard' }, false).argv, [['git', 'reset', '--hard', '--end-of-options', 'abc123']])
+  assert.equal(planAction({ kind: 'reset', commit: '-f', mode: 'hard' }, false).error, 'invalid-name')
+  assert.equal(planAction({ kind: 'reset', commit: 'abc123', mode: 'bogus' }, false).error, 'invalid-name')
+})
+
 test('classifyActionFailure orders conflict before nothing-to-commit, and maps codes', () => {
   // A stash pop conflict prints BOTH "CONFLICT" and "no changes added to commit";
   // conflict must win (git keeps the stash → recoverable).

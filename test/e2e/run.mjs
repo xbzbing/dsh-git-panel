@@ -274,6 +274,30 @@ const out = await page.evaluate(async (snap) => {
   result.tagModalHint = (document.querySelector('.gp-modal--sm .gp-modal__hint')?.textContent || '') === 'ops.aiHint'
   const tagClose = document.querySelector('.gp-modal--sm .gp-modal__close')
   if (tagClose) { tagClose.click(); await new Promise((r) => setTimeout(r, 150)) }
+  // Commit-undo actions: revert opens a confirm (with the AI hint); reset opens
+  // the mode dialog carrying soft/mixed/hard radios + the hard-reset gate.
+  const revertBtn = [...document.querySelectorAll('.gp-detail__ops .gp-btn')].find((b) => (b.textContent || '').includes('overview.revert'))
+  result.hasRevertBtn = revertBtn != null
+  if (revertBtn) { revertBtn.click(); await new Promise((r) => setTimeout(r, 150)) }
+  result.revertModalHint = (document.querySelector('.gp-modal--sm .gp-modal__hint')?.textContent || '') === 'ops.aiHint'
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  const resetBtn = [...document.querySelectorAll('.gp-detail__ops .gp-btn')].find((b) => (b.textContent || '').includes('overview.reset'))
+  result.hasResetBtn = resetBtn != null
+  if (resetBtn) { resetBtn.click(); await new Promise((r) => setTimeout(r, 150)) }
+  result.resetModeCount = document.querySelectorAll('.gp-reset__mode').length
+  // Pick hard → the acknowledgement appears and the confirm stays disabled until acked.
+  const hardRadio = [...document.querySelectorAll('.gp-reset__mode')].find((m) => (m.textContent || '').includes('reset.modeHard'))?.querySelector('input')
+  if (hardRadio) { hardRadio.click(); await new Promise((r) => setTimeout(r, 80)) }
+  result.resetHardAck = document.querySelector('.gp-reset__ack') != null
+  const resetConfirm = [...document.querySelectorAll('.gp-modal--sm .gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('reset.confirm'))
+  result.resetConfirmDisabledBeforeAck = resetConfirm ? resetConfirm.disabled === true : false
+  const ackCb = document.querySelector('.gp-reset__ack .gp-check')
+  if (ackCb) { ackCb.click(); await new Promise((r) => setTimeout(r, 80)) }
+  result.resetConfirmEnabledAfterAck = resetConfirm ? resetConfirm.disabled === false : false
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.resetModalClosed = document.querySelector('.gp-reset__modes') === null
   // Click a changed file → the diff modal opens (portaled to document.body).
   if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasModal = document.querySelector('.gp-modal') !== null
@@ -542,6 +566,14 @@ try {
   assert.equal(out.hasCreateTagBtn, true, 'commit detail shows a create-tag action')
   assert.equal(out.tagModalOpened, true, 'the create-tag dialog opens')
   assert.equal(out.tagModalHint, true, 'the create-tag dialog shows the AI hint')
+  assert.equal(out.hasRevertBtn, true, 'commit detail shows a revert action')
+  assert.equal(out.revertModalHint, true, 'the revert confirm shows the AI hint')
+  assert.equal(out.hasResetBtn, true, 'commit detail shows a reset action')
+  assert.equal(out.resetModeCount, 3, 'the reset dialog offers soft/mixed/hard')
+  assert.equal(out.resetHardAck, true, 'hard mode reveals the acknowledgement')
+  assert.equal(out.resetConfirmDisabledBeforeAck, true, 'hard reset confirm is disabled until acknowledged')
+  assert.equal(out.resetConfirmEnabledAfterAck, true, 'acknowledging enables the hard reset confirm')
+  assert.equal(out.resetModalClosed, true, 'Escape dismisses the reset dialog')
   assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
   assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
   assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')

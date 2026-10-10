@@ -8,9 +8,9 @@ import { createElement as h, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
-import type { GitBranch, GraphCommit } from './types'
+import type { GitAction, GitBranch, GitSnapshot, GraphCommit, ResetMode } from './types'
 import type { GitKey } from './locales'
-import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, TagIcon } from './icons'
+import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
 import { buildFileTree } from './file-tree'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time'
@@ -19,7 +19,8 @@ import { DiffView, diffSummary, type DiffMode } from './DiffView'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
-import { opErrorText, renderAiHint, renderConfirmModal, renderModalFooter, type OpT } from './ops-modals'
+import { opErrorText, renderConfirmModal } from './ops-modals'
+import { renderResetModal, renderTagCreateModal } from './overview-modals'
 import type { DiffViewMode } from './types'
 
 interface OverviewProps {
@@ -29,6 +30,14 @@ interface OverviewProps {
   readonly refreshKey: number
   /** Default diff layout new file-diff overlays open with. */
   readonly defaultDiffView: DiffViewMode
+  /** Live snapshot — the dirty flag + change list feed the reset/revert guards. */
+  readonly snapshot: GitSnapshot
+  /** HEAD-moving write path (revert/reset) routed through the controller so the
+   * fresh snapshot refreshes the panel; tag ops bypass it (work tree untouched). */
+  readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
+  /** Force an immediate snapshot refresh (used to re-pull the reset lost-file
+   * list on dialog open, cutting the TOCTOU window against the shared AI). */
+  readonly onResync: () => void
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
@@ -69,7 +78,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, compact, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, snapshot, onAction, onResync, compact, t }: OverviewProps): JSX.Element {
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
@@ -84,6 +93,9 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   // Tag create modal (anchored to a commit) and tag delete confirm.
   const [tagForm, setTagForm] = useState<{ hash: string; shortHash: string } | null>(null)
   const [tagToDelete, setTagToDelete] = useState<string | null>(null)
+  // Commit-undo targets (revert confirm + reset mode dialog), each a selected commit.
+  const [revertTarget, setRevertTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
+  const [resetTarget, setResetTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
   // In-flight guard so a double-click on confirm can't fire two tag RPCs.
   const [opBusy, setOpBusy] = useState(false)
@@ -184,6 +196,30 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
     } finally { setOpBusy(false) }
   }
 
+  // Revert / reset move HEAD or the work tree, so they go through `onAction`
+  // (controller feeds the fresh snapshot back → refreshKey advances → history
+  // reloads). The returned error is already localized by Panel's opErrorText.
+  const runRevert = async (): Promise<void> => {
+    if (revertTarget === null || opBusy) return
+    setOpError(null)
+    setOpBusy(true)
+    try {
+      const res = await onAction({ kind: 'revert', commit: revertTarget.hash })
+      if (res.ok) setRevertTarget(null)
+      else setOpError(res.error ?? t('error.generic'))
+    } finally { setOpBusy(false) }
+  }
+  const runReset = async (mode: ResetMode): Promise<void> => {
+    if (resetTarget === null || opBusy) return
+    setOpError(null)
+    setOpBusy(true)
+    try {
+      const res = await onAction({ kind: 'reset', commit: resetTarget.hash, mode })
+      if (res.ok) setResetTarget(null)
+      else setOpError(res.error ?? t('error.generic'))
+    } finally { setOpBusy(false) }
+  }
+
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     text: detail.fileDiffText,
     error: detail.fileDiffError,
@@ -198,8 +234,16 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
     t,
   })
 
-  // Tag create modal + delete confirm, portaled; included in both layouts.
-  const tagModals: (JSX.Element | null)[] = [
+  // Tag create modal + delete confirm, plus commit-undo dialogs (revert confirm
+  // and the reset mode dialog), portaled; included in both layouts.
+  // `git reset --hard` discards tracked changes only (untracked files survive),
+  // so the hard-reset "will be discarded" list must exclude untracked entries
+  // and de-dup the staged/modified split of a path (MM/AM yields two entries).
+  const lostTracked = useMemo(
+    () => [...new Set(snapshot.changes.filter((c) => c.status !== 'untracked').map((c) => c.path))],
+    [snapshot.changes],
+  )
+  const opModals: (JSX.Element | null)[] = [
     tagForm !== null ? renderTagCreateModal(tagForm, { onClose: () => setTagForm(null), onCreate: runTagCreate, error: opError, compact, t }) : null,
     tagToDelete !== null ? renderConfirmModal({
       title: t('tag.deleteTitle'),
@@ -207,8 +251,35 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
       confirmLabel: t('tag.deleteTitle'),
       danger: true,
       error: opError,
+      confirmBusy: opBusy,
       onConfirm: () => void runTagDelete(tagToDelete),
       onClose: () => setTagToDelete(null),
+      t,
+    }) : null,
+    revertTarget !== null ? renderConfirmModal({
+      title: t('revert.title'),
+      // Revert keeps the work tree, but a dirty tree can make it conflict/refuse;
+      // the dirty note (if any) rides in the body so the pre-wrap text shows it.
+      body: t('revert.body', { ref: `${revertTarget.shortHash} ${revertTarget.subject}` })
+        + (snapshot.dirty ? `\n\n${t('ops.dirtyWarn')}` : ''),
+      confirmLabel: t('revert.confirm'),
+      danger: false,
+      error: opError,
+      confirmBusy: opBusy,
+      onConfirm: () => void runRevert(),
+      onClose: () => setRevertTarget(null),
+      t,
+    }) : null,
+    resetTarget !== null ? renderResetModal(resetTarget, {
+      from: snapshot.head ?? resetTarget.shortHash,
+      dirty: snapshot.dirty,
+      lostFiles: lostTracked,
+      lostTotal: lostTracked.length,
+      lostTruncated: snapshot.truncated,
+      busy: opBusy,
+      error: opError,
+      onReset: runReset,
+      onClose: () => setResetTarget(null),
       t,
     }) : null,
   ]
@@ -277,10 +348,11 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
           h('span', { key: 'a' }, selected.author),
           h('span', { key: 't' }, absoluteDateTime(selected.dateIso)),
         ]),
-        // Commit action area (low-frequency ops; shown only with a selection).
-        // Existing tags on this commit are listed as deletable chips, plus a
-        // "create tag" entry. revert/reset land here in a later phase.
+        // Commit action area (low-frequency ops; shown only with a selection):
+        // revert / reset HEAD moves, then existing-tag chips + create-tag.
         h('div', { key: 'ops', className: 'gp-detail__ops' }, [
+          h('button', { key: 'revert', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.revert'), onClick: () => { setOpError(null); setRevertTarget({ hash: selected.hash, shortHash: selected.shortHash, subject: selected.subject }) } }, [h(RevertIcon, { key: 'i', size: 12 }), t('overview.revert')]),
+          h('button', { key: 'reset', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.reset'), onClick: () => { setOpError(null); onResync(); setResetTarget({ hash: selected.hash, shortHash: selected.shortHash, subject: selected.subject }) } }, [h(ResetIcon, { key: 'i', size: 12 }), t('overview.reset')]),
           ...selected.refs.filter((r) => r.kind === 'tag').map((r) => h('span', { key: `tag-${r.name}`, className: 'gp-ref-chip gp-ref-chip--tag gp-ref-chip--del' }, [
             h(TagIcon, { key: 'i', size: 11 }),
             h('span', { key: 'n' }, r.name),
@@ -297,7 +369,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   if (compact) {
     return h('div', { className: 'gp-overview gp-overview--compact' }, [
       fileDiffModal,
-      ...tagModals,
+      ...opModals,
       pane === 'detail'
         ? h('div', { key: 'detail', className: 'gp-col gp-col--mid gp-detail' }, [
           h('div', { key: 'back', className: 'gp-subhead' }, [
@@ -320,7 +392,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, co
   return h('div', { className: 'gp-overview' }, [
     // file-diff modal (click a changed file in the right column)
     fileDiffModal,
-    ...tagModals,
+    ...opModals,
     // left: branches
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, renderBranchList(tree, treeError, filter.ref, closedSections, {
       onFilter: (ref) => setRef(ref),
@@ -615,60 +687,3 @@ function renderPathParts(path: string): JSX.Element[] {
     h('span', { key: 'n', className: 'gp-modal__name' }, path.slice(slash + 1)),
   ]
 }
-
-interface TagCreateCbs {
-  onClose: () => void
-  onCreate: (name: string, message: string) => void | Promise<void>
-  error: string | null
-  compact: boolean
-  t: OpT
-}
-
-/** Portaled dialog: name a tag (optionally annotated) at the chosen commit. */
-function renderTagCreateModal(target: { hash: string; shortHash: string }, cb: TagCreateCbs): JSX.Element | null {
-  if (typeof document === 'undefined') return null
-  return h(TagCreateModal, { target, ...cb })
-}
-
-function TagCreateModal({ target, onClose, onCreate, error, t }: TagCreateCbs & { target: { hash: string; shortHash: string } }): JSX.Element {
-  const [name, setName] = useState('')
-  const [annotated, setAnnotated] = useState(false)
-  const [message, setMessage] = useState('')
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-  const submit = (): void => { if (name.trim() !== '') void onCreate(name.trim(), annotated ? message : '') }
-  const modal = h('div', {
-    className: 'gp-modal-backdrop',
-    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
-  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
-    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
-      h('span', { key: 'ic', className: 'gp-modal__fileicon' }, h(TagIcon, { size: 15 })),
-      h('span', { key: 'title', className: 'gp-modal__path' }, t('tag.createTitle')),
-      h('span', { key: 'hash', className: 'gp-modal__hash' }, target.shortHash),
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
-    ]),
-    h('div', { key: 'body', className: 'gp-modal__form' }, [
-      h('input', {
-        key: 'name', className: 'gp-input', placeholder: t('tag.namePlaceholder'), value: name, autoFocus: true,
-        onChange: (e: { target: { value: string } }) => setName(e.target.value),
-        onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') submit() },
-      }),
-      h('label', { key: 'ann', className: 'gp-modal__check' }, [
-        h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: annotated, onChange: () => setAnnotated((v) => !v) }),
-        t('tag.annotated'),
-      ]),
-      annotated ? h('textarea', {
-        key: 'msg', className: 'gp-input gp-input--area', placeholder: t('tag.messagePlaceholder'), value: message,
-        onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
-      }) : null,
-      renderAiHint(t),
-      error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
-    ]),
-    renderModalFooter({ onClose, onConfirm: submit, confirmLabel: t('tag.create'), confirmDisabled: name.trim() === '', danger: false, t }),
-  ]))
-  return createPortal(modal, document.body, 'tag-create-modal')
-}
-

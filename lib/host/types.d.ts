@@ -145,8 +145,18 @@ export type GitAction = {
     readonly kind: 'stash-drop';
     readonly index: number;
     readonly sha: string;
+} | {
+    readonly kind: 'revert';
+    readonly commit: string;
+} | {
+    readonly kind: 'reset';
+    readonly commit: string;
+    readonly mode: ResetMode;
 };
-export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'conflict' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
+/** `git reset` modes, from least to most destructive. Single source so the
+ * client dialog and the command builder cannot drift. */
+export type ResetMode = 'soft' | 'mixed' | 'hard';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'conflict' | 'revert-conflict' | 'revert-stuck' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;
