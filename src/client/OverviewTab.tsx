@@ -348,18 +348,25 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
           h('span', { key: 'a' }, selected.author),
           h('span', { key: 't' }, absoluteDateTime(selected.dateIso)),
         ]),
-        // Commit action area (low-frequency ops; shown only with a selection):
-        // revert / reset HEAD moves, then existing-tag chips + create-tag.
-        h('div', { key: 'ops', className: 'gp-detail__ops' }, [
-          h('button', { key: 'revert', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.revert'), onClick: () => { setOpError(null); setRevertTarget({ hash: selected.hash, shortHash: selected.shortHash, subject: selected.subject }) } }, [h(RevertIcon, { key: 'i', size: 12 }), t('overview.revert')]),
-          h('button', { key: 'reset', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.reset'), onClick: () => { setOpError(null); onResync(); setResetTarget({ hash: selected.hash, shortHash: selected.shortHash, subject: selected.subject }) } }, [h(ResetIcon, { key: 'i', size: 12 }), t('overview.reset')]),
-          ...selected.refs.filter((r) => r.kind === 'tag').map((r) => h('span', { key: `tag-${r.name}`, className: 'gp-ref-chip gp-ref-chip--tag gp-ref-chip--del' }, [
-            h(TagIcon, { key: 'i', size: 11 }),
-            h('span', { key: 'n' }, r.name),
-            h('button', { key: 'x', type: 'button', className: 'gp-ref-chip__x', title: t('tag.deleteOne', { name: r.name }), onClick: () => { setOpError(null); setTagToDelete(r.name) } }, h(CloseIcon, { size: 11 })),
-          ])),
-          h('button', { key: 'addtag', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.createTag'), onClick: () => { setOpError(null); setTagForm({ hash: selected.hash, shortHash: selected.shortHash }) } }, [h(TagIcon, { key: 'i', size: 12 }), t('overview.createTag')]),
-        ]),
+        // Commit action area (low-frequency ops; shown only with a selection).
+        // Tags get their own wrapping row of deletable chips, rendered only when
+        // the commit carries any; the revert / reset / create-tag buttons sit on
+        // a separate row below so many or long tags never crowd the actions.
+        h('div', { key: 'ops', className: 'gp-detail__ops' }, (() => {
+          const tagRefs = selected.refs.filter((r) => r.kind === 'tag')
+          return [
+            tagRefs.length > 0 ? h('div', { key: 'tags', className: 'gp-detail__tags' }, tagRefs.map((r) => h('span', { key: `tag-${r.name}`, className: 'gp-ref-chip gp-ref-chip--tag gp-ref-chip--del', title: r.name }, [
+              h(TagIcon, { key: 'i', size: 11 }),
+              h('span', { key: 'n', className: 'gp-detail__tagname' }, r.name),
+              h('button', { key: 'x', type: 'button', className: 'gp-ref-chip__x', title: t('tag.deleteOne', { name: r.name }), onClick: () => { setOpError(null); setTagToDelete(r.name) } }, h(CloseIcon, { size: 11 })),
+            ]))) : null,
+            h('div', { key: 'actions', className: 'gp-detail__actions' }, [
+              h('button', { key: 'revert', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.revert'), onClick: () => { setOpError(null); setRevertTarget({ hash: selected.hash, shortHash: selected.shortHash, subject: selected.subject }) } }, [h(RevertIcon, { key: 'i', size: 12 }), t('overview.revert')]),
+              h('button', { key: 'reset', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.reset'), onClick: () => { setOpError(null); onResync(); setResetTarget({ hash: selected.hash, shortHash: selected.shortHash, subject: selected.subject }) } }, [h(ResetIcon, { key: 'i', size: 12 }), t('overview.reset')]),
+              h('button', { key: 'addtag', type: 'button', className: 'gp-btn gp-btn--sm', title: t('overview.createTag'), onClick: () => { setOpError(null); setTagForm({ hash: selected.hash, shortHash: selected.shortHash }) } }, [h(TagIcon, { key: 'i', size: 12 }), t('overview.createTag')]),
+            ]),
+          ]
+        })()),
         detail.detail !== null && detail.detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
       ]),
     ]

@@ -330,9 +330,13 @@ const CSS = `
 .gp-reset__ack{color:var(--dsw-alias-state-error-primary)}
 .gp-reset__dirtywarn{font-size:11px;line-height:1.5;color:var(--dsw-alias-state-warn-primary,#e0982e)}
 
-/* commit detail action area (tag create + existing-tag delete chips) */
-.gp-detail__ops{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
-.gp-ref-chip--del{display:inline-flex;align-items:center;gap:4px}
+/* commit detail action area: tag chips on their own wrapping row (shown only
+ * when tags exist), action buttons on a second row below */
+.gp-detail__ops{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-bottom:10px}
+.gp-detail__tags{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.gp-detail__tagname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+.gp-detail__actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.gp-ref-chip--del{display:inline-flex;align-items:center;gap:4px;max-width:100%}
 .gp-ref-chip__x{display:inline-flex;align-items:center;padding:0;margin-left:2px;border:none;background:none;color:inherit;cursor:pointer;opacity:.7}
 .gp-ref-chip__x:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}
 
