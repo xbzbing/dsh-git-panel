@@ -31,7 +31,7 @@ export const zh = {
   'version.noRepo': '未配置仓库地址',
   'version.openRepo': '访问 Github 查看 @xbzbing/dsh-git-panel 项目',
   // overview
-  'overview.head': 'HEAD（当前分支）',
+  'overview.head': '全部分支',
   'overview.local': '本地',
   'overview.remote': '远程',
   'overview.tags': '标签',
@@ -261,7 +261,7 @@ export const en: Record<GitKey, string> = {
   'version.error': 'Check failed',
   'version.noRepo': 'Repository not configured',
   'version.openRepo': 'Visit @xbzbing/dsh-git-panel on GitHub',
-  'overview.head': 'HEAD (Current Branch)',
+  'overview.head': 'All branches',
   'overview.local': 'Local',
   'overview.remote': 'Remote',
   'overview.tags': 'Tags',
