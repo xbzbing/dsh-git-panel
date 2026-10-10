@@ -275,8 +275,9 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
     setOpError(null)
     setSyncBusy(true)
     try {
-      await onAction({ kind: 'fetch' })
-      reloadTree()
+      const res = await onAction({ kind: 'fetch' })
+      if (res.ok) reloadTree()
+      else setOpError(res.error ?? t('error.generic'))
     } finally { setSyncBusy(false) }
   }
   const runPullFf = async (): Promise<void> => {
