@@ -5,7 +5,7 @@
  * uses the platform's lazy syntax highlighter; images render inline, other
  * binaries show a placeholder. Left column width is drag-resizable.
  */
-import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
@@ -15,6 +15,8 @@ import { ArrowLeftIcon, ChevronIcon } from './icons'
 import { useResizableColumn } from './resizable'
 import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
+import { buildTops, windowRange } from './virtual-list'
+import { useViewportTracker } from './use-viewport'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -44,6 +46,9 @@ const MAX_LINE_CHARS = 5000
 // is exact; ROW_HEIGHT must match the .gp-files__row line box.
 const ROW_HEIGHT = 20
 const OVERSCAN = 12
+// Assumed viewport height before the first layout measurement, so the initial
+// paint mounts a bounded window instead of the whole file.
+const VIEWPORT_FALLBACK = 600
 
 type FileState =
   | { readonly kind: 'idle' }
@@ -378,7 +383,7 @@ function CodePreview({ content, path, t }: { content: string; path: string; t: (
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  const { setEl: setContainerEl, viewport, elRef: containerRef } = useViewportTracker()
   const inputRef = useRef<HTMLInputElement | null>(null)
   const activeRef = useRef<HTMLElement | null>(null)
 
@@ -423,26 +428,12 @@ function CodePreview({ content, path, t }: { content: string; path: string; t: (
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  // Virtualization: track the scroll container's viewport so only the visible
-  // row window is mounted. A ResizeObserver keeps the height current; a scroll
-  // listener updates the top offset.
-  const [viewport, setViewport] = useState({ top: 0, height: 0 })
-  useLayoutEffect(() => {
-    const el = containerRef.current
-    if (el === null) return
-    const sync = (): void => setViewport({ top: el.scrollTop, height: el.clientHeight })
-    sync()
-    el.addEventListener('scroll', sync, { passive: true })
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null
-    ro?.observe(el)
-    return () => { el.removeEventListener('scroll', sync); ro?.disconnect() }
-  }, [])
-
+  // Virtualization: mount only the rows in (or near) the viewport. Uniform row
+  // height, so the window math reuses the shared prefix-sum helpers.
   const total = lines.length
-  const headerH = 0 // header is sticky and overlays; rows start at offset 0
-  const first = Math.max(0, Math.floor((viewport.top - headerH) / ROW_HEIGHT) - OVERSCAN)
-  const visibleCount = viewport.height === 0 ? total : Math.ceil(viewport.height / ROW_HEIGHT) + OVERSCAN * 2
-  const last = Math.min(total, first + visibleCount)
+  const tops = useMemo(() => buildTops(new Array<number>(total).fill(ROW_HEIGHT)), [total])
+  const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
+  const { first, last } = windowRange(tops, viewport.top, effHeight, OVERSCAN * ROW_HEIGHT)
 
   // Keep the active match's row inside the mounted window before scrolling to
   // it: expand the window to include it, so scrollIntoView has a node to hit.
@@ -487,7 +478,7 @@ function CodePreview({ content, path, t }: { content: string; path: string; t: (
     ]))
   }
 
-  return h('div', { className: 'gp-files__code gp-diff__scroll', ref: containerRef }, [
+  return h('div', { className: 'gp-files__code gp-diff__scroll', ref: setContainerEl }, [
     header,
     h('div', { key: 'grid', className: 'gp-files__single gp-files__single--virt', style: { height: total * ROW_HEIGHT } }, windowRows),
   ])
