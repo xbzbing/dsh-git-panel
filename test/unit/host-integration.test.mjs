@@ -1045,3 +1045,58 @@ test('reset / revert reject an option-injecting commit', async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('pull-preview on a branch without an upstream reports hasUpstream:false', async () => {
+  const dir = await freshRepo('gp-pp-noup-')
+  try {
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'pull-preview' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.kind, 'pull-preview')
+    assert.equal(res.value.hasUpstream, false)
+    assert.equal(res.value.commits, 0)
+    assert.equal(res.value.files, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('pull-preview reports the incoming fast-forward scope (commits/files/+-lines)', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const base = mkdtempSync(join(tmpdir(), 'gp-pp-up-'))
+  const origin = join(base, 'origin.git')
+  const a = join(base, 'a')
+  const b = join(base, 'b')
+  try {
+    execFileSync('git', ['init', '-q', '--bare', origin])
+    // Clone A, seed one commit, push main as the upstream.
+    execFileSync('git', ['clone', '-q', origin, a])
+    await runGit(a, ['config', 'user.email', 't@t.co'])
+    await runGit(a, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(a, 'f1.txt'), 'l1\nl2\nl3\n')
+    await runGit(a, ['add', 'f1.txt'])
+    await runGit(a, ['commit', '-qm', 'c1'])
+    await runGit(a, ['branch', '-M', 'main'])
+    await runGit(a, ['push', '-q', '-u', 'origin', 'main'])
+    // Clone B from the same origin — its main tracks origin/main, up to date.
+    execFileSync('git', ['clone', '-q', origin, b])
+    await runGit(b, ['config', 'user.email', 't@t.co'])
+    await runGit(b, ['config', 'user.name', 'Tester'])
+    // A advances origin by one commit touching two files.
+    writeFileSync(join(a, 'f1.txt'), 'l1\nl2-changed\nl3\nl4\n')
+    writeFileSync(join(a, 'f2.txt'), 'new1\nnew2\n')
+    await runGit(a, ['add', '.'])
+    await runGit(a, ['commit', '-qm', 'c2'])
+    await runGit(a, ['push', '-q'])
+    // B fetches (objects now local) → it is one commit behind.
+    await runGit(b, ['fetch', '-q'])
+    const res = await runQuery(depsAt(b), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'pull-preview' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.kind, 'pull-preview')
+    assert.equal(res.value.hasUpstream, true)
+    assert.equal(res.value.commits, 1, 'one commit behind')
+    assert.equal(res.value.files, 2, 'two files changed (f1 modified, f2 added)')
+    assert.ok(res.value.insertions >= 3, 'incoming insertions counted')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})

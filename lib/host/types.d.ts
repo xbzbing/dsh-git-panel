@@ -37,6 +37,21 @@ export type GitFailure = {
 } | {
     readonly code: 'cancelled';
 };
+/** Host classification for a remote URL (drives the status-bar icon). */
+export type RemoteHostKind = 'github' | 'gitlab' | 'gitee' | 'bitbucket' | 'other';
+/** The repository's primary remote (origin, else the first remote). */
+export interface GitRemote {
+    /** Remote name (`origin`, or the first configured remote). */
+    readonly name: string;
+    /** The configured fetch URL, verbatim (ssh/scp/https/git form). */
+    readonly url: string;
+    /** A browsable https URL for the repo page; null when unparseable. */
+    readonly webUrl: string | null;
+    /** The remote hostname (e.g. `github.com`); null when unparseable. */
+    readonly host: string | null;
+    /** Known-host classification, for the status-bar icon. */
+    readonly hostKind: RemoteHostKind;
+}
 /** Immutable snapshot of one repository's status at `checkedAt`. */
 export interface GitSnapshot {
     /** Realpath of the repository root (work tree top). */
@@ -54,6 +69,10 @@ export interface GitSnapshot {
     readonly untracked: number;
     readonly ahead: number;
     readonly behind: number;
+    /** True when the current branch tracks an upstream (@{upstream} resolves). */
+    readonly hasUpstream: boolean;
+    /** The repository's primary remote; null when none is configured. */
+    readonly remote: GitRemote | null;
     readonly lastCommit: GitCommit | null;
     readonly changes: readonly GitChange[];
     /** Working-tree statistics for the changes-page header (single source). */
@@ -129,6 +148,8 @@ export type GitAction = {
 } | {
     readonly kind: 'fetch';
 } | {
+    readonly kind: 'pull-ff';
+} | {
     readonly kind: 'tag-create';
     readonly name: string;
     readonly commit: string;
@@ -162,7 +183,7 @@ export type GitAction = {
 /** `git reset` modes, from least to most destructive. Single source so the
  * client dialog and the command builder cannot drift. */
 export type ResetMode = 'soft' | 'mixed' | 'hard';
-export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'conflict' | 'revert-conflict' | 'revert-stuck' | 'revert-merge' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'not-ff' | 'conflict' | 'revert-conflict' | 'revert-stuck' | 'revert-merge' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;
@@ -244,6 +265,8 @@ export type GitQuery = {
     readonly kind: 'last-commit-message';
 } | {
     readonly kind: 'worktree-stats';
+} | {
+    readonly kind: 'pull-preview';
 };
 /** One entry in a `dir-list` result. */
 export interface DirEntry {
@@ -359,6 +382,13 @@ export type GitQueryResult = {
 } | {
     readonly kind: 'worktree-stats';
     readonly stats: WorktreeStats;
+} | {
+    readonly kind: 'pull-preview';
+    readonly hasUpstream: boolean;
+    readonly commits: number;
+    readonly files: number;
+    readonly insertions: number;
+    readonly deletions: number;
 } | {
     readonly kind: 'dir-list';
     readonly path: string;

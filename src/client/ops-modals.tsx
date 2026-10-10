@@ -23,6 +23,7 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'not-a-git-repo': return t('error.notARepo')
     case 'cwd-unavailable': return t('error.noCwd')
     case 'local-changes-block': return t('error.localChangesBlock')
+    case 'not-ff': return t('error.notFastForward')
     case 'conflict': return t('error.conflict')
     case 'revert-conflict': return t('error.revertConflict')
     case 'revert-stuck': return t('error.revertStuck')
@@ -71,6 +72,8 @@ export interface ModalShellProps {
   body: (JSX.Element | null)[]
   /** Footer node, usually `renderModalFooter(...)` (null renders no footer). */
   footer: JSX.Element | null
+  /** Optional busy overlay covering the dialog while an op runs. */
+  overlay?: JSX.Element | null
   /** Stable React portal key, unique per dialog kind. */
   portalKey: string
   t: OpT
@@ -86,36 +89,55 @@ export function renderModalShell(props: ModalShellProps): JSX.Element | null {
   return h(ModalShell, props)
 }
 
-function ModalShell({ onClose, title, icon, hash, body, footer, portalKey, t }: ModalShellProps): JSX.Element {
+function ModalShell({ onClose, title, icon, hash, body, footer, overlay, portalKey, t }: ModalShellProps): JSX.Element {
+  const busy = overlay !== undefined && overlay !== null
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
+    // While an op runs, swallow Escape so the dialog can't be dismissed mid-flight.
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !busy) onClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, busy])
   const modal = h('div', {
     className: 'gp-modal-backdrop',
-    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
+    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (!busy && e.target === e.currentTarget) onClose() },
   }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, [
       icon !== undefined ? h('span', { key: 'ic', className: 'gp-modal__fileicon' }, icon) : null,
       h('span', { key: 'title', className: 'gp-modal__path' }, title),
       hash !== undefined ? h('span', { key: 'hash', className: 'gp-modal__hash' }, hash) : null,
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), disabled: busy, onClick: onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'body', className: 'gp-modal__form' }, body),
     footer,
+    overlay ?? null,
   ]))
   return createPortal(modal, document.body, portalKey)
+}
+
+/**
+ * A busy overlay covering a dialog while an op runs: a spinner + a label. No
+ * progress bar — the single-shot `run` RPC returns only on completion, so there
+ * is no real progress to report; the label alone states that work is in flight.
+ */
+export function renderBusyOverlay(label: string): JSX.Element {
+  return h('div', { key: 'overlay', className: 'gp-modal__overlay' }, [
+    h('div', { key: 'sp', className: 'gp-spinner' }),
+    h('div', { key: 'lb', className: 'gp-modal__overlay-label' }, label),
+  ])
 }
 
 export interface ConfirmCbs {
   title: string
   body: string
+  /** Optional highlighted node rendered below the body (e.g. a pull scope line). */
+  extra?: JSX.Element | null
   confirmLabel: string
   danger: boolean
   error: string | null
   /** Disable confirm while an op is in flight (parity with ResetModal). */
   confirmBusy?: boolean
+  /** When set with confirmBusy, show a busy overlay carrying this label. */
+  busyLabel?: string
   onConfirm: () => void
   onClose: () => void
   t: OpT
@@ -124,6 +146,7 @@ export interface ConfirmCbs {
 /** Portaled confirm dialog for a low-frequency destructive op (tag delete,
  * stash drop). A plain text body + the shared AI hint over the shell. */
 export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
+  const showOverlay = cb.confirmBusy === true && cb.busyLabel !== undefined
   return renderModalShell({
     onClose: cb.onClose,
     title: cb.title,
@@ -131,9 +154,11 @@ export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
     t: cb.t,
     body: [
       h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, cb.body),
+      cb.extra ?? null,
       renderAiHint(cb.t),
       cb.error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, cb.error) : null,
     ],
     footer: renderModalFooter({ onClose: cb.onClose, onConfirm: cb.onConfirm, confirmLabel: cb.confirmLabel, confirmDisabled: cb.confirmBusy === true, danger: cb.danger, t: cb.t }),
+    ...(showOverlay ? { overlay: renderBusyOverlay(cb.busyLabel!) } : {}),
   })
 }

@@ -20,7 +20,9 @@ const FIXTURE_ROOT = 'fixture-repo'
 
 const SNAP = {
   root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
-  staged: 0, modified: 3, untracked: 1, ahead: 0, behind: 0, lastCommit: null,
+  staged: 0, modified: 3, untracked: 1, ahead: 0, behind: 2, hasUpstream: true,
+  remote: { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' },
+  lastCommit: null,
   changes: [
     { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
@@ -66,8 +68,18 @@ const out = await page.evaluate(async (snap) => {
           }
           if (q.kind === 'file-content') return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\n', lines: 1 } } }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
+          if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
         }
-        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+        if (endpoint === 'gitPanel/run') {
+          // Delay the fast-forward pull so the busy overlay is observable; keep
+          // the dirty fixture (ff pull doesn't touch the work tree) so later
+          // Changes-tab assertions still see the change list — only the branch
+          // catches up to the remote (behind → 0).
+          if (request?.action?.kind === 'pull-ff') {
+            return new Promise((resolve) => setTimeout(() => resolve({ ok: true, value: { ok: true, snapshot: { ...snap, ahead: 0, behind: 0 } } }), 250))
+          }
+          return { ok: true, value: { ok: true, snapshot: snap } }
+        }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
@@ -148,6 +160,44 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 300))
   result.ovBackToList = document.querySelector('.gp-overview--compact .gp-commit-row') !== null
 
+  // Left-column status bar (compact renders it at the overview footer): the
+  // GitHub repo link opens the parsed web URL, the branch is 2 behind, and the
+  // pull button opens a fast-forward confirm dialog.
+  const statusbar = document.querySelector('.gp-overview--compact .gp-statusbar')
+  result.statusBarShown = statusbar !== null
+  const repoLink = statusbar?.querySelector('a.gp-statusbar__repo')
+  result.statusRepoHref = repoLink?.getAttribute('href') ?? null
+  result.statusRepoNewTab = repoLink?.getAttribute('target') === '_blank'
+  result.statusBehindShown = (statusbar?.querySelector('.gp-statusbar__state')?.textContent || '').includes('status.behind')
+  const pullBtn = statusbar?.querySelector('.gp-statusbar__pull')
+  result.statusPullShown = pullBtn != null
+  pullBtn?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  result.statusPullConfirmOpened = [...document.querySelectorAll('.gp-modal__path')].some((n) => (n.textContent || '').includes('status.pullConfirmTitle'))
+  // The confirm shows the resolved incoming scope (highlighted node, not loading).
+  result.statusPullScopeShown = (() => {
+    const el = document.querySelector('.gp-pullscope')
+    if (el == null) return false
+    const txt = el.textContent || ''
+    return txt.includes('status.pullScope') && !el.classList.contains('gp-pullscope--loading')
+  })()
+  // Click the confirm → the pull runs (mock delays 250ms): a busy overlay with a
+  // spinner covers the dialog mid-flight, then success closes the dialog.
+  const confirmBtn = [...document.querySelectorAll('.gp-modal__footer .gp-btn--primary')].find((b) => (b.textContent || '').includes('status.pullConfirm'))
+  confirmBtn?.click()
+  await new Promise((r) => setTimeout(r, 90))
+  result.statusPullOverlayShown = document.querySelector('.gp-modal__overlay') !== null
+  result.statusPullSpinnerShown = document.querySelector('.gp-modal__overlay .gp-spinner') !== null
+  result.statusPullLabelShown = (document.querySelector('.gp-modal__overlay .gp-modal__overlay-label')?.textContent || '').includes('status.pulling')
+  // No progress bar — only a spinner + the "syncing" label (no real % to show).
+  result.statusPullNoProgressBar = document.querySelector('.gp-modal__overlay .gp-progress') === null
+  // Escape is swallowed while busy, so the dialog stays until the pull resolves.
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await new Promise((r) => setTimeout(r, 40))
+  result.statusPullOverlayKeptOnEscape = document.querySelector('.gp-modal__overlay') !== null
+  await new Promise((r) => setTimeout(r, 300))
+  result.statusPullConfirmClosed = [...document.querySelectorAll('.gp-modal__path')].every((n) => !(n.textContent || '').includes('status.pullConfirmTitle'))
+
   // Changes compact: drill list → diff → back.
   tabByText('tab.changes')?.click()
   await new Promise((r) => setTimeout(r, 400))
@@ -194,6 +244,8 @@ const out = await page.evaluate(async (snap) => {
   tabByText('tab.overview')?.click()
   await new Promise((r) => setTimeout(r, 300))
   result.wideHasThreeColumns = document.querySelector('.gp-col--left') !== null && document.querySelector('.gp-col--mid') !== null && document.querySelector('.gp-col--right') !== null
+  // The status bar lives inside the wide left column (below the scrolling list).
+  result.wideStatusBarInLeft = document.querySelector('.gp-col--left .gp-statusbar') !== null && document.querySelector('.gp-col--left .gp-col-left__scroll') !== null
   return result
 }, SNAP)
 
@@ -218,6 +270,19 @@ try {
   assert.equal(out.ovDetailHasBack, true, 'the detail pane shows a back-to-list button')
   assert.equal(out.ovDetailShowsFiles, true, 'the detail pane lists the commit changed files')
   assert.equal(out.ovBackToList, true, 'back returns to the commit list')
+  assert.equal(out.statusBarShown, true, 'the overview renders a left-column status bar')
+  assert.equal(out.statusRepoHref, 'https://github.com/owner/repo', 'the status bar links to the parsed GitHub repo page')
+  assert.equal(out.statusRepoNewTab, true, 'the repo link opens in a new tab')
+  assert.equal(out.statusBehindShown, true, 'the status bar reports the behind count')
+  assert.equal(out.statusPullShown, true, 'a strictly-behind branch offers a pull button')
+  assert.equal(out.statusPullConfirmOpened, true, 'pull opens a fast-forward confirm dialog')
+  assert.equal(out.statusPullScopeShown, true, 'the confirm shows the incoming fast-forward scope')
+  assert.equal(out.statusPullOverlayShown, true, 'confirming pull shows a busy overlay over the dialog')
+  assert.equal(out.statusPullSpinnerShown, true, 'the busy overlay carries a spinner')
+  assert.equal(out.statusPullLabelShown, true, 'the busy overlay shows the syncing label')
+  assert.equal(out.statusPullNoProgressBar, true, 'the busy overlay has no progress bar (no real % available)')
+  assert.equal(out.statusPullOverlayKeptOnEscape, true, 'Escape does not dismiss the dialog while the pull is in flight')
+  assert.equal(out.statusPullConfirmClosed, true, 'a successful pull closes the confirm dialog')
   assert.equal(out.chSingleColumn, true, 'changes collapses to a single compact column')
   assert.equal(out.chListShown, true, 'the compact changes list shows the commit box')
   assert.equal(out.ovfChangesList, true, 'the compact changes list fits without horizontal overflow')
@@ -238,6 +303,7 @@ try {
   assert.equal(out.restoredWide, true, 'widening the panel restores the wide layout')
   assert.equal(out.ovfWide, true, 'the widened panel fits without horizontal overflow')
   assert.equal(out.wideHasThreeColumns, true, 'the wide overview shows all three columns again')
+  assert.equal(out.wideStatusBarInLeft, true, 'the wide left column keeps the status bar below the scrolling branch list')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run3.mjs: PASS', JSON.stringify(out))
 } catch (e) {

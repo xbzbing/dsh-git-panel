@@ -18,6 +18,8 @@ interface SpawnSpec {
     };
     readonly graceMs: number;
     readonly signal?: AbortSignal;
+    /** Explicit child env entries merged onto the service's scrubbed base. */
+    readonly env?: Readonly<Record<string, string | undefined>>;
 }
 interface OutputRead {
     readonly text: string;

@@ -91,3 +91,18 @@ export function GitHubIcon({ size = 15 }: IconProps): JSX.Element {
     }),
   )
 }
+
+/** Generic external-link glyph (non-GitHub remotes in the status bar). */
+export function ExternalLinkIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M9 2.5h4.5V7' }), h('path', { key: 'b', d: 'M13 3L7 9' }), h('path', { key: 'c', d: 'M12 9.5V13H3V4h3.5' })], size)
+}
+
+/** Download / pull glyph (fetch remote commits down into the branch). */
+export function DownloadIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M8 2.5v7' }), h('path', { key: 'b', d: 'M4.5 7L8 10.5 11.5 7' }), h('path', { key: 'c', d: 'M3 13h10' })], size)
+}
+
+/** Two-arrow sync glyph for the status-check action. */
+export function SyncIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M12.5 7a4.5 4.5 0 0 0-8-2.3' }), h('path', { key: 'b', d: 'M3.5 9a4.5 4.5 0 0 0 8 2.3' }), h('path', { key: 'c', d: 'M4.3 2.2v2.5h2.5' }), h('path', { key: 'd', d: 'M11.7 13.8v-2.5H9.2' })], size)
+}

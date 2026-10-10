@@ -1,6 +1,6 @@
 import type { GitRunner } from './git.ts';
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts';
-import type { DiffViewMode, GraphStyle, GitChange, GitErrorCode, GitSnapshotResult } from './types.ts';
+import type { DiffViewMode, GraphStyle, GitChange, GitErrorCode, GitRemote, GitSnapshotResult } from './types.ts';
 export interface GitPanelConfig {
     readonly timeoutMs: number;
     /** Per-command stdout cap; also the per-side image-diff payload cap. */
@@ -85,6 +85,12 @@ export interface SnapshotDeps {
     readonly getLlm?: () => LlmFace | undefined;
     readonly getAgentDefaultModel?: () => AgentDefaultModelFace | undefined;
 }
+/**
+ * Pick the primary remote from `git remote -v` output and parse its fetch URL.
+ * Prefers `origin`; otherwise the first remote listed. Lines look like
+ * `origin\thttps://…\t(fetch)` — only `(fetch)` rows are considered.
+ */
+export declare function parsePrimaryRemote(stdout: string): GitRemote | null;
 export type WorkspaceResolution = {
     readonly ok: true;
     readonly root: string;

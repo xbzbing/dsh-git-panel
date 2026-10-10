@@ -20,7 +20,9 @@ const FIXTURE_ROOT = 'fixture-repo'
 
 const SNAP = {
   root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
-  staged: 0, modified: 3, untracked: 1, ahead: 0, behind: 0, lastCommit: null,
+  staged: 0, modified: 3, untracked: 1, ahead: 0, behind: 0, hasUpstream: true,
+  remote: { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' },
+  lastCommit: null,
   changes: [
     { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
@@ -255,6 +257,13 @@ const out = await page.evaluate(async (snap) => {
   result.hasBranchList = document.querySelector('.gp-branch-group') !== null
   result.commitRows = document.querySelectorAll('.gp-commit-row').length
   result.hasGraph = document.querySelector('.gp-graph-svg') !== null
+  // Left-column status bar (wide): the GitHub repo link resolves to the parsed
+  // web URL; the branch is synced (behind 0), so no pull button is offered.
+  const sbar = document.querySelector('.gp-col--left .gp-statusbar')
+  result.statusBarShown = sbar !== null
+  result.statusRepoHref = sbar?.querySelector('a.gp-statusbar__repo')?.getAttribute('href') ?? null
+  result.statusSyncedShown = (sbar?.querySelector('.gp-statusbar__state')?.textContent || '').includes('status.synced')
+  result.statusNoPullWhenSynced = sbar?.querySelector('.gp-statusbar__pull') == null
   // Search box: a wide panel uses the full "(message / hash)" placeholder key;
   // narrowing it below the threshold swaps to the short key (a placeholder is a
   // DOM attribute, so this is a JS swap, not CSS). The harness binds t() to the
@@ -570,6 +579,10 @@ try {
   assert.equal(out.svgSourceShowsDiff, true, 'switching an SVG to source shows the text diff')
   assert.equal(out.svgRenderRestored, true, 'switching an SVG back to render restores the comparison')
   assert.equal(out.hasBranchList, true, 'branch list rendered on overview')
+  assert.equal(out.statusBarShown, true, 'the wide left column renders the status bar')
+  assert.equal(out.statusRepoHref, 'https://github.com/owner/repo', 'the status bar links to the parsed GitHub repo page')
+  assert.equal(out.statusSyncedShown, true, 'a synced branch shows the up-to-date state')
+  assert.equal(out.statusNoPullWhenSynced, true, 'a synced branch offers no pull button')
   assert.equal(out.searchFullHint, true, 'a wide search box shows the full message/hash hint')
   assert.equal(out.searchShortHint, true, 'a narrow search box drops the hint to the short placeholder')
   assert.equal(out.searchHintRestored, true, 'widening the search box restores the full hint')

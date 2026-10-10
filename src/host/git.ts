@@ -24,6 +24,8 @@ interface SpawnSpec {
   }
   readonly graceMs: number
   readonly signal?: AbortSignal
+  /** Explicit child env entries merged onto the service's scrubbed base. */
+  readonly env?: Readonly<Record<string, string | undefined>>
 }
 
 interface OutputRead {
@@ -77,6 +79,11 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
         const handle = subprocess.spawn({
           argv,
           cwd: opts.cwd,
+          // Never let a network command (fetch/pull) block on an interactive
+          // credential or host-key prompt: with stdin ignored git would hang
+          // until the timeout. GIT_TERMINAL_PROMPT=0 makes it fail fast instead,
+          // and is harmless for the non-network commands that share this runner.
+          env: { GIT_TERMINAL_PROMPT: '0' },
           stdio: {
             stdin: opts.stdinData === undefined ? 'ignore' : { data: opts.stdinData },
             stdout: { collect: { maxBytes, spill: { maxBytes: spillMaxBytes } } },

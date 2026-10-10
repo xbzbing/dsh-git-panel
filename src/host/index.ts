@@ -24,11 +24,12 @@ export type {
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
-  GitSuggestRequest, GitSuggestResult,
+  GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind,
 } from './types.ts'
-export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace } from './core.ts'
+export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote } from './core.ts'
 export { createGitRunner } from './git.ts'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.ts'
+export { parseRemote, classifyHost } from './remote.ts'
 export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.ts'
 export { runQuery } from './queries.ts'
 export { runSuggest } from './suggest.ts'
