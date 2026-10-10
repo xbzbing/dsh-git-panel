@@ -118,9 +118,23 @@ export function parseRefs(decoration: string): GitRef[] {
     } else if (token === 'HEAD') {
       continue
     }
+    // Classification order matters. The history query runs with `--decorate=full`,
+    // so refs normally arrive as `refs/heads/…` / `refs/remotes/…` / `refs/tags/…`,
+    // which disambiguates a local branch whose name contains a slash
+    // (e.g. `feat/foo`) from a remote-tracking ref — the short `%D` form cannot.
     if (token.startsWith('tag: ')) {
-      refs.push({ kind: 'tag', name: token.slice('tag: '.length).trim(), head: false })
+      refs.push({ kind: 'tag', name: token.slice('tag: '.length).trim().replace(/^refs\/tags\//, ''), head: false })
+    } else if (token.startsWith('refs/tags/')) {
+      refs.push({ kind: 'tag', name: token.slice('refs/tags/'.length), head: false })
+    } else if (token.startsWith('refs/remotes/')) {
+      refs.push({ kind: 'remote', name: token.slice('refs/remotes/'.length), head })
+    } else if (token.startsWith('refs/heads/')) {
+      refs.push({ kind: 'branch', name: token.slice('refs/heads/'.length), head })
+    } else if (head) {
+      // `HEAD -> …` always names the checked-out local branch, slashes or not.
+      refs.push({ kind: 'branch', name: token, head })
     } else if (token.startsWith('origin/') || token.includes('/')) {
+      // Short-decoration fallback: a `<remote>/<branch>` shape reads as remote.
       refs.push({ kind: 'remote', name: token, head })
     } else {
       refs.push({ kind: 'branch', name: token, head })

@@ -91,3 +91,23 @@ export function GitHubIcon({ size = 15 }: IconProps): JSX.Element {
     }),
   )
 }
+
+/** Download / pull glyph (fetch remote commits down into the branch). */
+export function DownloadIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M8 2.5v7' }), h('path', { key: 'b', d: 'M4.5 7L8 10.5 11.5 7' }), h('path', { key: 'c', d: 'M3 13h10' })], size)
+}
+
+/** Two-arrow sync glyph for the status-check action. */
+export function SyncIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M12.5 7a4.5 4.5 0 0 0-8-2.3' }), h('path', { key: 'b', d: 'M3.5 9a4.5 4.5 0 0 0 8 2.3' }), h('path', { key: 'c', d: 'M4.3 2.2v2.5h2.5' }), h('path', { key: 'd', d: 'M11.7 13.8v-2.5H9.2' })], size)
+}
+
+/** Five-point star glyph. `filled` paints it solid (the "starred" state). */
+export function StarIcon({ size = 15, filled }: IconProps & { filled?: boolean }): JSX.Element {
+  const d = 'M8 1.8l1.76 3.57 3.94.57-2.85 2.78.67 3.92L8 10.78l-3.52 1.85.67-3.92L2.3 5.94l3.94-.57z'
+  return h('svg', {
+    width: size, height: size, viewBox: '0 0 16 16',
+    fill: filled ? 'currentColor' : 'none', stroke: 'currentColor',
+    strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
+  }, h('path', { d }))
+}

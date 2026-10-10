@@ -4,6 +4,8 @@
  * TypeScript loader. Not part of the plugin runtime.
  */
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseTags, parseStashList, sumNumstat, parseRefs } from '../host/parser.ts'
+export { parseRemote, classifyHost } from '../host/remote.ts'
+export { parsePrimaryRemote } from '../host/core.ts'
 export { isSafePath, isSafeRev, isSafeBranchName } from '../host/validate.ts'
 export { planAction, classifyActionFailure } from '../host/actions.ts'
 export { buildSideBySide, summarize, isBinaryDiff, isAddOnlyDiff, isDeleteOnlyDiff, extractAddedContent, extractDeletedContent, isImagePath, isSvgPath, intraLineDiff, spliceGap, contextRowsFromLines, flattenToUnified, GAP_STEP } from './diff.ts'

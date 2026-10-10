@@ -5,8 +5,9 @@ import { dirname, join } from 'node:path'
 import type { GitRunner } from './git.ts'
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.ts'
+import { parseRemote } from './remote.ts'
 import { isSafePath } from './validate.ts'
-import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
+import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -147,6 +148,25 @@ export interface SnapshotDeps {
 
 /** Non-repo negative-cache lifetime; short so a freshly-created repo is seen. */
 const NEG_CACHE_MS = 15_000
+
+/**
+ * Pick the primary remote from `git remote -v` output and parse its fetch URL.
+ * Prefers `origin`; otherwise the first remote listed. Lines look like
+ * `origin\thttps://…\t(fetch)` — only `(fetch)` rows are considered.
+ */
+export function parsePrimaryRemote(stdout: string): GitRemote | null {
+  const fetchUrls = new Map<string, string>()
+  const order: string[] = []
+  for (const line of stdout.split('\n')) {
+    const m = line.match(/^(\S+)\t(\S+)\s+\(fetch\)$/)
+    if (m === null) continue
+    const name = m[1]!
+    if (!fetchUrls.has(name)) { fetchUrls.set(name, m[2]!); order.push(name) }
+  }
+  if (order.length === 0) return null
+  const name = fetchUrls.has('origin') ? 'origin' : order[0]!
+  return parseRemote(name, fetchUrls.get(name)!)
+}
 
 /**
  * Per-file stats fan-out ceiling. The untracked line-count fan-out (one
@@ -325,7 +345,7 @@ export async function snapshotForSession(
   }
   const root = workspace.root
 
-  const [branchRes, headRes, statusRes, aheadBehindRes, lastCommitRes, worktreeNumRes, stagedNumRes] = await Promise.all([
+  const [branchRes, headRes, statusRes, aheadBehindRes, lastCommitRes, worktreeNumRes, stagedNumRes, remoteRes] = await Promise.all([
     runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'branch', deps.signal),
     runCommand(deps.run, ['git', 'rev-parse', '--short', 'HEAD'], root, 'head', deps.signal),
     runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z'], root, 'status', deps.signal),
@@ -333,6 +353,9 @@ export async function snapshotForSession(
     runCommand(deps.run, ['git', 'log', '-1', '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI'], root, 'lastCommit', deps.signal),
     runCommand(deps.run, ['git', 'diff', '--numstat'], root, 'numstat-worktree', deps.signal),
     runCommand(deps.run, ['git', 'diff', '--numstat', '--cached'], root, 'numstat-staged', deps.signal),
+    // `git remote -v` lists every remote's fetch/push URL; parsed into the
+    // primary remote (origin, else the first) for the left-column status bar.
+    runCommand(deps.run, ['git', 'remote', '-v'], root, 'remote', deps.signal),
   ])
 
   const branch = 'run' in branchRes && branchRes.run.exitCode === 0 ? branchRes.run.stdout.trim() || null : null
@@ -363,11 +386,17 @@ export async function snapshotForSession(
 
   let ahead = 0
   let behind = 0
-  if ('run' in aheadBehindRes && aheadBehindRes.run.exitCode === 0) {
+  // A non-zero exit means `@{upstream}` does not resolve: the branch has no
+  // tracking remote, so ahead/behind are undefined (stay 0) and the sync UI
+  // must not offer a pull.
+  const hasUpstream = 'run' in aheadBehindRes && aheadBehindRes.run.exitCode === 0
+  if (hasUpstream && 'run' in aheadBehindRes) {
     const parts = aheadBehindRes.run.stdout.trim().split(/\s+/)
     behind = Number(parts[0]) || 0
     ahead = Number(parts[1]) || 0
   }
+
+  const remote = 'run' in remoteRes && remoteRes.run.exitCode === 0 ? parsePrimaryRemote(remoteRes.run.stdout) : null
 
   let lastCommit: GitCommit | null = null
   if ('run' in lastCommitRes && lastCommitRes.run.exitCode === 0) {
@@ -419,6 +448,8 @@ export async function snapshotForSession(
     untracked,
     ahead,
     behind,
+    hasUpstream,
+    remote,
     lastCommit,
     changes,
     stats,

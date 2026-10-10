@@ -17,7 +17,9 @@ const NON_GIT_DIR = 'some-dir/scratch'
 function cleanSnap() {
   return {
     root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: false,
-    staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, lastCommit: null,
+    staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: true,
+    remote: { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' },
+    lastCommit: null,
     changes: [],
     stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
     truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),

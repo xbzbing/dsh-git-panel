@@ -12,7 +12,7 @@ import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } f
 import { OverviewTab } from './OverviewTab'
 import { ChangesTab } from './ChangesTab'
 import { FilesTab } from './FilesTab'
-import { CommitIcon, DiffIcon, FilesIcon, GitHubIcon, RefreshIcon } from './icons'
+import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons'
 import { usePanelLayout } from './layout'
 import type { GitAction, GitVersionInfo } from './types'
 import type { GitKey } from './locales'
@@ -238,8 +238,8 @@ function VersionBar({ remote, t }: VersionBarProps): JSX.Element {
       onClick: () => void check(),
     }, [h('span', { key: 'i', className: 'gp-tab__icon' }, h(RefreshIcon, { size: 12 })), t('version.check')]),
     info?.repositoryUrl !== undefined ? h('a', {
-      key: 'gh', className: 'gp-icon-btn gp-verbar__gh', href: info.repositoryUrl,
+      key: 'gh', className: 'gp-icon-btn gp-verbar__gh gp-verbar__gh--starred', href: info.repositoryUrl,
       target: '_blank', rel: 'noreferrer', title: t('version.openRepo'), 'aria-label': t('version.openRepo'),
-    }, h(GitHubIcon, { size: 15 })) : null,
+    }, h(StarIcon, { size: 15 })) : null,
   ])
 }

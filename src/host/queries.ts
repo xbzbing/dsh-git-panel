@@ -6,7 +6,7 @@ import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
 import { isSafePath, isSafeRev } from './validate.ts'
-import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags } from './parser.ts'
+import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.ts'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.ts'
 import { imageMimeFor } from './types.ts'
 
@@ -66,6 +66,7 @@ export async function runQuery(
       case 'authors': return await queryAuthors(deps, root)
       case 'last-commit-message': return await queryLastCommitMessage(deps, root)
       case 'worktree-stats': return await queryWorktreeStats(deps, config, request.sessionId)
+      case 'pull-preview': return await queryPullPreview(deps, root)
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -85,7 +86,10 @@ async function queryHistory(
   // Topological order is layoutGraph's contract (children before parents);
   // the default date order interleaves rebased chains once committer dates
   // skew, splitting a linear history into phantom parallel lanes.
-  const args = ['git', 'log', '--topo-order', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
+  // `--decorate=full` makes %D emit full ref paths (refs/heads/…, refs/remotes/…,
+  // refs/tags/…) so parseRefs can tell a slashed local branch from a remote ref
+  // and not misclassify it (which mislabeled the current-branch chip).
+  const args = ['git', 'log', '--topo-order', '--decorate=full', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
   const search = q.search?.trim() ?? ''
   const hexJump = search !== '' && isHexLike(search)
   const countArgs = ['git', 'rev-list', '--count']
@@ -576,6 +580,32 @@ async function queryLastCommitMessage(deps: SnapshotDeps, root: string): Promise
   const res = await runCommand(deps.run, ['git', 'log', '-1', '--format=%B'], root, 'last-message', deps.signal)
   const message = 'run' in res && res.run.exitCode === 0 ? res.run.stdout.replace(/\n+$/, '') : ''
   return { ok: true, value: { kind: 'last-commit-message', message } }
+}
+
+/**
+ * Preview the incoming fast-forward: commits + diffstat between HEAD and its
+ * upstream. All local (the objects are already fetched once `behind > 0`), so
+ * it never touches the network. A branch without an upstream reports
+ * `hasUpstream:false` with zeroed counts; the `@{upstream}` token is a fixed
+ * literal (never user input), kept an operand with `--end-of-options`.
+ */
+async function queryPullPreview(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
+  const empty = { kind: 'pull-preview', hasUpstream: false, commits: 0, files: 0, insertions: 0, deletions: 0 } as const
+  const commitsRes = await runCommand(deps.run, ['git', 'rev-list', '--count', '--end-of-options', 'HEAD..@{upstream}'], root, 'pull-preview-count', deps.signal)
+  // A non-zero exit means no upstream (or unborn): report "no upstream".
+  if (!('run' in commitsRes) || commitsRes.run.exitCode !== 0) return { ok: true, value: empty }
+  const commits = Number(commitsRes.run.stdout.trim()) || 0
+  const diffRes = await runCommand(deps.run, ['git', 'diff', '--numstat', '--end-of-options', 'HEAD', '@{upstream}'], root, 'pull-preview-diff', deps.signal)
+  let files = 0
+  let insertions = 0
+  let deletions = 0
+  if ('run' in diffRes && diffRes.run.exitCode === 0) {
+    files = diffRes.run.stdout.split('\n').filter((l) => l.trim() !== '').length
+    const sum = sumNumstat(diffRes.run.stdout)
+    insertions = sum.insertions
+    deletions = sum.deletions
+  }
+  return { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits, files, insertions, deletions } }
 }
 
 async function queryWorktreeStats(

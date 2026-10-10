@@ -36,6 +36,23 @@ export type GitFailure =
   | { readonly code: 'timeout' }
   | { readonly code: 'cancelled' }
 
+/** Host classification for a remote URL (drives the status-bar icon). */
+export type RemoteHostKind = 'github' | 'gitlab' | 'gitee' | 'bitbucket' | 'other'
+
+/** The repository's primary remote (origin, else the first remote). */
+export interface GitRemote {
+  /** Remote name (`origin`, or the first configured remote). */
+  readonly name: string
+  /** The configured fetch URL, verbatim (ssh/scp/https/git form). */
+  readonly url: string
+  /** A browsable https URL for the repo page; null when unparseable. */
+  readonly webUrl: string | null
+  /** The remote hostname (e.g. `github.com`); null when unparseable. */
+  readonly host: string | null
+  /** Known-host classification, for the status-bar icon. */
+  readonly hostKind: RemoteHostKind
+}
+
 /** Immutable snapshot of one repository's status at `checkedAt`. */
 export interface GitSnapshot {
   /** Realpath of the repository root (work tree top). */
@@ -53,6 +70,10 @@ export interface GitSnapshot {
   readonly untracked: number
   readonly ahead: number
   readonly behind: number
+  /** True when the current branch tracks an upstream (@{upstream} resolves). */
+  readonly hasUpstream: boolean
+  /** The repository's primary remote; null when none is configured. */
+  readonly remote: GitRemote | null
   readonly lastCommit: GitCommit | null
   readonly changes: readonly GitChange[]
   /** Working-tree statistics for the changes-page header (single source). */
@@ -133,6 +154,11 @@ export type GitAction =
   }
   | { readonly kind: 'branch-checkout'; readonly name: string }
   | { readonly kind: 'fetch' }
+  // Fast-forward-only pull of the current branch from its upstream. `--ff-only`
+  // refuses when local and remote diverged, so it can only ever advance the
+  // branch to the remote tip (never a merge/rebase) — the safe "catch up to
+  // remote" the UI offers when the branch is strictly behind.
+  | { readonly kind: 'pull-ff' }
   // Tag write operations (issue #12). `message` non-empty → annotated tag (-a).
   | { readonly kind: 'tag-create'; readonly name: string; readonly commit: string; readonly message?: string }
   | { readonly kind: 'tag-delete'; readonly name: string }
@@ -166,6 +192,8 @@ export type GitErrorCode =
   | 'cancelled'
   | 'empty-message'
   | 'local-changes-block'
+  // A fast-forward-only pull could not fast-forward (local/remote diverged).
+  | 'not-ff'
   // Stash apply/pop left the work tree with merge conflicts (stash kept).
   | 'conflict'
   // A revert hit a content conflict and was auto-aborted (work tree restored).
@@ -231,6 +259,10 @@ export type GitQuery =
   | { readonly kind: 'authors' }
   | { readonly kind: 'last-commit-message' }
   | { readonly kind: 'worktree-stats' }
+  // Scope of the incoming fast-forward: diffstat between HEAD and its upstream
+  // (commits / files / +- lines). Local-only (objects already fetched when
+  // behind > 0), so it previews what a pull would bring in.
+  | { readonly kind: 'pull-preview' }
 
 /** One entry in a `dir-list` result. */
 export interface DirEntry {
@@ -331,6 +363,9 @@ export type GitQueryResult =
   | { readonly kind: 'authors'; readonly authors: readonly string[] }
   | { readonly kind: 'last-commit-message'; readonly message: string }
   | { readonly kind: 'worktree-stats'; readonly stats: WorktreeStats }
+  // Incoming fast-forward scope (HEAD..@{upstream}). `hasUpstream` false when
+  // the branch tracks nothing (then the counts are all 0).
+  | { readonly kind: 'pull-preview'; readonly hasUpstream: boolean; readonly commits: number; readonly files: number; readonly insertions: number; readonly deletions: number }
   // File-browser directory listing (one level). `truncated` is set when the
   // entry count was capped.
   | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }

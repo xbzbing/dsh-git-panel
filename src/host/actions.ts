@@ -61,6 +61,11 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       return { argv: [['git', 'checkout', '--end-of-options', action.name]] }
     case 'fetch':
       return { argv: [['git', 'fetch', '--all', '--prune']] }
+    case 'pull-ff':
+      // `--ff-only` can only advance HEAD to the upstream tip; it refuses (exit
+      // non-zero, work tree untouched) when the branches diverged, so there is
+      // no merge/rebase or conflict path to handle here.
+      return { argv: [['git', 'pull', '--ff-only']] }
     case 'tag-create': {
       if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe tag name: ${action.name}` }
       if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
@@ -140,6 +145,11 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   }
   if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument/i.test(combined)) {
     return { code: 'not-found', message: err || 'not found' }
+  }
+  // `git pull --ff-only` on diverged branches: a clean refusal that leaves the
+  // work tree untouched, distinct from a dirty-tree block below.
+  if (/Not possible to fast-forward|cannot fast-forward|not a fast-forward|Need to specify how to reconcile divergent branches/i.test(combined)) {
+    return { code: 'not-ff', message: err || 'cannot fast-forward (branches diverged)' }
   }
   if (/would be overwritten by (checkout|merge)|local changes|overwritten by merge|Your local changes/i.test(stderr)) {
     return { code: 'local-changes-block', message: err }

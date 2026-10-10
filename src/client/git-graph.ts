@@ -91,6 +91,10 @@ export function layoutGraph(commits: readonly GraphCommit[], style: GraphStyle):
       return lane
     }
 
+    // Was any lane already awaiting this commit (i.e. a child placed above it)?
+    // If not, assignLane opens a fresh lane and the node is a tip — it must not
+    // draw an incoming stub above its dot (the newest commit / a branch head).
+    const awaitedBefore = lanes.some((h) => h === commit.hash)
     const lane = assignLane(commit.hash)
     const color = laneColor[lane]!
 
@@ -139,6 +143,8 @@ export function layoutGraph(commits: readonly GraphCommit[], style: GraphStyle):
       const awaited = before[i]
       if (awaited === null) continue
       if (awaited === commit.hash) {
+        // Skip the self-edge of a freshly opened lane: a tip has no line above.
+        if (i === lane && !awaitedBefore) continue
         edges.push({ fromLane: i, toLane: lane, color: beforeColor[i]!, kind: 'into' })
       } else {
         // A lane still awaiting the same commit stays in place (parallel lines

@@ -30,6 +30,9 @@ const CSS = `
 .gp-verbar__link:hover{text-decoration:underline}
 .gp-verbar__gh{color:var(--dsw-alias-label-secondary);text-decoration:none}
 .gp-verbar__gh:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
+/* star link: hollow by default, fills to a gold star on hover */
+.gp-verbar__gh--starred:hover{color:var(--dsw-alias-state-warn-primary,#e3b341)}
+.gp-verbar__gh--starred:hover svg{fill:currentColor}
 .gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;flex:none;transition:background .12s ease,color .12s ease}
 .gp-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
 /* Active tab: primary-tinted fill + primary text + medium weight + a soft ring.
@@ -70,7 +73,8 @@ const CSS = `
  * blank when a right sidebar narrows the panel. */
 .gp-overview{display:flex;width:100%;min-height:0}
 .gp-col{display:flex;flex-direction:column;min-height:0;min-width:0}
-.gp-col--left{flex:0 1 200px;min-width:130px;overflow-y:auto}
+.gp-col--left{flex:0 1 200px;min-width:130px;overflow:hidden}
+.gp-col-left__scroll{flex:1;min-height:0;overflow-y:auto}
 .gp-col--mid{flex:1 1 0;min-width:150px}
 .gp-col--right{flex:0 1 340px;min-width:190px;display:flex;flex-direction:column;min-height:0}
 /* drag handle between two columns: a thin hit area with a hairline center that
@@ -88,6 +92,21 @@ const CSS = `
 .gp-branch-row--current{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
 .gp-branch-row__track{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-tertiary)}
 
+/* left-column footer status bar: repo icon (left) + branch sync (right) */
+.gp-statusbar{flex:none;display:flex;align-items:center;gap:8px;min-height:30px;padding:4px 8px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);font-size:11px}
+.gp-statusbar__repo{flex:none;display:inline-flex;align-items:center;color:var(--dsw-alias-label-secondary);text-decoration:none;border-radius:6px;padding:3px 5px}
+a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-state-business-primary)}
+.gp-statusbar__repo--none{color:var(--dsw-alias-label-tertiary)}
+.gp-statusbar__ic{flex:none;display:inline-flex;align-items:center}
+.gp-statusbar__sync{display:flex;align-items:center;gap:6px;margin-left:auto;min-width:0}
+.gp-statusbar__state{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
+.gp-statusbar__state--ok{color:var(--dsw-alias-state-success-primary)}
+.gp-statusbar__state--warn{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
+.gp-statusbar__btn{flex:none;width:24px;height:24px;border-radius:50%}
+.gp-statusbar--busy .gp-statusbar__btn{animation:gp-spin 1s linear infinite}
+.gp-statusbar__pull{flex:none;height:24px;padding:0 8px;font-size:11px}
+@keyframes gp-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
 /* history */
 .gp-history{display:flex;flex-direction:column;height:100%;min-height:0}
 /* overscroll-behavior:contain keeps a wheel gesture that reaches the top/bottom
@@ -100,10 +119,11 @@ const CSS = `
 .gp-commit-hash{font-family:var(--dsw-font-mono,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .gp-commit-author{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-commit-date{font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
-.gp-ref-chip{display:inline-block;padding:0 6px;margin-right:4px;border-radius:8px;font-size:10px;line-height:16px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l2)}
-.gp-ref-chip--head{background:var(--dsw-alias-state-business-primary);color:#fff;border-color:transparent}
-.gp-ref-chip--remote{color:var(--dsw-alias-label-tertiary)}
+.gp-ref-chip{display:inline-block;padding:0 6px;margin-right:4px;border-radius:8px;font-size:10px;line-height:16px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l2)}
+.gp-ref-chip--remote{color:var(--dsw-alias-label-secondary)}
 .gp-ref-chip--tag{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
+/* --head last so the current-branch fill always wins if a ref carries two kinds */
+.gp-ref-chip--head{background:var(--dsw-alias-state-business-primary);color:#fff;border-color:transparent;font-weight:700;font-size:11px}
 .gp-graph-cell{position:relative}
 .gp-graph-svg{display:block}
 .gp-search{flex:1;min-width:60px;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;box-sizing:border-box}
@@ -294,7 +314,7 @@ const CSS = `
  * dimmed backdrop, closed by Esc / backdrop click / the close button. */
 .gp-modal-backdrop{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:40px;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 62%,transparent);backdrop-filter:blur(2px);animation:gp-fade-in .12s ease}
 @keyframes gp-fade-in{from{opacity:0}to{opacity:1}}
-.gp-modal{display:flex;flex-direction:column;width:min(920px,86vw);height:min(680px,82vh);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:14px;background:var(--dsw-alias-bg-layer-2);box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 12px rgba(0,0,0,.18);overflow:hidden;animation:gp-modal-in .18s cubic-bezier(.16,1,.3,1)}
+.gp-modal{display:flex;flex-direction:column;position:relative;width:min(920px,86vw);height:min(680px,82vh);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:14px;background:var(--dsw-alias-bg-layer-2);box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 12px rgba(0,0,0,.18);overflow:hidden;animation:gp-modal-in .18s cubic-bezier(.16,1,.3,1)}
 @keyframes gp-modal-in{from{transform:translateY(12px) scale(.97);opacity:0}to{transform:none;opacity:1}}
 .gp-modal__bar{display:flex;align-items:center;gap:10px;padding:11px 12px 11px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);flex:none}
 .gp-modal__fileicon{display:inline-flex;align-items:center;color:var(--dsw-alias-label-tertiary);flex:none}
@@ -310,6 +330,16 @@ const CSS = `
 .gp-modal--sm{width:min(460px,92vw);height:auto;max-height:min(560px,86vh)}
 .gp-modal__form{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
 .gp-modal__confirmtext{font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word}
+/* pull-scope line: highlighted + bold summary of the incoming fast-forward */
+.gp-pullscope{margin-top:10px;padding:8px 12px;font-size:13px;font-weight:600;line-height:1.5;color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent);border-radius:8px}
+.gp-pullscope--loading{font-weight:400;color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent);border-color:var(--dsw-alias-border-l2)}
+.gp-pullscope__add{color:var(--dsw-alias-state-success-primary)}
+.gp-pullscope__del{color:var(--dsw-alias-state-error-primary)}
+/* busy overlay (e.g. pull in flight): a scrim + spinner + indeterminate bar */
+.gp-modal__overlay{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 82%,transparent);backdrop-filter:blur(1.5px);border-radius:inherit;animation:gp-fade-in .12s ease}
+.gp-modal__overlay-label{font-size:12px;color:var(--dsw-alias-label-secondary)}
+@keyframes gp-fade-in{from{opacity:0}to{opacity:1}}
+.gp-spinner{width:26px;height:26px;border-radius:50%;border:2.5px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);animation:gp-spin .7s linear infinite}
 .gp-modal__check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer;user-select:none}
 .gp-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
 .gp-input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
@@ -443,7 +473,10 @@ const CSS = `
 .gp-subhead__title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-tertiary)}
 
 /* Overview: single column, each pane fills width + height. */
+.gp-overview--compact{flex-direction:column}
 .gp-overview--compact .gp-col{width:100%}
+/* The drill pane grows; the footer status bar keeps its own height below it. */
+.gp-overview--compact>.gp-col{flex:1 1 auto;min-height:0;height:auto}
 /* Two-line commit rows: subject on top, hash·author·time below; the graph
  * cell stretches to the taller row so lane edges still connect. */
 .gp-commit-row--compact{align-items:stretch}
