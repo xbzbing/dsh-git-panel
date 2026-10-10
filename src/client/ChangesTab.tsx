@@ -3,7 +3,6 @@
  * (with Amend) on the left; the selected file's diff on the right.
  */
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
@@ -11,11 +10,11 @@ import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
-import { ArrowLeftIcon, ChevronIcon, CloseIcon, SparkleIcon, StashIcon, TrashIcon } from './icons'
+import { ArrowLeftIcon, ChevronIcon, SparkleIcon, StashIcon, TrashIcon } from './icons'
 import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
-import { renderAiHint, renderConfirmModal, renderModalFooter } from './ops-modals'
+import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -412,23 +411,12 @@ function StashPushModal({ onClose, onStash, error, t }: StashPushCbs): JSX.Eleme
   return h(StashPushBody, { onClose, onStash, error, t })
 }
 
-function StashPushBody({ onClose, onStash, error, t }: StashPushCbs): JSX.Element {
+function StashPushBody({ onClose, onStash, error, t }: StashPushCbs): JSX.Element | null {
   const [message, setMessage] = useState('')
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-  const modal = h('div', {
-    className: 'gp-modal-backdrop',
-    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
-  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
-    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
-      h('span', { key: 'ic', className: 'gp-modal__fileicon' }, h(StashIcon, { size: 15 })),
-      h('span', { key: 'title', className: 'gp-modal__path' }, t('stash.title')),
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
-    ]),
-    h('div', { key: 'body', className: 'gp-modal__form' }, [
+  return renderModalShell({
+    onClose, title: t('stash.title'), icon: h(StashIcon, { size: 15 }),
+    portalKey: 'stash-push-modal', t,
+    body: [
       h('input', {
         key: 'msg', className: 'gp-input', placeholder: t('stash.messagePlaceholder'), value: message, autoFocus: true,
         onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
@@ -436,10 +424,9 @@ function StashPushBody({ onClose, onStash, error, t }: StashPushCbs): JSX.Elemen
       }),
       renderAiHint(t),
       error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
-    ]),
-    renderModalFooter({ onClose, onConfirm: () => void onStash(message), confirmLabel: t('stash.save'), confirmDisabled: false, danger: false, t }),
-  ]))
-  return createPortal(modal, document.body, 'stash-push-modal')
+    ],
+    footer: renderModalFooter({ onClose, onConfirm: () => void onStash(message), confirmLabel: t('stash.save'), confirmDisabled: false, danger: false, t }),
+  })
 }
 
 interface StashRowCbs {

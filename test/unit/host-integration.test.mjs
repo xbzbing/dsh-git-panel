@@ -928,6 +928,34 @@ test('a content-conflicting revert is auto-aborted and reported as revert-confli
   }
 })
 
+test('reverting a merge commit is reported as revert-merge, leaving no stuck state', async () => {
+  const dir = await freshRepo('gp-revert-merge-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    const base = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()
+    // Diverge a feature branch and the base on different files, then merge
+    // --no-ff so HEAD is a (conflict-free) merge commit.
+    await runGit(dir, ['checkout', '-q', '-b', 'feature'])
+    writeFileSync(join(dir, 'c.txt'), 'c\n')
+    await runGit(dir, ['add', 'c.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: c'])
+    await runGit(dir, ['checkout', '-q', base])
+    writeFileSync(join(dir, 'd.txt'), 'd\n')
+    await runGit(dir, ['add', 'd.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: d'])
+    await runGit(dir, ['merge', '--no-ff', '-m', 'merge feature', 'feature'])
+    const mergeSha = (await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 1, skip: 0 } })).value.commits[0].hash
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'revert', commit: mergeSha } })
+    assert.equal(res.ok, false, 'reverting a merge commit from the panel is refused')
+    assert.equal(res.error.code, 'revert-merge')
+    // git refuses before creating REVERT_HEAD → no mid-revert state, no spurious abort.
+    assert.throws(() => execFileSync('git', ['rev-parse', '--verify', '--quiet', 'REVERT_HEAD'], { cwd: dir }), 'no REVERT_HEAD left behind')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('reset --mixed moves HEAD back and keeps the change in the work tree', async () => {
   const dir = await freshRepo('gp-reset-mixed-')
   try {

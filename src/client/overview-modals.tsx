@@ -3,14 +3,14 @@
  *  - TagCreateModal — name a tag (optionally annotated) at a commit.
  *  - ResetModal     — choose a reset mode (soft/mixed/hard); hard reveals the
  *                     tracked-change loss list and gates confirm behind an ack.
- * Both reuse the shared `.gp-modal*` primitives and the "trust the AI" hint.
+ * Both render through the shared `renderModalShell` primitive (backdrop /
+ * Escape / portal / bar), supplying only their body + footer.
  */
 import { createElement as h, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitKey } from './locales'
-import { CloseIcon, ResetIcon, TagIcon } from './icons'
-import { renderAiHint, renderModalFooter, type OpT } from './ops-modals'
+import { ResetIcon, TagIcon } from './icons'
+import { renderAiHint, renderModalFooter, renderModalShell, type OpT } from './ops-modals'
 import type { ResetMode } from './types'
 
 interface TagCreateCbs {
@@ -27,27 +27,15 @@ export function renderTagCreateModal(target: { hash: string; shortHash: string }
   return h(TagCreateModal, { target, ...cb })
 }
 
-function TagCreateModal({ target, onClose, onCreate, error, t }: TagCreateCbs & { target: { hash: string; shortHash: string } }): JSX.Element {
+function TagCreateModal({ target, onClose, onCreate, error, t }: TagCreateCbs & { target: { hash: string; shortHash: string } }): JSX.Element | null {
   const [name, setName] = useState('')
   const [annotated, setAnnotated] = useState(false)
   const [message, setMessage] = useState('')
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
   const submit = (): void => { if (name.trim() !== '') void onCreate(name.trim(), annotated ? message : '') }
-  const modal = h('div', {
-    className: 'gp-modal-backdrop',
-    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
-  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
-    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
-      h('span', { key: 'ic', className: 'gp-modal__fileicon' }, h(TagIcon, { size: 15 })),
-      h('span', { key: 'title', className: 'gp-modal__path' }, t('tag.createTitle')),
-      h('span', { key: 'hash', className: 'gp-modal__hash' }, target.shortHash),
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
-    ]),
-    h('div', { key: 'body', className: 'gp-modal__form' }, [
+  return renderModalShell({
+    onClose, title: t('tag.createTitle'), icon: h(TagIcon, { size: 15 }), hash: target.shortHash,
+    portalKey: 'tag-create-modal', t,
+    body: [
       h('input', {
         key: 'name', className: 'gp-input', placeholder: t('tag.namePlaceholder'), value: name, autoFocus: true,
         onChange: (e: { target: { value: string } }) => setName(e.target.value),
@@ -63,10 +51,9 @@ function TagCreateModal({ target, onClose, onCreate, error, t }: TagCreateCbs & 
       }) : null,
       renderAiHint(t),
       error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
-    ]),
-    renderModalFooter({ onClose, onConfirm: submit, confirmLabel: t('tag.create'), confirmDisabled: name.trim() === '', danger: false, t }),
-  ]))
-  return createPortal(modal, document.body, 'tag-create-modal')
+    ],
+    footer: renderModalFooter({ onClose, onConfirm: submit, confirmLabel: t('tag.create'), confirmDisabled: name.trim() === '', danger: false, t }),
+  })
 }
 
 interface ResetCbs {
@@ -90,14 +77,9 @@ export function renderResetModal(target: { hash: string; shortHash: string; subj
   return h(ResetModal, { target, ...cb })
 }
 
-function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, busy, error, onReset, onClose, t }: ResetCbs & { target: { hash: string; shortHash: string; subject: string } }): JSX.Element {
+function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, busy, error, onReset, onClose, t }: ResetCbs & { target: { hash: string; shortHash: string; subject: string } }): JSX.Element | null {
   const [mode, setMode] = useState<ResetMode>('mixed')
   const [ack, setAck] = useState(false)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
   // Switching away from hard clears a stale acknowledgement.
   useEffect(() => { if (mode !== 'hard') setAck(false) }, [mode])
   const modes: Array<{ value: ResetMode; label: GitKey; hint: GitKey }> = [
@@ -106,17 +88,10 @@ function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, 
     { value: 'hard', label: 'reset.modeHard', hint: 'reset.hardHint' },
   ]
   const confirmDisabled = busy || (mode === 'hard' && !ack)
-  const modal = h('div', {
-    className: 'gp-modal-backdrop',
-    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
-  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
-    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
-      h('span', { key: 'ic', className: 'gp-modal__fileicon' }, h(ResetIcon, { size: 15 })),
-      h('span', { key: 'title', className: 'gp-modal__path' }, t('reset.title')),
-      h('span', { key: 'hash', className: 'gp-modal__hash' }, target.shortHash),
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
-    ]),
-    h('div', { key: 'body', className: 'gp-modal__form' }, [
+  return renderModalShell({
+    onClose, title: t('reset.title'), icon: h(ResetIcon, { size: 15 }), hash: target.shortHash,
+    portalKey: 'reset-modal', t,
+    body: [
       h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, t('reset.body', { from, to: target.shortHash })),
       h('div', { key: 'modes', className: 'gp-reset__modes' }, modes.map((m) => h('label', {
         key: m.value, className: `gp-reset__mode${mode === m.value ? ' gp-reset__mode--on' : ''}${m.value === 'hard' ? ' gp-reset__mode--danger' : ''}`,
@@ -147,8 +122,7 @@ function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, 
       dirty ? h('div', { key: 'dirty', className: 'gp-reset__dirtywarn' }, t('ops.dirtyWarn')) : null,
       renderAiHint(t),
       error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
-    ]),
-    renderModalFooter({ onClose, onConfirm: () => void onReset(mode), confirmLabel: t('reset.confirm'), confirmDisabled, danger: mode === 'hard', t }),
-  ]))
-  return createPortal(modal, document.body, 'reset-modal')
+    ],
+    footer: renderModalFooter({ onClose, onConfirm: () => void onReset(mode), confirmLabel: t('reset.confirm'), confirmDisabled, danger: mode === 'hard', t }),
+  })
 }
