@@ -4,7 +4,7 @@
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.ts'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
-import { isSafeBranchName, isSafePath, isSafeRev } from './validate.ts'
+import { isSafeBranchName, isSafePath, isSafeRemoteName, isSafeRev } from './validate.ts'
 import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.ts'
 
 export { isSafePath }
@@ -66,6 +66,19 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       // non-zero, work tree untouched) when the branches diverged, so there is
       // no merge/rebase or conflict path to handle here.
       return { argv: [['git', 'pull', '--ff-only']] }
+    case 'push':
+      // Plain `git push` (never --force): it pushes the current branch to its
+      // configured upstream and the remote refuses a non-fast-forward, so a
+      // diverged branch (never offered by the UI) can only be rejected, not
+      // overwritten.
+      return { argv: [['git', 'push']] }
+    case 'publish':
+      // Publish a branch with no upstream yet. The remote name comes from the
+      // primary remote the client holds; revalidate it so a hostile local
+      // remote name can never reach the option position. `HEAD` names the
+      // current branch as the destination (no refspec to validate).
+      if (!isSafeRemoteName(action.remote)) return { error: 'invalid-name', message: `unsafe remote name: ${action.remote}` }
+      return { argv: [['git', 'push', '-u', action.remote, 'HEAD']] }
     case 'tag-create': {
       if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe tag name: ${action.name}` }
       if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
@@ -116,6 +129,12 @@ function isIndexBusy(outcome: Awaited<ReturnType<typeof runCommand>>): boolean {
   return /index\.lock|Unable to create.*index|another git process/i.test(outcome.run.stderr + outcome.run.stdout)
 }
 
+/** Strip an embedded credential (`scheme://user:token@host`) from a git
+ * message so a token in a remote URL never reaches the RPC reply or logs. */
+export function scrubCredentials(text: string): string {
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/gi, '$1')
+}
+
 /**
  * Classify a non-zero git exit into a wire error code + message. Order is
  * semantic and must not be reshuffled:
@@ -133,7 +152,10 @@ function isIndexBusy(outcome: Awaited<ReturnType<typeof runCommand>>): boolean {
  */
 export function classifyActionFailure(stdout: string, stderr: string, exitCode: number): { code: GitErrorCode; message: string } {
   const combined = stderr + stdout
-  const err = stderr.trim()
+  // Network git errors echo the remote URL verbatim, which may embed a
+  // credential (`https://user:token@host/…`); strip it so a token never lands
+  // in the RPC message or logs (matches remote.ts stripping it from hrefs).
+  const err = scrubCredentials(stderr.trim())
   if (/CONFLICT|Merge conflict|needs merge|could not restore untracked/i.test(combined)) {
     return { code: 'conflict', message: err || 'merge conflict' }
   }
@@ -145,6 +167,18 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   }
   if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument/i.test(combined)) {
     return { code: 'not-found', message: err || 'not found' }
+  }
+  // A network git command (fetch/pull/push) that failed because no usable
+  // credentials were available. GIT_TERMINAL_PROMPT=0 turns an interactive
+  // prompt into "terminal prompts disabled", so these fail fast rather than hang.
+  if (/Authentication failed|could not read (Username|Password)|terminal prompts disabled|Permission denied \(publickey\)|Could not read from remote repository/i.test(combined)) {
+    return { code: 'auth-failed', message: err || 'authentication failed' }
+  }
+  // `git push` rejected by the remote: the remote advanced, so the push is not a
+  // fast-forward. Checked before the pull `not-ff` branch because the wording
+  // overlaps ("non-fast-forward").
+  if (/\[rejected\]|Updates were rejected|failed to push some refs|fetch first|tip of your current branch is behind/i.test(combined)) {
+    return { code: 'push-rejected', message: err || 'push rejected (remote has new commits; fetch first)' }
   }
   // `git pull --ff-only` on diverged branches: a clean refusal that leaves the
   // work tree untouched, distinct from a dirty-tree block below.

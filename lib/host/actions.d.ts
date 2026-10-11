@@ -11,6 +11,9 @@ type PlanResult = CommandPlan | {
 };
 /** Build the git command sequence for an action. */
 export declare function planAction(action: GitAction, unborn: boolean): PlanResult;
+/** Strip an embedded credential (`scheme://user:token@host`) from a git
+ * message so a token in a remote URL never reaches the RPC reply or logs. */
+export declare function scrubCredentials(text: string): string;
 /**
  * Classify a non-zero git exit into a wire error code + message. Order is
  * semantic and must not be reshuffled:

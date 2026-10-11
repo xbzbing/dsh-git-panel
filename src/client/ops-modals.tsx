@@ -24,6 +24,8 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'cwd-unavailable': return t('error.noCwd')
     case 'local-changes-block': return t('error.localChangesBlock')
     case 'not-ff': return t('error.notFastForward')
+    case 'push-rejected': return t('error.pushRejected')
+    case 'auth-failed': return t('error.authFailed')
     case 'conflict': return t('error.conflict')
     case 'revert-conflict': return t('error.revertConflict')
     case 'revert-stuck': return t('error.revertStuck')

@@ -44,6 +44,9 @@ await page.addScriptTag({ path: resolve(DIR, 'client.js') })
 
 const out = await page.evaluate(async (snap) => {
   const result = { steps: [] }
+  // Mutable snapshot the mock serves: the status-bar test flips it to an ahead
+  // and a no-upstream state and re-drives the panel through the check button.
+  let liveSnap = snap
   // Valid 1×1 PNG, served as both image-diff sides by the mock.
   const MOCK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
   const fileQueries = []
@@ -54,7 +57,7 @@ const out = await page.evaluate(async (snap) => {
     rpc: {
       call: async (_channel, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: liveSnap } }
         if (endpoint === 'gitPanel/query') {
           const q = request.query
           if (q.kind === 'worktree-stats') return { ok: true, value: { ok: true, value: { kind: 'worktree-stats', stats: { fileCount: 3, staged: 0, modified: 2, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: new Date().toISOString() } } } }
@@ -99,9 +102,11 @@ const out = await page.evaluate(async (snap) => {
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
+          if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
+          if (q.kind === 'push-preview') return { ok: true, value: { ok: true, value: { kind: 'push-preview', hasUpstream: liveSnap.hasUpstream === true, commits: 3, files: 2, insertions: 7, deletions: 1 } } }
           if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }] } } }
         }
-        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: liveSnap } }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
@@ -264,6 +269,34 @@ const out = await page.evaluate(async (snap) => {
   result.statusRepoHref = sbar?.querySelector('a.gp-statusbar__repo')?.getAttribute('href') ?? null
   result.statusSyncedShown = (sbar?.querySelector('.gp-statusbar__state')?.textContent || '').includes('status.synced')
   result.statusNoPullWhenSynced = sbar?.querySelector('.gp-statusbar__pull') == null
+  result.statusNoPushWhenSynced = ![...(sbar?.querySelectorAll('.gp-statusbar__pull') || [])].some((b) => (b.textContent || '').includes('status.push'))
+  // Flip the served snapshot to strictly-ahead and re-drive through the check
+  // button (fetch → onAction → controller.accept): the push button appears, and
+  // confirming shows the outgoing scope preview.
+  const clickCheck = async () => {
+    const btn = document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__btn')
+    if (btn) { btn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  }
+  const findBarBtn = (key) => [...document.querySelectorAll('.gp-col--left .gp-statusbar__sync button')].find((b) => (b.textContent || '').includes(key)) || null
+  liveSnap = { ...snap, ahead: 3, behind: 0 }
+  await clickCheck()
+  const pushBtn = findBarBtn('status.push')
+  result.statusAheadPushShown = pushBtn != null
+  if (pushBtn) { pushBtn.click(); await new Promise((r) => setTimeout(r, 250)) }
+  result.statusPushConfirmOpened = [...document.querySelectorAll('.gp-modal__path')].some((n) => (n.textContent || '').includes('status.pushConfirmTitle'))
+  result.statusPushScopeShown = (document.querySelector('.gp-modal .gp-pullscope')?.textContent || '').includes('status.pushScope')
+  document.querySelector('.gp-modal__close')?.click(); await new Promise((r) => setTimeout(r, 150))
+  // Flip to a no-upstream branch: the publish button replaces push, and its
+  // confirm opens (the second reminder before `git push -u`).
+  liveSnap = { ...snap, ahead: 0, behind: 0, hasUpstream: false }
+  await clickCheck()
+  result.statusNoUpstreamNoPush = findBarBtn('status.push') == null
+  const publishBtn = findBarBtn('status.publish')
+  result.statusPublishShown = publishBtn != null
+  if (publishBtn) { publishBtn.click(); await new Promise((r) => setTimeout(r, 250)) }
+  result.statusPublishConfirmOpened = [...document.querySelectorAll('.gp-modal__path')].some((n) => (n.textContent || '').includes('status.publishConfirmTitle'))
+  document.querySelector('.gp-modal__close')?.click(); await new Promise((r) => setTimeout(r, 150))
+  liveSnap = snap
   // Search box: a wide panel uses the full "(message / hash)" placeholder key;
   // narrowing it below the threshold swaps to the short key (a placeholder is a
   // DOM attribute, so this is a JS swap, not CSS). The harness binds t() to the
@@ -583,6 +616,13 @@ try {
   assert.equal(out.statusRepoHref, 'https://github.com/owner/repo', 'the status bar links to the parsed GitHub repo page')
   assert.equal(out.statusSyncedShown, true, 'a synced branch shows the up-to-date state')
   assert.equal(out.statusNoPullWhenSynced, true, 'a synced branch offers no pull button')
+  assert.equal(out.statusNoPushWhenSynced, true, 'a synced branch offers no push button')
+  assert.equal(out.statusAheadPushShown, true, 'a strictly-ahead branch offers a push button')
+  assert.equal(out.statusPushConfirmOpened, true, 'push opens a confirm dialog')
+  assert.equal(out.statusPushScopeShown, true, 'the push confirm shows the outgoing scope')
+  assert.equal(out.statusNoUpstreamNoPush, true, 'a branch without an upstream offers no push button')
+  assert.equal(out.statusPublishShown, true, 'a branch without an upstream offers a publish button')
+  assert.equal(out.statusPublishConfirmOpened, true, 'publish opens a second-reminder confirm dialog')
   assert.equal(out.searchFullHint, true, 'a wide search box shows the full message/hash hint')
   assert.equal(out.searchShortHint, true, 'a narrow search box drops the hint to the short placeholder')
   assert.equal(out.searchHintRestored, true, 'widening the search box restores the full hint')

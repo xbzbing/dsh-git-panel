@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseRemote, classifyHost, parsePrimaryRemote, planAction, classifyActionFailure } from '../../lib/testkit.mjs'
+import { parseRemote, classifyHost, parsePrimaryRemote, planAction, classifyActionFailure, isSafeRemoteName } from '../../lib/testkit.mjs'
 
 test('parseRemote collapses every URL shape to one https page link', () => {
   const cases = [
@@ -77,4 +77,44 @@ test('pull-ff plans a fast-forward-only pull', () => {
 test('classifyActionFailure maps a diverged fast-forward refusal to not-ff', () => {
   const out = classifyActionFailure('', 'fatal: Not possible to fast-forward, aborting.', 128)
   assert.equal(out.code, 'not-ff')
+})
+
+test('push plans a plain git push (never --force)', () => {
+  const plan = planAction({ kind: 'push' }, false)
+  assert.deepEqual(plan, { argv: [['git', 'push']] })
+  assert.ok(!JSON.stringify(plan).includes('force'))
+})
+
+test('publish plans push -u <remote> HEAD and revalidates the remote name', () => {
+  assert.deepEqual(planAction({ kind: 'publish', remote: 'origin' }, false), { argv: [['git', 'push', '-u', 'origin', 'HEAD']] })
+  // A hostile remote name never reaches the option position.
+  assert.equal(planAction({ kind: 'publish', remote: '--upload-pack=evil' }, false).error, 'invalid-name')
+})
+
+test('isSafeRemoteName accepts git remote names and rejects option injection', () => {
+  assert.equal(isSafeRemoteName('origin'), true)
+  assert.equal(isSafeRemoteName('fork-2'), true)
+  assert.equal(isSafeRemoteName('team/upstream'), true)
+  assert.equal(isSafeRemoteName('-f'), false)
+  assert.equal(isSafeRemoteName('--upload-pack=x'), false)
+  assert.equal(isSafeRemoteName(''), false)
+  assert.equal(isSafeRemoteName('a b'), false)
+})
+
+test('classifyActionFailure maps a rejected push to push-rejected', () => {
+  const out = classifyActionFailure('', 'error: failed to push some refs to \'github.com:o/r.git\'\nhint: Updates were rejected because the tip of your current branch is behind', 1)
+  assert.equal(out.code, 'push-rejected')
+})
+
+test('classifyActionFailure maps a credential failure (GIT_TERMINAL_PROMPT=0) to auth-failed', () => {
+  assert.equal(classifyActionFailure('', "fatal: could not read Username for 'https://github.com': terminal prompts disabled", 128).code, 'auth-failed')
+  assert.equal(classifyActionFailure('', 'git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.', 128).code, 'auth-failed')
+})
+
+test('classifyActionFailure scrubs an embedded credential from the message', () => {
+  const out = classifyActionFailure('', "error: failed to push some refs to 'https://x-access-token:ghp_SECRET123@github.com/o/r.git'\nUpdates were rejected", 1)
+  assert.equal(out.code, 'push-rejected')
+  assert.ok(!out.message.includes('ghp_SECRET123'), 'token stripped from the message')
+  assert.ok(!out.message.includes('x-access-token'), 'userinfo stripped from the message')
+  assert.ok(out.message.includes('https://github.com/o/r.git'), 'host/path preserved')
 })
