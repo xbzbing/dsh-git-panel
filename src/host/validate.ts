@@ -34,3 +34,10 @@ export function isSafeRev(input: string): boolean {
 export function isSafeBranchName(name: string): boolean {
   return isSafeRev(name) && !name.startsWith('/')
 }
+
+/** A git remote name for `git push -u <remote> HEAD`. Allows the characters git
+ * permits in a remote name (alphanumerics, `._/-`) but never a leading dash, so
+ * a configured remote can never slip into the option position. */
+export function isSafeRemoteName(name: string): boolean {
+  return /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(name) && name.length <= 128
+}

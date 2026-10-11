@@ -1100,3 +1100,121 @@ test('pull-preview reports the incoming fast-forward scope (commits/files/+-line
     rmSync(base, { recursive: true, force: true })
   }
 })
+
+test('push-preview on a branch without an upstream reports hasUpstream:false', async () => {
+  const dir = await freshRepo('gp-push-noup-')
+  try {
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'push-preview' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.kind, 'push-preview')
+    assert.equal(res.value.hasUpstream, false)
+    assert.equal(res.value.commits, 0)
+    assert.equal(res.value.files, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('push-preview reports the outgoing scope (commits/files/+-lines)', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const base = mkdtempSync(join(tmpdir(), 'gp-push-up-'))
+  const origin = join(base, 'origin.git')
+  const a = join(base, 'a')
+  try {
+    execFileSync('git', ['init', '-q', '--bare', origin])
+    execFileSync('git', ['clone', '-q', origin, a])
+    await runGit(a, ['config', 'user.email', 't@t.co'])
+    await runGit(a, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(a, 'f1.txt'), 'l1\nl2\nl3\n')
+    await runGit(a, ['add', 'f1.txt'])
+    await runGit(a, ['commit', '-qm', 'c1'])
+    await runGit(a, ['branch', '-M', 'main'])
+    await runGit(a, ['push', '-q', '-u', 'origin', 'main'])
+    // Two local commits touching two files, not yet pushed → strictly ahead.
+    writeFileSync(join(a, 'f1.txt'), 'l1\nl2-changed\nl3\nl4\n')
+    await runGit(a, ['commit', '-aqm', 'c2'])
+    writeFileSync(join(a, 'f2.txt'), 'new1\nnew2\n')
+    await runGit(a, ['add', 'f2.txt'])
+    await runGit(a, ['commit', '-qm', 'c3'])
+    const res = await runQuery(depsAt(a), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'push-preview' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.kind, 'push-preview')
+    assert.equal(res.value.hasUpstream, true)
+    assert.equal(res.value.commits, 2, 'two commits ahead')
+    assert.equal(res.value.files, 2, 'two files changed (f1 modified, f2 added)')
+    assert.ok(res.value.insertions >= 3, 'outgoing insertions counted')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('push advances the upstream when strictly ahead', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const base = mkdtempSync(join(tmpdir(), 'gp-push-act-'))
+  const origin = join(base, 'origin.git')
+  const a = join(base, 'a')
+  try {
+    execFileSync('git', ['init', '-q', '--bare', origin])
+    execFileSync('git', ['clone', '-q', origin, a])
+    await runGit(a, ['config', 'user.email', 't@t.co'])
+    await runGit(a, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(a, 'f1.txt'), 'x\n')
+    await runGit(a, ['add', 'f1.txt'])
+    await runGit(a, ['commit', '-qm', 'c1'])
+    await runGit(a, ['branch', '-M', 'main'])
+    await runGit(a, ['push', '-q', '-u', 'origin', 'main'])
+    writeFileSync(join(a, 'f1.txt'), 'x\ny\n')
+    await runGit(a, ['commit', '-aqm', 'c2'])
+    const res = await runAction(depsAt(a), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'push' } })
+    assert.equal(res.ok, true)
+    // Origin now points at the local tip; the snapshot is back to synced.
+    const local = execFileSync('git', ['-C', a, 'rev-parse', 'HEAD']).toString().trim()
+    const remoteTip = execFileSync('git', ['--git-dir', origin, 'rev-parse', 'refs/heads/main']).toString().trim()
+    assert.equal(remoteTip, local, 'origin/main fast-forwarded to the pushed tip')
+    assert.equal(res.snapshot.ahead, 0)
+    assert.equal(res.snapshot.behind, 0)
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('publish creates the remote branch and sets upstream (push -u)', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const base = mkdtempSync(join(tmpdir(), 'gp-publish-'))
+  const origin = join(base, 'origin.git')
+  const a = join(base, 'a')
+  try {
+    execFileSync('git', ['init', '-q', '--bare', origin])
+    execFileSync('git', ['clone', '-q', origin, a])
+    await runGit(a, ['config', 'user.email', 't@t.co'])
+    await runGit(a, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(a, 'f1.txt'), 'x\n')
+    await runGit(a, ['add', 'f1.txt'])
+    await runGit(a, ['commit', '-qm', 'c1'])
+    await runGit(a, ['branch', '-M', 'feature/x'])
+    // No upstream yet: snapshot reflects that before publishing.
+    const before = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
+    assert.equal(before.ok, true)
+    assert.equal(before.value.hasUpstream, false)
+    const res = await runAction(depsAt(a), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'publish', remote: before.value.remote.name } })
+    assert.equal(res.ok, true)
+    // The same-named branch now exists on origin and HEAD tracks it.
+    const remoteTip = execFileSync('git', ['--git-dir', origin, 'rev-parse', 'refs/heads/feature/x']).toString().trim()
+    const local = execFileSync('git', ['-C', a, 'rev-parse', 'HEAD']).toString().trim()
+    assert.equal(remoteTip, local)
+    assert.equal(res.snapshot.hasUpstream, true, 'upstream set after publish')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('publish rejects a hostile remote name before spawning git', async () => {
+  const dir = await freshRepo('gp-publish-bad-')
+  try {
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'publish', remote: '--upload-pack=touch /tmp/pwn' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'invalid-name')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

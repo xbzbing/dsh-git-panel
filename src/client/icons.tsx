@@ -97,6 +97,11 @@ export function DownloadIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M8 2.5v7' }), h('path', { key: 'b', d: 'M4.5 7L8 10.5 11.5 7' }), h('path', { key: 'c', d: 'M3 13h10' })], size)
 }
 
+/** Upward arrow over a baseline — the push/publish (upload) action. */
+export function UploadIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M8 10.5v-7' }), h('path', { key: 'b', d: 'M4.5 6L8 2.5 11.5 6' }), h('path', { key: 'c', d: 'M3 13h10' })], size)
+}
+
 /** Two-arrow sync glyph for the status-check action. */
 export function SyncIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M12.5 7a4.5 4.5 0 0 0-8-2.3' }), h('path', { key: 'b', d: 'M3.5 9a4.5 4.5 0 0 0 8 2.3' }), h('path', { key: 'c', d: 'M4.3 2.2v2.5h2.5' }), h('path', { key: 'd', d: 'M11.7 13.8v-2.5H9.2' })], size)

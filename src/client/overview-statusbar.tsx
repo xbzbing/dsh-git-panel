@@ -1,5 +1,5 @@
 /**
- * Git overview left-column footer status bar and the pull-scope preview node.
+ * Git overview left-column footer status bar and the sync-scope preview nodes.
  * Split out of OverviewTab so the composition layer stays focused on data
  * wiring; this module owns the status-bar presentation only.
  */
@@ -7,21 +7,21 @@ import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import type { GitSnapshot } from './types'
 import type { GitKey } from './locales'
-import { DownloadIcon, GitHubIcon, SyncIcon } from './icons'
+import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
 
 export type PullPreview = { commits: number; files: number; insertions: number; deletions: number }
 
-/** The incoming fast-forward scope, highlighted + bold in the pull confirm.
+/** A fast-forward scope line (pull or push), highlighted + bold in the confirm.
  * The ±line counts are colored like a diffstat; the `+N / −N` token is split
  * out of the interpolated string (identical in every locale) so only the
- * numbers carry the add/del color. */
-export function pullScopeNode(preview: 'loading' | PullPreview | null, t: Translate): JSX.Element {
+ * numbers carry the add/del color. `keys` pick the direction's copy. */
+function scopeNode(preview: 'loading' | PullPreview | null, t: Translate, keys: { line: GitKey; loading: GitKey }): JSX.Element {
   if (preview === 'loading' || preview === null) {
-    return h('div', { className: 'gp-pullscope gp-pullscope--loading' }, t('status.pullScopeLoading'))
+    return h('div', { className: 'gp-pullscope gp-pullscope--loading' }, t(keys.loading))
   }
-  const line = t('status.pullScope', { commits: preview.commits, files: preview.files, ins: preview.insertions, del: preview.deletions })
+  const line = t(keys.line, { commits: preview.commits, files: preview.files, ins: preview.insertions, del: preview.deletions })
   const m = line.match(/(\+\d+)\s*\/\s*([-−]\d+)/)
   if (m === null) return h('div', { className: 'gp-pullscope' }, line)
   const start = line.indexOf(m[0])
@@ -34,11 +34,25 @@ export function pullScopeNode(preview: 'loading' | PullPreview | null, t: Transl
   ])
 }
 
+/** Incoming fast-forward scope shown in the pull confirm. */
+export function pullScopeNode(preview: 'loading' | PullPreview | null, t: Translate): JSX.Element {
+  return scopeNode(preview, t, { line: 'status.pullScope', loading: 'status.pullScopeLoading' })
+}
+
+/** Outgoing scope shown in the push confirm. */
+export function pushScopeNode(preview: 'loading' | PullPreview | null, t: Translate): JSX.Element {
+  return scopeNode(preview, t, { line: 'status.pushScope', loading: 'status.pushScopeLoading' })
+}
+
 export interface StatusBarCbs {
   readonly syncBusy: boolean
   readonly pullBusy: boolean
+  readonly pushBusy: boolean
+  readonly publishBusy: boolean
   readonly onCheck: () => void
   readonly onPull: () => void
+  readonly onPush: () => void
+  readonly onPublish: () => void
   readonly t: Translate
 }
 
@@ -82,6 +96,13 @@ export function renderStatusBar(snapshot: GitSnapshot, cb: StatusBarCbs): JSX.El
   // ── right: sync state + actions ──
   const { ahead, behind, branch } = snapshot
   const canPull = hasUpstream && behind > 0 && ahead === 0
+  // Push is offered only when strictly ahead (ahead>0, behind=0): the push can
+  // only fast-forward the remote. A diverged branch (both ahead and behind) is
+  // deliberately not offered — the user must reconcile first.
+  const canPush = hasUpstream && ahead > 0 && behind === 0
+  // A branch with no upstream yet can be published (push -u) when a remote
+  // exists to publish to.
+  const canPublish = !hasUpstream && branch !== null && remote !== null
   const stateNode = ((): JSX.Element => {
     let text: string
     let tone = ''
@@ -107,6 +128,16 @@ export function renderStatusBar(snapshot: GitSnapshot, cb: StatusBarCbs): JSX.El
       disabled: cb.pullBusy, title: t('status.pullTitle'),
       onClick: cb.onPull,
     }, [h(DownloadIcon, { key: 'i', size: 12 }), t('status.pull')]) : null,
+    canPush ? h('button', {
+      key: 'push', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
+      disabled: cb.pushBusy, title: t('status.pushTitle'),
+      onClick: cb.onPush,
+    }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.push')]) : null,
+    canPublish ? h('button', {
+      key: 'publish', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
+      disabled: cb.publishBusy, title: t('status.publishTitle'),
+      onClick: cb.onPublish,
+    }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.publish')]) : null,
   ]
 
   return h('div', { key: 'statusbar', className: `gp-statusbar${cb.syncBusy ? ' gp-statusbar--busy' : ''}` }, [

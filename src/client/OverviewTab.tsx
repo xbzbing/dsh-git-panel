@@ -22,7 +22,7 @@ import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
 import { opErrorText, renderConfirmModal } from './ops-modals'
 import { renderResetModal, renderTagCreateModal } from './overview-modals'
-import { pullScopeNode, renderStatusBar } from './overview-statusbar'
+import { pullScopeNode, pushScopeNode, renderStatusBar } from './overview-statusbar'
 import type { DiffViewMode } from './types'
 
 interface OverviewProps {
@@ -106,9 +106,15 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
   const [syncBusy, setSyncBusy] = useState(false)
   const [pullBusy, setPullBusy] = useState(false)
   const [pullConfirm, setPullConfirm] = useState(false)
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushConfirm, setPushConfirm] = useState(false)
+  const [publishBusy, setPublishBusy] = useState(false)
+  const [publishConfirm, setPublishConfirm] = useState(false)
   // Incoming fast-forward scope shown in the pull confirm: null = not loaded,
   // 'loading' while the query runs, else the diffstat preview.
   const [pullPreview, setPullPreview] = useState<'loading' | { commits: number; files: number; insertions: number; deletions: number } | null>(null)
+  // Outgoing scope shown in the push confirm (same shape as the pull preview).
+  const [pushPreview, setPushPreview] = useState<'loading' | { commits: number; files: number; insertions: number; deletions: number } | null>(null)
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
   // Ignored by the wide layout, which renders both columns at once.
   const [pane, setPane] = useState<'list' | 'detail'>('list')
@@ -142,6 +148,20 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
     })
     return () => { alive = false }
   }, [pullConfirm, remote, sessionId])
+
+  // The push confirm mirrors the pull one, previewing the outgoing scope
+  // (@{upstream}..HEAD). Publish has no upstream baseline, so it shows no scope.
+  useEffect(() => {
+    if (!pushConfirm) { setPushPreview(null); return }
+    let alive = true
+    setPushPreview('loading')
+    void remote.query({ sessionId, query: { kind: 'push-preview' } }).then((res) => {
+      if (!alive) return
+      const pv = queryAs(res, 'push-preview')
+      setPushPreview(pv !== null && pv.hasUpstream ? { commits: pv.commits, files: pv.files, insertions: pv.insertions, deletions: pv.deletions } : null)
+    })
+    return () => { alive = false }
+  }, [pushConfirm, remote, sessionId])
 
   const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, effRefresh)
   const detail = useCommitDetail(remote, sessionId, defaultDiffView)
@@ -268,6 +288,26 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
       else setOpError(res.error ?? t('error.generic'))
     } finally { setPullBusy(false) }
   }
+  const runPush = async (): Promise<void> => {
+    if (pushBusy) return
+    setOpError(null)
+    setPushBusy(true)
+    try {
+      const res = await onAction({ kind: 'push' })
+      if (res.ok) { setPushConfirm(false); reloadTree() }
+      else setOpError(res.error ?? t('error.generic'))
+    } finally { setPushBusy(false) }
+  }
+  const runPublish = async (): Promise<void> => {
+    if (publishBusy || snapshot.remote === null) return
+    setOpError(null)
+    setPublishBusy(true)
+    try {
+      const res = await onAction({ kind: 'publish', remote: snapshot.remote.name })
+      if (res.ok) { setPublishConfirm(false); reloadTree() }
+      else setOpError(res.error ?? t('error.generic'))
+    } finally { setPublishBusy(false) }
+  }
 
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     text: detail.fileDiffText,
@@ -342,6 +382,31 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
       busyLabel: t('status.pulling'),
       onConfirm: () => void runPullFf(),
       onClose: () => setPullConfirm(false),
+      t,
+    }) : null,
+    pushConfirm ? renderConfirmModal({
+      title: t('status.pushConfirmTitle'),
+      body: t('status.pushConfirmBody', { branch: snapshot.branch ?? 'HEAD', ahead: snapshot.ahead }),
+      extra: pushScopeNode(pushPreview, t),
+      confirmLabel: t('status.pushConfirm'),
+      danger: false,
+      error: opError,
+      confirmBusy: pushBusy,
+      busyLabel: t('status.pushing'),
+      onConfirm: () => void runPush(),
+      onClose: () => setPushConfirm(false),
+      t,
+    }) : null,
+    publishConfirm ? renderConfirmModal({
+      title: t('status.publishConfirmTitle'),
+      body: t('status.publishConfirmBody', { branch: snapshot.branch ?? 'HEAD', remote: snapshot.remote?.name ?? 'origin' }),
+      confirmLabel: t('status.publishConfirm'),
+      danger: false,
+      error: opError,
+      confirmBusy: publishBusy,
+      busyLabel: t('status.publishing'),
+      onConfirm: () => void runPublish(),
+      onClose: () => setPublishConfirm(false),
       t,
     }) : null,
   ]
@@ -448,7 +513,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
           ...detailBody,
         ])
         : historyCol,
-      renderStatusBar(snapshot, { syncBusy, pullBusy, onCheck: () => void runCheckSync(), onPull: () => { setOpError(null); setPullConfirm(true) }, t }),
+      renderStatusBar(snapshot, { syncBusy, pullBusy, pushBusy, publishBusy, onCheck: () => void runCheckSync(), onPull: () => { setOpError(null); setPullConfirm(true) }, onPush: () => { setOpError(null); setPushConfirm(true) }, onPublish: () => { setOpError(null); setPublishConfirm(true) }, t }),
       sheetOpen ? renderBranchSheet(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
@@ -471,7 +536,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
         onRetry: reloadTree,
         t,
       })),
-      renderStatusBar(snapshot, { syncBusy, pullBusy, onCheck: () => void runCheckSync(), onPull: () => { setOpError(null); setPullConfirm(true) }, t }),
+      renderStatusBar(snapshot, { syncBusy, pullBusy, pushBusy, publishBusy, onCheck: () => void runCheckSync(), onPull: () => { setOpError(null); setPullConfirm(true) }, onPush: () => { setOpError(null); setPushConfirm(true) }, onPublish: () => { setOpError(null); setPublishConfirm(true) }, t }),
     ]),
     leftCol.divider,
     // middle: history

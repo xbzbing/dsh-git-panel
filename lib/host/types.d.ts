@@ -150,6 +150,11 @@ export type GitAction = {
 } | {
     readonly kind: 'pull-ff';
 } | {
+    readonly kind: 'push';
+} | {
+    readonly kind: 'publish';
+    readonly remote: string;
+} | {
     readonly kind: 'tag-create';
     readonly name: string;
     readonly commit: string;
@@ -183,7 +188,7 @@ export type GitAction = {
 /** `git reset` modes, from least to most destructive. Single source so the
  * client dialog and the command builder cannot drift. */
 export type ResetMode = 'soft' | 'mixed' | 'hard';
-export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'not-ff' | 'conflict' | 'revert-conflict' | 'revert-stuck' | 'revert-merge' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'not-ff' | 'push-rejected' | 'auth-failed' | 'conflict' | 'revert-conflict' | 'revert-stuck' | 'revert-merge' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;
@@ -267,6 +272,8 @@ export type GitQuery = {
     readonly kind: 'worktree-stats';
 } | {
     readonly kind: 'pull-preview';
+} | {
+    readonly kind: 'push-preview';
 };
 /** One entry in a `dir-list` result. */
 export interface DirEntry {
@@ -384,6 +391,13 @@ export type GitQueryResult = {
     readonly stats: WorktreeStats;
 } | {
     readonly kind: 'pull-preview';
+    readonly hasUpstream: boolean;
+    readonly commits: number;
+    readonly files: number;
+    readonly insertions: number;
+    readonly deletions: number;
+} | {
+    readonly kind: 'push-preview';
     readonly hasUpstream: boolean;
     readonly commits: number;
     readonly files: number;

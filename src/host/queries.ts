@@ -67,6 +67,7 @@ export async function runQuery(
       case 'last-commit-message': return await queryLastCommitMessage(deps, root)
       case 'worktree-stats': return await queryWorktreeStats(deps, config, request.sessionId)
       case 'pull-preview': return await queryPullPreview(deps, root)
+      case 'push-preview': return await queryPushPreview(deps, root)
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -606,6 +607,26 @@ async function queryPullPreview(deps: SnapshotDeps, root: string): Promise<GitQu
     deletions = sum.deletions
   }
   return { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits, files, insertions, deletions } }
+}
+
+async function queryPushPreview(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
+  const empty = { kind: 'push-preview', hasUpstream: false, commits: 0, files: 0, insertions: 0, deletions: 0 } as const
+  // Outgoing range is the mirror of pull-preview: commits on HEAD not yet on the
+  // upstream. A non-zero exit means no upstream (or unborn) → "no upstream".
+  const commitsRes = await runCommand(deps.run, ['git', 'rev-list', '--count', '--end-of-options', '@{upstream}..HEAD'], root, 'push-preview-count', deps.signal)
+  if (!('run' in commitsRes) || commitsRes.run.exitCode !== 0) return { ok: true, value: empty }
+  const commits = Number(commitsRes.run.stdout.trim()) || 0
+  const diffRes = await runCommand(deps.run, ['git', 'diff', '--numstat', '--end-of-options', '@{upstream}', 'HEAD'], root, 'push-preview-diff', deps.signal)
+  let files = 0
+  let insertions = 0
+  let deletions = 0
+  if ('run' in diffRes && diffRes.run.exitCode === 0) {
+    files = diffRes.run.stdout.split('\n').filter((l) => l.trim() !== '').length
+    const sum = sumNumstat(diffRes.run.stdout)
+    insertions = sum.insertions
+    deletions = sum.deletions
+  }
+  return { ok: true, value: { kind: 'push-preview', hasUpstream: true, commits, files, insertions, deletions } }
 }
 
 async function queryWorktreeStats(

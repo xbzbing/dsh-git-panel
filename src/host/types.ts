@@ -159,6 +159,16 @@ export type GitAction =
   // branch to the remote tip (never a merge/rebase) — the safe "catch up to
   // remote" the UI offers when the branch is strictly behind.
   | { readonly kind: 'pull-ff' }
+  // Push the current branch to its upstream (plain `git push`, never --force).
+  // The UI offers it only when the branch is strictly ahead (ahead>0, behind=0),
+  // so the push can only fast-forward the remote; a diverged branch is refused
+  // by the remote and never offered.
+  | { readonly kind: 'push' }
+  // Publish a branch with no upstream: `git push -u <remote> HEAD` creates the
+  // remote branch (named after the current one) and sets it as upstream. The
+  // remote name comes from the primary-remote the client already holds; the host
+  // revalidates it. Offered only when the branch has no upstream yet.
+  | { readonly kind: 'publish'; readonly remote: string }
   // Tag write operations (issue #12). `message` non-empty → annotated tag (-a).
   | { readonly kind: 'tag-create'; readonly name: string; readonly commit: string; readonly message?: string }
   | { readonly kind: 'tag-delete'; readonly name: string }
@@ -194,6 +204,11 @@ export type GitErrorCode =
   | 'local-changes-block'
   // A fast-forward-only pull could not fast-forward (local/remote diverged).
   | 'not-ff'
+  // A push was rejected by the remote (non-fast-forward: the remote advanced).
+  | 'push-rejected'
+  // A network git command failed on authentication (no usable credentials;
+  // GIT_TERMINAL_PROMPT=0 makes an interactive prompt fail fast instead).
+  | 'auth-failed'
   // Stash apply/pop left the work tree with merge conflicts (stash kept).
   | 'conflict'
   // A revert hit a content conflict and was auto-aborted (work tree restored).
@@ -263,6 +278,10 @@ export type GitQuery =
   // (commits / files / +- lines). Local-only (objects already fetched when
   // behind > 0), so it previews what a pull would bring in.
   | { readonly kind: 'pull-preview' }
+  // Scope of the outgoing push: diffstat between the upstream and HEAD
+  // (commits / files / +- lines). Local-only, so it previews what a push would
+  // publish. No upstream → hasUpstream:false and zeroed counts.
+  | { readonly kind: 'push-preview' }
 
 /** One entry in a `dir-list` result. */
 export interface DirEntry {
@@ -366,6 +385,7 @@ export type GitQueryResult =
   // Incoming fast-forward scope (HEAD..@{upstream}). `hasUpstream` false when
   // the branch tracks nothing (then the counts are all 0).
   | { readonly kind: 'pull-preview'; readonly hasUpstream: boolean; readonly commits: number; readonly files: number; readonly insertions: number; readonly deletions: number }
+  | { readonly kind: 'push-preview'; readonly hasUpstream: boolean; readonly commits: number; readonly files: number; readonly insertions: number; readonly deletions: number }
   // File-browser directory listing (one level). `truncated` is set when the
   // entry count was capped.
   | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }
