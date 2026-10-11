@@ -336,6 +336,14 @@ const out = await page.evaluate(async (snap) => {
   result.treeDirCollapsedAttr = detailDirRowAfter?.getAttribute('aria-expanded') === 'false'
   if (detailDirRowAfter) { detailDirRowAfter.click(); await new Promise((r) => setTimeout(r, 120)) }
   result.treeChildVisibleAfterReexpand = childVisible()
+  // Keyboard a11y: the folder row is focusable (tabIndex 0) and Enter toggles it.
+  const kbDirRow = document.querySelector('.gp-detail__files .gp-tree-row--dir')
+  result.treeDirFocusable = kbDirRow?.getAttribute('tabindex') === '0'
+  if (kbDirRow) { kbDirRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await new Promise((r) => setTimeout(r, 120)) }
+  result.treeChildHiddenAfterKeyToggle = !childVisible()
+  const kbDirRowAfter = document.querySelector('.gp-detail__files .gp-tree-row--dir')
+  if (kbDirRowAfter) { kbDirRowAfter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await new Promise((r) => setTimeout(r, 120)) }
+  result.treeChildVisibleAfterKeyReexpand = childVisible()
   // Commit detail action area: a create-tag button opens the tag dialog, which
   // carries the shared "trust the AI" hint. Close it before the file-diff test.
   const createTagBtn = [...document.querySelectorAll('.gp-detail__ops .gp-btn')].find((b) => (b.textContent || '').includes('overview.createTag'))
@@ -663,6 +671,9 @@ try {
   assert.equal(out.treeChildHiddenAfterCollapse, true, 'clicking the folder collapses its children')
   assert.equal(out.treeDirCollapsedAttr, true, 'collapsed folder reports aria-expanded=false')
   assert.equal(out.treeChildVisibleAfterReexpand, true, 'clicking again re-expands the folder')
+  assert.equal(out.treeDirFocusable, true, 'folder row is keyboard-focusable (tabIndex 0)')
+  assert.equal(out.treeChildHiddenAfterKeyToggle, true, 'Enter on the folder collapses it')
+  assert.equal(out.treeChildVisibleAfterKeyReexpand, true, 'Enter again re-expands it')
   assert.equal(out.hasCreateTagBtn, true, 'commit detail shows a create-tag action')
   assert.equal(out.tagModalOpened, true, 'the create-tag dialog opens')
   assert.equal(out.tagModalHint, true, 'the create-tag dialog shows the AI hint')

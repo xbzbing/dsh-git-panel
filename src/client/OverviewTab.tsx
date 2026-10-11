@@ -25,6 +25,9 @@ import { renderResetModal, renderTagCreateModal } from './overview-modals'
 import { pullScopeNode, pushScopeNode, renderStatusBar } from './overview-statusbar'
 import type { DiffViewMode } from './types'
 
+/** Stable empty collapsed-dirs set; shared so a fully-expanded tree never allocates. */
+const EMPTY_DIRS: ReadonlySet<string> = new Set()
+
 interface OverviewProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
@@ -198,19 +201,22 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
   const fileTree = useMemo(() => (detail.detail === null ? [] : buildFileTree(detail.detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail.detail])
   const selected = detail.selected
 
-  // Changed-file tree folders collapse on click; each newly selected commit
-  // starts fully expanded (default-expand design), so a selection change
-  // clears the manual collapses.
-  const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set())
-  useEffect(() => { setCollapsedDirs(new Set()) }, [selected?.hash])
+  // Changed-file tree folders collapse on click. The collapsed set is stamped
+  // with the commit hash it belongs to and derived during render, so switching
+  // commits paints fully expanded on the first frame (even for an LRU-cached
+  // commit that shares a folder path) without a post-paint reset.
+  const selectedHash = selected?.hash ?? null
+  const [collapseState, setCollapseState] = useState<{ hash: string | null; dirs: ReadonlySet<string> }>({ hash: null, dirs: EMPTY_DIRS })
+  const collapsedDirs = collapseState.hash === selectedHash ? collapseState.dirs : EMPTY_DIRS
   const toggleDir = useCallback((path: string): void => {
-    setCollapsedDirs((prev) => {
-      const next = new Set(prev)
+    setCollapseState((prev) => {
+      const base = prev.hash === selectedHash ? prev.dirs : EMPTY_DIRS
+      const next = new Set(base)
       if (next.has(path)) next.delete(path)
       else next.add(path)
-      return next
+      return { hash: selectedHash, dirs: next }
     })
-  }, [])
+  }, [selectedHash])
 
   // Keep the selected row's `refs` fresh: a tag create/delete reloads `commits`
   // (via opBump), but `selected` still points at the pre-reload object, so its
@@ -784,8 +790,12 @@ function renderFileTree(nodes: ReturnType<typeof buildFileTree>, cb: FileTreeCbs
           style: { paddingLeft: 10 + depth * 14 },
           title: isCollapsed ? cb.expandLabel : cb.collapseLabel,
           role: 'button',
+          tabIndex: 0,
           'aria-expanded': !isCollapsed,
           onClick: () => cb.onToggleDir(node.path),
+          onKeyDown: (e: KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cb.onToggleDir(node.path) }
+          },
         }, [
           h(ChevronIcon, { key: 'c', size: 11, open: !isCollapsed }),
           h('span', { key: 'n', className: 'gp-tree-name' }, node.name),
