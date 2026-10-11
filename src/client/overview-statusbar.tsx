@@ -120,7 +120,7 @@ export function renderStatusBar(snapshot: GitSnapshot, cb: StatusBarCbs): JSX.El
     // a fetch can populate the tracking refs the first time).
     remote !== null ? h('button', {
       key: 'check', type: 'button', className: 'gp-icon-btn gp-statusbar__btn',
-      disabled: cb.syncBusy, title: t('status.check'), 'aria-label': t('status.check'),
+      disabled: cb.syncBusy, title: t('status.checkTitle'), 'aria-label': t('status.check'),
       onClick: cb.onCheck,
     }, h(SyncIcon, { size: 13 })) : null,
     canPull ? h('button', {
