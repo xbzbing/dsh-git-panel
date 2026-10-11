@@ -14,6 +14,7 @@ import { ChangesTab } from './ChangesTab'
 import { FilesTab } from './FilesTab'
 import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons'
 import { usePanelLayout } from './layout'
+import { useHoverTip } from './tip'
 import type { GitAction, GitVersionInfo } from './types'
 import type { GitKey } from './locales'
 import { opErrorText } from './ops-modals'
@@ -197,6 +198,8 @@ type VerState =
 /** Trailing tab-bar cluster: current version + a user-triggered update check. */
 function VersionBar({ remote, t }: VersionBarProps): JSX.Element {
   const [state, setState] = useState<VerState>({ kind: 'idle' })
+  // Snappy tooltip for the star link, dropped below it (it sits at the panel top).
+  const { tipProps, tipNode } = useHoverTip({ placement: 'below', maxWidth: 300 })
 
   // Fetch the local version once (no network); the remote check is manual.
   useEffect(() => {
@@ -239,7 +242,8 @@ function VersionBar({ remote, t }: VersionBarProps): JSX.Element {
     }, [h('span', { key: 'i', className: 'gp-tab__icon' }, h(RefreshIcon, { size: 12 })), t('version.check')]),
     info?.repositoryUrl !== undefined ? h('a', {
       key: 'gh', className: 'gp-icon-btn gp-verbar__gh gp-verbar__gh--starred', href: info.repositoryUrl,
-      target: '_blank', rel: 'noreferrer', title: t('version.openRepo'), 'aria-label': t('version.openRepo'),
+      target: '_blank', rel: 'noreferrer', 'aria-label': t('version.openRepo'), ...tipProps(t('version.openRepo')),
     }, h(StarIcon, { size: 15 })) : null,
+    tipNode,
   ])
 }

@@ -3,12 +3,12 @@
  * Split out of OverviewTab so the composition layer stays focused on data
  * wiring; this module owns the status-bar presentation only.
  */
-import { createElement as h, useCallback, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import type { GitSnapshot } from './types'
 import type { GitKey } from './locales'
 import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons'
+import { useHoverTip } from './tip'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
 
@@ -75,44 +75,10 @@ export function renderStatusBar(snapshot: GitSnapshot, cb: StatusBarCbs): JSX.El
   return h(StatusBar, { snapshot, cb })
 }
 
-// Hover delay for the custom tooltip — deliberately short (the native `title`
-// delay is ~500ms+ and browser-controlled). The tooltip is portaled to
-// document.body because the left column is `overflow:hidden` and would clip a
-// CSS/::after tooltip rendered above the footer.
-const TIP_DELAY_MS = 140
-const TIP_MAX_W = 260
-
-interface TipState { text: string; left: number; bottom: number }
-
 function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }): JSX.Element {
   const { t } = cb
-  const [tip, setTip] = useState<TipState | null>(null)
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  const clearTip = useCallback(() => {
-    if (timer.current !== undefined) { clearTimeout(timer.current); timer.current = undefined }
-    setTip(null)
-  }, [])
-
-  // Position the tooltip above the hovered control, clamped into the viewport.
-  const showTip = useCallback((el: HTMLElement, text: string) => {
-    if (timer.current !== undefined) clearTimeout(timer.current)
-    timer.current = setTimeout(() => {
-      const r = el.getBoundingClientRect()
-      const left = Math.max(8, Math.min(r.left, window.innerWidth - TIP_MAX_W - 8))
-      const bottom = Math.max(8, window.innerHeight - r.top + 6)
-      setTip({ text, left, bottom })
-    }, TIP_DELAY_MS)
-  }, [])
-
-  // Shared hover/focus handlers for a control carrying a tooltip. Keeps
-  // `aria-label` for the accessibility name; the tooltip itself is decorative.
-  const tipProps = (text: string): Record<string, unknown> => ({
-    onMouseEnter: (e: { currentTarget: HTMLElement }) => showTip(e.currentTarget, text),
-    onMouseLeave: clearTip,
-    onFocus: (e: { currentTarget: HTMLElement }) => showTip(e.currentTarget, text),
-    onBlur: clearTip,
-  })
+  // Snappy tooltip anchored above the footer controls (shared hook).
+  const { tipProps, tipNode, hideTip } = useHoverTip({ placement: 'above' })
 
   // Tolerate a snapshot predating these fields (older host / cached snapshot):
   // a missing remote reads as "no remote", a missing upstream flag as false.
@@ -164,28 +130,24 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     remote !== null ? h('button', {
       key: 'check', type: 'button', className: 'gp-icon-btn gp-statusbar__btn',
       disabled: cb.syncBusy, 'aria-label': t('status.check'), ...tipProps(t('status.checkTitle')),
-      onClick: () => { clearTip(); cb.onCheck() },
+      onClick: () => { hideTip(); cb.onCheck() },
     }, h(SyncIcon, { size: 13 })) : null,
     canPull ? h('button', {
       key: 'pull', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.pullBusy, 'aria-label': t('status.pullTitle'), ...tipProps(t('status.pullTitle')),
-      onClick: () => { clearTip(); cb.onPull() },
+      onClick: () => { hideTip(); cb.onPull() },
     }, [h(DownloadIcon, { key: 'i', size: 12 }), t('status.pull')]) : null,
     canPush ? h('button', {
       key: 'push', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.pushBusy, 'aria-label': t('status.pushTitle'), ...tipProps(t('status.pushTitle')),
-      onClick: () => { clearTip(); cb.onPush() },
+      onClick: () => { hideTip(); cb.onPush() },
     }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.push')]) : null,
     canPublish ? h('button', {
       key: 'publish', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.publishBusy, 'aria-label': t('status.publishTitle'), ...tipProps(t('status.publishTitle')),
-      onClick: () => { clearTip(); cb.onPublish() },
+      onClick: () => { hideTip(); cb.onPublish() },
     }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.publish')]) : null,
   ]
-
-  const tipNode = tip !== null && typeof document !== 'undefined'
-    ? createPortal(h('div', { className: 'gp-tip gp-tip--sb', style: { left: tip.left, bottom: tip.bottom, maxWidth: TIP_MAX_W } }, tip.text), document.body)
-    : null
 
   return h('div', { key: 'statusbar', className: `gp-statusbar${cb.syncBusy ? ' gp-statusbar--busy' : ''}` }, [
     repoNode,
