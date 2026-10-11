@@ -151,6 +151,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-tree-chev{flex:none;width:11px;display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary)}
 .gp-tree-ic{flex:none;display:inline-flex;align-items:center;color:var(--dsw-alias-label-tertiary)}
 .gp-tree-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.gp-tree-row--dir .gp-tree-name{font-weight:600}
 .gp-files__entry{width:100%;border:0;background:transparent;color:inherit;text-align:left;font:inherit}
 .gp-files__entry--dir .gp-tree-name{font-weight:600}
 .gp-files__entry:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}

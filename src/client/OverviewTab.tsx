@@ -4,7 +4,7 @@
  *  middle = commit history graph + search (message / hash / author / date)
  *  right  = selected commit's changed files + message (comment)
  */
-import { createElement as h, useEffect, useMemo, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
@@ -197,6 +197,20 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
   const now = useMemo(() => Date.now(), [commits])
   const fileTree = useMemo(() => (detail.detail === null ? [] : buildFileTree(detail.detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail.detail])
   const selected = detail.selected
+
+  // Changed-file tree folders collapse on click; each newly selected commit
+  // starts fully expanded (default-expand design), so a selection change
+  // clears the manual collapses.
+  const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set())
+  useEffect(() => { setCollapsedDirs(new Set()) }, [selected?.hash])
+  const toggleDir = useCallback((path: string): void => {
+    setCollapsedDirs((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
 
   // Keep the selected row's `refs` fresh: a tag create/delete reloads `commits`
   // (via opBump), but `selected` still points at the pre-reload object, so its
@@ -485,6 +499,10 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
               activePath: detail.fileDiff?.path ?? null,
               openTitle: t('overview.openFileDiff'),
               onOpen: (path) => { if (selected !== null) void detail.openFileDiff(path, selected.hash, selected.shortHash) },
+              collapsed: collapsedDirs,
+              onToggleDir: toggleDir,
+              expandLabel: t('overview.expandDir'),
+              collapseLabel: t('overview.collapseDir'),
             }),
           ]),
       h('div', { key: 'msg', className: 'gp-detail__msg' }, [
@@ -748,6 +766,10 @@ interface FileTreeCbs {
   activePath: string | null
   openTitle: string
   onOpen: (path: string) => void
+  collapsed: ReadonlySet<string>
+  onToggleDir: (path: string) => void
+  expandLabel: string
+  collapseLabel: string
 }
 
 function renderFileTree(nodes: ReturnType<typeof buildFileTree>, cb: FileTreeCbs): JSX.Element {
@@ -755,11 +777,20 @@ function renderFileTree(nodes: ReturnType<typeof buildFileTree>, cb: FileTreeCbs
   const walk = (list: ReturnType<typeof buildFileTree>, depth: number): void => {
     for (const node of list) {
       if (node.dir) {
-        rows.push(h('div', { key: node.path, className: 'gp-tree-row', style: { paddingLeft: 10 + depth * 14 } }, [
-          h(ChevronIcon, { key: 'c', size: 11, open: true }),
+        const isCollapsed = cb.collapsed.has(node.path)
+        rows.push(h('div', {
+          key: node.path,
+          className: 'gp-tree-row gp-tree-row--dir',
+          style: { paddingLeft: 10 + depth * 14 },
+          title: isCollapsed ? cb.expandLabel : cb.collapseLabel,
+          role: 'button',
+          'aria-expanded': !isCollapsed,
+          onClick: () => cb.onToggleDir(node.path),
+        }, [
+          h(ChevronIcon, { key: 'c', size: 11, open: !isCollapsed }),
           h('span', { key: 'n', className: 'gp-tree-name' }, node.name),
         ]))
-        walk(node.children, depth + 1)
+        if (!isCollapsed) walk(node.children, depth + 1)
       } else {
         const status = String(node.meta ?? 'modified')
         const active = cb.activePath === node.path

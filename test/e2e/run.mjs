@@ -68,7 +68,7 @@ const out = await page.evaluate(async (snap) => {
             { hash: 'd196623aaa', shortHash: 'd196623', subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString(), parents: ['de54fc0bbb'], refs: [{ kind: 'branch', name: 'feature', head: false }] },
             { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [{ kind: 'branch', name: 'main', head: true }] },
           ] } } }
-          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }], insertions: 12, deletions: 4 } } }
+          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }, { path: 'src/app.ts', status: 'added' }], insertions: 12, deletions: 4 } } }
           if (q.kind === 'diff') {
             // An image path diffs as the binary marker, like real git.
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n' } } }
@@ -314,7 +314,8 @@ const out = await page.evaluate(async (snap) => {
   // Select the first commit → its changed-file tree appears on the right.
   const firstCommit = document.querySelector('.gp-commit-row')
   if (firstCommit) { firstCommit.click(); await new Promise((r) => setTimeout(r, 400)) }
-  const fileRow = document.querySelector('.gp-detail__files .gp-tree-row')
+  // The changed-file list has a `src/` dir (with app.ts) + a root index.ts file.
+  const fileRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
   result.hasDetailFileRow = fileRow !== null
   // Change summary above the file tree: file count + colored +/- line counts.
   const summary = document.querySelector('.gp-detail__summary')
@@ -322,6 +323,19 @@ const out = await page.evaluate(async (snap) => {
   result.summaryHasFileCount = summary !== null && (summary.textContent || '').includes('overview.changeSummary')
   result.summaryAdd = summary ? (summary.querySelector('.gp-stats__add')?.textContent || '') : ''
   result.summaryDel = summary ? (summary.querySelector('.gp-stats__del')?.textContent || '') : ''
+  // Collapsible changed-file tree: the folder row toggles its children (bug fix
+  // — the chevron used to be inert). Default fully expanded; click to collapse.
+  const childVisible = () => [...document.querySelectorAll('.gp-detail__files .gp-tree-row')].some((r) => (r.textContent || '').includes('app.ts'))
+  const detailDirRow = document.querySelector('.gp-detail__files .gp-tree-row--dir')
+  result.treeDirRowShown = detailDirRow !== null
+  result.treeChildVisibleDefault = childVisible()
+  result.treeDirExpandedDefault = detailDirRow?.getAttribute('aria-expanded') === 'true'
+  if (detailDirRow) { detailDirRow.click(); await new Promise((r) => setTimeout(r, 120)) }
+  const detailDirRowAfter = document.querySelector('.gp-detail__files .gp-tree-row--dir')
+  result.treeChildHiddenAfterCollapse = !childVisible()
+  result.treeDirCollapsedAttr = detailDirRowAfter?.getAttribute('aria-expanded') === 'false'
+  if (detailDirRowAfter) { detailDirRowAfter.click(); await new Promise((r) => setTimeout(r, 120)) }
+  result.treeChildVisibleAfterReexpand = childVisible()
   // Commit detail action area: a create-tag button opens the tag dialog, which
   // carries the shared "trust the AI" hint. Close it before the file-diff test.
   const createTagBtn = [...document.querySelectorAll('.gp-detail__ops .gp-btn')].find((b) => (b.textContent || '').includes('overview.createTag'))
@@ -357,7 +371,10 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 120))
   result.resetModalClosed = document.querySelector('.gp-reset__modes') === null
   // Click a changed file → the diff modal opens (portaled to document.body).
-  if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  // Re-query: the collapse/expand round above re-rendered the tree, detaching
+  // the row captured earlier.
+  const freshFileRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
+  if (freshFileRow) { freshFileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasModal = document.querySelector('.gp-modal') !== null
   result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
   result.modalWordSyntax = [...document.querySelectorAll('.gp-modal .gp-diff-word span')].some((el) => el.style.color.includes('--shiki-keyword'))
@@ -402,7 +419,8 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 200))
   result.modalClosedByEsc = document.querySelector('.gp-modal') === null
   // Reopen, then close via the close button.
-  if (fileRow) { fileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  const reopenRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
+  if (reopenRow) { reopenRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   const closeBtn = document.querySelector('.gp-modal__bar .gp-icon-btn')
   if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
   result.modalClosedByBtn = document.querySelector('.gp-modal') === null
@@ -639,6 +657,12 @@ try {
   assert.equal(out.summaryHasFileCount, true, 'summary carries the file-count label')
   assert.equal(out.summaryAdd, '+12', 'summary shows added lines')
   assert.equal(out.summaryDel, '\u22124', 'summary shows deleted lines')
+  assert.equal(out.treeDirRowShown, true, 'changed-file tree shows a folder row')
+  assert.equal(out.treeChildVisibleDefault, true, 'folder is expanded by default')
+  assert.equal(out.treeDirExpandedDefault, true, 'folder row reports aria-expanded=true by default')
+  assert.equal(out.treeChildHiddenAfterCollapse, true, 'clicking the folder collapses its children')
+  assert.equal(out.treeDirCollapsedAttr, true, 'collapsed folder reports aria-expanded=false')
+  assert.equal(out.treeChildVisibleAfterReexpand, true, 'clicking again re-expands the folder')
   assert.equal(out.hasCreateTagBtn, true, 'commit detail shows a create-tag action')
   assert.equal(out.tagModalOpened, true, 'the create-tag dialog opens')
   assert.equal(out.tagModalHint, true, 'the create-tag dialog shows the AI hint')
