@@ -368,6 +368,15 @@ export type GitQueryResult = {
     /** Full commit body (without the subject line); right-pane comment. */
     readonly body: string;
     readonly stats: readonly GitFileStat[];
+    /**
+     * Aggregate line counts for this commit (`git show --numstat` summed).
+     * Binary files contribute 0 lines (numstat emits `-`), matching the
+     * sync-preview convention. Bound to the name-status file list: an empty
+     * list (e.g. a clean merge, whose combined diff lists no files) forces
+     * 0/0, so the summary stays consistent with the file tree.
+     */
+    readonly insertions: number;
+    readonly deletions: number;
 } | {
     readonly kind: 'branches';
     readonly current: string | null;

@@ -511,9 +511,10 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
   // split folds any stray 0x1f (crafted subject/metadata) back into the body,
   // keeping the five leading fields aligned.
   const metaFormat = '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%b'
-  const [metaRes, statRes] = await Promise.all([
+  const [metaRes, statRes, numstatRes] = await Promise.all([
     runCommand(deps.run, ['git', 'show', '-s', metaFormat, '--end-of-options', ref], root, 'show-meta', deps.signal),
     runCommand(deps.run, ['git', 'show', '--name-status', '-z', '--format=', '--end-of-options', ref], root, 'show-stat', deps.signal),
+    runCommand(deps.run, ['git', 'show', '--numstat', '--format=', '--end-of-options', ref], root, 'show-numstat', deps.signal),
   ])
   if (!('run' in metaRes)) return { ok: false, error: { code: 'git-unavailable' } }
   if (metaRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
@@ -527,7 +528,15 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
   const stats: GitFileStat[] = 'run' in statRes && statRes.run.exitCode === 0
     ? parseNameStatus(statRes.run.stdout)
     : []
-  return { ok: true, value: { kind: 'show', ref, commit, body, stats } }
+  // Aggregate line counts via numstat, but bound to the name-status file list:
+  // `git show --numstat` falls back to a first-parent diff for merges (where
+  // --name-status yields a combined, often empty list), so an empty file list
+  // forces 0/0 — keeping the summary consistent with the file tree (plan A).
+  // Binary rows ("-") are skipped by sumNumstat.
+  const { insertions, deletions } = stats.length > 0 && 'run' in numstatRes && numstatRes.run.exitCode === 0
+    ? sumNumstat(numstatRes.run.stdout)
+    : { insertions: 0, deletions: 0 }
+  return { ok: true, value: { kind: 'show', ref, commit, body, stats, insertions, deletions } }
 }
 
 async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {

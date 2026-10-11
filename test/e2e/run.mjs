@@ -68,7 +68,7 @@ const out = await page.evaluate(async (snap) => {
             { hash: 'd196623aaa', shortHash: 'd196623', subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString(), parents: ['de54fc0bbb'], refs: [{ kind: 'branch', name: 'feature', head: false }] },
             { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [{ kind: 'branch', name: 'main', head: true }] },
           ] } } }
-          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }] } } }
+          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }], insertions: 12, deletions: 4 } } }
           if (q.kind === 'diff') {
             // An image path diffs as the binary marker, like real git.
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n' } } }
@@ -316,6 +316,12 @@ const out = await page.evaluate(async (snap) => {
   if (firstCommit) { firstCommit.click(); await new Promise((r) => setTimeout(r, 400)) }
   const fileRow = document.querySelector('.gp-detail__files .gp-tree-row')
   result.hasDetailFileRow = fileRow !== null
+  // Change summary above the file tree: file count + colored +/- line counts.
+  const summary = document.querySelector('.gp-detail__summary')
+  result.hasChangeSummary = summary !== null
+  result.summaryHasFileCount = summary !== null && (summary.textContent || '').includes('overview.changeSummary')
+  result.summaryAdd = summary ? (summary.querySelector('.gp-stats__add')?.textContent || '') : ''
+  result.summaryDel = summary ? (summary.querySelector('.gp-stats__del')?.textContent || '') : ''
   // Commit detail action area: a create-tag button opens the tag dialog, which
   // carries the shared "trust the AI" hint. Close it before the file-diff test.
   const createTagBtn = [...document.querySelectorAll('.gp-detail__ops .gp-btn')].find((b) => (b.textContent || '').includes('overview.createTag'))
@@ -629,6 +635,10 @@ try {
   assert.equal(out.commitRows, 2, 'two commit rows')
   assert.equal(out.hasGraph, true, 'commit graph svg rendered')
   assert.equal(out.hasDetailFileRow, true, 'selecting a commit lists its changed files')
+  assert.equal(out.hasChangeSummary, true, 'commit detail shows a change summary row')
+  assert.equal(out.summaryHasFileCount, true, 'summary carries the file-count label')
+  assert.equal(out.summaryAdd, '+12', 'summary shows added lines')
+  assert.equal(out.summaryDel, '\u22124', 'summary shows deleted lines')
   assert.equal(out.hasCreateTagBtn, true, 'commit detail shows a create-tag action')
   assert.equal(out.tagModalOpened, true, 'the create-tag dialog opens')
   assert.equal(out.tagModalHint, true, 'the create-tag dialog shows the AI hint')

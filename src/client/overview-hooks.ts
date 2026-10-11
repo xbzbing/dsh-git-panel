@@ -27,7 +27,7 @@ export interface HistoryFilter {
   since: string
 }
 
-type CommitDetail = { commit: GitCommit | null; body: string; stats: readonly GitFileStat[] }
+type CommitDetail = { commit: GitCommit | null; body: string; stats: readonly GitFileStat[]; insertions: number; deletions: number }
 
 /**
  * Left column: branch/tag tree + author list. Reloads on `refreshKey` (commit
@@ -245,7 +245,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     if (selectedHash.current !== commit.hash) return
     const show = queryAs(res, 'show')
     if (show !== null) {
-      const d = { commit: show.commit, body: show.body, stats: show.stats }
+      const d = { commit: show.commit, body: show.body, stats: show.stats, insertions: show.insertions, deletions: show.deletions }
       putDetail(commit.hash, d)
       setDetail(d)
     } else {
@@ -299,7 +299,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
         if (hoverHash.current !== commit.hash) return
         const show = queryAs(res, 'show')
         if (show !== null) {
-          putDetail(commit.hash, { commit: show.commit, body: show.body, stats: show.stats })
+          putDetail(commit.hash, { commit: show.commit, body: show.body, stats: show.stats, insertions: show.insertions, deletions: show.deletions })
           setHoverBody(show.body)
         } else setHoverBody('')
       })

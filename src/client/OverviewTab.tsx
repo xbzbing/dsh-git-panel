@@ -472,11 +472,21 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
       h('div', { key: 'files', className: 'gp-detail__files' },
         detail.detail === null
           ? h('div', { className: 'gp-empty' }, detail.detailError ? t('overview.detailFailed') : t('common.loading'))
-          : renderFileTree(fileTree, {
-            activePath: detail.fileDiff?.path ?? null,
-            openTitle: t('overview.openFileDiff'),
-            onOpen: (path) => { if (selected !== null) void detail.openFileDiff(path, selected.hash, selected.shortHash) },
-          })),
+          : [
+            detail.detail.stats.length > 0
+              ? h('div', { key: 'sum', className: 'gp-detail__summary' }, [
+                h('span', { key: 'f' }, t('overview.changeSummary', { files: detail.detail.stats.length })),
+                h('span', { key: 'sep', className: 'gp-detail__summary-sep' }, '·'),
+                h('span', { key: 'a', className: 'gp-stats__add' }, `+${detail.detail.insertions}`),
+                h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${detail.detail.deletions}`),
+              ])
+              : null,
+            renderFileTree(fileTree, {
+              activePath: detail.fileDiff?.path ?? null,
+              openTitle: t('overview.openFileDiff'),
+              onOpen: (path) => { if (selected !== null) void detail.openFileDiff(path, selected.hash, selected.shortHash) },
+            }),
+          ]),
       h('div', { key: 'msg', className: 'gp-detail__msg' }, [
         h('div', { key: 'subj', className: 'gp-detail__subject' }, selected.subject),
         h('div', { key: 'meta', className: 'gp-detail__meta' }, [

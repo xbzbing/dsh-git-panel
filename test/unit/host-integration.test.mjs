@@ -338,6 +338,63 @@ test('show returns commit meta + changed files', async () => {  const hist = awa
   assert.equal(res.ok, true)
   assert.equal(res.value.commit.subject, 'feat: add a')
   assert.ok(res.value.stats.some((s) => s.path === 'a.txt'))
+  // a.txt added with 20 lines → +20 / −0, one changed file.
+  assert.equal(res.value.stats.length, 1)
+  assert.equal(res.value.insertions, 20)
+  assert.equal(res.value.deletions, 0)
+})
+
+test('show counts a binary file as changed but contributes 0 lines', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-bin-'))
+  try {
+    const { writeFileSync } = await import('node:fs')
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    // Real binary (embedded NUL) + a one-line text file in the same commit.
+    writeFileSync(join(dir, 'blob.bin'), Buffer.from([0x00, 0x01, 0x02, 0x00, 0xff]))
+    writeFileSync(join(dir, 'notes.txt'), 'plain\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'add binary + text'])
+    const d = depsAt(dir)
+    const res = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref: 'HEAD' } })
+    assert.equal(res.ok, true)
+    assert.ok(res.value.stats.some((s) => s.path === 'blob.bin'), 'binary file in file list')
+    assert.equal(res.value.stats.length, 2, 'binary + text both counted as files')
+    assert.equal(res.value.insertions, 1, 'only the text file contributes a line')
+    assert.equal(res.value.deletions, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('show on a merge commit yields empty stats and 0/0 lines', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-merge-'))
+  try {
+    const { writeFileSync } = await import('node:fs')
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'root'])
+    await runGit(dir, ['checkout', '-qb', 'feature'])
+    writeFileSync(join(dir, 'f.txt'), 'feature\n')
+    await runGit(dir, ['add', 'f.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: f'])
+    await runGit(dir, ['checkout', '-q', '-'])
+    writeFileSync(join(dir, 'm.txt'), 'main\n')
+    await runGit(dir, ['add', 'm.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: m'])
+    await runGit(dir, ['merge', '--no-ff', '-q', '-m', 'merge: feature', 'feature'])
+    const d = depsAt(dir)
+    const head = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref: 'HEAD' } })
+    assert.equal(head.ok, true)
+    assert.equal(head.value.commit.subject, 'merge: feature')
+    assert.equal(head.value.stats.length, 0, 'merge file list empty (git show default)')
+    assert.equal(head.value.insertions, 0)
+    assert.equal(head.value.deletions, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('stage then commit advances HEAD', async () => {
