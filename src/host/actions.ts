@@ -129,6 +129,12 @@ function isIndexBusy(outcome: Awaited<ReturnType<typeof runCommand>>): boolean {
   return /index\.lock|Unable to create.*index|another git process/i.test(outcome.run.stderr + outcome.run.stdout)
 }
 
+/** Strip an embedded credential (`scheme://user:token@host`) from a git
+ * message so a token in a remote URL never reaches the RPC reply or logs. */
+export function scrubCredentials(text: string): string {
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/gi, '$1')
+}
+
 /**
  * Classify a non-zero git exit into a wire error code + message. Order is
  * semantic and must not be reshuffled:
@@ -146,7 +152,10 @@ function isIndexBusy(outcome: Awaited<ReturnType<typeof runCommand>>): boolean {
  */
 export function classifyActionFailure(stdout: string, stderr: string, exitCode: number): { code: GitErrorCode; message: string } {
   const combined = stderr + stdout
-  const err = stderr.trim()
+  // Network git errors echo the remote URL verbatim, which may embed a
+  // credential (`https://user:token@host/…`); strip it so a token never lands
+  // in the RPC message or logs (matches remote.ts stripping it from hrefs).
+  const err = scrubCredentials(stderr.trim())
   if (/CONFLICT|Merge conflict|needs merge|could not restore untracked/i.test(combined)) {
     return { code: 'conflict', message: err || 'merge conflict' }
   }
@@ -162,7 +171,7 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   // A network git command (fetch/pull/push) that failed because no usable
   // credentials were available. GIT_TERMINAL_PROMPT=0 turns an interactive
   // prompt into "terminal prompts disabled", so these fail fast rather than hang.
-  if (/Authentication failed|could not read (Username|Password)|terminal prompts disabled|Permission denied \(publickey\)|Could not read from remote repository|fatal: could not read/i.test(combined)) {
+  if (/Authentication failed|could not read (Username|Password)|terminal prompts disabled|Permission denied \(publickey\)|Could not read from remote repository/i.test(combined)) {
     return { code: 'auth-failed', message: err || 'authentication failed' }
   }
   // `git push` rejected by the remote: the remote advanced, so the push is not a

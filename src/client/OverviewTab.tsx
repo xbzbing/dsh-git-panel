@@ -308,6 +308,15 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
       else setOpError(res.error ?? t('error.generic'))
     } finally { setPublishBusy(false) }
   }
+  // One status-bar callback set, shared by the wide and compact placements.
+  const statusCbs = {
+    syncBusy, pullBusy, pushBusy, publishBusy,
+    onCheck: () => void runCheckSync(),
+    onPull: () => { setOpError(null); setPullConfirm(true) },
+    onPush: () => { setOpError(null); setPushConfirm(true) },
+    onPublish: () => { setOpError(null); setPublishConfirm(true) },
+    t,
+  }
 
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     text: detail.fileDiffText,
@@ -513,7 +522,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
           ...detailBody,
         ])
         : historyCol,
-      renderStatusBar(snapshot, { syncBusy, pullBusy, pushBusy, publishBusy, onCheck: () => void runCheckSync(), onPull: () => { setOpError(null); setPullConfirm(true) }, onPush: () => { setOpError(null); setPushConfirm(true) }, onPublish: () => { setOpError(null); setPublishConfirm(true) }, t }),
+      renderStatusBar(snapshot, statusCbs),
       sheetOpen ? renderBranchSheet(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
@@ -536,7 +545,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
         onRetry: reloadTree,
         t,
       })),
-      renderStatusBar(snapshot, { syncBusy, pullBusy, pushBusy, publishBusy, onCheck: () => void runCheckSync(), onPull: () => { setOpError(null); setPullConfirm(true) }, onPush: () => { setOpError(null); setPushConfirm(true) }, onPublish: () => { setOpError(null); setPublishConfirm(true) }, t }),
+      renderStatusBar(snapshot, statusCbs),
     ]),
     leftCol.divider,
     // middle: history

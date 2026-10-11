@@ -110,3 +110,11 @@ test('classifyActionFailure maps a credential failure (GIT_TERMINAL_PROMPT=0) to
   assert.equal(classifyActionFailure('', "fatal: could not read Username for 'https://github.com': terminal prompts disabled", 128).code, 'auth-failed')
   assert.equal(classifyActionFailure('', 'git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.', 128).code, 'auth-failed')
 })
+
+test('classifyActionFailure scrubs an embedded credential from the message', () => {
+  const out = classifyActionFailure('', "error: failed to push some refs to 'https://x-access-token:ghp_SECRET123@github.com/o/r.git'\nUpdates were rejected", 1)
+  assert.equal(out.code, 'push-rejected')
+  assert.ok(!out.message.includes('ghp_SECRET123'), 'token stripped from the message')
+  assert.ok(!out.message.includes('x-access-token'), 'userinfo stripped from the message')
+  assert.ok(out.message.includes('https://github.com/o/r.git'), 'host/path preserved')
+})
