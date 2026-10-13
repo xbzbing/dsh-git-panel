@@ -54,6 +54,9 @@ const out = await page.evaluate(async (snap) => {
   // 800×800 PNG for the drag-to-pan test: at 100% it is wider than the preview
   // pane, so the viewport is actually scrollable and a drag has somewhere to go.
   const MOCK_PNG_BIG = 'iVBORw0KGgoAAAANSUhEUgAAAyAAAAMgCAIAAABUEpE/AAAMK0lEQVR42u3WMQ0AIAwAwQpDCepQRxgQUQ/QrZecgp8+xlwAABQKCQAADBYAgMECAGg7WPtcAAAeGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGSx0AAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMlDQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQAYLIMFAGCwAAAMFgCAwTJYAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAgMEyWAAABgsAwGABABgsgwUAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAyWOgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABksdAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDJQ0AgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAGCyDBQBgsAAADBYAgMEyWAAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAIDBMlgAAAYLAMBgAQAYLIMFAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMljoAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAZLHQAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgyUNAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABABgsgwUAYLAAAAwWAIDBMlgAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgCAwTJYAAAGCwDAYAEAGCyDBQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADJY6AAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGSx0AgNrBAgDgn8ECADBYAAAGCwCglQQBoowL1tK/2wAAAABJRU5ErkJggg=='
+  // 1200×300 PNG: a *width-constrained* image, so a pane-width change moves its
+  // fit ratio (the square fixture is height-constrained instead).
+  const MOCK_PNG_WIDE = 'iVBORw0KGgoAAAANSUhEUgAABLAAAAEsCAIAAABc390HAAAGB0lEQVR42u3XQQ0AIBDEwJODJpSgEwc4QAI6uJ1kFPTXGmsCAAAQqCQAAAAwhAAAABhCAAAAooZwnwsAAEBjhhAAAMAQGkIAAABDaAgBAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAAAYQkMIAABgCA0hAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAAQ2gIAQAADKEhBAAAMISGEAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAgCE0hAAAAIbQEAIAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAADCEhhAAAMAQGkIAAABDaAgBAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAAAYQkMIAABgCA0hAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAAQ2gIAQAADKEhBAAAMITSAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAMISGEAAAwBAaQgAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAAIbQEAIAABhCQwgAAGAI1QEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAGAIDSEAAIAhNIQAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAMoSEEAAAwhIYQAADAEKoDAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAADAEBpCAAAAQ2gIAQAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAGEJDCAAAYAgNIQAAgCEEAADAEAIAAGAIAQAAMIQAAAAYQgAAAAwhAAAAhhAAAID/hhAAAIAchhAAAMAQAgAAYAgBAABo7wH350/iheM7iwAAAABJRU5ErkJggg=='
   const fileQueries = []
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
@@ -86,7 +89,7 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'dir-list') {
             fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
@@ -103,6 +106,7 @@ const out = await page.evaluate(async (snap) => {
               const body = `const long = "${huge}"\n` + Array.from({ length: 5100 }, (_, i) => `line ${i}`).join('\n') + '\n'
               return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: body, lines: 5101 } } }
             }
+            if (q.path.endsWith('wide.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_WIDE}` } } }
             if (q.path.endsWith('big.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_BIG}` } } }
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}` } } }
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
@@ -244,6 +248,16 @@ const out = await page.evaluate(async (snap) => {
   result.imageSrcOk = [...document.querySelectorAll('.gp-imgcmp img')].every((i) => (i.src || '').startsWith('data:image/png;base64,'))
   // Each comparison pane renders its own zoom toolbar (zoom shares one component).
   result.zoomDiffBars = document.querySelectorAll('.gp-imgcmp .gp-zoom__bar').length
+  // Each pane zooms on its own: zooming the left one must leave the right alone.
+  const paneRoots = [...document.querySelectorAll('.gp-imgcmp .gp-zoom')]
+  const panePct = (i) => paneRoots[i]?.querySelector('.gp-zoom__pct')?.textContent ?? ''
+  const paneRendered = (i) => Math.round(paneRoots[i]?.querySelector('img')?.getBoundingClientRect().width ?? 0)
+  const panePctBefore = [panePct(0), panePct(1)]
+  const paneWBefore = paneRendered(1)
+  paneRoots[0]?.querySelector('button[aria-label="files.zoomIn"]')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  result.zoomDiffPanesIndependent = panePct(0) !== panePctBefore[0] && panePct(1) === panePctBefore[1]
+    && paneRendered(0) > paneRendered(1) && paneRendered(1) === paneWBefore
   result.imageHeads = [...document.querySelectorAll('.gp-imgcmp__head')].map((e) => e.textContent)
   const afterBtn = [...document.querySelectorAll('.gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.after')
   if (afterBtn) { afterBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
@@ -255,6 +269,10 @@ const out = await page.evaluate(async (snap) => {
   // reveals the text diff; switching back returns to the rendered panes.
   const svgRow = [...document.querySelectorAll('.gp-file-row')].find((r) => (r.textContent || '').includes('icon.svg'))
   if (svgRow) { svgRow.click(); await new Promise((r) => setTimeout(r, 600)) }
+  // The left pane was left zoomed above; feeding the comparison panes a new file
+  // must drop that zoom instead of carrying it over.
+  const panePctsAfterSwitch = [...document.querySelectorAll('.gp-imgcmp .gp-zoom__pct')].map((e) => e.textContent)
+  result.zoomDiffResetsOnFileSwitch = panePctsAfterSwitch.length === 0 || panePctsAfterSwitch.every((p) => p === '100%')
   result.svgHasToggle = document.querySelector('.gp-svgdiff__bar') !== null
   result.svgRenderDefault = document.querySelector('.gp-svgdiff .gp-imgcmp') !== null
   const svgSourceBtn = [...document.querySelectorAll('.gp-svgdiff__bar .gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.svgSource')
@@ -493,21 +511,29 @@ const out = await page.evaluate(async (snap) => {
   // zoom root — the diff view renders its own zoom bars.
   const zoomRoot = document.querySelector('.gp-files__image')?.parentElement ?? null
   const zoomImg = zoomRoot?.querySelector('img') ?? null
+  const zoomRect = () => Math.round(zoomImg?.getBoundingClientRect().width ?? -1)
   result.zoomBarShown = zoomRoot?.querySelector('.gp-zoom__bar') !== null
   result.zoomPctBefore = zoomRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
-  const zoomW0 = zoomImg?.style.width ?? ''
+  const zoomW0 = zoomRect()
   zoomImg?.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -10, bubbles: true, cancelable: true }))
   await new Promise((r) => setTimeout(r, 120))
-  result.zoomWheelZoomed = (zoomImg?.style.width ?? '') !== zoomW0 && (zoomImg?.style.width ?? '') !== ''
+  // Rendered width, not the inline style: a flex-shrink regression once kept the
+  // inline width while the picture itself never grew.
+  result.zoomWheelZoomed = zoomRect() > zoomW0
   result.zoomPctAfter = zoomRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
-  const zoomW1 = zoomImg?.style.width ?? ''
+  const zoomW1 = zoomRect()
   zoomImg?.dispatchEvent(new WheelEvent('wheel', { deltaY: 40, bubbles: true, cancelable: true }))
   await new Promise((r) => setTimeout(r, 80))
-  result.zoomPlainWheelNoop = (zoomImg?.style.width ?? '') === zoomW1
+  result.zoomPlainWheelNoop = zoomRect() === zoomW1
   zoomImg?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
   await new Promise((r) => setTimeout(r, 80))
-  result.zoomDblClickFit = (zoomImg?.style.width ?? '') === ''
+  result.zoomDblClickFit = zoomRect() === (zoomImg?.naturalWidth ?? -2)
   result.zoomFitPressed = zoomRoot?.querySelector('.gp-zoom__btn[aria-pressed]')?.getAttribute('aria-pressed') === 'true'
+  // Fullscreen is a zoom-bar control now: an inline click must not open it, or
+  // the first click of every double click would.
+  zoomImg?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 320))
+  result.zoomImgClickNoFullscreen = document.querySelector('.gp-zl-backdrop') === null
   zoomRoot?.querySelector('button[aria-label="files.zoomFullscreen"]')?.click()
   await new Promise((r) => setTimeout(r, 120))
   result.zoomLightboxShown = document.querySelector('.gp-zl-backdrop') !== null
@@ -515,19 +541,30 @@ const out = await page.evaluate(async (snap) => {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 120))
   result.zoomLightboxClosed = document.querySelector('.gp-zl-backdrop') === null
+  // A press on the lightbox's own empty area closes it (the frame covers the
+  // mask, so the mask alone would leave most of the visible background inert);
+  // a press on the image keeps it open.
+  zoomRoot?.querySelector('button[aria-label="files.zoomFullscreen"]')?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  document.querySelector('.gp-zl-viewport img')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.zoomLightboxImagePressKeeps = document.querySelector('.gp-zl-backdrop') !== null
+  document.querySelector('.gp-zl-viewport')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.zoomLightboxBackdropCloses = document.querySelector('.gp-zl-backdrop') === null
   // Fit-label honesty: zoom in, resize the panel while zoomed (the ResizeObserver
   // must not record the numeric scale as a fit value), then switch back to Fit —
   // the percentage shown has to match the size actually rendered.
   zoomRoot?.querySelector('button[aria-label="files.zoomIn"]')?.click()
   await new Promise((r) => setTimeout(r, 80))
-  result.zoomInZoomed = (zoomImg?.style.width ?? '') !== ''
+  result.zoomInZoomed = zoomRect() > (zoomImg?.naturalWidth ?? Number.MAX_SAFE_INTEGER)
   const zoomPrevWidth = panelHost.style.width
   panelHost.style.width = '700px'
   await new Promise((r) => setTimeout(r, 200))
   zoomRoot?.querySelector('.gp-zoom__btn[aria-pressed]')?.click() // Fit
   await new Promise((r) => setTimeout(r, 150))
   const zoomFitLabel = zoomRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
-  const zoomFitReal = zoomImg === null ? '' : `${Math.round((zoomImg.clientWidth / zoomImg.naturalWidth) * 100)}%`
+  const zoomFitReal = zoomImg === null ? '' : `${Math.round((zoomRect() / zoomImg.naturalWidth) * 100)}%`
   result.zoomFitLabelHonest = zoomFitLabel !== '' && zoomFitLabel === zoomFitReal
   // Switching images shows the new picture at fit, never the previous file's
   // zoom level. Today the loading placeholder unmounts the component between
@@ -540,6 +577,7 @@ const out = await page.evaluate(async (snap) => {
   const zoomImgAfterSwitch = document.querySelector('.gp-files__image img')
   result.zoomResetsOnNewImage = zoomImgAfterSwitch !== null
     && zoomImgAfterSwitch.style.width === ''
+    && Math.round(zoomImgAfterSwitch.getBoundingClientRect().width) === zoomImgAfterSwitch.naturalWidth
     && document.querySelector('.gp-files__image')?.parentElement?.querySelector('.gp-zoom__btn[aria-pressed]')?.getAttribute('aria-pressed') === 'true'
   panelHost.style.width = zoomPrevWidth
   await new Promise((r) => setTimeout(r, 120))
@@ -548,6 +586,23 @@ const out = await page.evaluate(async (snap) => {
   // viewport actually scrollable (a drag needs somewhere to go).
   panelHost.style.width = '800px'
   await new Promise((r) => setTimeout(r, 150))
+  // Fit-label tracking (the ResizeObserver path) needs a *width-constrained*
+  // image: a pane-width change moves wide.png's fit ratio, while the square
+  // fixture is limited by the pane height and would keep the same percentage.
+  const wideRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('wide.png'))
+  if (wideRow) { wideRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  const wideRoot = document.querySelector('.gp-files__image')?.parentElement ?? null
+  const wideImg = wideRoot?.querySelector('img') ?? null
+  const wideLabel = () => wideRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
+  const wideReal = () => (wideImg === null ? '' : `${Math.round((wideImg.getBoundingClientRect().width / wideImg.naturalWidth) * 100)}%`)
+  const fitNarrow = { label: wideLabel(), real: wideReal() }
+  panelHost.style.width = '1000px'
+  await new Promise((r) => setTimeout(r, 250))
+  const fitWide = { label: wideLabel(), real: wideReal() }
+  result.zoomFitTracksViewport = fitNarrow.label !== '' && fitNarrow.label === fitNarrow.real
+    && fitWide.label === fitWide.real && fitNarrow.label !== fitWide.label
+  panelHost.style.width = '800px'
+  await new Promise((r) => setTimeout(r, 200))
   const bigImgRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.png'))
   if (bigImgRow) { bigImgRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   const panRoot = document.querySelector('.gp-files__image')?.parentElement ?? null
@@ -558,6 +613,16 @@ const out = await page.evaluate(async (snap) => {
   panRoot?.querySelector('.gp-zoom__pct')?.click() // actual size: 800px wide
   await new Promise((r) => setTimeout(r, 150))
   result.zoomGrabCursor = panImg === null ? '' : getComputedStyle(panImg).cursor
+  // Zooming past 100% must really grow the rendered picture: as a flex item the
+  // image used to stay pinned at its natural width while the label kept climbing
+  // (and the anchor correction then just scrolled it).
+  const naturalW = panImg?.naturalWidth ?? Number.MAX_SAFE_INTEGER
+  panRoot?.querySelector('button[aria-label="files.zoomIn"]')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  result.zoomAboveNaturalRendered = Math.round(panImg?.getBoundingClientRect().width ?? 0) > naturalW
+  result.zoomAboveNaturalScrolls = panVp !== null && panVp.scrollWidth > Math.max(panVp.clientWidth, naturalW)
+  panRoot?.querySelector('.gp-zoom__pct')?.click() // back to 100% for the pan test
+  await new Promise((r) => setTimeout(r, 150))
   if (panVp !== null) {
     result.zoomPanScrollable = panVp.scrollWidth > panVp.clientWidth && panVp.scrollHeight > panVp.clientHeight
     // Start mid-range so the drag has room in both directions.
@@ -566,12 +631,14 @@ const out = await page.evaluate(async (snap) => {
   }
   const panRect = panVp?.getBoundingClientRect() ?? null
   const panBefore = { left: panVp?.scrollLeft ?? 0, top: panVp?.scrollTop ?? 0 }
+  const panPctBefore = panRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
   if (panVp !== null && panRect !== null) {
     // Synthetic pointer input mirrors a left-button mouse drag: a press, moves
-    // past the 3px threshold, then release — plus the click the browser emits
-    // after a drag, which must not open the lightbox.
-    const press = (type, x, y, buttons) => panVp.dispatchEvent(new PointerEvent(type, {
-      bubbles: true, cancelable: true, pointerId: 1, isPrimary: true, pointerType: 'mouse', button: 0, buttons, clientX: x, clientY: y,
+    // past the 3px threshold, then release. Real trusted input is exercised
+    // after this evaluate block, so both the handler logic and the browser's
+    // own input path are covered.
+    const press = (type, x, y, buttons, pointerType = 'mouse') => panVp.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, isPrimary: true, pointerType, button: 0, buttons, clientX: x, clientY: y,
     }))
     const cx = panRect.left + panRect.width / 2
     const cy = panRect.top + panRect.height / 2
@@ -580,20 +647,48 @@ const out = await page.evaluate(async (snap) => {
     window.dispatchEvent(new PointerEvent('pointerup', {
       bubbles: true, pointerId: 1, isPrimary: true, pointerType: 'mouse', button: 0, buttons: 0, clientX: cx - 50, clientY: cy - 25,
     }))
-    panImg?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   }
-  await new Promise((r) => setTimeout(r, 320))
+  await new Promise((r) => setTimeout(r, 200))
   const panAfter = { left: panVp?.scrollLeft ?? 0, top: panVp?.scrollTop ?? 0 }
   // Dragging left/up scrolls right/down: the content follows the pointer.
   result.zoomDragPanned = panAfter.left > panBefore.left && panAfter.top > panBefore.top
-  result.zoomDragNoLightbox = document.querySelector('.gp-zl-backdrop') === null
-  // A plain click on the zoomed image still opens the lightbox.
-  panImg?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await new Promise((r) => setTimeout(r, 320))
-  result.zoomClickStillOpens = document.querySelector('.gp-zl-backdrop') !== null
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-  await new Promise((r) => setTimeout(r, 120))
-  result.zoomClickLightboxClosed = document.querySelector('.gp-zl-backdrop') === null
+  // A drag is not a double click: the zoom level must survive it untouched.
+  result.zoomDragKeepsMode = (panRoot?.querySelector('.gp-zoom__pct')?.textContent ?? 'x') === panPctBefore
+  // Touch and pen keep their native behaviour: their presses never start a pan.
+  if (panVp !== null && panRect !== null) {
+    const touchBefore = { left: panVp.scrollLeft, top: panVp.scrollTop }
+    const cx = panRect.left + panRect.width / 2
+    const cy = panRect.top + panRect.height / 2
+    const touch = (type, x, y, buttons) => panVp.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 7, isPrimary: true, pointerType: 'touch', button: 0, buttons, clientX: x, clientY: y,
+    }))
+    touch('pointerdown', cx, cy, 1)
+    for (const step of [10, 40, 70]) touch('pointermove', cx - step, cy - step, 1)
+    window.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, pointerId: 7, isPrimary: true, pointerType: 'touch', button: 0, buttons: 0, clientX: cx - 70, clientY: cy - 70,
+    }))
+    await new Promise((r) => setTimeout(r, 80))
+    result.zoomTouchNotTakenOver = panVp.scrollLeft === touchBefore.left && panVp.scrollTop === touchBefore.top
+  }
+  // Safari's older pinch path: gesture events carry a cumulative scale.
+  if (panVp !== null && panRect !== null) {
+    const gestureWidth = () => Math.round(panImg?.getBoundingClientRect().width ?? 0)
+    const beforeGesture = gestureWidth()
+    const gesture = (type, scale) => {
+      const ev = new Event(type, { bubbles: true, cancelable: true })
+      ev.scale = scale
+      ev.clientX = panRect.left + panRect.width / 2
+      ev.clientY = panRect.top + panRect.height / 2
+      panVp.dispatchEvent(ev)
+    }
+    gesture('gesturestart', 1)
+    gesture('gesturechange', 1.5)
+    gesture('gestureend', 1.5)
+    await new Promise((r) => setTimeout(r, 150))
+    result.zoomGestureScales = gestureWidth() > beforeGesture
+    panRoot?.querySelector('.gp-zoom__btn[aria-pressed]')?.click() // back to fit
+    await new Promise((r) => setTimeout(r, 120))
+  }
   panelHost.style.width = zoomPrevWidth
   await new Promise((r) => setTimeout(r, 120))
   let finishCopy
@@ -710,6 +805,44 @@ const out = await page.evaluate(async (snap) => {
   result.restoredPreviewShown = document.querySelector('.gp-files__code, .gp-files__markdown, .gp-files__image') !== null
   return result
 }, SNAP)
+
+// Real (trusted) mouse input for drag-to-pan: the in-page block above drives the
+// handlers with synthetic PointerEvents, which cannot prove the browser's own
+// input path reaches them — nor that zooming past 100% really resizes the picture.
+const realInput = await (async () => {
+  const dragAt = await page.evaluate(async () => {
+    const row = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.png'))
+    row?.click()
+    await new Promise((r) => setTimeout(r, 400))
+    const root = document.querySelector('.gp-files__image')?.parentElement
+    root?.querySelector('.gp-zoom__pct')?.click() // 100%
+    await new Promise((r) => setTimeout(r, 150))
+    root?.querySelector('button[aria-label="files.zoomIn"]')?.click() // 125% > natural
+    await new Promise((r) => setTimeout(r, 150))
+    const rect = document.querySelector('.gp-files__image')?.getBoundingClientRect()
+    return rect === undefined ? null : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+  })
+  if (dragAt === null) return null
+  const read = () => page.evaluate(() => {
+    const vp = document.querySelector('.gp-files__image')
+    const img = vp?.querySelector('img')
+    return {
+      left: vp?.scrollLeft ?? 0,
+      top: vp?.scrollTop ?? 0,
+      rendered: Math.round(img?.getBoundingClientRect().width ?? 0),
+      natural: img?.naturalWidth ?? 0,
+      pct: vp?.parentElement?.querySelector('.gp-zoom__pct')?.textContent ?? '',
+      lightbox: document.querySelector('.gp-zl-backdrop') !== null,
+    }
+  })
+  const before = await read()
+  await page.mouse.move(dragAt.x, dragAt.y)
+  await page.mouse.down()
+  await page.mouse.move(dragAt.x - 60, dragAt.y - 40, { steps: 12 })
+  await page.mouse.up()
+  await page.waitForTimeout(150)
+  return { before, after: await read() }
+})()
 
 await browser.close()
 
@@ -840,17 +973,25 @@ try {
   assert.equal(out.zoomFitPressed, true, 'fit reports aria-pressed while active')
   assert.equal(out.zoomLightboxShown, true, 'the fullscreen lightbox opens')
   assert.equal(out.zoomLightboxClosed, true, 'Escape closes the lightbox')
+  assert.equal(out.zoomLightboxImagePressKeeps, true, 'pressing the lightbox image keeps it open')
+  assert.equal(out.zoomLightboxBackdropCloses, true, 'pressing the lightbox empty area closes it')
   assert.equal(out.zoomInZoomed, true, 'the zoom bar steps the zoom level up')
   assert.equal(out.zoomFitLabelHonest, true, 'after resizing while zoomed, the fit label matches the rendered size')
   assert.equal(out.zoomResetsOnNewImage, true, 'switching images resets the zoom instead of carrying it over')
+  assert.equal(out.zoomFitTracksViewport, true, 'the fit label tracks a viewport resize at the size actually rendered')
+  assert.equal(out.zoomAboveNaturalRendered, true, 'zooming past 100% really grows the rendered image, not just the label')
+  assert.equal(out.zoomAboveNaturalScrolls, true, 'zooming past 100% extends the scrollable area instead of fake-panning')
+  assert.equal(out.zoomImgClickNoFullscreen, true, 'a click on the image does not open the lightbox (fullscreen lives in the zoom bar)')
   assert.equal(out.zoomPanScrollable, true, 'a zoomed image overflows its viewport, so it can be panned')
   assert.equal(out.zoomPanImgNotDraggable, true, 'the image opts out of the browser native drag so a mouse drag pans instead')
   assert.equal(out.zoomFitCursor, 'zoom-in', 'the fit viewport advertises click-to-zoom, not a drag')
   assert.equal(out.zoomGrabCursor, 'grab', 'the zoomed viewport advertises drag-to-pan')
   assert.equal(out.zoomDragPanned, true, 'dragging with the mouse pans the zoomed image')
-  assert.equal(out.zoomDragNoLightbox, true, 'a drag is not a click: the fullscreen lightbox stays closed')
-  assert.equal(out.zoomClickStillOpens, true, 'a plain click on the zoomed image still opens the lightbox')
-  assert.equal(out.zoomClickLightboxClosed, true, 'Escape still closes that lightbox')
+  assert.equal(out.zoomDragKeepsMode, true, 'a drag never doubles as a double click that changes the zoom')
+  assert.equal(out.zoomTouchNotTakenOver, true, 'touch presses keep native scrolling instead of being taken over')
+  assert.equal(out.zoomGestureScales, true, "Safari's gesture events scale the image")
+  assert.equal(out.zoomDiffPanesIndependent, true, 'each comparison pane zooms on its own')
+  assert.equal(out.zoomDiffResetsOnFileSwitch, true, 'a new diff file drops the panes\u2019 zoom instead of carrying it over')
   assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
   assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
   assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
@@ -881,6 +1022,11 @@ try {
   assert.equal(out.restoredChildVisible, true, 'a quick return keeps the expanded directory open')
   assert.equal(out.restoredSelected, out.preUnmountSelected, 'a quick return keeps the same file selected')
   assert.equal(out.restoredPreviewShown, true, 'a quick return restores the file preview')
+
+  assert.ok(realInput !== null && realInput.before.rendered > realInput.before.natural, `real input: zooming past 100% grows the rendered image (${JSON.stringify(realInput?.before)})`)
+  assert.ok(realInput !== null && realInput.after.left > realInput.before.left && realInput.after.top > realInput.before.top, `real input: a mouse drag pans the zoomed image (${JSON.stringify(realInput?.before)} -> ${JSON.stringify(realInput?.after)})`)
+  assert.equal(realInput?.after.pct, realInput?.before.pct, 'real input: a drag leaves the zoom level untouched')
+  assert.equal(realInput?.after.lightbox, false, 'real input: a drag never opens the lightbox')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {

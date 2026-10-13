@@ -23,7 +23,8 @@ test('normalizeWheel clamps oversized pinch deltas', () => {
 
 test('wheelZoomFactor: negative zooms in, positive zooms out, zero is neutral', () => {
   assert.equal(wheelZoomFactor(0), 1)
-  assert.ok(wheelZoomFactor(-10) > 1)
+  // Pinned value: the e2e asserts a ctrl+wheel step lands on exactly 120%.
+  assert.equal(wheelZoomFactor(-10), 1.2)
   assert.ok(wheelZoomFactor(10) < 1)
   assert.ok(wheelZoomFactor(-20) > wheelZoomFactor(-10))
 })
@@ -39,9 +40,12 @@ test('wheelZoomFactor clamps huge deltas to the same bounded step', () => {
 })
 
 test('clampScale keeps the zoom within the documented range', () => {
-  assert.equal(clampScale(0), SCALE_MIN)
-  assert.equal(clampScale(-3), SCALE_MIN)
-  assert.equal(clampScale(1e9), SCALE_MAX)
+  // Bounds pinned to their literals so a constant change cannot move them silently.
+  assert.equal(SCALE_MIN, 0.1)
+  assert.equal(SCALE_MAX, 8)
+  assert.equal(clampScale(0), 0.1)
+  assert.equal(clampScale(-3), 0.1)
+  assert.equal(clampScale(1e9), 8)
   assert.equal(clampScale(2.5), 2.5)
   assert.equal(clampScale(NaN), 1)
   assert.equal(clampScale(Infinity), 1)
@@ -56,20 +60,22 @@ test('anchoredScroll keeps the content point under the cursor fixed', () => {
   assert.equal(anchoredScroll(anchoredScroll(100, 50, 2), 50, 0.5), 100)
 })
 
-test('ZOOM_STEP is a multiplicative toolbar step above 1', () => {
-  assert.ok(ZOOM_STEP > 1)
-  assert.ok(SCALE_MIN < 1 && SCALE_MAX > 1)
+test('the toolbar step and the line-delta multiplier are pinned', () => {
+  assert.equal(ZOOM_STEP, 1.25)
+  // deltaMode line = one wheel tick, scaled to 8px before clamping.
+  assert.equal(normalizeWheel(wheel({ deltaY: 1, deltaMode: 1 })), 8)
+  assert.equal(DRAG_THRESHOLD, 3)
 })
 
 test('isDragGesture only turns a press into a drag past the threshold', () => {
   assert.equal(isDragGesture(0, 0), false)
   assert.equal(isDragGesture(DRAG_THRESHOLD - 1, 0), false)
+  assert.equal(isDragGesture(DRAG_THRESHOLD - 1, 0.5), false)
   // Travel is measured as a distance, not per axis: a diagonal 2,2 is 2.83px.
   assert.equal(isDragGesture(DRAG_THRESHOLD - 1, DRAG_THRESHOLD - 1), false)
   assert.equal(isDragGesture(DRAG_THRESHOLD, 0), true)
   assert.equal(isDragGesture(2, 3), true)
   assert.equal(isDragGesture(-DRAG_THRESHOLD, 0), true)
-  assert.equal(isDragGesture(1, 1, 2), false)
 })
 
 test('panScroll moves the content with the pointer', () => {

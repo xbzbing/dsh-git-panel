@@ -3,8 +3,9 @@
  * event (Chromium, Firefox, Safari ≥15) with browser-specific delta units, or
  * as Safari's proprietary gesture events; these helpers normalize that input,
  * turn it into a scale factor, and keep the point under the cursor fixed while
- * the native scroll container resizes. Pure functions — unit-tested through
- * lib/testkit.mjs.
+ * the native scroll container resizes. Mouse drag-to-pan shares the module: its
+ * press/drag threshold and the content-follows-pointer offset conversion live
+ * here as well. Pure functions — unit-tested through lib/testkit.mjs.
  */
 
 /** WheelEvent.DOM_DELTA_LINE / DOM_DELTA_PAGE (pixel mode = 0). */
@@ -73,8 +74,8 @@ export const DRAG_THRESHOLD = 3
  * A press counts as a drag once the pointer travels past DRAG_THRESHOLD.
  * Squared comparison, so no hypot on every pointermove.
  */
-export function isDragGesture(dx: number, dy: number, threshold: number = DRAG_THRESHOLD): boolean {
-  return dx * dx + dy * dy >= threshold * threshold
+export function isDragGesture(dx: number, dy: number): boolean {
+  return dx * dx + dy * dy >= DRAG_THRESHOLD * DRAG_THRESHOLD
 }
 
 /**

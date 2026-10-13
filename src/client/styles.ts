@@ -538,7 +538,10 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * oversized image unreachable. */
 .gp-zoom{position:relative;display:flex;flex:1;min-width:0;min-height:0}
 .gp-zoom__scroll{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex}
-.gp-zoom__img{display:block;margin:auto;max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in}
+/* flex:none is load-bearing: as a flex item a replaced element's automatic
+ * minimum size is its natural size, so without it flex-shrink pins the rendered
+ * image at max(natural, viewport) and zooming past 100% silently does nothing. */
+.gp-zoom__img{display:block;flex:none;margin:auto;max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in}
 /* Zoomed content is draggable with the mouse (see ImageZoom's drag-to-pan); the
  * grab cursor replaces the zoom-in hint once a drag can actually pan. */
 .gp-zoom[data-zoomed="true"] .gp-zoom__scroll,.gp-zoom[data-zoomed="true"] .gp-zoom__img{cursor:grab}
@@ -554,7 +557,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-zl-stage{position:absolute;inset:var(--dsh-frame-chrome-top,0px) 0 0;display:flex;align-items:center;justify-content:center;padding:40px}
 .gp-zl-mask{position:absolute;inset:0;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 62%,transparent);backdrop-filter:blur(2px);animation:gp-fade-in .12s ease}
 .gp-zl-frame{position:relative;flex:1;height:100%;max-width:min(100%,1600px);min-width:0;display:flex}
-.gp-zl-viewport{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex}
+/* The viewport carries .gp-zoom__scroll too, so only the img frame styling lives here. */
 .gp-zl-viewport img{border-radius:var(--dsw-radius-lg);box-shadow:0 8px 40px rgba(0,0,0,.5)}
 .gp-zl-close{position:absolute;top:20px;right:20px;z-index:1;display:grid;place-items:center;width:36px;height:36px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);cursor:pointer}
 .gp-zl-close:hover{background:var(--dsw-alias-interactive-bg-hover)}

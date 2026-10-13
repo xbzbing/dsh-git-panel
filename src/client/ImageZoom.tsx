@@ -30,6 +30,9 @@ type T = (key: GitKey, params?: Record<string, string | number>) => string
 /** 'fit' = constrain to the viewport (CSS-driven); a number = scale vs natural size. */
 type ZoomMode = 'fit' | number
 
+/** A double click this soon after a pan is the pan's own click plus a new press. */
+const POST_DRAG_CLICK_GUARD_MS = 300
+
 /** Minimal shape of Safari's non-standard GestureEvent. */
 interface GestureLike {
   readonly scale: number
@@ -45,11 +48,13 @@ interface ZoomableImageProps {
   readonly t: T
   /** Class for the scroll viewport; supplies background, padding, overflow. */
   readonly viewportClass: string
-  /** Click-to-fullscreen and the fullscreen control; off inside the lightbox. */
+  /** Fullscreen control in the zoom bar; off inside the lightbox. */
   readonly fullscreen?: boolean
+  /** Press on the viewport's empty area (lightbox backdrop press-to-close). */
+  readonly onEmptyAreaMouseDown?: () => void
 }
 
-export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }: ZoomableImageProps): JSX.Element {
+export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true, onEmptyAreaMouseDown }: ZoomableImageProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
@@ -66,12 +71,11 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
   const anchorRef = useRef<{ x: number; y: number; ratio: number } | null>(null)
   // Safari gesture baseline: scale captured when the gesture started.
   const gestureRef = useRef<{ base: number; x: number; y: number } | null>(null)
-  const clickTimer = useRef<number | null>(null)
   // Mouse drag-to-pan state; `pan` is false when the content cannot scroll, and
   // the press is then only tracked to tell a drag from a click.
   const dragRef = useRef<{ id: number; x: number; y: number; left: number; top: number; pan: boolean; moved: boolean } | null>(null)
-  // Set when a drag ends so the click the browser fires afterwards is ignored.
-  const suppressClickRef = useRef(false)
+  // When the last drag ended, so a double click right after a pan is ignored.
+  const postDragRef = useRef(0)
 
   /** Current scale read from the DOM — always what is actually on screen. */
   const displayed = useCallback((): number | null => {
@@ -196,12 +200,15 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
   // of a zoomed image. Touch and pen keep their native inertial scrolling — only
   // a mouse press is taken over. Following the resizer's convention there is no
   // pointer capture: window listeners keep a fast pan alive past the viewport
-  // edge, and leaving the press target alone keeps click-to-fullscreen working.
+  // edge, and the press target stays untouched (fullscreen opens from the bar).
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0 || e.pointerType !== 'mouse') return
     const vp = scrollRef.current
     if (vp === null) return
-    suppressClickRef.current = false
+    // A press on the scrollbar is the browser's own drag, not a pan: the
+    // offsets below clientWidth/Height are the scrollbar gutter.
+    const { offsetX, offsetY } = e.nativeEvent
+    if (e.target === vp && (offsetX >= vp.clientWidth || offsetY >= vp.clientHeight)) return
     dragRef.current = {
       id: e.pointerId, x: e.clientX, y: e.clientY, left: vp.scrollLeft, top: vp.scrollTop,
       pan: vp.scrollWidth > vp.clientWidth || vp.scrollHeight > vp.clientHeight,
@@ -210,9 +217,21 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
   }, [])
 
   useEffect(() => {
+    const finish = (id: number): void => {
+      const d = dragRef.current
+      if (d === null || id !== d.id) return
+      // Remember when the pan ended: the click it produces must not pair with a
+      // following press into a double click that toggles the zoom level.
+      if (d.moved) postDragRef.current = performance.now()
+      dragRef.current = null
+      setDragging(false)
+    }
     const onMove = (e: PointerEvent): void => {
       const d = dragRef.current
       if (d === null || e.pointerId !== d.id) return
+      // The button was released outside the window (or a system dialog ate the
+      // pointerup): without this the viewport would keep panning on hover.
+      if (e.buttons === 0) { finish(e.pointerId); return }
       const dx = e.clientX - d.x
       const dy = e.clientY - d.y
       if (!d.moved) {
@@ -226,13 +245,7 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
       vp.scrollLeft = next.left
       vp.scrollTop = next.top
     }
-    const onUp = (e: PointerEvent): void => {
-      const d = dragRef.current
-      if (d === null || e.pointerId !== d.id) return
-      if (d.moved) suppressClickRef.current = true
-      dragRef.current = null
-      setDragging(false)
-    }
+    const onUp = (e: PointerEvent): void => { finish(e.pointerId) }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
@@ -264,22 +277,14 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
     if (modeRef.current === 'fit') measureFit()
   }, [measureFit])
 
-  // Single click opens fullscreen — but wait briefly so a double click can
-  // claim it for zoom-to-100% instead of flashing the lightbox open.
-  const onClick = useCallback((): void => {
-    // A drag that moved the image is not a click: swallow the click the browser
-    // emits after it before anything reacts.
-    if (suppressClickRef.current) { suppressClickRef.current = false; return }
-    if (!fullscreen) return
-    if (clickTimer.current !== null) window.clearTimeout(clickTimer.current)
-    clickTimer.current = window.setTimeout(() => { clickTimer.current = null; setOpen(true) }, 260)
-  }, [fullscreen])
+  // Double click toggles fit <-> 100%. Fullscreen opens from the zoom bar: an
+  // inline single-click entry cannot coexist with this toggle (the lightbox
+  // would open on the first click of every double click).
   const onDoubleClick = useCallback((): void => {
-    if (clickTimer.current !== null) { window.clearTimeout(clickTimer.current); clickTimer.current = null }
+    if (performance.now() - postDragRef.current < POST_DRAG_CLICK_GUARD_MS) return
     if (mode === 'fit') toActual()
     else toFit()
   }, [mode, toActual, toFit])
-  useEffect(() => () => { if (clickTimer.current !== null) window.clearTimeout(clickTimer.current) }, [])
 
   const closeLightbox = useCallback(() => { setOpen(false) }, [])
 
@@ -294,7 +299,7 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
   const bar = nat !== null
     ? h('div', { key: 'bar', className: 'gp-zoom__bar', role: 'group', 'aria-label': t('files.zoomBar') }, [
       h('button', { key: 'out', type: 'button', className: 'gp-zoom__btn', 'aria-label': t('files.zoomOut'), title: t('files.zoomOut'), onClick: () => step(1 / ZOOM_STEP) }, '\u2212'),
-      h('button', { key: 'pct', type: 'button', className: 'gp-zoom__btn gp-zoom__pct', 'aria-label': t('files.zoomActual'), title: t('files.zoomActual'), onClick: toActual }, label),
+      h('button', { key: 'pct', type: 'button', className: 'gp-zoom__btn gp-zoom__pct', 'aria-label': `${label}，${t('files.zoomActual')}`, title: t('files.zoomActual'), onClick: toActual }, label),
       h('button', { key: 'in', type: 'button', className: 'gp-zoom__btn', 'aria-label': t('files.zoomIn'), title: t('files.zoomIn'), onClick: () => step(ZOOM_STEP) }, '+'),
       h('button', { key: 'fit', type: 'button', className: 'gp-zoom__btn gp-zoom__btn--text', 'aria-pressed': mode === 'fit', onClick: toFit }, t('files.zoomFit')),
       fullscreen
@@ -308,9 +313,14 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
     'data-zoomed': mode === 'fit' ? undefined : 'true',
     'data-dragging': dragging ? 'true' : undefined,
   }, [
-    h('div', { key: 'vp', className: `gp-zoom__scroll ${viewportClass}`, ref: scrollRef, onPointerDown }, h('img', {
+    h('div', {
+      key: 'vp', className: `gp-zoom__scroll ${viewportClass}`, ref: scrollRef, onPointerDown,
+      // Only the viewport's own padding hits this: a press on the img (or on the
+      // zoom bar, which is a sibling) leaves the lightbox open.
+      onMouseDown: onEmptyAreaMouseDown === undefined ? undefined : (e: { target: EventTarget; currentTarget: EventTarget }) => { if (e.target === e.currentTarget) onEmptyAreaMouseDown() },
+    }, h('img', {
       key: 'img', ref: imgRef, className: 'gp-zoom__img', src, alt, style: imgStyle,
-      draggable: false, onLoad: onLoaded, onClick, onDoubleClick,
+      draggable: false, onLoad: onLoaded, onDoubleClick,
     })),
     bar,
     open ? h(ZoomLightbox, { key: 'lb', src, alt, t, onClose: closeLightbox }) : null,
@@ -369,7 +379,7 @@ function ZoomLightbox({ src, alt, t, onClose }: ZoomLightboxProps): JSX.Element 
     h('div', { className: 'gp-zl-backdrop', ref: backdropRef, role: 'dialog', 'aria-modal': 'true', 'aria-label': t('files.zoomFullscreen') }, [
       h('div', { key: 'stage', className: 'gp-zl-stage' }, [
         h('div', { key: 'mask', className: 'gp-zl-mask', 'aria-hidden': 'true', onMouseDown: onClose }),
-        h('div', { key: 'frame', className: 'gp-zl-frame' }, h(ZoomableImage, { src, alt, t, viewportClass: 'gp-zl-viewport', fullscreen: false })),
+        h('div', { key: 'frame', className: 'gp-zl-frame' }, h(ZoomableImage, { src, alt, t, viewportClass: 'gp-zl-viewport', fullscreen: false, onEmptyAreaMouseDown: onClose })),
         h('button', {
           key: 'close', ref: closeRef, type: 'button', className: 'gp-zl-close',
           'aria-label': t('common.close'), onClick: onClose,
