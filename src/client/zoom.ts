@@ -65,3 +65,23 @@ export function clampScale(scale: number): number {
 export function anchoredScroll(prevScroll: number, cursor: number, ratio: number): number {
   return (prevScroll + cursor) * ratio - cursor
 }
+
+/** Pointer travel (px) that turns a press into a drag instead of a click. */
+export const DRAG_THRESHOLD = 3
+
+/**
+ * A press counts as a drag once the pointer travels past DRAG_THRESHOLD.
+ * Squared comparison, so no hypot on every pointermove.
+ */
+export function isDragGesture(dx: number, dy: number, threshold: number = DRAG_THRESHOLD): boolean {
+  return dx * dx + dy * dy >= threshold * threshold
+}
+
+/**
+ * Scroll offsets for a mouse drag: the content follows the pointer, so a
+ * rightward / downward drag decreases the offsets. Out-of-range values are
+ * clamped by the scroll container itself.
+ */
+export function panScroll(left: number, top: number, dx: number, dy: number): { left: number; top: number } {
+  return { left: left - dx, top: top - dy }
+}

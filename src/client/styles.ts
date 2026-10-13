@@ -539,6 +539,10 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-zoom{position:relative;display:flex;flex:1;min-width:0;min-height:0}
 .gp-zoom__scroll{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex}
 .gp-zoom__img{display:block;margin:auto;max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in}
+/* Zoomed content is draggable with the mouse (see ImageZoom's drag-to-pan); the
+ * grab cursor replaces the zoom-in hint once a drag can actually pan. */
+.gp-zoom[data-zoomed="true"] .gp-zoom__scroll,.gp-zoom[data-zoomed="true"] .gp-zoom__img{cursor:grab}
+.gp-zoom[data-dragging="true"] .gp-zoom__scroll,.gp-zoom[data-dragging="true"] .gp-zoom__img{cursor:grabbing;user-select:none}
 .gp-zoom__bar{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:2px;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-2);box-shadow:0 4px 14px rgba(0,0,0,.18)}
 .gp-zoom__btn{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:24px;padding:0 7px;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer}
 .gp-zoom__btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}

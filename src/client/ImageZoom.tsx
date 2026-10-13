@@ -19,11 +19,11 @@
  * which the official component does not expose.
  */
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { JSX } from 'react'
+import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { GitKey } from './locales'
 import { CloseIcon } from './icons'
-import { anchoredScroll, clampScale, normalizeWheel, wheelZoomFactor, ZOOM_STEP } from './zoom.js'
+import { anchoredScroll, clampScale, isDragGesture, normalizeWheel, panScroll, wheelZoomFactor, ZOOM_STEP } from './zoom.js'
 
 type T = (key: GitKey, params?: Record<string, string | number>) => string
 
@@ -57,6 +57,7 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
   const [mode, setMode] = useState<ZoomMode>('fit')
   const [fitPct, setFitPct] = useState<number | null>(null)
   const [open, setOpen] = useState(false)
+  const [dragging, setDragging] = useState(false)
   // Latest mode for the async readers (ResizeObserver, onLoad); synced in the
   // layout effect below, which also runs before either can observe a change.
   const modeRef = useRef<ZoomMode>('fit')
@@ -66,6 +67,11 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
   // Safari gesture baseline: scale captured when the gesture started.
   const gestureRef = useRef<{ base: number; x: number; y: number } | null>(null)
   const clickTimer = useRef<number | null>(null)
+  // Mouse drag-to-pan state; `pan` is false when the content cannot scroll, and
+  // the press is then only tracked to tell a drag from a click.
+  const dragRef = useRef<{ id: number; x: number; y: number; left: number; top: number; pan: boolean; moved: boolean } | null>(null)
+  // Set when a drag ends so the click the browser fires afterwards is ignored.
+  const suppressClickRef = useRef(false)
 
   /** Current scale read from the DOM — always what is actually on screen. */
   const displayed = useCallback((): number | null => {
@@ -185,6 +191,58 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
     }
   }, [displayed, zoomTo])
 
+  // Mouse drag-to-pan: the native scroll container follows the pointer, so a
+  // plain mouse (no trackpad, no horizontal wheel) can still reach every corner
+  // of a zoomed image. Touch and pen keep their native inertial scrolling — only
+  // a mouse press is taken over. Following the resizer's convention there is no
+  // pointer capture: window listeners keep a fast pan alive past the viewport
+  // edge, and leaving the press target alone keeps click-to-fullscreen working.
+  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (e.button !== 0 || e.pointerType !== 'mouse') return
+    const vp = scrollRef.current
+    if (vp === null) return
+    suppressClickRef.current = false
+    dragRef.current = {
+      id: e.pointerId, x: e.clientX, y: e.clientY, left: vp.scrollLeft, top: vp.scrollTop,
+      pan: vp.scrollWidth > vp.clientWidth || vp.scrollHeight > vp.clientHeight,
+      moved: false,
+    }
+  }, [])
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent): void => {
+      const d = dragRef.current
+      if (d === null || e.pointerId !== d.id) return
+      const dx = e.clientX - d.x
+      const dy = e.clientY - d.y
+      if (!d.moved) {
+        if (!isDragGesture(dx, dy)) return
+        d.moved = true
+        setDragging(true)
+      }
+      const vp = scrollRef.current
+      if (vp === null || !d.pan) return
+      const next = panScroll(d.left, d.top, dx, dy)
+      vp.scrollLeft = next.left
+      vp.scrollTop = next.top
+    }
+    const onUp = (e: PointerEvent): void => {
+      const d = dragRef.current
+      if (d === null || e.pointerId !== d.id) return
+      if (d.moved) suppressClickRef.current = true
+      dragRef.current = null
+      setDragging(false)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [])
+
   // Keep the fit-percentage label honest while the viewport resizes — but only
   // in fit mode: while zoomed the rendered size is the numeric scale, which
   // must never leak into the fit label.
@@ -209,6 +267,9 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
   // Single click opens fullscreen — but wait briefly so a double click can
   // claim it for zoom-to-100% instead of flashing the lightbox open.
   const onClick = useCallback((): void => {
+    // A drag that moved the image is not a click: swallow the click the browser
+    // emits after it before anything reacts.
+    if (suppressClickRef.current) { suppressClickRef.current = false; return }
     if (!fullscreen) return
     if (clickTimer.current !== null) window.clearTimeout(clickTimer.current)
     clickTimer.current = window.setTimeout(() => { clickTimer.current = null; setOpen(true) }, 260)
@@ -242,10 +303,14 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
     ])
     : null
 
-  return h('div', { className: 'gp-zoom', ref: rootRef }, [
-    h('div', { key: 'vp', className: `gp-zoom__scroll ${viewportClass}`, ref: scrollRef }, h('img', {
+  return h('div', {
+    className: 'gp-zoom', ref: rootRef,
+    'data-zoomed': mode === 'fit' ? undefined : 'true',
+    'data-dragging': dragging ? 'true' : undefined,
+  }, [
+    h('div', { key: 'vp', className: `gp-zoom__scroll ${viewportClass}`, ref: scrollRef, onPointerDown }, h('img', {
       key: 'img', ref: imgRef, className: 'gp-zoom__img', src, alt, style: imgStyle,
-      onLoad: onLoaded, onClick, onDoubleClick,
+      draggable: false, onLoad: onLoaded, onClick, onDoubleClick,
     })),
     bar,
     open ? h(ZoomLightbox, { key: 'lb', src, alt, t, onClose: closeLightbox }) : null,

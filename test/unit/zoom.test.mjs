@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeWheel, wheelZoomFactor, clampScale, anchoredScroll, SCALE_MIN, SCALE_MAX, ZOOM_STEP, DELTA_CLAMP } from '../../lib/testkit.mjs'
+import { normalizeWheel, wheelZoomFactor, clampScale, anchoredScroll, isDragGesture, panScroll, SCALE_MIN, SCALE_MAX, ZOOM_STEP, DELTA_CLAMP, DRAG_THRESHOLD } from '../../lib/testkit.mjs'
 
 const wheel = (over = {}) => ({ deltaY: 0, deltaMode: 0, ...over })
 
@@ -59,4 +59,23 @@ test('anchoredScroll keeps the content point under the cursor fixed', () => {
 test('ZOOM_STEP is a multiplicative toolbar step above 1', () => {
   assert.ok(ZOOM_STEP > 1)
   assert.ok(SCALE_MIN < 1 && SCALE_MAX > 1)
+})
+
+test('isDragGesture only turns a press into a drag past the threshold', () => {
+  assert.equal(isDragGesture(0, 0), false)
+  assert.equal(isDragGesture(DRAG_THRESHOLD - 1, 0), false)
+  // Travel is measured as a distance, not per axis: a diagonal 2,2 is 2.83px.
+  assert.equal(isDragGesture(DRAG_THRESHOLD - 1, DRAG_THRESHOLD - 1), false)
+  assert.equal(isDragGesture(DRAG_THRESHOLD, 0), true)
+  assert.equal(isDragGesture(2, 3), true)
+  assert.equal(isDragGesture(-DRAG_THRESHOLD, 0), true)
+  assert.equal(isDragGesture(1, 1, 2), false)
+})
+
+test('panScroll moves the content with the pointer', () => {
+  // Dragging right/down by (+40, +25) reveals the content at the left/top.
+  assert.deepEqual(panScroll(200, 150, 40, 25), { left: 160, top: 125 })
+  // Dragging left/up goes the other way; a zero drag changes nothing.
+  assert.deepEqual(panScroll(0, 0, -60, -30), { left: 60, top: 30 })
+  assert.deepEqual(panScroll(120, 90, 0, 0), { left: 120, top: 90 })
 })

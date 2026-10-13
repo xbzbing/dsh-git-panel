@@ -51,6 +51,9 @@ const out = await page.evaluate(async (snap) => {
   // Real dimensions matter: a 1×1 image's integer clientWidth rounds every
   // zoom level back to 100%, which would hide fit-label regressions.
   const MOCK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3PQQkAAAgEsItjJtMZ1Qi+hcEKLNXzWgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQELgtQSiEPtYVDTgAAAABJRU5ErkJggg=='
+  // 800×800 PNG for the drag-to-pan test: at 100% it is wider than the preview
+  // pane, so the viewport is actually scrollable and a drag has somewhere to go.
+  const MOCK_PNG_BIG = 'iVBORw0KGgoAAAANSUhEUgAAAyAAAAMgCAIAAABUEpE/AAAMK0lEQVR42u3WMQ0AIAwAwQpDCepQRxgQUQ/QrZecgp8+xlwAABQKCQAADBYAgMECAGg7WPtcAAAeGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGSx0AAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMlDQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQAYLIMFAGCwAAAMFgCAwTJYAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAgMEyWAAABgsAwGABABgsgwUAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAyWOgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABksdAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDJQ0AgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAGCyDBQBgsAAADBYAgMEyWAAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAIDBMlgAAAYLAMBgAQAYLIMFAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMljoAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAZLHQAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgyUNAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABABgsgwUAYLAAAAwWAIDBMlgAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgCAwTJYAAAGCwDAYAEAGCyDBQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADJY6AAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGSx0AgNrBAgDgn8ECADBYAAAGCwCglQQBoowL1tK/2wAAAABJRU5ErkJggg=='
   const fileQueries = []
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
@@ -83,7 +86,7 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'dir-list') {
             fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
@@ -100,6 +103,7 @@ const out = await page.evaluate(async (snap) => {
               const body = `const long = "${huge}"\n` + Array.from({ length: 5100 }, (_, i) => `line ${i}`).join('\n') + '\n'
               return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: body, lines: 5101 } } }
             }
+            if (q.path.endsWith('big.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_BIG}` } } }
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}` } } }
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
           }
@@ -539,6 +543,59 @@ const out = await page.evaluate(async (snap) => {
     && document.querySelector('.gp-files__image')?.parentElement?.querySelector('.gp-zoom__btn[aria-pressed]')?.getAttribute('aria-pressed') === 'true'
   panelHost.style.width = zoomPrevWidth
   await new Promise((r) => setTimeout(r, 120))
+  // Mouse drag-to-pan: a plain mouse has no horizontal wheel, so a zoomed image
+  // must be draggable. big.png at 100% is wider than the pane, which makes the
+  // viewport actually scrollable (a drag needs somewhere to go).
+  panelHost.style.width = '800px'
+  await new Promise((r) => setTimeout(r, 150))
+  const bigImgRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.png'))
+  if (bigImgRow) { bigImgRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  const panRoot = document.querySelector('.gp-files__image')?.parentElement ?? null
+  const panVp = panRoot?.querySelector('.gp-zoom__scroll') ?? null
+  const panImg = panRoot?.querySelector('img') ?? null
+  result.zoomPanImgNotDraggable = panImg?.getAttribute('draggable') === 'false'
+  result.zoomFitCursor = panImg === null ? '' : getComputedStyle(panImg).cursor
+  panRoot?.querySelector('.gp-zoom__pct')?.click() // actual size: 800px wide
+  await new Promise((r) => setTimeout(r, 150))
+  result.zoomGrabCursor = panImg === null ? '' : getComputedStyle(panImg).cursor
+  if (panVp !== null) {
+    result.zoomPanScrollable = panVp.scrollWidth > panVp.clientWidth && panVp.scrollHeight > panVp.clientHeight
+    // Start mid-range so the drag has room in both directions.
+    panVp.scrollLeft = Math.round((panVp.scrollWidth - panVp.clientWidth) / 2)
+    panVp.scrollTop = Math.round((panVp.scrollHeight - panVp.clientHeight) / 2)
+  }
+  const panRect = panVp?.getBoundingClientRect() ?? null
+  const panBefore = { left: panVp?.scrollLeft ?? 0, top: panVp?.scrollTop ?? 0 }
+  if (panVp !== null && panRect !== null) {
+    // Synthetic pointer input mirrors a left-button mouse drag: a press, moves
+    // past the 3px threshold, then release — plus the click the browser emits
+    // after a drag, which must not open the lightbox.
+    const press = (type, x, y, buttons) => panVp.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, isPrimary: true, pointerType: 'mouse', button: 0, buttons, clientX: x, clientY: y,
+    }))
+    const cx = panRect.left + panRect.width / 2
+    const cy = panRect.top + panRect.height / 2
+    press('pointerdown', cx, cy, 1)
+    for (const step of [10, 30, 50]) press('pointermove', cx - step, cy - Math.round(step / 2), 1)
+    window.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, pointerId: 1, isPrimary: true, pointerType: 'mouse', button: 0, buttons: 0, clientX: cx - 50, clientY: cy - 25,
+    }))
+    panImg?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  }
+  await new Promise((r) => setTimeout(r, 320))
+  const panAfter = { left: panVp?.scrollLeft ?? 0, top: panVp?.scrollTop ?? 0 }
+  // Dragging left/up scrolls right/down: the content follows the pointer.
+  result.zoomDragPanned = panAfter.left > panBefore.left && panAfter.top > panBefore.top
+  result.zoomDragNoLightbox = document.querySelector('.gp-zl-backdrop') === null
+  // A plain click on the zoomed image still opens the lightbox.
+  panImg?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 320))
+  result.zoomClickStillOpens = document.querySelector('.gp-zl-backdrop') !== null
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.zoomClickLightboxClosed = document.querySelector('.gp-zl-backdrop') === null
+  panelHost.style.width = zoomPrevWidth
+  await new Promise((r) => setTimeout(r, 120))
   let finishCopy
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((resolve) => { finishCopy = resolve }) } })
   document.querySelector('.gp-files__copy-path')?.click()
@@ -786,6 +843,14 @@ try {
   assert.equal(out.zoomInZoomed, true, 'the zoom bar steps the zoom level up')
   assert.equal(out.zoomFitLabelHonest, true, 'after resizing while zoomed, the fit label matches the rendered size')
   assert.equal(out.zoomResetsOnNewImage, true, 'switching images resets the zoom instead of carrying it over')
+  assert.equal(out.zoomPanScrollable, true, 'a zoomed image overflows its viewport, so it can be panned')
+  assert.equal(out.zoomPanImgNotDraggable, true, 'the image opts out of the browser native drag so a mouse drag pans instead')
+  assert.equal(out.zoomFitCursor, 'zoom-in', 'the fit viewport advertises click-to-zoom, not a drag')
+  assert.equal(out.zoomGrabCursor, 'grab', 'the zoomed viewport advertises drag-to-pan')
+  assert.equal(out.zoomDragPanned, true, 'dragging with the mouse pans the zoomed image')
+  assert.equal(out.zoomDragNoLightbox, true, 'a drag is not a click: the fullscreen lightbox stays closed')
+  assert.equal(out.zoomClickStillOpens, true, 'a plain click on the zoomed image still opens the lightbox')
+  assert.equal(out.zoomClickLightboxClosed, true, 'Escape still closes that lightbox')
   assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
   assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
   assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
