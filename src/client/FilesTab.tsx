@@ -15,6 +15,7 @@ import { ArrowLeftIcon, ChevronIcon } from './icons'
 import { useResizableColumn } from './resizable'
 import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
+import { ZoomableImage } from './ImageZoom'
 import { buildTops, windowRange } from './virtual-list'
 import { useViewportTracker } from './use-viewport'
 
@@ -331,7 +332,7 @@ function renderPreview(file: FileState, t: (key: GitKey, params?: Record<string,
     case 'tooLarge': return h('div', { className: 'gp-empty' }, t('files.tooLarge'))
     case 'binary': return h('div', { className: 'gp-empty' }, t('files.binary'))
     case 'image':
-      return h('div', { className: 'gp-files__image' }, h('img', { src: file.dataUrl, alt: file.path }))
+      return h(ZoomableImage, { src: file.dataUrl, alt: file.path, t, viewportClass: 'gp-files__image' })
     case 'text':
       return h(CodePreview, { content: file.content, path: file.path, t })
   }

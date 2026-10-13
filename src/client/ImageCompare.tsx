@@ -7,6 +7,7 @@ import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import type { DiffMode } from './DiffView'
 import type { GitKey } from './locales'
+import { ZoomableImage } from './ImageZoom'
 
 interface ImageCompareProps {
   readonly oldUrl?: string
@@ -21,7 +22,7 @@ function pane(side: 'before' | 'after', url: string | undefined, t: ImageCompare
     h('div', { key: 'head', className: 'gp-imgcmp__head' }, label),
     url === undefined
       ? h('div', { key: 'missing', className: 'gp-imgcmp__missing' }, t('diff.imageMissing'))
-      : h('div', { key: 'img', className: 'gp-imgcmp__img' }, h('img', { src: url, alt: label })),
+      : h(ZoomableImage, { key: 'img', src: url, alt: label, t, viewportClass: 'gp-imgcmp__img' }),
   ])
 }
 

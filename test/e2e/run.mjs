@@ -236,6 +236,8 @@ const out = await page.evaluate(async (snap) => {
   result.imagePanes = document.querySelectorAll('.gp-imgcmp__pane').length
   result.imageImgs = document.querySelectorAll('.gp-imgcmp img').length
   result.imageSrcOk = [...document.querySelectorAll('.gp-imgcmp img')].every((i) => (i.src || '').startsWith('data:image/png;base64,'))
+  // Each comparison pane renders its own zoom toolbar (zoom shares one component).
+  result.zoomDiffBars = document.querySelectorAll('.gp-imgcmp .gp-zoom__bar').length
   result.imageHeads = [...document.querySelectorAll('.gp-imgcmp__head')].map((e) => e.textContent)
   const afterBtn = [...document.querySelectorAll('.gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.after')
   if (afterBtn) { afterBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
@@ -479,6 +481,34 @@ const out = await page.evaluate(async (snap) => {
   const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
   if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesImageShown = document.querySelector('.gp-files__image img') !== null
+  // Image zoom: toolbar presence, pinch (ctrl+wheel) zooms, plain wheel is a
+  // native-pan passthrough, double click returns to fit, fullscreen lightbox
+  // opens from the bar and closes on Escape. Queries are scoped to the Files
+  // zoom root — the diff view renders its own zoom bars.
+  const zoomRoot = document.querySelector('.gp-files__image')?.parentElement ?? null
+  const zoomImg = zoomRoot?.querySelector('img') ?? null
+  result.zoomBarShown = zoomRoot?.querySelector('.gp-zoom__bar') !== null
+  result.zoomPctBefore = zoomRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
+  const zoomW0 = zoomImg?.style.width ?? ''
+  zoomImg?.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -10, bubbles: true, cancelable: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.zoomWheelZoomed = (zoomImg?.style.width ?? '') !== zoomW0 && (zoomImg?.style.width ?? '') !== ''
+  result.zoomPctAfter = zoomRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
+  const zoomW1 = zoomImg?.style.width ?? ''
+  zoomImg?.dispatchEvent(new WheelEvent('wheel', { deltaY: 40, bubbles: true, cancelable: true }))
+  await new Promise((r) => setTimeout(r, 80))
+  result.zoomPlainWheelNoop = (zoomImg?.style.width ?? '') === zoomW1
+  zoomImg?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 80))
+  result.zoomDblClickFit = (zoomImg?.style.width ?? '') === ''
+  result.zoomFitPressed = zoomRoot?.querySelector('.gp-zoom__btn[aria-pressed]')?.getAttribute('aria-pressed') === 'true'
+  zoomRoot?.querySelector('button[aria-label="files.zoomFullscreen"]')?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  result.zoomLightboxShown = document.querySelector('.gp-zl-backdrop') !== null
+    && document.querySelector('.gp-zl-backdrop')?.getAttribute('aria-modal') === 'true'
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.zoomLightboxClosed = document.querySelector('.gp-zl-backdrop') === null
   let finishCopy
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((resolve) => { finishCopy = resolve }) } })
   document.querySelector('.gp-files__copy-path')?.click()

@@ -9,7 +9,7 @@
 - 工作区新增常驻面板 tab「Git」，位于「对话」「轨迹」之后，内部含三个子 tab：
   - **Git 总览**：左=分支列表，中=提交历史图（支持 commit id 等字段搜索），右=提交详情 + comment。提交详情顶部有变更汇总行（文件数 + 该提交的 +增/−删行数，口径与右侧文件树一致：二进制计入文件数但不计行、合并提交文件树为空时统计清零），其下的变更文件树目录可点击折叠/展开（默认全展开，切换选中提交时重置为全展开）。再下有「提交操作」区：还原此提交（revert）、重置到此提交（reset：软 / 混合 / 硬，硬重置列出将丢失的改动并需额外勾选确认）、为该提交创建标签（轻量 / 附注），已有标签以可删除标签片呈现（创建 / 删除 / 还原 / 重置均走 modal + 二次确认，底部恒显「信任 AI」提示）。
   - **变更记录**：左=变更统计（文件数 / 增删行数 / 最近变更时间）+ 本地未提交变更列表（勾选、手动提交、Amend）+ 贮藏入口与贮藏列表（应用 / 弹出 / 丢弃），右=选中文件差异对比（图片走 `image-diff` 新旧双图对照）。
-  - **文件浏览**：直接打开 Git tab 时，非 Git 目录默认进入此页、干净仓库默认 Git 总览、有未提交变更默认变更记录；输入框标记的显式跳转仍优先。非 Git 目录仅显示文件浏览，以 cwd 为根。系统未安装 git 时同样退化为文件浏览：在 git 目录（文件系统探测到 `.git`）会额外提示「未安装 Git」，非 git 目录则静默退化，两种情况输入框标记与状态圆点均不显示。左=按需加载目录树（`.git` 不可浏览，Git 忽略项半透明），右=文件预览（按类型显示 dsh 官方 `FileTypeIcon`，可复制相对路径；代码/文本用官方 `useCodeHighlighter` 语法高亮，Markdown 可切换官方 `MarkdownText` 渲染并默认渲染，HTML 可切换预览但默认源码、渲染走 `allow-scripts` 隔离源 iframe 不自动执行，图片内联，其余二进制占位）。Git 面板保留默认字号，可在顶部调节并记住选择。
+  - **文件浏览**：直接打开 Git tab 时，非 Git 目录默认进入此页、干净仓库默认 Git 总览、有未提交变更默认变更记录；输入框标记的显式跳转仍优先。非 Git 目录仅显示文件浏览，以 cwd 为根。系统未安装 git 时同样退化为文件浏览：在 git 目录（文件系统探测到 `.git`）会额外提示「未安装 Git」，非 git 目录则静默退化，两种情况输入框标记与状态圆点均不显示。左=按需加载目录树（`.git` 不可浏览，Git 忽略项半透明），右=文件预览（按类型显示 dsh 官方 `FileTypeIcon`，可复制相对路径；代码/文本用官方 `useCodeHighlighter` 语法高亮，Markdown 可切换官方 `MarkdownText` 渲染并默认渲染，HTML 可切换预览但默认源码、渲染走 `allow-scripts` 隔离源 iframe 不自动执行，图片内联并支持缩放/全屏（`ImageZoom.tsx`），其余二进制占位）。Git 面板保留默认字号，可在顶部调节并记住选择。
 - inputBar 一个 zsh 风格 Git 标记：`<仓库名> (<分支>)`，绿色=已同步、橙色=有待提交；hover 显示完整路径；点击跳转面板（有未提交→变更记录，已提交→Git 总览）。非 Git 目录不显示此标记或状态圆点；插件详情页可隐藏 Git 仓库的标记，隐藏时改为在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
 - 插件详情页配置区：「显示输入框标记」开关 = host `static Config` volatile 字段 + client 注册 `plugins.bundle.config` 表单（`PillConfig.tsx`），经 `configForms` 热写；写入被接受后客户端立即 `resyncAll()`，不等轮询。
 
@@ -64,7 +64,8 @@ Host 半 (Cordis + typert, lib/host)
 - `ops-modals.tsx`：写操作共享的 portaled 弹窗原语——`renderModalShell`（小弹窗统一外壳：backdrop 点击外部关闭 + Escape + `createPortal` + `.gp-modal--sm` 框 + bar(图标/标题/短哈希/关闭)，确认框 / 标签 / 贮藏 / 重置四类对话框都只提供 body+footer 经它渲染，关闭契约单处收口）、`renderConfirmModal`（纯文本确认框）、`renderModalFooter`（取消/确认按钮，`confirmBusy` 可在途禁用）、`renderAiHint`（底部恒显 `ops.aiHint`）、`opErrorText`（错误码→文案）。
 - `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换 + 「提交历史图线条样式」平行线（VSCode）/ 紧凑（git log）切换 + 「提交框显示 AI 生成」开关。
 - `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
-- `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果）。
+- `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果，每栏内嵌 `ZoomableImage`）。
+- `ImageZoom.tsx` / `zoom.ts`：图片缩放。`ZoomableImage` = 原生滚动平移 + 捏合缩放（Chromium/Firefox/Safari 15+ 把触控板捏合编码为 ctrl+wheel，旧 Safari 走 `gesturestart/change`，监听器手动 `{passive:false}` 挂载、仅拦截 ctrl+wheel，普通滚轮放行给原生平移）+ 浮动缩放条（− / 百分比 / + / 适应窗口 / 全屏）+ 双击 fit↔100% + 点击进全屏灯箱 `ZoomLightbox`（portal、Esc/背景/关闭钮、焦点还原，契约对齐官方 `ImageLightbox`——官方组件无缩放扩展点，故灯箱自研）。缩放态用显式宽高参与布局、`margin:auto` 居中（flex `justify-content:center` 会让超宽图溢出侧不可达），光标锚点滚动换算在 `zoom.ts` 纯函数里（delta 归一化 / 非对称缩放因子 / 钳制 / 锚点滚动，单测覆盖）。文件浏览与差异对照共用。
 - `jump.ts`：面板/子 tab 一次性焦点中继（模块级 per-session Map）。
 - `git-graph.ts` / `file-tree.ts` / `diff.ts`：自研纯算法（提交图车道布局、路径折树、unified diff 拆行 → 并排行 + 块间隐藏上下文折叠为可展开 gap + 改动行前缀/后缀词级 diff）。提交图按车道（而非逐 commit）配色——一条连续线单色；车道续接跟随第一父，使主线钉在最左。线条样式由快照上的 `graphStyle` 决定：`parallel`（默认，VSCode 风格——合并的第一父各占一列，共享祖先以并行线表示、仅在祖先节点汇聚）/ `compact`（git log 风格——共享祖先提前合并为一列）。
 - `locales.ts` / `icons.tsx` / `time.ts` / `types.ts`：中英文案、图标、时间格式化、client 侧类型别名。

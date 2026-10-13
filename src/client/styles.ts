@@ -215,7 +215,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* Fixed row height needs non-wrapping cells; a long line scrolls horizontally
  * on the container instead of growing the row past ROW_HEIGHT. */
 .gp-files__row .gp-diff-cell{white-space:pre;overflow:hidden;text-overflow:clip}
-.gp-files__image{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:center;justify-content:center;padding:16px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
+.gp-files__image{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:flex-start;padding:16px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-files__image img{max-width:100%;max-height:100%;object-fit:contain}
 .gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 /* Virtualized change list: a fixed-height relative spacer owns the scrollbar;
@@ -303,7 +303,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-imgcmp--single{grid-template-columns:1fr}
 .gp-imgcmp__pane{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--dsw-alias-bg-layer-2)}
 .gp-imgcmp__head{flex:none;padding:4px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);border-bottom:1px solid var(--dsw-alias-border-l2)}
-.gp-imgcmp__img{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:center;justify-content:center;padding:10px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
+.gp-imgcmp__img{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:flex-start;padding:10px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-imgcmp__img img{max-width:100%;max-height:100%;object-fit:contain;image-rendering:auto}
 .gp-imgcmp__missing{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:12px;background:var(--dsw-alias-bg-layer-1)}
 /* SVG diff: render/source toggle bar above the rendered comparison or source diff */
@@ -532,8 +532,31 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
   .gp-modal__bar{flex-wrap:wrap;row-gap:6px}
 }
 
+/* Image zoom: relative wrapper + native-scroll viewport (the viewport class
+ * supplies background/padding) + a floating zoom bar. Centering runs through
+ * margin:auto — justify-content:center would make the overflow side of an
+ * oversized image unreachable. */
+.gp-zoom{position:relative;display:flex;flex:1;min-width:0;min-height:0}
+.gp-zoom__scroll{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex}
+.gp-zoom__img{display:block;margin:auto;max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in}
+.gp-zoom__bar{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:2px;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-2);box-shadow:0 4px 14px rgba(0,0,0,.18)}
+.gp-zoom__btn{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:24px;padding:0 7px;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer}
+.gp-zoom__btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-zoom__btn--text{font-size:11px;padding:0 9px;white-space:nowrap}
+.gp-zoom__btn[aria-pressed="true"]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary)}
+.gp-zoom__pct{min-width:50px;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;font-variant-numeric:tabular-nums}
+/* Fullscreen zoom lightbox; mirrors the platform ImageLightbox contract. */
+.gp-zl-backdrop{position:fixed;inset:0;z-index:1000}
+.gp-zl-stage{position:absolute;inset:var(--dsh-frame-chrome-top,0px) 0 0;display:flex;align-items:center;justify-content:center;padding:40px}
+.gp-zl-mask{position:absolute;inset:0;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 62%,transparent);backdrop-filter:blur(2px);animation:gp-fade-in .12s ease}
+.gp-zl-frame{position:relative;flex:1;height:100%;max-width:min(100%,1600px);min-width:0;display:flex}
+.gp-zl-viewport{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex}
+.gp-zl-viewport img{border-radius:var(--dsw-radius-lg);box-shadow:0 8px 40px rgba(0,0,0,.5)}
+.gp-zl-close{position:absolute;top:20px;right:20px;z-index:1;display:grid;place-items:center;width:36px;height:36px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);cursor:pointer}
+.gp-zl-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-zl-close:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:3px}
 @media (prefers-reduced-motion:reduce){
-  .gp-sheet,.gp-sheet-backdrop,.gp-modal,.gp-modal-backdrop{animation:none}
+  .gp-sheet,.gp-sheet-backdrop,.gp-modal,.gp-modal-backdrop,.gp-zl-mask{animation:none}
 }
 `
 
