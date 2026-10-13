@@ -19,25 +19,18 @@ export const DELTA_CLAMP = 24
 const WHEEL_SCALE_SPEEDUP = 2
 
 export interface WheelLike {
-  readonly deltaX: number
   readonly deltaY: number
   readonly deltaMode: number
-  readonly shiftKey: boolean
 }
 
 /**
- * Normalize a wheel event to `[dx, dy]`: swap a shift-only vertical delta into
- * the horizontal axis (Chrome encodes it that way), scale line/page modes into
- * pixels, and clamp `dy` so oversized ticks zoom in bounded steps.
+ * Normalize a wheel event's vertical delta: scale line/page modes into pixels
+ * and clamp it, so one oversized tick zooms in a bounded step instead of
+ * teleporting.
  */
-export function normalizeWheel(e: WheelLike): [number, number] {
-  let dx = e.deltaX
-  let dy = e.deltaY
-  if (dx === 0 && e.shiftKey && dy !== 0) { dx = dy; dy = 0 }
+export function normalizeWheel(e: WheelLike): number {
   const mul = e.deltaMode === DELTA_MODE_LINE ? LINE_TO_PX : e.deltaMode === DELTA_MODE_PAGE ? PAGE_TO_PX : 1
-  dx *= mul
-  dy = Math.sign(dy) * Math.min(DELTA_CLAMP, Math.abs(dy * mul))
-  return [dx, dy]
+  return Math.sign(e.deltaY) * Math.min(DELTA_CLAMP, Math.abs(e.deltaY * mul))
 }
 
 /**

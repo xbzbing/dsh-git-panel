@@ -7,23 +7,18 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizeWheel, wheelZoomFactor, clampScale, anchoredScroll, SCALE_MIN, SCALE_MAX, ZOOM_STEP, DELTA_CLAMP } from '../../lib/testkit.mjs'
 
-const wheel = (over = {}) => ({ deltaX: 0, deltaY: 0, deltaMode: 0, shiftKey: false, ...over })
+const wheel = (over = {}) => ({ deltaY: 0, deltaMode: 0, ...over })
 
 test('normalizeWheel passes pixel deltas through and scales line/page modes', () => {
-  assert.deepEqual(normalizeWheel(wheel({ deltaY: -5 })), [0, -5])
-  assert.deepEqual(normalizeWheel(wheel({ deltaY: 2, deltaMode: 1 })), [0, 16])
-  assert.deepEqual(normalizeWheel(wheel({ deltaY: -1, deltaMode: 2 })), [0, -24])
-})
-
-test('normalizeWheel swaps a shift-only vertical delta to the horizontal axis', () => {
-  assert.deepEqual(normalizeWheel(wheel({ deltaY: 7, shiftKey: true })), [7, 0])
-  // With a real horizontal delta the swap must not fire.
-  assert.deepEqual(normalizeWheel(wheel({ deltaX: 3, deltaY: 7, shiftKey: true })), [3, 7])
+  assert.equal(normalizeWheel(wheel({ deltaY: -5 })), -5)
+  assert.equal(normalizeWheel(wheel({ deltaY: 2, deltaMode: 1 })), 16)
+  assert.equal(normalizeWheel(wheel({ deltaY: -1, deltaMode: 2 })), -24)
 })
 
 test('normalizeWheel clamps oversized pinch deltas', () => {
-  assert.deepEqual(normalizeWheel(wheel({ deltaY: -400 }))[1], -DELTA_CLAMP)
-  assert.deepEqual(normalizeWheel(wheel({ deltaY: 500, deltaMode: 1 }))[1], DELTA_CLAMP)
+  assert.equal(normalizeWheel(wheel({ deltaY: -400 })), -DELTA_CLAMP)
+  assert.equal(normalizeWheel(wheel({ deltaY: 500, deltaMode: 1 })), DELTA_CLAMP)
+  assert.equal(normalizeWheel(wheel({ deltaY: 0 })), 0)
 })
 
 test('wheelZoomFactor: negative zooms in, positive zooms out, zero is neutral', () => {

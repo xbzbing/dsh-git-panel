@@ -50,12 +50,16 @@ interface ZoomableImageProps {
 }
 
 export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }: ZoomableImageProps): JSX.Element {
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null)
   const [mode, setMode] = useState<ZoomMode>('fit')
   const [fitPct, setFitPct] = useState<number | null>(null)
   const [open, setOpen] = useState(false)
+  // Latest mode for the async readers (ResizeObserver, onLoad); synced in the
+  // layout effect below, which also runs before either can observe a change.
+  const modeRef = useRef<ZoomMode>('fit')
   // Scroll correction applied after the next layout: content point under the
   // cursor stays put while the image resizes by `ratio`.
   const anchorRef = useRef<{ x: number; y: number; ratio: number } | null>(null)
@@ -101,31 +105,55 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
 
   const toFit = useCallback((): void => { setMode('fit') }, [])
 
-  // Apply the pending scroll anchor once the resized layout is committed.
+  /** Re-read the rendered scale as the fit percentage — only valid in 'fit' mode. */
+  const measureFit = useCallback((): void => {
+    const img = imgRef.current
+    if (img === null || img.naturalWidth === 0 || img.clientWidth === 0) return
+    setFitPct(Math.round((img.clientWidth / img.naturalWidth) * 100))
+  }, [])
+
+  // Apply the pending scroll anchor once the resized layout is committed, and
+  // refresh the fit percentage on every mode change (entering 'fit' after a
+  // resize or a zoom must re-measure, never report the numeric scale).
   useLayoutEffect(() => {
+    modeRef.current = mode
+    if (mode === 'fit') measureFit()
     const a = anchorRef.current
     anchorRef.current = null
     const vp = scrollRef.current
     if (a === null || vp === null) return
     vp.scrollLeft = anchoredScroll(vp.scrollLeft, a.x, a.ratio)
     vp.scrollTop = anchoredScroll(vp.scrollTop, a.y, a.ratio)
-  }, [mode])
+  }, [mode, measureFit])
+
+  // A new src is a new image. A caller may swap src in place (an ImageCompare
+  // pane fed a new URL) where React reuses this instance, so drop the previous
+  // zoom level and fit label instead of carrying them over.
+  useEffect(() => {
+    modeRef.current = 'fit'
+    anchorRef.current = null
+    gestureRef.current = null
+    setMode('fit')
+    setNat(null)
+    setFitPct(null)
+  }, [src])
 
   // One-time listeners on the wrapper (bubbling covers img + bar). Registered
   // with refs so handlers never need re-registering mid-gesture.
   useEffect(() => {
-    const root = scrollRef.current?.parentElement
-    if (root === null || root === undefined) return
+    const root = rootRef.current
+    if (root === null) return
 
     const onWheel = (e: WheelEvent): void => {
       if (!e.ctrlKey) return // plain wheel = native pan
+      // Cancel first: even before the image is measurable, ctrl+wheel over our
+      // own viewport must not zoom the whole page.
+      if (e.cancelable) e.preventDefault()
       const img = imgRef.current
       if (img === null || !img.complete || img.naturalWidth === 0) return
-      if (e.cancelable) e.preventDefault() // stop the browser's page zoom
-      const [, dy] = normalizeWheel(e)
       const cur = displayed()
       if (cur === null) return
-      zoomTo(cur * wheelZoomFactor(dy), e.clientX, e.clientY)
+      zoomTo(cur * wheelZoomFactor(normalizeWheel(e)), e.clientX, e.clientY)
     }
 
     // Older Safari pinch: e.scale is cumulative from gesturestart.
@@ -157,24 +185,26 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
     }
   }, [displayed, zoomTo])
 
-  // Keep the fit-percentage label honest while the viewport resizes.
+  // Keep the fit-percentage label honest while the viewport resizes — but only
+  // in fit mode: while zoomed the rendered size is the numeric scale, which
+  // must never leak into the fit label.
   useEffect(() => {
     const vp = scrollRef.current
     if (vp === null || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
-      const img = imgRef.current
-      if (img === null || img.naturalWidth === 0 || img.clientWidth === 0) return
-      setFitPct(Math.round((img.clientWidth / img.naturalWidth) * 100))
+      if (modeRef.current !== 'fit') return
+      measureFit()
     })
     ro.observe(vp)
     return () => ro.disconnect()
-  }, [])
+  }, [measureFit])
 
-  const onLoaded = useCallback((e: { currentTarget: HTMLImageElement }): void => {
-    const img = e.currentTarget
+  const onLoaded = useCallback((): void => {
+    const img = imgRef.current
+    if (img === null) return
     setNat({ w: img.naturalWidth, h: img.naturalHeight })
-    setFitPct(img.clientWidth > 0 ? Math.round((img.clientWidth / img.naturalWidth) * 100) : null)
-  }, [])
+    if (modeRef.current === 'fit') measureFit()
+  }, [measureFit])
 
   // Single click opens fullscreen — but wait briefly so a double click can
   // claim it for zoom-to-100% instead of flashing the lightbox open.
@@ -212,7 +242,7 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true }:
     ])
     : null
 
-  return h('div', { className: 'gp-zoom' }, [
+  return h('div', { className: 'gp-zoom', ref: rootRef }, [
     h('div', { key: 'vp', className: `gp-zoom__scroll ${viewportClass}`, ref: scrollRef }, h('img', {
       key: 'img', ref: imgRef, className: 'gp-zoom__img', src, alt, style: imgStyle,
       onLoad: onLoaded, onClick, onDoubleClick,
@@ -231,20 +261,37 @@ interface ZoomLightboxProps {
 
 /** Fullscreen zoom overlay; lifecycle mirrors the platform ImageLightbox. */
 function ZoomLightbox({ src, alt, t, onClose }: ZoomLightboxProps): JSX.Element {
+  const backdropRef = useRef<HTMLDivElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     closeRef.current?.focus()
+    const focusables = (): HTMLElement[] => {
+      const root = backdropRef.current
+      if (root === null) return []
+      return [...root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+        .filter((el) => !el.hasAttribute('disabled') && el.getClientRects().length > 0)
+    }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.stopPropagation()
         onClose()
+        return
       }
-      if (event.key === 'Tab') {
-        event.preventDefault()
-        closeRef.current?.focus()
-      }
+      if (event.key !== 'Tab') return
+      // Cycle focus through the dialog (close control + zoom bar) instead of
+      // pinning it, so the zoom controls stay keyboard-reachable.
+      const items = focusables()
+      if (items.length === 0) return
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      const idx = active === null ? -1 : items.indexOf(active)
+      event.preventDefault()
+      const delta = event.shiftKey ? -1 : 1
+      const next = idx === -1
+        ? (delta === -1 ? items.length - 1 : 0)
+        : (idx + delta + items.length) % items.length
+      items[next]?.focus()
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => {
@@ -254,7 +301,7 @@ function ZoomLightbox({ src, alt, t, onClose }: ZoomLightboxProps): JSX.Element 
   }, [onClose])
 
   return createPortal(
-    h('div', { className: 'gp-zl-backdrop', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('files.zoomFullscreen') }, [
+    h('div', { className: 'gp-zl-backdrop', ref: backdropRef, role: 'dialog', 'aria-modal': 'true', 'aria-label': t('files.zoomFullscreen') }, [
       h('div', { key: 'stage', className: 'gp-zl-stage' }, [
         h('div', { key: 'mask', className: 'gp-zl-mask', 'aria-hidden': 'true', onMouseDown: onClose }),
         h('div', { key: 'frame', className: 'gp-zl-frame' }, h(ZoomableImage, { src, alt, t, viewportClass: 'gp-zl-viewport', fullscreen: false })),

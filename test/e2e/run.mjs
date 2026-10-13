@@ -47,8 +47,10 @@ const out = await page.evaluate(async (snap) => {
   // Mutable snapshot the mock serves: the status-bar test flips it to an ahead
   // and a no-upstream state and re-drives the panel through the check button.
   let liveSnap = snap
-  // Valid 1×1 PNG, served as both image-diff sides by the mock.
-  const MOCK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  // Valid 64×64 PNG, served as both image-diff sides and the file preview.
+  // Real dimensions matter: a 1×1 image's integer clientWidth rounds every
+  // zoom level back to 100%, which would hide fit-label regressions.
+  const MOCK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3PQQkAAAgEsItjJtMZ1Qi+hcEKLNXzWgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQELgtQSiEPtYVDTgAAAABJRU5ErkJggg=='
   const fileQueries = []
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
@@ -81,7 +83,7 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'dir-list') {
             fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
@@ -509,6 +511,34 @@ const out = await page.evaluate(async (snap) => {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 120))
   result.zoomLightboxClosed = document.querySelector('.gp-zl-backdrop') === null
+  // Fit-label honesty: zoom in, resize the panel while zoomed (the ResizeObserver
+  // must not record the numeric scale as a fit value), then switch back to Fit —
+  // the percentage shown has to match the size actually rendered.
+  zoomRoot?.querySelector('button[aria-label="files.zoomIn"]')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  result.zoomInZoomed = (zoomImg?.style.width ?? '') !== ''
+  const zoomPrevWidth = panelHost.style.width
+  panelHost.style.width = '700px'
+  await new Promise((r) => setTimeout(r, 200))
+  zoomRoot?.querySelector('.gp-zoom__btn[aria-pressed]')?.click() // Fit
+  await new Promise((r) => setTimeout(r, 150))
+  const zoomFitLabel = zoomRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
+  const zoomFitReal = zoomImg === null ? '' : `${Math.round((zoomImg.clientWidth / zoomImg.naturalWidth) * 100)}%`
+  result.zoomFitLabelHonest = zoomFitLabel !== '' && zoomFitLabel === zoomFitReal
+  // Switching images shows the new picture at fit, never the previous file's
+  // zoom level. Today the loading placeholder unmounts the component between
+  // files; this pins the user-visible contract for any future in-place src swap
+  // (e.g. an ImageCompare pane fed a new URL without a loading gap).
+  zoomRoot?.querySelector('button[aria-label="files.zoomIn"]')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  const iconRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('icon.png'))
+  if (iconRow) { iconRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  const zoomImgAfterSwitch = document.querySelector('.gp-files__image img')
+  result.zoomResetsOnNewImage = zoomImgAfterSwitch !== null
+    && zoomImgAfterSwitch.style.width === ''
+    && document.querySelector('.gp-files__image')?.parentElement?.querySelector('.gp-zoom__btn[aria-pressed]')?.getAttribute('aria-pressed') === 'true'
+  panelHost.style.width = zoomPrevWidth
+  await new Promise((r) => setTimeout(r, 120))
   let finishCopy
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((resolve) => { finishCopy = resolve }) } })
   document.querySelector('.gp-files__copy-path')?.click()
@@ -743,6 +773,19 @@ try {
   assert.equal(out.copyFeedbackReset, true, 'late copy of previous file cannot change current file feedback')
   assert.equal(out.copyDeniedFeedback, true, 'clipboard denial shows an actionable failure state')
   assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
+  assert.equal(out.zoomDiffBars, 2, 'each diff image pane renders its own zoom bar')
+  assert.equal(out.zoomBarShown, true, 'the file preview shows the zoom bar')
+  assert.equal(out.zoomPctBefore, '100%', 'the fit label starts at the fit percentage')
+  assert.equal(out.zoomWheelZoomed, true, 'ctrl+wheel (pinch) zooms the image')
+  assert.equal(out.zoomPctAfter, '120%', 'a pinch step applies the 1.2x scale factor')
+  assert.equal(out.zoomPlainWheelNoop, true, 'a plain wheel leaves zoom alone so panning stays native')
+  assert.equal(out.zoomDblClickFit, true, 'double click returns to fit')
+  assert.equal(out.zoomFitPressed, true, 'fit reports aria-pressed while active')
+  assert.equal(out.zoomLightboxShown, true, 'the fullscreen lightbox opens')
+  assert.equal(out.zoomLightboxClosed, true, 'Escape closes the lightbox')
+  assert.equal(out.zoomInZoomed, true, 'the zoom bar steps the zoom level up')
+  assert.equal(out.zoomFitLabelHonest, true, 'after resizing while zoomed, the fit label matches the rendered size')
+  assert.equal(out.zoomResetsOnNewImage, true, 'switching images resets the zoom instead of carrying it over')
   assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
   assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
   assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
