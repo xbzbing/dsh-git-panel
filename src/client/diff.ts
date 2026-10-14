@@ -100,14 +100,20 @@ export function summarize(unified: string): { add: number; del: number } {
 
 const HUNK_RE = /@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
 
-/** Parse a unified diff into aligned side-by-side rows with expandable gaps. */
-export function buildSideBySide(unified: string): SideRow[] {
+/** Parse a unified diff into aligned side-by-side rows with expandable gaps.
+ * `context` is the -U the text was generated with (host default 3; the
+ * expand-all fetch passes a huge value) — it decides whether a trailing gap
+ * may exist at all, see the EOF note at the bottom. */
+export function buildSideBySide(unified: string, context = 3): SideRow[] {
   const rows: SideRow[] = []
   const lines = unified.split('\n')
   let leftNo = 0
   let rightNo = 0
   let firstHunk = true
   let sawBody = false
+  // Trailing context run of the current (last) hunk: git caps it at U, so a
+  // run shorter than U means the hunk ran into EOF and nothing hides below it.
+  let trailingRun = 0
   let i = 0
   // Skip the file header lines until the first hunk.
   for (; i < lines.length; i++) {
@@ -136,6 +142,7 @@ export function buildSideBySide(unified: string): SideRow[] {
         leftNo = oldStart
         rightNo = newStart
         firstHunk = false
+        trailingRun = 0
       }
       rows.push({ kind: 'hunk', leftNo: null, rightNo: null, leftText: null, rightText: null, text: line })
       continue
@@ -147,22 +154,28 @@ export function buildSideBySide(unified: string): SideRow[] {
       rows.push({ kind: 'add', leftNo: null, rightNo, leftText: null, rightText: content })
       rightNo++
       sawBody = true
+      trailingRun = 0
     } else if (marker === '-') {
       rows.push({ kind: 'del', leftNo, rightNo: null, leftText: content, rightText: null })
       leftNo++
       sawBody = true
+      trailingRun = 0
     } else if (marker === ' ') {
       rows.push({ kind: 'context', leftNo, rightNo, leftText: content, rightText: content })
       leftNo++
       rightNo++
       sawBody = true
+      trailingRun++
     }
     // any other prefix (diff/index/---/+++) between hunks: ignore
   }
-  // Trailing gap: there may be unchanged lines below the last hunk. The diff
-  // does not carry the file length, so the count is unknown (EOF-probed on
-  // expand). Skip it for add/delete-only diffs where the whole file is shown.
-  if (sawBody && !firstHunk && !isAddOnlyDiff(unified) && !isDeleteOnlyDiff(unified)) {
+  // Trailing gap: hidden unchanged lines may follow the last hunk, but only
+  // when git emitted a full trailing context window — a shorter run means the
+  // hunk hit EOF (nothing below to expand; probing would reveal zero lines and
+  // silently vanish, which reads as a dead button). Count is unknown until the
+  // expand probes EOF. Skip for add/delete-only diffs (whole file shown).
+  if (sawBody && !firstHunk && trailingRun >= context
+    && !isAddOnlyDiff(unified) && !isDeleteOnlyDiff(unified)) {
     rows.push(gapRow({ rightStart: rightNo, count: null, delta: leftNo - rightNo, atStart: false, atEnd: true }))
   }
   return pairDeletionsWithAdditions(rows)

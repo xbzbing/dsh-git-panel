@@ -123,11 +123,13 @@ const GAPPED = `diff --git a/f.txt b/f.txt
 index 1111111..2222222 100644
 --- a/f.txt
 +++ b/f.txt
-@@ -30,3 +30,3 @@
+@@ -30,5 +30,5 @@
  ctx30
 -old31
 +new31
  ctx32
+ ctx33
+ ctx34
 `
 
 test('buildSideBySide emits a leading gap for hidden lines above the first hunk', () => {
@@ -139,6 +141,24 @@ test('buildSideBySide emits a leading gap for hidden lines above the first hunk'
   const trail = rows.find((r) => r.kind === 'gap' && r.gap.atEnd)
   assert.ok(trail, 'trailing gap present (unknown count)')
   assert.equal(trail.gap.count, null)
+})
+
+// Regression (f5b9a54 lib/host/types.js): the last hunk ended with fewer than
+// U trailing context lines, i.e. git ran into EOF — there is nothing below to
+// expand, so no trailing gap control may be offered.
+test('buildSideBySide omits the trailing gap when the last hunk ends before EOF is pending', () => {
+  const eofish = GAPPED.replace(' ctx32\n ctx33\n ctx34\n', ' ctx32\n')
+  const rows = buildSideBySide(eofish)
+  assert.ok(!rows.some((r) => r.kind === 'gap' && r.gap.atEnd), 'no trailing gap at EOF')
+  assert.ok(rows.some((r) => r.kind === 'gap' && r.gap.atStart), 'leading gap unaffected')
+})
+
+test('buildSideBySide treats a full trailing context run as possibly-mid-file', () => {
+  // A trailing run shorter than U still yields no gap when U is passed lower.
+  const rows = buildSideBySide(GAPPED.replace(' ctx32\n ctx33\n ctx34\n', ' ctx32\n'), 1)
+  assert.ok(rows.some((r) => r.kind === 'gap' && r.gap.atEnd), 'run == U keeps the gap')
+  const none = buildSideBySide(GAPPED, 100000)
+  assert.ok(!none.some((r) => r.kind === 'gap' && r.gap.atEnd), 'expand-all context has no trailing gap')
 })
 
 test('contextRowsFromLines maps revealed new lines to both sides with delta', () => {
@@ -160,7 +180,7 @@ test('spliceGap all replaces the gap with revealed context rows', () => {
 
 test('spliceGap down on a large gap keeps a smaller residual gap below', () => {
   // Fabricate a large leading gap by starting the hunk far down.
-  const big = GAPPED.replace('@@ -30,3 +30,3 @@', '@@ -100,3 +100,3 @@').replace('ctx30', 'ctx100').replace('old31', 'old101').replace('new31', 'new101').replace('ctx32', 'ctx102')
+  const big = GAPPED.replace('@@ -30,5 +30,5 @@', '@@ -100,5 +100,5 @@').replace('ctx30', 'ctx100').replace('old31', 'old101').replace('new31', 'new101').replace('ctx32', 'ctx102')
   const rows = buildSideBySide(big)
   const lead = rows.find((r) => r.kind === 'gap' && r.gap.atStart)
   assert.equal(lead.gap.count, 99)

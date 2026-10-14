@@ -408,7 +408,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
           segButtons<DiffMode>(diffModes, effDiffMode, setDiffMode, (m) => t(`diff.${m}` as GitKey))),
       ]),
       h('div', { key: 'scroll', className: 'gp-diff__scroll' },
-        diffText === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffText, mode: effDiffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, t })),
+        diffText === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffText, mode: effDiffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, context: expanded ? 100000 : 3, t })),
     ])
 
   // Stash dialogs (push + drop confirm), portaled; included in both layouts.

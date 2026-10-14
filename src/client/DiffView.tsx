@@ -48,6 +48,9 @@ interface DiffViewProps {
   readonly remote?: GitPanelRemote
   readonly sessionId?: string
   readonly imageSpec?: ImageDiffSpec
+  /** -U the text was generated with (host default 3; the expand-all fetch
+   * passes a huge value) — decides whether a trailing gap may exist. */
+  readonly context?: number
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -56,8 +59,8 @@ type ImageState =
   | { readonly kind: 'idle' | 'loading' | 'failed' }
   | { readonly kind: 'ready'; readonly res: ImageDiffValue }
 
-export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, imageSpec, t }: DiffViewProps): JSX.Element {
-  const baseRows = useMemo(() => buildSideBySide(text), [text])
+export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, imageSpec, context, t }: DiffViewProps): JSX.Element {
+  const baseRows = useMemo(() => buildSideBySide(text, context), [text, context])
   const binary = isBinaryDiff(text)
 
   const hl = useCodeHighlighter(path === undefined ? undefined : languageForPath(path))
