@@ -557,11 +557,14 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * toolbar. The base rule already uses vw/vh, so this only tightens the fit.
  * The tall height applies to the full-size diff modal only — small confirm
  * dialogs (.gp-modal--sm) stay content-sized, and the vertical inset leaves a
- * tappable backdrop strip above/below the diff modal. */
+ * tappable backdrop strip above/below the diff modal. The --sm override states
+ * height only: its base max-height:min(560px,86vh) already fits inside
+ * viewport-48px at every phone height, and re-declaring it here would raise the
+ * content cap to 100dvh-48px (~796px at 390×844). */
 @media (max-width:640px){
   .gp-modal-backdrop{padding:24px 12px}
   .gp-modal{width:96vw;height:min(90dvh,calc(100dvh - 48px));border-radius:12px}
-  .gp-modal--sm{height:auto;max-height:calc(100dvh - 48px)}
+  .gp-modal--sm{height:auto}
   .gp-modal__bar{flex-wrap:wrap;row-gap:6px}
 }
 
