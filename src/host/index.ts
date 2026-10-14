@@ -9,7 +9,7 @@
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { readFile, readdir, realpath, rm, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir, readlink, realpath, rm, stat } from 'node:fs/promises'
 import { createGitRunner, type SubprocessLike } from './git.js'
 import { normalizeConfig, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps } from './core.js'
 import { runAction } from './actions.js'
@@ -89,6 +89,11 @@ export class GitPanelService extends TypertRemoteService {
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
     const fs: SnapshotDeps['fs'] = {
       realpath, stat: async (p) => stat(p), readFile,
+      symlinkTarget: async (p) => {
+        // A missing path or a non-link is `null`, not an error: the caller falls
+        // back to reading the file itself.
+        try { return (await lstat(p)).isSymbolicLink() ? await readlink(p) : null } catch { return null }
+      },
       readdir: async (p) => (await readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, isDirectory: e.isDirectory() })),
       remove: async (p) => { await rm(p, { force: true }) },
     }

@@ -13,8 +13,9 @@ import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { realpath, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { realpath, readFile, readdir, rm, stat, lstat, readlink } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
+import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX } from '../../lib/host/types.js'
 
 let repo
 let repoImg
@@ -58,6 +59,10 @@ function depsAt(dir) {
     run: createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes),
     fs: {
       realpath, stat: (p) => stat(p), readFile: (p) => readFile(p),
+      // Same shape as the production wiring: the link target text, else null.
+      symlinkTarget: async (p) => {
+        try { return (await lstat(p)).isSymbolicLink() ? await readlink(p) : null } catch { return null }
+      },
       readdir: async (p) => (await readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, isDirectory: e.isDirectory() })),
       remove: (p) => rm(p, { force: true }),
     },
@@ -184,12 +189,255 @@ test('diff context expansion shows more surrounding unchanged lines', async () =
   // With default context (3) only a window around line10 shows; expand-all
   // (huge context) includes the far lines (line1 / line20) too.
   const tight = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'worktree' } })
-  const wide = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'worktree', context: 100000 } })
+  const wide = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'worktree', context: DIFF_CONTEXT_MAX } })
   assert.equal(tight.ok, true)
   assert.equal(wide.ok, true)
   assert.doesNotMatch(tight.value.text, /^ line1$/m, 'default context omits the first line')
   assert.match(wide.value.text, /^ line1$/m, 'expand-all includes the first line')
   assert.match(wide.value.text, /^ line20$/m, 'expand-all includes the last line')
+})
+
+test('diff reports the new-side line count so the trailing gap can be exact', async () => {
+  // a.txt has 20 lines, both before and after the worktree edit.
+  const tracked = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'worktree' } })
+  assert.equal(tracked.value.newLines, 20)
+  const untracked = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'd.txt', base: 'worktree' } })
+  assert.equal(untracked.value.newLines, 1, 'untracked file counts its working-tree lines')
+  // A deleted side has no lines: 0 keeps the view from offering a trailing control.
+  const missing = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'nope.txt', base: 'commit', commit: 'HEAD' } })
+  assert.equal(missing.value.newLines, 0)
+})
+
+test('diff constants are pinned: they drive both halves and the poll cost', () => {
+  // DIFF_CONTEXT_DEFAULT is what the host applies when the request omits
+  // `context`, DIFF_CONTEXT_MAX is both the clamp ceiling and the client's
+  // expand-all request, and DIFF_COUNT_READ_MAX bounds the working-file read
+  // that only feeds the count. A silent edit here changes behaviour on both
+  // sides, so the magnitudes are asserted (as SUGGEST_LIMITS is).
+  assert.equal(DIFF_CONTEXT_DEFAULT, 3, "matches git's own -U default")
+  assert.equal(DIFF_CONTEXT_MAX, 100000)
+  assert.equal(DIFF_COUNT_READ_MAX, 8 * 1024 * 1024)
+})
+
+test('the new-side count matches the file\'s real line count in every shape', async () => {
+  // The count shares its trailing-newline convention with the slice, and the
+  // slice is built by splitting while the count walks newlines: both must agree
+  // with `wc -l`-style truth for a trailing newline, none, and trailing blanks.
+  const { writeFileSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'gp-count-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const shapes = [
+      { name: 'trailing-nl.txt', committed: 'a\nb\nc\n', working: 'a\nB\nc\n', lines: 3 },
+      { name: 'no-trailing-nl.txt', committed: 'a\nb\nc', working: 'a\nB\nc', lines: 3 },
+      { name: 'trailing-blanks.txt', committed: 'a\nb\n\n\n', working: 'a\nB\n\n\n', lines: 4 },
+      { name: 'single-line.txt', committed: 'only\n', working: 'changed\n', lines: 1 },
+    ]
+    for (const shape of shapes) {
+      writeFileSync(join(dir, shape.name), shape.committed)
+    }
+    await runGit(dir, ['add', '-A'])
+    await runGit(dir, ['commit', '-qm', 'feat: shapes'])
+    for (const shape of shapes) writeFileSync(join(dir, shape.name), shape.working)
+
+    const d = depsAt(dir)
+    for (const shape of shapes) {
+      const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: shape.name, base: 'worktree' } })
+      assert.equal(diff.value.newLines, shape.lines, `${shape.name} count`)
+      const slice = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: shape.name, base: 'worktree', start: 1, end: shape.lines + 5 } })
+      assert.equal(slice.value.lines.length, shape.lines, `${shape.name} slice length agrees with the count`)
+      assert.equal(slice.value.eof, true, `${shape.name} slice reaches EOF`)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a diff without hunks (binary) reports no trailing count', async () => {
+  // No hunk → no gap row can exist → the count cannot matter, so the read is
+  // skipped and a binary file reports 0 rather than its number of newline bytes.
+  const { writeFileSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'gp-bin-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const p = join(dir, 'blob.bin')
+    writeFileSync(p, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0a, 0x1a, 0x0a, 0x01]))
+    await runGit(dir, ['add', 'blob.bin'])
+    await runGit(dir, ['commit', '-qm', 'feat: binary'])
+    writeFileSync(p, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0a, 0x1a, 0x0a, 0x02]))
+
+    const bin = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'blob.bin', base: 'worktree' } })
+    assert.equal(bin.ok, true)
+    assert.match(bin.value.text, /Binary files/)
+    assert.equal(bin.value.newLines, 0, 'no hunk needs a count')
+    assert.ok(!bin.value.text.includes('@@'), 'and the text really has no hunk')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the count read is capped above DIFF_COUNT_READ_MAX, expansion is not', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'gp-big-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const row = 'x'.repeat(15) + '\n'
+    const rows = Math.ceil(DIFF_COUNT_READ_MAX / row.length) + 4
+    writeFileSync(join(dir, 'big.txt'), row.repeat(rows))
+    await runGit(dir, ['add', 'big.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: big'])
+    writeFileSync(join(dir, 'big.txt'), 'HEAD-1\n' + row.repeat(rows - 1)) // 1-line change at the top
+
+    const d = depsAt(dir)
+    const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'big.txt', base: 'worktree' } })
+    assert.equal(diff.ok, true)
+    assert.doesNotMatch(diff.value.text, /^ HEAD-1$/m)
+    assert.equal(diff.value.newLines, 0, 'above the ceiling the count is unknown')
+    const slice = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'big.txt', base: 'worktree', start: 1, end: 2 } })
+    assert.deepEqual(slice.value.lines, ['HEAD-1', 'x'.repeat(15)], 'on-demand expansion stays uncapped')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('worktree slices are normalized like the blob git diffs', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'gp-crlf-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['config', 'core.autocrlf', 'input'])
+    const p = join(dir, 'c.txt')
+    writeFileSync(p, 'r1\nr2\nr3\nr4\n')
+    await runGit(dir, ['add', 'c.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: crlf'])
+    writeFileSync(p, 'r1\r\nr2\r\nr3\r\nCHANGED\r\nr5\r\n') // CRLF worktree, one change
+
+    const d = depsAt(dir)
+    const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'c.txt', base: 'worktree' } })
+    assert.equal(diff.value.newLines, 5)
+    const slice = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'c.txt', base: 'worktree', start: 1, end: 5 } })
+    assert.deepEqual(slice.value.lines, ['r1', 'r2', 'r3', 'CHANGED', 'r5'], 'no CR leaks into revealed lines')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('file-lines numbers the worktree slice against the working file, not the index', async () => {
+  // Own repo: this test commits a file of its own, and the shared fixture repo
+  // must not be left with an extra dirty path for the tests that follow.
+  const { writeFileSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'gp-grow-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const path = join(dir, 'grow.txt')
+    writeFileSync(path, 'l1\nl2\nl3\n')
+    await runGit(dir, ['add', 'grow.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: grow'])
+    writeFileSync(path, 'l1\nl2\nl3\nl4\nl5\n') // index copy: 5 lines
+    await runGit(dir, ['add', 'grow.txt'])
+    writeFileSync(path, 'NEW-A\nl1\nl2\nl3\nl4\nl5\nNEW-B\n') // working file: 7 lines
+
+    const d = depsAt(dir)
+    const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'grow.txt', base: 'worktree' } })
+    assert.equal(diff.value.newLines, 7, 'worktree count follows the working file')
+    const tail = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'grow.txt', base: 'worktree', start: 1, end: 2 } })
+    assert.equal(tail.ok, true)
+    assert.deepEqual(tail.value.lines, ['NEW-A', 'l1'], 'worktree slice reads the working file')
+    // The staged side of the same file is the index copy (5 lines): neither the
+    // count nor the slice may come from the 7-line working file.
+    const staged = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'grow.txt', base: 'staged' } })
+    assert.equal(staged.value.newLines, 5, 'staged diff counts the index blob')
+    const stagedTail = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'grow.txt', base: 'staged', start: 4, end: 5 } })
+    assert.deepEqual(stagedTail.value.lines, ['l4', 'l5'], 'staged slice reads the index blob')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a retargeted symlink counts the link text git diffed, not the target file', async () => {
+  // git stores a symlink as a blob whose content is the target string (mode
+  // 120000), so the diff's new side has one line. Following the link would
+  // report (and reveal) the target file's lines, i.e. content git never diffed.
+  const { writeFileSync, symlinkSync, unlinkSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'gp-link-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const body = Array.from({ length: 40 }, (_, i) => `r${i + 1}`).join('\n') + '\n'
+    writeFileSync(join(dir, 'real.txt'), body)
+    writeFileSync(join(dir, 'other.txt'), body.replace(/^r/gm, 'o'))
+    symlinkSync('real.txt', join(dir, 'link.txt'))
+    await runGit(dir, ['add', '-A'])
+    await runGit(dir, ['commit', '-qm', 'link: v1'])
+    unlinkSync(join(dir, 'link.txt'))
+    symlinkSync('other.txt', join(dir, 'link.txt')) // retargeted in the worktree
+
+    const d = depsAt(dir)
+    const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'link.txt', base: 'worktree' } })
+    assert.match(diff.value.text, /^\+other\.txt$/m, 'git diffs the link blob')
+    assert.equal(diff.value.newLines, 1, 'one line: the link target text')
+    const slice = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'link.txt', base: 'worktree', start: 2, end: 40 } })
+    assert.deepEqual(slice.value.lines, [], 'nothing to reveal below a one-line link')
+    assert.equal(slice.value.eof, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a truncated (lossy) git-show read is refused, not reported as a count', async () => {
+  // The runner drops output at its collect/spill ceiling; the surviving prefix
+  // would make newLines a plausible lie, so it has to read as unknown (0).
+  const lossy = {
+    spawn(spec) {
+      const child = nodeSpawn(spec.argv[0], spec.argv.slice(1), { cwd: spec.cwd })
+      child.stdin.end()
+      let out = ''
+      let err = ''
+      child.stdout.on('data', (d) => { out += d })
+      child.stderr.on('data', (d) => { err += d })
+      const done = new Promise((resolve, reject) => {
+        child.on('error', reject)
+        child.on('close', (code, signal) => resolve({ exitCode: code, signal }))
+      })
+      return {
+        done,
+        collected: {
+          stdout: { readFrom: () => ({ text: out, lossy: true, spillPath: undefined }) },
+          stderr: { readFrom: () => ({ text: err, lossy: false }) },
+        },
+      }
+    },
+  }
+  const d = { ...deps(), run: createGitRunner(lossy, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes) }
+  const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'staged' } })
+  assert.equal(diff.ok, true)
+  assert.equal(diff.value.newLines, 0, 'truncated read → unknown → no trailing control')
+  const slice = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'a.txt', base: 'staged', start: 1, end: 3 } })
+  assert.equal(slice.ok, false, 'expansion must not serve a truncated prefix')
+  assert.equal(slice.error.code, 'git-error')
+})
+
+test('a failed git-show stays an error where a missing side is empty', async () => {
+  // A bad rev is not "this version has no such path": it must not look like a
+  // deleted file, which is what `file-lines` reports for a genuinely absent side.
+  const bad = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'a.txt', base: 'commit', commit: 'no-such-ref', start: 1, end: 3 } })
+  assert.equal(bad.ok, false)
+  assert.match(bad.error.message, /invalid|bad|unknown|no-such-ref/i)
+  const absent = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'nope.txt', base: 'commit', commit: 'HEAD', start: 1, end: 3 } })
+  assert.equal(absent.ok, true, 'a genuinely absent side is an empty slice')
+  assert.deepEqual(absent.value.lines, [])
+  assert.equal(absent.value.eof, true)
 })
 
 test('file-lines serves a worktree slice for on-demand context expansion', async () => {

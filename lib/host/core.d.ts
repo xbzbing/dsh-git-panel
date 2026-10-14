@@ -48,6 +48,12 @@ export interface SnapshotDeps {
         }>;
         /** Raw bytes (no encoding) — image sides for the image-diff query. */
         readFile(path: string): Promise<Buffer>;
+        /**
+         * A symlink's target text, else null. git stores the LINK as the worktree
+         * blob (mode 120000), so the diff's new side is the target string, not the
+         * file it points at — following the link would describe a different file.
+         */
+        symlinkTarget(path: string): Promise<string | null>;
         /** One directory's entries (name + is-directory) — the file browser. */
         readdir(path: string): Promise<ReadonlyArray<{
             name: string;

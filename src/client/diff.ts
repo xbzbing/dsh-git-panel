@@ -13,14 +13,13 @@ export type RowKind = 'context' | 'add' | 'del' | 'mod' | 'hunk' | 'gap' | 'meta
 export interface GapInfo {
   /** First hidden new-side (right) line number. */
   readonly rightStart: number
-  /** Hidden line count; null when unbounded (trailing gap → EOF unknown). */
-  readonly count: number | null
+  /** Hidden line count. Always exact: the trailing gap's count comes from the
+   * host-reported new-side line count, so no gap is ever unbounded. */
+  readonly count: number
   /** oldLine = newLine + delta across the unchanged gap region. */
   readonly delta: number
   /** No visible block above (leading gap at file start). */
   readonly atStart: boolean
-  /** No visible block below (trailing gap; count is null). */
-  readonly atEnd: boolean
 }
 
 export interface SideRow {
@@ -57,22 +56,6 @@ export function isSvgPath(path: string): boolean {
   return /\.svg$/i.test(path)
 }
 
-/** True when the diff only adds lines (new file). */
-export function isAddOnlyDiff(unified: string): boolean {
-  const body = bodyLines(unified)
-  if (body.length === 0) return false
-  return body.every((l) => l.startsWith('+') || l.startsWith(' ')) && body.some((l) => l.startsWith('+'))
-    && /^\+\+\+ /m.test(unified) && /--- \/dev\/null/m.test(unified)
-}
-
-/** True when the diff only deletes lines (removed file). */
-export function isDeleteOnlyDiff(unified: string): boolean {
-  const body = bodyLines(unified)
-  if (body.length === 0) return false
-  return body.every((l) => l.startsWith('-') || l.startsWith(' ')) && body.some((l) => l.startsWith('-'))
-    && /^\+\+\+ \/dev\/null/m.test(unified)
-}
-
 function bodyLines(unified: string): string[] {
   const lines = unified.split('\n')
   const out: string[] = []
@@ -100,10 +83,19 @@ export function summarize(unified: string): { add: number; del: number } {
 
 const HUNK_RE = /@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
 
-/** Parse a unified diff into aligned side-by-side rows with expandable gaps. */
-export function buildSideBySide(unified: string): SideRow[] {
+/**
+ * Parse a unified diff into aligned side-by-side rows with expandable gaps.
+ * `newLines` is the new-side file's total line count (0 / non-finite when
+ * unknown), which is the only fact that can tell whether hidden context follows
+ * the last hunk: git caps trailing context at -U, so a full trailing run looks
+ * identical whether the hunk is mid-file or the file ends exactly there.
+ */
+export function buildSideBySide(unified: string, newLines: number): SideRow[] {
   const rows: SideRow[] = []
   const lines = unified.split('\n')
+  // Unknown count (0 or anything non-finite): no trailing gap at all, rather
+  // than a speculative control that could reveal nothing.
+  const newSideLines = Number.isFinite(newLines) && newLines > 0 ? newLines : 0
   let leftNo = 0
   let rightNo = 0
   let firstHunk = true
@@ -124,13 +116,13 @@ export function buildSideBySide(unified: string): SideRow[] {
         if (firstHunk) {
           // Leading gap: hidden new lines 1..newStart-1 above the first hunk.
           if (newStart > 1) {
-            rows.push(gapRow({ rightStart: 1, count: newStart - 1, delta, atStart: true, atEnd: false }))
+            rows.push(gapRow({ rightStart: 1, count: newStart - 1, delta, atStart: true }))
           }
         } else {
           // Between-hunk gap: hidden new lines rightNo..newStart-1.
           const count = newStart - rightNo
           if (count > 0) {
-            rows.push(gapRow({ rightStart: rightNo, count, delta, atStart: false, atEnd: false }))
+            rows.push(gapRow({ rightStart: rightNo, count, delta, atStart: false }))
           }
         }
         leftNo = oldStart
@@ -159,13 +151,52 @@ export function buildSideBySide(unified: string): SideRow[] {
     }
     // any other prefix (diff/index/---/+++) between hunks: ignore
   }
-  // Trailing gap: there may be unchanged lines below the last hunk. The diff
-  // does not carry the file length, so the count is unknown (EOF-probed on
-  // expand). Skip it for add/delete-only diffs where the whole file is shown.
-  if (sawBody && !firstHunk && !isAddOnlyDiff(unified) && !isDeleteOnlyDiff(unified)) {
-    rows.push(gapRow({ rightStart: rightNo, count: null, delta: leftNo - rightNo, atStart: false, atEnd: true }))
+  // Trailing gap: new lines rightNo..newLines are hidden, exactly. The count is
+  // known (not EOF-probed) whenever the host reported the length, so the
+  // control is never a dead button — a non-positive count emits no gap at all
+  // and an unknown length degrades to no control rather than a speculative one
+  // that reveals nothing. `rightNo > 0` excludes a deleted file, whose new side
+  // has no lines and whose newStart is 0.
+  const trailing = newSideLines - rightNo + 1
+  if (sawBody && !firstHunk && rightNo > 0 && trailing > 0) {
+    rows.push(gapRow({ rightStart: rightNo, count: trailing, delta: leftNo - rightNo, atStart: false }))
   }
   return pairDeletionsWithAdditions(rows)
+}
+
+/**
+ * Re-derive the trailing gap from a freshly reported new-side line count while
+ * keeping the rows as they are: the diff text did not change, but the file may
+ * have grown or shrunk since it was fetched, so only the gap below the last
+ * visible line can be stale. Returns the input array unchanged when nothing
+ * needs retargeting, and null when the gap cannot be re-derived from the rows
+ * (a new trailing gap needs the parser's old/new counters — the caller reseeds
+ * from the diff text instead).
+ */
+export function retargetTrailingGap(rows: readonly SideRow[], newLines: number): readonly SideRow[] | null {
+  const end = rows[rows.length - 1]
+  const lastIsGap = end !== undefined && end.kind === 'gap'
+  const current = lastIsGap ? end.gap : undefined
+  const above = lastIsGap ? rows[rows.length - 2] : end
+  const aboveRight = above === undefined ? null : above.rightNo
+  const shown = aboveRight !== null && aboveRight > 0 ? aboveRight : 0
+  const count = Number.isFinite(newLines) ? newLines - shown : 0
+  const next = count > 0 ? count : 0
+  if (current === undefined) {
+    if (next === 0 || shown === 0) return rows
+    // A revealed tail carries both sides on its last row, so the delta for the
+    // region below it is `left - right`; a one-sided add/del tail does not, and
+    // there the caller has to reseed from the diff text.
+    const left = above === undefined ? null : above.leftNo
+    if (left === null) return null
+    return [...rows, gapRow({ rightStart: shown + 1, count: next, delta: left - shown, atStart: false })]
+  }
+  if (current.rightStart === shown + 1 && current.count === next) return rows
+  if (next === 0) return rows.slice(0, -1)
+  return [
+    ...rows.slice(0, -1),
+    gapRow({ rightStart: shown + 1, count: next, delta: current.delta, atStart: false }),
+  ]
 }
 
 function gapRow(gap: GapInfo): SideRow {
@@ -303,36 +334,33 @@ export function spliceGap(
   const gap = rows[idx]!.gap!
   const revealed = contextRowsFromLines(gap.delta, revealedStart, lines)
   const replacement: SideRow[] = []
-
-  if (gap.atEnd) {
-    // Trailing gap: reveal below the last hunk, keep a trailing gap unless EOF.
-    replacement.push(...revealed)
-    if (!eof && lines.length > 0) {
-      replacement.push(gapRow({
-        rightStart: revealedStart + lines.length,
-        count: null, delta: gap.delta, atStart: false, atEnd: true,
-      }))
-    }
-    return [...rows.slice(0, idx), ...replacement, ...rows.slice(idx + 1)]
-  }
-
-  const total = gap.count ?? lines.length
+  // Every gap carries an exact count (the trailing gap's comes from the host's
+  // new-side line count), so "the window came back whole" is the same test
+  // everywhere and no branch has to probe for EOF.
+  const total = gap.count
   if (direction === 'all' || lines.length >= total) {
     replacement.push(...revealed)
   } else if (direction === 'down') {
     // Revealed the top slice; a smaller gap remains below.
     replacement.push(...revealed)
-    const remaining = total - lines.length
-    replacement.push(gapRow({
-      rightStart: gap.rightStart + lines.length,
-      count: remaining, delta: gap.delta, atStart: false, atEnd: false,
-    }))
+    // `eof` overrides the count when the file shrank since the diff was
+    // fetched: nothing lies below the file end, so it must not be offered.
+    if (!eof) {
+      replacement.push(gapRow({
+        rightStart: gap.rightStart + lines.length,
+        count: total - lines.length, delta: gap.delta, atStart: false,
+      }))
+    }
   } else {
-    // 'up': revealed the bottom slice; a smaller gap remains above.
+    // 'up': revealed the bottom slice; a smaller gap remains above. A host that
+    // returned nothing (the count went stale — the range now lies past the file
+    // end) has nothing left to reveal, so consume the gap instead of re-offering
+    // the same buttons that would keep answering with nothing.
+    if (lines.length === 0) return [...rows.slice(0, idx), ...rows.slice(idx + 1)]
     const remaining = total - lines.length
     replacement.push(gapRow({
       rightStart: gap.rightStart,
-      count: remaining, delta: gap.delta, atStart: gap.atStart, atEnd: false,
+      count: remaining, delta: gap.delta, atStart: gap.atStart,
     }))
     replacement.push(...revealed)
   }

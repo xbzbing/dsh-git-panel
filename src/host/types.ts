@@ -14,6 +14,24 @@ export type DiffViewMode = 'unified' | 'split'
  * own lane, converging only at the ancestor (VSCode / GUI tools). */
 export type GraphStyle = 'compact' | 'parallel'
 
+/**
+ * Diff context (-U) values shared by both halves. `DEFAULT` matches git's own
+ * default and is what the host applies when a request omits `context`.
+ * `MAX` is the host's clamp ceiling and doubles as the "expand all" request:
+ * a -U window this wide covers any real file, so no context stays hidden.
+ */
+export const DIFF_CONTEXT_DEFAULT = 3
+export const DIFF_CONTEXT_MAX = 100000
+
+/**
+ * Ceiling for the working-file read taken only to count the diff's new-side
+ * lines. That count decides whether hidden context follows the last hunk, so it
+ * is read on every diff query — including the changes tab's poll while a diff is
+ * open — while `file-lines` (the on-demand expansion) stays uncapped. Above this
+ * size the count reports 0 (unknown) and no trailing control is offered.
+ */
+export const DIFF_COUNT_READ_MAX = 8 * 1024 * 1024
+
 /** Wire request: the browser sends only session identity, never a path. */
 export interface GitSnapshotRequest {
   readonly sessionId: string
@@ -270,6 +288,9 @@ export type GitQuery =
     /** Date lower bound (--since). */
     readonly since?: string
   }
+  // Unified-diff context (-U) when the caller does not ask for a specific
+  // window; `DiffView` renders the trailing gap from the reported new-side line
+  // count, so this only controls how much git shows, not what the view decides.
   | { readonly kind: 'diff'; readonly path: string; readonly base: 'worktree' | 'staged'; readonly context?: number }
   | { readonly kind: 'diff'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly context?: number }
   // On-demand hidden-context expansion: a slice of the post-change file, by
@@ -363,7 +384,20 @@ export interface WorktreeStats {
 
 export type GitQueryResult =
   | { readonly kind: 'history'; readonly commits: readonly GraphCommit[]; readonly total: number }
-  | { readonly kind: 'diff'; readonly path: string; readonly text: string }
+  /**
+   * Unified diff text plus the new-side line count. The count is the fact the
+   * view needs to decide whether hidden context can follow the LAST hunk: git
+   * caps trailing context at -U, so a full trailing run is ambiguous from the
+   * text alone (it may be mid-file, or the file may end exactly there), while
+   * `newLines` makes it provable.
+   *
+   * 0 means "no trailing control is possible, or the count is not trustworthy":
+   * the side does not exist (a deleted file), the read failed or was truncated,
+   * the diff has no hunk at all, or the working file is above
+   * DIFF_COUNT_READ_MAX. The view treats all of those the same way — no
+   * trailing gap rather than a speculative one.
+   */
+  | { readonly kind: 'diff'; readonly path: string; readonly text: string; readonly newLines: number }
   // A slice of a file's post-change content for on-demand context expansion:
   // `lines` are 1-based new-side numbers `start..end` (clamped to the file);
   // `eof` marks that `end` reached the last line (no more to reveal below).

@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import type { GitAction, GitBranch, GitSnapshot, GraphCommit, ResetMode } from './types'
+import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode } from './types'
 import type { GitKey } from './locales'
 import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
@@ -375,7 +375,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
   }
 
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
-    text: detail.fileDiffText,
+    data: detail.fileDiffData,
     error: detail.fileDiffError,
     mode: detail.fileDiffMode,
     onMode: detail.setFileDiffMode,
@@ -885,7 +885,8 @@ function renderFileTree(nodes: ReturnType<typeof buildFileTree>, cb: FileTreeCbs
 }
 
 interface FileDiffModalCbs {
-  text: string | null
+  /** Diff text + new-side line count from the same query (null while loading). */
+  data: GitDiffPayload | null
   error: boolean
   mode: DiffMode
   onMode: (mode: DiffMode) => void
@@ -906,12 +907,12 @@ function renderFileDiffModal(
   cb: FileDiffModalCbs,
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
-  const { text, error, mode, onMode, expanded, onExpand, onClose, remote, sessionId, compact, t } = cb
+  const { data, error, mode, onMode, expanded, onExpand, onClose, remote, sessionId, compact, t } = cb
   // Compact drops the side-by-side mode (no room on a phone) and renders split
   // as unified instead; the preference itself is left untouched.
   const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
   const effMode: DiffMode = compact && mode === 'split' ? 'unified' : mode
-  const sumEl = text !== null && text !== '' ? (() => { const s = diffSummary(text); return h('span', { key: 'sum', className: 'gp-modal__sum' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null
+  const sumEl = data !== null && data.text !== '' ? (() => { const s = diffSummary(data.text); return h('span', { key: 'sum', className: 'gp-modal__sum' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null
   const expandEl = h('button', {
     key: 'expand', type: 'button',
     className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
@@ -944,9 +945,9 @@ function renderFileDiffModal(
   }, h('div', { className: 'gp-modal', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, barChildren),
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
-      text === null
+      data === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : h(DiffView, { text, mode: effMode, path: fileDiff.path, remote, sessionId, imageSpec: { base: 'commit', commit: fileDiff.hash }, t })),
+        : h(DiffView, { text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId, imageSpec: { base: 'commit', commit: fileDiff.hash }, newLines: data.newLines, t })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }

@@ -3,7 +3,7 @@
 import { createElement as h, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import {
-  buildSideBySide, flattenToUnified, isBinaryDiff,
+  buildSideBySide, flattenToUnified, isBinaryDiff, retargetTrailingGap,
   isImagePath, isSvgPath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
 } from './diff'
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -48,6 +48,11 @@ interface DiffViewProps {
   readonly remote?: GitPanelRemote
   readonly sessionId?: string
   readonly imageSpec?: ImageDiffSpec
+  /** New-side total line count from the diff query — the only fact that can
+   * tell whether hidden context follows the last hunk (git caps trailing
+   * context at -U, so the text alone is ambiguous at the file end). Required:
+   * a caller that omits it would silently lose the trailing expand control. */
+  readonly newLines: number
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -56,16 +61,28 @@ type ImageState =
   | { readonly kind: 'idle' | 'loading' | 'failed' }
   | { readonly kind: 'ready'; readonly res: ImageDiffValue }
 
-export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, imageSpec, t }: DiffViewProps): JSX.Element {
-  const baseRows = useMemo(() => buildSideBySide(text), [text])
+export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, imageSpec, newLines, t }: DiffViewProps): JSX.Element {
+  const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
 
   const hl = useCodeHighlighter(path === undefined ? undefined : languageForPath(path))
 
-  // Rows are stateful in split mode so revealed gap context can be spliced in;
-  // reseed whenever the underlying diff text changes.
+  // Rows are stateful so revealed gap context can be spliced in. Reseed only
+  // when the diff text itself changes: a newer line count for the same text (a
+  // poll re-pull after the file grew below the last hunk) re-derives just the
+  // trailing gap, so an expanded region is not silently collapsed under the
+  // reader. Retargeting is impossible without the parser's counters — then the
+  // rows are reseeded, which is the old behaviour.
   const [rows, setRows] = useState<readonly SideRow[]>(baseRows)
-  useEffect(() => { setRows(baseRows) }, [baseRows])
+  const seededText = useRef(text)
+  useEffect(() => {
+    if (seededText.current !== text) {
+      seededText.current = text
+      setRows(baseRows)
+      return
+    }
+    setRows((prev) => retargetTrailingGap(prev, newLines) ?? baseRows)
+  }, [text, newLines, baseRows])
   const expand = useGapExpander(rows, setRows, remote, sessionId, path, imageSpec)
 
   // An SVG is both an image (rendered old/new comparison) and text (a source
@@ -290,11 +307,7 @@ function useGapExpander(
 
 /** New-side line range to request for a gap expansion step. */
 function sliceRequest(gap: GapInfo, direction: 'all' | 'up' | 'down'): { start: number; end: number } {
-  if (gap.atEnd) {
-    // Trailing gap: reveal the next window below the last shown line.
-    return { start: gap.rightStart, end: gap.rightStart + GAP_STEP - 1 }
-  }
-  const total = gap.count ?? GAP_STEP
+  const total = gap.count
   if (direction === 'all' || total <= GAP_STEP) {
     return { start: gap.rightStart, end: gap.rightStart + total - 1 }
   }
@@ -484,19 +497,17 @@ function renderGap(
     }, busyThis ? t('common.loading') : label)
 
   const controls: JSX.Element[] = []
-  if (gap.atEnd) {
-    controls.push(btn('down', t('diff.expandDown', { n: GAP_STEP }), busyDown))
+  // Counts are always exact, so a gap control can never be a dead button: it
+  // is only rendered when there is something to reveal, and a small region is
+  // offered whole in one click. A leading gap has no "block above" to expand
+  // toward, so it offers no "up".
+  const total = gap.count
+  if (total <= GAP_STEP) {
+    controls.push(btn('all', t('diff.expandGap', { n: total }), busyAll))
   } else {
-    const total = gap.count ?? 0
-    if (total > 0 && total <= GAP_STEP) {
-      controls.push(btn('all', t('diff.expandGap', { n: total }), busyAll))
-    } else {
-      // Larger gap: reveal up, down, or all. A leading gap has no "block above"
-      // to expand toward, so it offers only "down" + "all", and vice versa.
-      if (!gap.atStart) controls.push(btn('up', t('diff.expandUp', { n: GAP_STEP }), busyUp))
-      controls.push(btn('all', t('diff.expandGap', { n: total }), busyAll))
-      controls.push(btn('down', t('diff.expandDown', { n: GAP_STEP }), busyDown))
-    }
+    if (!gap.atStart) controls.push(btn('up', t('diff.expandUp', { n: GAP_STEP }), busyUp))
+    controls.push(btn('all', t('diff.expandGap', { n: total }), busyAll))
+    controls.push(btn('down', t('diff.expandDown', { n: GAP_STEP }), busyDown))
   }
   return h('div', { key: `g${i}`, className: 'gp-diff-row--gap', style: { gridColumn: '1 / -1' } }, controls)
 }

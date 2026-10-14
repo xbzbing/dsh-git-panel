@@ -6,7 +6,8 @@ import { createElement as h, useCallback, useEffect, useMemo, useRef, useState }
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types'
+import { DIFF_CONTEXT_MAX } from './types'
+import type { GitAction, GitChange, GitDiffPayload, GitErrorCode, GitSnapshot, StashEntry } from './types'
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
@@ -54,7 +55,9 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   const [closed, setClosed] = useState<ReadonlySet<GroupKey>>(new Set())
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
   const [diffPath, setDiffPath] = useState<{ path: string; base: 'worktree' | 'staged' } | null>(null)
-  const [diffText, setDiffText] = useState<string | null>(null)
+  // Diff text and its new-side line count travel together (one query result):
+  // the gap logic needs both, so they are never stored separately.
+  const [diffData, setDiffData] = useState<GitDiffPayload | null>(null)
   const [diffMode, setDiffMode] = useState<DiffMode>(() => snapshot.defaultDiffView)
   const [expanded, setExpanded] = useState(false)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
@@ -150,13 +153,12 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     setDiffPath({ path, base })
     // Only blank the pane on a user-initiated open; a background re-pull keeps
     // the current text so a poll/snapshot tick doesn't flash "Loading".
-    if (!keepPrevious) setDiffText(null)
+    if (!keepPrevious) setDiffData(null)
     setExpanded(expand)
-    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: 100000 } : {}) } })
+    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: DIFF_CONTEXT_MAX } : {}) } })
     if (seq !== diffSeq.current) return
     const diff = queryAs(res, 'diff')
-    if (diff !== null) setDiffText(diff.text)
-    else setDiffText('')
+    setDiffData(diff !== null ? { text: diff.text, newLines: diff.newLines } : { text: '', newLines: 0 })
   }, [remote, sessionId])
 
   // Re-pull the open diff after snapshot changes (content may have shifted);
@@ -164,7 +166,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   useEffect(() => {
     if (diffPath === null) return
     const stillThere = snapshot.changes.some((c) => c.path === diffPath.path)
-    if (!stillThere) { setDiffPath(null); setDiffText(null); setPane('list'); return }
+    if (!stillThere) { setDiffPath(null); setDiffData(null); setPane('list'); return }
     void showDiff(diffPath.path, diffPath.base, expanded, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot])
@@ -280,7 +282,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     })
   }
 
-  const summary = diffText !== null && diffText !== '' ? diffSummary(diffText) : null
+  const summary = diffData !== null && diffData.text !== '' ? diffSummary(diffData.text) : null
 
   // The left change-list column is drag-resizable; the right diff column takes
   // the rest. Width persists across mounts.
@@ -424,7 +426,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
         return [back, path, sum, expand, seg]
       })()),
       h('div', { key: 'scroll', className: 'gp-diff__scroll' },
-        diffText === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffText, mode: effDiffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, t })),
+        diffData === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, newLines: diffData.newLines, t })),
     ])
 
   // Stash dialogs (push + drop confirm), portaled; included in both layouts.

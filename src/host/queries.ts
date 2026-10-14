@@ -8,7 +8,7 @@ import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, s
 import { isSafePath, isSafeRev } from './validate.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.js'
-import { imageMimeFor } from './types.js'
+import { imageMimeFor, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -152,9 +152,11 @@ async function queryDiff(
   q: Extract<GitQueryRequest['query'], { kind: 'diff' }>,
 ): Promise<GitQueryResponse> {
   if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
-  // Context lines around each change; a large value effectively shows the whole
-  // file (expand-all). Clamp to a sane ceiling to bound output.
-  const ctx = q.context !== undefined && Number.isFinite(q.context) ? Math.max(0, Math.min(100000, Math.floor(q.context))) : 3
+  // Context lines around each change; DIFF_CONTEXT_MAX shows the whole file
+  // (expand-all). Clamp to a sane ceiling to bound output.
+  const ctx = q.context !== undefined && Number.isFinite(q.context)
+    ? Math.max(0, Math.min(DIFF_CONTEXT_MAX, Math.floor(q.context)))
+    : DIFF_CONTEXT_DEFAULT
   const unified = `-U${ctx}`
   let args: string[]
   if (q.base === 'staged') {
@@ -182,15 +184,63 @@ async function queryDiff(
       if ('run' in noIndex) text = noIndex.run.stdout
     }
   }
-  return { ok: true, value: { kind: 'diff', path: q.path, text } }
+  return { ok: true, value: { kind: 'diff', path: q.path, text, newLines: await countNewSideLines(deps, root, q, text) } }
+}
+
+/**
+ * Lines in the diff's new-side version — the fact that decides whether hidden
+ * context can follow the last hunk. git caps trailing context at -U, so a full
+ * trailing run in `text` is ambiguous on its own: the hunk may be mid-file, or
+ * the file may end exactly there. The count resolves it, and it comes from the
+ * same source the diff compared against (see readNewSide), so the view and the
+ * file agree.
+ *
+ * 0 means "no new side, or the count is not trustworthy" (deleted file, missing
+ * blob, failed/truncated read, no hunk to follow, working file above
+ * DIFF_COUNT_READ_MAX): the view then hides the trailing expand control rather
+ * than offering one that could not reveal anything.
+ */
+async function countNewSideLines(
+  deps: SnapshotDeps,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'diff' }>,
+  diffText: string,
+): Promise<number> {
+  // Without a hunk no gap row can exist, so the count cannot matter — and a
+  // binary / empty diff then costs no read at all.
+  if (!diffText.includes('@@')) return 0
+  // The working file is read by us, uncapped by the runner: bound the read that
+  // only feeds this count (file-lines, the expansion path, stays uncapped).
+  const side = await readNewSide(deps, root, q, { worktreeMaxBytes: DIFF_COUNT_READ_MAX })
+  if (!side.ok || side.text === null) return 0
+  return countLines(side.text)
+}
+
+/** Number of lines in `content` under the same convention as splitLines (one
+ * trailing newline does not start a new line). Counting without splitting keeps
+ * the poll-path read from allocating one string per line just to read `.length`. */
+function countLines(content: string): number {
+  if (content === '') return 0
+  let lines = 1
+  for (let at = content.indexOf('\n'); at !== -1; at = content.indexOf('\n', at + 1)) lines++
+  return content.endsWith('\n') ? lines - 1 : lines
+}
+
+/** Split file content into lines, dropping one trailing newline element so the
+ * count matches the file's real line count (shared by the count and the slice). */
+function splitLines(content: string): string[] {
+  const all = content.split('\n')
+  if (all[all.length - 1] === '') all.pop()
+  return all
 }
 
 /**
  * A slice of a file's post-change content for on-demand context expansion. The
- * source version mirrors the diff's new side: worktree/staged read the working
- * file (both diff against it on the right), commit reads `<commit>:<path>`. The
- * whole file is materialized then sliced in-process — expansion targets small
- * ranges and git offers no cheap "print lines m..n of a blob" primitive.
+ * source version mirrors the diff's new side: worktree reads the working file
+ * (a symlink as its target text, which is the blob git compares), staged reads
+ * the index blob, commit reads `<commit>:<path>`. The whole file is materialized
+ * then sliced in-process — expansion targets small ranges and git offers no
+ * cheap "print lines m..n of a blob" primitive.
  */
 async function queryFileLines(
   deps: SnapshotDeps,
@@ -200,31 +250,80 @@ async function queryFileLines(
   if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   const start = Number.isFinite(q.start) ? Math.max(1, Math.floor(q.start)) : 1
   const end = Number.isFinite(q.end) ? Math.max(start, Math.floor(q.end)) : start
-  let args: string[]
-  if (q.base === 'commit') {
-    if (!isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
-    args = ['git', 'show', '--end-of-options', `${q.commit}:${q.path}`]
-  } else {
-    // worktree + staged both expand against the working-tree file (the diff's
-    // right side); --end-of-options keeps a `-`-leading path out of options.
-    args = ['git', 'show', `--end-of-options`, `:${q.path}`]
-    // ":<path>" is the index copy; for an unstaged worktree diff the working
-    // file is the truthful right side, so prefer reading it directly.
-    if (q.base === 'worktree') args = ['git', 'cat-file', '-p', `:${q.path}`]
-  }
-  const res = await runCommand(deps.run, args, root, 'file-lines', deps.signal)
-  if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
-  if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
-  if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  const side = await readNewSide(deps, root, q)
+  if (!side.ok) return { ok: false, error: { code: side.code, message: side.message } }
+  // A side that does not exist (deleted file, missing blob) has no lines: an
+  // empty EOF slice is the truthful answer and lets the caller drop its gap.
+  return sliceLines(q.path, side.text ?? '', start, end)
+}
+
+/** New-side text of a diff, or null when that side has no content. */
+type NewSideRead =
+  | { readonly ok: true; readonly text: string | null }
+  | { readonly ok: false; readonly code: 'invalid-name' | 'git-unavailable' | 'cancelled' | 'timeout' | 'git-error'; readonly message: string }
+
+/** git says "this version has no such path" in exactly these shapes; every
+ * other non-zero exit (bad rev, corrupt object) is a real failure. */
+const ABSENT_SIDE_RE = /does not exist in|exists on disk, but not in the index|no such path/i
+
+/**
+ * Read the version a diff's RIGHT side compares against — the single source of
+ * truth shared by gap expansion (`file-lines`) and the new-side line count, so
+ * a revealed slice and a reported count can never describe different files.
+ *
+ * `worktree` reads the working file itself (the index is the LEFT side of an
+ * unstaged diff — reading it would reveal stale lines), `staged` reads the
+ * index blob, `commit` the commit blob. `worktreeMaxBytes` bounds the read for
+ * the count-only caller; the expansion path leaves it unset.
+ */
+async function readNewSide(
+  deps: SnapshotDeps,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'diff' | 'file-lines' }>,
+  opts?: { readonly worktreeMaxBytes?: number },
+): Promise<NewSideRead> {
+  if (q.base === 'worktree') return { ok: true, text: await readWorktreeSide(deps, root, q.path, opts?.worktreeMaxBytes) }
+  if (q.base === 'commit' && !isSafeRev(q.commit)) return { ok: false, code: 'invalid-name', message: `unsafe commit: ${q.commit}` }
+  const spec = q.base === 'commit' ? `${q.commit}:${q.path}` : `:${q.path}`
+  const res = await runCommand(deps.run, ['git', 'show', '--end-of-options', spec], root, 'new-side', deps.signal)
+  if (!('run' in res)) return { ok: false, code: 'git-unavailable', message: 'git unavailable' }
+  if (res.run.cancelled) return { ok: false, code: 'cancelled', message: 'cancelled' }
+  if (res.run.timedOut) return { ok: false, code: 'timeout', message: 'timed out' }
   if (res.run.exitCode !== 0) {
-    // Untracked/new files have no committed/index blob: read the worktree file.
-    if (q.base === 'worktree') {
-      const wt = await readWorktreeText(deps, root, q.path)
-      if (wt !== null) return sliceLines(q.path, wt, start, end)
-    }
-    return { ok: false, error: { code: 'git-error', message: res.run.stderr.trim() || 'no such blob' } }
+    // "That version does not contain this path" is a missing side (a deleted
+    // file reads as an empty one); anything else must stay an error rather than
+    // masquerade as empty — a bad rev or a corrupt object would otherwise look
+    // exactly like a deleted file.
+    return ABSENT_SIDE_RE.test(res.run.stderr)
+      ? { ok: true, text: null }
+      : { ok: false, code: 'git-error', message: res.run.stderr.trim() || 'git show failed' }
   }
-  return sliceLines(q.path, res.run.stdout, start, end)
+  // A lossy read means the runner dropped output at its collect/spill ceiling:
+  // what survived is a truncated prefix, so a count or a slice from it would be
+  // a plausible lie. Refuse it instead (the count degrades to 0 = unknown).
+  if (res.run.stdoutLossy) return { ok: false, code: 'git-error', message: 'git show output exceeded the output cap' }
+  return { ok: true, text: res.run.stdout }
+}
+
+/**
+ * Working file as the diff's new side: the LINK TEXT for a symlink (git stores
+ * that as the blob, so following the link would describe a different file), CRLF
+ * normalized like the blob git compares, else the file's own text. `maxBytes`
+ * bounds the read for the count-only caller; null means "no content known".
+ */
+async function readWorktreeSide(deps: SnapshotDeps, root: string, path: string, maxBytes?: number): Promise<string | null> {
+  const file = join(root, path)
+  const link = await deps.fs.symlinkTarget(file)
+  if (link !== null) return link
+  if (maxBytes !== undefined) {
+    const size = await deps.fs.stat(file).catch(() => null)
+    if (size === null || size.size > maxBytes) return null
+  }
+  const text = await readWorktreeText(deps, root, path)
+  // core.autocrlf rewrites the working file on checkout, so the bytes on disk
+  // can carry CRLF while the diff (and the blob it compares) is LF; revealing
+  // the raw bytes would show a \r the diff never had. Line count is unaffected.
+  return text === null ? null : text.replace(/\r\n/g, '\n')
 }
 
 /** Read a worktree file as text when it is inside the root (symlink-guarded). */
@@ -243,10 +342,7 @@ async function readWorktreeText(deps: SnapshotDeps, root: string, path: string):
 
 /** Slice `content` to 1-based lines start..end, flagging when end hit EOF. */
 function sliceLines(path: string, content: string, start: number, end: number): GitQueryResponse {
-  // Split on \n and drop a single trailing empty element (final newline) so the
-  // line count matches the file's real line count.
-  const all = content.split('\n')
-  if (all[all.length - 1] === '') all.pop()
+  const all = splitLines(content)
   const from = Math.min(start, all.length + 1)
   const to = Math.min(end, all.length)
   const lines = from <= to ? all.slice(from - 1, to) : []

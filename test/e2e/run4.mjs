@@ -54,7 +54,7 @@ const out = await page.evaluate(async ({ snap, diff }) => {
           if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: ['Tester'] } } }
           if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 1, commits: [{ hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [] }] } } }
           if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString() }, body: '', stats: [{ path: 'a.txt', status: 'modified' }], insertions: 1, deletions: 0 } } }
-          if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: diff } } }
+          if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: diff, newLines: 4 } } }
           if (q.kind === 'worktree-stats') return { ok: true, value: { ok: true, value: { kind: 'worktree-stats', stats: { fileCount: 2, staged: 0, modified: 2, untracked: 0, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null } } } }
         }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
