@@ -911,26 +911,38 @@ function renderFileDiffModal(
   // as unified instead; the preference itself is left untouched.
   const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
   const effMode: DiffMode = compact && mode === 'split' ? 'unified' : mode
+  const sumEl = text !== null && text !== '' ? (() => { const s = diffSummary(text); return h('span', { key: 'sum', className: 'gp-modal__sum' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null
+  const expandEl = h('button', {
+    key: 'expand', type: 'button',
+    className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
+    disabled: effMode !== 'split' && effMode !== 'unified',
+    title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
+    onClick: () => onExpand(!expanded),
+  }, t(expanded ? 'diff.collapse' : 'diff.expandAll'))
+  const segEl = h('div', { key: 'seg', className: 'gp-seg' },
+    segButtons<DiffMode>(modes, effMode, onMode, (m) => t(`diff.${m}` as GitKey)))
+  const closeEl = h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 }))
+  const barHead = [
+    h('span', { key: 'fileicon', className: 'gp-modal__fileicon' }, h(FileIcon, { size: 15 })),
+    h('span', { key: 'path', className: 'gp-modal__path', title: fileDiff.path }, renderPathParts(fileDiff.path)),
+    h('span', { key: 'hash', className: 'gp-modal__hash' }, fileDiff.shortHash),
+    sumEl,
+    expandEl,
+  ]
+  // Compact mirrors the changes-pane toolbar: one row cannot fit header +
+  // mode seg + close at phone widths, so the seg and a bordered close button
+  // move to a dedicated second row (close at its far right).
+  const barChildren = compact
+    ? [
+      h('div', { key: 'brow1', className: 'gp-modal__bar-row' }, barHead),
+      h('div', { key: 'brow2', className: 'gp-modal__bar-row gp-modal__bar-row--controls' }, [segEl, closeEl]),
+    ]
+    : [...barHead, segEl, closeEl]
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
   }, h('div', { className: 'gp-modal', role: 'dialog', 'aria-modal': true }, [
-    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
-      h('span', { key: 'fileicon', className: 'gp-modal__fileicon' }, h(FileIcon, { size: 15 })),
-      h('span', { key: 'path', className: 'gp-modal__path', title: fileDiff.path }, renderPathParts(fileDiff.path)),
-      h('span', { key: 'hash', className: 'gp-modal__hash' }, fileDiff.shortHash),
-      text !== null && text !== '' ? (() => { const s = diffSummary(text); return h('span', { key: 'sum', className: 'gp-modal__sum' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null,
-      h('button', {
-        key: 'expand', type: 'button',
-        className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
-        disabled: effMode !== 'split' && effMode !== 'unified',
-        title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
-        onClick: () => onExpand(!expanded),
-      }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
-      h('div', { key: 'seg', className: 'gp-seg' },
-        segButtons<DiffMode>(modes, effMode, onMode, (m) => t(`diff.${m}` as GitKey))),
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 })),
-    ]),
+    h('div', { key: 'bar', className: 'gp-modal__bar' }, barChildren),
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       text === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
