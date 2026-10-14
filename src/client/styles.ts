@@ -263,6 +263,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* diff view */
 .gp-diff{flex:1;min-height:0;display:flex;flex-direction:column}
 .gp-diff__toolbar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+/* Compact diff pane: controls (expand-all + mode seg) live on their own
+ * second row — one row cannot fit them at phone widths without the seg
+ * buttons wrapping into a squeezed stack. */
+.gp-diff__toolbar--compact{flex-wrap:wrap;row-gap:6px}
+.gp-diff__toolbar-row{display:flex;align-items:center;gap:8px;min-width:0}
+.gp-diff__toolbar-row:first-child{flex:1 1 100%}
+.gp-diff__toolbar-row--controls{flex:1 1 100%}
+.gp-diff__toolbar-row--controls .gp-diff__expand{flex:none}
+.gp-diff__toolbar-row--controls .gp-seg{flex:1}
+.gp-diff__toolbar-row--controls .gp-seg__btn{flex:1;min-width:0}
 .gp-diff__path{font-size:12px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-diff__expand{border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
 .gp-diff__expand:disabled{opacity:.45;cursor:not-allowed}
