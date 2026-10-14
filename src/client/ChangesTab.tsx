@@ -393,24 +393,36 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   const diffBlock = diffPath === null
     ? h('div', { className: 'gp-empty' }, t('changes.selectFile'))
     : h('div', { className: 'gp-diff' }, [
-      h('div', { key: 'tb', className: 'gp-diff__toolbar' }, [
-        compact ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('list') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('changes.backToList')]) : null,
-        h('span', { key: 'path', className: 'gp-diff__path' }, diffPath.path),
-        summary ? h('span', { key: 'sum', className: 'gp-stats__item', style: { marginLeft: 'auto' } }, [
+      h('div', { key: 'tb', className: `gp-diff__toolbar${compact ? ' gp-diff__toolbar--compact' : ''}` }, (() => {
+        const back = compact
+          ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('list') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('changes.backToList')])
+          : null
+        const path = h('span', { key: 'path', className: 'gp-diff__path' }, diffPath.path)
+        const sum = summary ? h('span', { key: 'sum', className: 'gp-stats__item', style: { marginLeft: 'auto' } }, [
           h('span', { key: 'a', className: 'gp-stats__add' }, `+${summary.add}`), ' ',
           h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${summary.del}`),
-        ]) : null,
-        h('button', {
+        ]) : null
+        const expand = h('button', {
           key: 'expand', type: 'button',
           className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
-          style: summary ? {} : { marginLeft: 'auto' },
+          style: summary || compact ? {} : { marginLeft: 'auto' },
           disabled: effDiffMode !== 'split' && effDiffMode !== 'unified',
           title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
           onClick: () => void showDiff(diffPath.path, diffPath.base, !expanded),
-        }, t(expanded ? 'diff.collapse' : 'diff.expandAll')),
-        h('div', { key: 'seg', className: 'gp-seg' },
-          segButtons<DiffMode>(diffModes, effDiffMode, setDiffMode, (m) => t(`diff.${m}` as GitKey))),
-      ]),
+        }, t(expanded ? 'diff.collapse' : 'diff.expandAll'))
+        const seg = h('div', { key: 'seg', className: 'gp-seg' },
+          segButtons<DiffMode>(diffModes, effDiffMode, setDiffMode, (m) => t(`diff.${m}` as GitKey)))
+        // One row cannot fit back + path + stats + expand + mode seg at phone
+        // widths (the seg buttons squeezed into stacked wrapping); compact
+        // splits the controls onto a dedicated second row instead.
+        if (compact) {
+          return [
+            h('div', { key: 'row1', className: 'gp-diff__toolbar-row' }, [back, path, sum]),
+            h('div', { key: 'row2', className: 'gp-diff__toolbar-row gp-diff__toolbar-row--controls' }, [expand, seg]),
+          ]
+        }
+        return [back, path, sum, expand, seg]
+      })()),
       h('div', { key: 'scroll', className: 'gp-diff__scroll' },
         diffText === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffText, mode: effDiffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, t })),
     ])

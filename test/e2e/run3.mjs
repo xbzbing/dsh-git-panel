@@ -239,6 +239,23 @@ const out = await page.evaluate(async (snap) => {
   result.chUnifiedRender = document.querySelector('.gp-changes--compact .gp-diff__unified') !== null
   result.chNoSideRender = document.querySelector('.gp-changes--compact .gp-diff__side') === null
   result.chUnifiedActive = [...document.querySelectorAll('.gp-diff__toolbar .gp-seg__btn--active')].some((b) => (b.textContent || '') === 'diff.unified')
+  // The compact toolbar splits into two rows: back/path/stats on top, the
+  // expand toggle + mode seg on their own row below (one row squeezed the seg
+  // buttons into a stacked wrap at phone widths).
+  const tbRows = [...document.querySelectorAll('.gp-diff__toolbar .gp-diff__toolbar-row')]
+  result.chToolbarRows = tbRows.length
+  const ctrlRow = document.querySelector('.gp-diff__toolbar-row--controls')
+  result.chControlsRowHasExpand = ctrlRow?.querySelector('.gp-diff__expand') !== null
+  result.chControlsRowHasSeg = ctrlRow?.querySelector('.gp-seg') !== null
+  result.chBackOnFirstRow = tbRows[0]?.querySelector('.gp-subhead__back') !== null
+  if (ctrlRow) {
+    // Seg buttons sit side by side on one line (equal width), not stacked.
+    const segBtns = [...ctrlRow.querySelectorAll('.gp-seg .gp-seg__btn')]
+    const tops = segBtns.map((b) => Math.round(b.getBoundingClientRect().top))
+    result.chSegOneLine = segBtns.length >= 2 && new Set(tops).size === 1
+    const widths = segBtns.map((b) => Math.round(b.getBoundingClientRect().width))
+    result.chSegEvenWidth = widths.length >= 2 && Math.max(...widths) - Math.min(...widths) <= 2
+  }
   result.ovfChangesDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-changes--compact'))
   document.querySelector('.gp-diff__toolbar .gp-subhead__back')?.click()
   await new Promise((r) => setTimeout(r, 300))
@@ -323,6 +340,12 @@ try {
   assert.equal(out.chUnifiedRender, true, 'the split default falls back to unified rendering')
   assert.equal(out.chNoSideRender, true, 'compact never renders the side-by-side diff layout')
   assert.equal(out.chUnifiedActive, true, 'the unified seg button is the active one')
+  assert.equal(out.chToolbarRows, 2, 'the compact diff toolbar splits into two rows')
+  assert.equal(out.chControlsRowHasExpand, true, 'the second row holds the expand toggle')
+  assert.equal(out.chControlsRowHasSeg, true, 'the second row holds the mode seg')
+  assert.equal(out.chBackOnFirstRow, true, 'the back button stays on the first row')
+  assert.equal(out.chSegOneLine, true, 'the seg buttons sit side by side on one line')
+  assert.equal(out.chSegEvenWidth, true, 'the seg buttons are evenly sized')
   assert.equal(out.ovfChangesDrill, true, 'the compact diff pane fits without horizontal overflow')
   assert.equal(out.chBackToList, true, 'back returns to the change list')
   assert.equal(out.flTreeShown, true, 'files shows the tree full width in compact')
