@@ -6,8 +6,8 @@
  * changes page, and stats bar all subscribe to one controller per session so
  * a single git snapshot serves everyone.
  */
-import type { GitPanelRemote } from './rpc'
-import type { GitSnapshot } from './types'
+import type { GitPanelRemote } from './rpc.js'
+import type { GitSnapshot } from './types.js'
 import { pageVisibility, type VisibilitySource } from './visibility.js'
 
 export type GitView =
@@ -16,6 +16,14 @@ export type GitView =
   | { readonly state: 'no-cwd' }
   | { readonly state: 'ready'; readonly snapshot: GitSnapshot }
   | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string; readonly showInputPill?: boolean; readonly isGitRepo?: boolean } }
+
+export interface GitQuerySignal {
+  readonly tick: number
+  readonly epoch: number
+  readonly sampledAt: number
+  readonly ready: boolean
+  readonly root: string | null
+}
 
 const TERMINAL_CODES: ReadonlySet<string> = new Set(['cwd-unavailable'])
 const DEFAULT_POLL_MS = 30_000
@@ -31,7 +39,10 @@ export class GitController {
   private pollMs = DEFAULT_POLL_MS
   private readonly unsubscribeVisibility: () => void
   private visibilityGeneration = 0
-  private snapshotGeneration = -1
+  private requestGeneration = 0
+  private pendingInvalidation = false
+  private querySignal: GitQuerySignal = { tick: 0, epoch: 0, sampledAt: 0, ready: false, root: null }
+  private readonly queryListeners = new Set<() => void>()
 
   constructor(
     private readonly remote: GitPanelRemote,
@@ -41,6 +52,7 @@ export class GitController {
     this.unsubscribeVisibility = visibility.subscribe(() => {
       if (this.disposed) return
       this.visibilityGeneration += 1
+      this.publish(this.view, this.unreadySignal())
       if (visibility.isVisible()) void this.refresh()
       else this.clearPoll()
     })
@@ -55,13 +67,17 @@ export class GitController {
     return this.view
   }
 
-  /** Query consumers wait for the catch-up snapshot after page restoration. */
-  isVisibilitySnapshotCurrent(): boolean {
-    return this.visibility.isVisible() && this.view.state === 'ready' && this.snapshotGeneration === this.visibilityGeneration
+  subscribeQueries(listener: () => void): () => void {
+    this.queryListeners.add(listener)
+    return () => { this.queryListeners.delete(listener) }
+  }
+
+  getQuerySignal(): GitQuerySignal {
+    return this.querySignal
   }
 
   ensure(): void {
-    if (this.view.state !== 'cold' && this.view.state !== 'no-cwd') return
+    if (this.inflight !== undefined || (this.view.state !== 'cold' && this.view.state !== 'no-cwd')) return
     void this.refresh()
   }
 
@@ -76,14 +92,13 @@ export class GitController {
     this.pendingRefresh = false
     this.clearPoll()
     const generation = this.visibilityGeneration
+    const requestGeneration = this.requestGeneration
     if (this.view.state === 'cold') this.setView({ state: 'loading' })
     this.inflight = this.remote.snapshot({ sessionId: this.sessionId })
       .then((result) => {
-        if (this.disposed) return
+        if (this.disposed || requestGeneration !== this.requestGeneration) return
         if (result.ok) {
-          this.pollMs = result.value.refreshIntervalMs || DEFAULT_POLL_MS
-          this.snapshotGeneration = generation
-          this.setView({ state: 'ready', snapshot: result.value })
+          this.publishSnapshot(result.value, generation, false)
         } else if (result.error.code === 'cancelled') {
           // A caller-driven abort (navigation/reset) is not an error state:
           // keep the current view; the next refresh replaces it.
@@ -103,7 +118,7 @@ export class GitController {
         }
       })
       .catch((error: unknown) => {
-        if (this.disposed) return
+        if (this.disposed || requestGeneration !== this.requestGeneration) return
         this.setView({ state: 'error', error: { code: 'git-unavailable', detail: error instanceof Error ? error.message : String(error) } })
       })
       .finally(() => {
@@ -119,6 +134,8 @@ export class GitController {
 
   resync(): void {
     if (this.disposed) return
+    this.requestGeneration += 1
+    this.pendingInvalidation = true
     void this.refresh()
   }
 
@@ -126,10 +143,32 @@ export class GitController {
    * snapshot), avoiding a redundant git round-trip; the poll timer restarts. */
   accept(snapshot: GitSnapshot): void {
     if (this.disposed) return
-    this.pollMs = snapshot.refreshIntervalMs || DEFAULT_POLL_MS
-    this.snapshotGeneration = this.visibilityGeneration
-    this.setView({ state: 'ready', snapshot })
+    this.requestGeneration += 1
+    this.pendingRefresh = false
+    this.pendingInvalidation = true
+    this.publishSnapshot(snapshot, this.visibilityGeneration, true)
     this.schedulePoll()
+  }
+
+  private publishSnapshot(snapshot: GitSnapshot, generation: number, force: boolean): void {
+    this.pollMs = snapshot.refreshIntervalMs || DEFAULT_POLL_MS
+    const previous = this.view.state === 'ready' ? this.view.snapshot : null
+    const same = !force && previous !== null && snapshot.root === previous.root
+      && snapshot.stateFingerprint !== undefined && snapshot.stateFingerprint === previous.stateFingerprint
+    const invalidated = this.pendingInvalidation || force || this.view.state === 'error' || this.view.state === 'no-cwd'
+    this.pendingInvalidation = false
+    const nextSignal: GitQuerySignal = {
+      tick: this.querySignal.tick + 1,
+      epoch: this.querySignal.epoch + (invalidated ? 1 : 0),
+      sampledAt: snapshot.checkedAt,
+      ready: this.visibility.isVisible() && generation === this.visibilityGeneration,
+      root: snapshot.root,
+    }
+    this.publish(same ? this.view : { state: 'ready', snapshot }, nextSignal)
+  }
+
+  private unreadySignal(): GitQuerySignal {
+    return this.querySignal.ready ? { ...this.querySignal, ready: false } : this.querySignal
   }
 
   private clearPoll(): void {
@@ -147,8 +186,17 @@ export class GitController {
   }
 
   private setView(view: GitView): void {
+    this.publish(view, view.state === 'ready' ? this.querySignal : this.unreadySignal())
+  }
+
+  private publish(view: GitView, signal: GitQuerySignal): void {
+    const viewChanged = view !== this.view
+    const signalChanged = signal !== this.querySignal
+    // Both stores must be current before either class of subscriber runs.
     this.view = view
-    for (const listener of this.listeners) listener()
+    this.querySignal = signal
+    if (viewChanged) for (const listener of this.listeners) listener()
+    if (signalChanged) for (const listener of this.queryListeners) listener()
   }
 
   dispose(): void {
@@ -156,6 +204,8 @@ export class GitController {
     this.clearPoll()
     this.unsubscribeVisibility()
     this.pendingRefresh = false
+    this.pendingInvalidation = false
     this.listeners.clear()
+    this.queryListeners.clear()
   }
 }

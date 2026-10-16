@@ -4,21 +4,21 @@
  */
 import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import type { GitPanelRemote } from './rpc'
-import { queryAs } from './rpc'
+import { queryAs, type GitPanelRemote } from './rpc.js'
 import { useChangesData } from './changes-hooks.js'
 import { pageVisibility } from './visibility.js'
-import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types'
-import type { GitKey } from './locales'
-import { ChangeStats } from './ChangeStats'
-import { DiffView, diffSummary, type DiffMode } from './DiffView'
-import { ArrowLeftIcon, ChevronIcon, SparkleIcon, StashIcon, TrashIcon } from './icons'
-import { statusChar, statusClass } from './status'
-import { useResizableColumn } from './resizable'
-import { segButtons } from './seg'
-import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals'
-import { buildTops, windowRange } from './virtual-list'
-import { useViewportTracker } from './use-viewport'
+import { useGitQuerySignal } from './registry.js'
+import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types.js'
+import type { GitKey } from './locales.js'
+import { ChangeStats } from './ChangeStats.js'
+import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
+import { ArrowLeftIcon, ChevronIcon, SparkleIcon, StashIcon, TrashIcon } from './icons.js'
+import { statusChar, statusClass } from './status.js'
+import { useResizableColumn } from './resizable.js'
+import { segButtons } from './seg.js'
+import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals.js'
+import { buildTops, windowRange } from './virtual-list.js'
+import { useViewportTracker } from './use-viewport.js'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -49,6 +49,7 @@ type ListItem =
   | { readonly kind: 'row'; readonly c: GitChange }
 
 export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, compact, t }: ChangesTabProps): JSX.Element {
+  const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [amend, setAmend] = useState(false)
@@ -56,8 +57,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState<ReadonlySet<GroupKey>>(new Set())
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
-  const { stashes, loadStashes, diffPath, diffData, expanded, showDiff } = useChangesData(
-    remote, sessionId, snapshot, visible, () => setError(t('error.generic')),
+  const { stashes, diffPath, diffData, expanded, showDiff } = useChangesData(
+    remote, sessionId, snapshot, queryVisible, () => setError(t('error.generic')), queryKey,
   )
   const [diffMode, setDiffMode] = useState<DiffMode>(() => snapshot.defaultDiffView)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
@@ -124,7 +125,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
 
   // Prefill amend message from the last commit when the box is toggled on empty.
   useEffect(() => {
-    if (!visible || !pageVisibility.isVisible() || !amend || amendPrefilled || message.trim() !== '') return
+    if (!queryVisible || !pageVisibility.isVisible() || !amend || amendPrefilled || message.trim() !== '') return
     let alive = true
     void remote.query({ sessionId, query: { kind: 'last-commit-message' } }).then((res) => {
       const msg = queryAs(res, 'last-commit-message')
@@ -134,7 +135,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       }
     })
     return () => { alive = false }
-  }, [amend, amendPrefilled, message, remote, sessionId, visible])
+  }, [amend, amendPrefilled, message, remote, sessionId, queryVisible])
 
   // Path pruning belongs to the data hook even while hidden; keep compact
   // navigation in sync without gating local selection/draft cleanup.
@@ -182,17 +183,16 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   }
 
   // Stash: push the current changes (optional message), then apply / pop / drop
-  // stack entries. The snapshot-driven effect reloads the list, but push/drop
-  // also reload immediately so the dialog closes against a fresh stack.
+  // stack entries. Controller accept supplies one query signal for the fresh stack.
   const stashPush = async (message: string): Promise<void> => {
     const ok = await run({ kind: 'stash-push', ...(message.trim() !== '' ? { message } : {}) })
-    if (ok) { setStashPushOpen(false); void loadStashes() }
+    if (ok) setStashPushOpen(false)
   }
-  const stashApply = (index: number, sha: string): void => { void run({ kind: 'stash-apply', index, sha }).then((ok) => { if (ok) void loadStashes() }) }
-  const stashPop = (index: number, sha: string): void => { void run({ kind: 'stash-pop', index, sha }).then((ok) => { if (ok) void loadStashes() }) }
+  const stashApply = (index: number, sha: string): void => { void run({ kind: 'stash-apply', index, sha }) }
+  const stashPop = (index: number, sha: string): void => { void run({ kind: 'stash-pop', index, sha }) }
   const stashDropConfirmed = async (index: number, sha: string): Promise<void> => {
     const ok = await run({ kind: 'stash-drop', index, sha })
-    if (ok) { setStashDrop(null); void loadStashes() }
+    if (ok) setStashDrop(null)
   }
 
   /** Map a suggest-endpoint failure to display text; the provider detail rides along. */
@@ -406,7 +406,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       })()),
       diffData === null
         ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
-        : h(DiffView, { key: 'diff', visible, text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
+        : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
     ])
 
   // Stash dialogs (push + drop confirm), portaled; included in both layouts.

@@ -121,6 +121,19 @@ test('snapshot reports branch, dirty, and the change set', async () => {
   assert.deepEqual(paths, ['a.txt', 'd.txt'])
   assert.equal(s.changes.find((c) => c.path === 'd.txt').status, 'untracked')
   assert.equal(s.showInputPill, true, 'pill preference defaults to shown')
+  assert.match(s.stateFingerprint, /^[0-9a-f]{64}$/, 'final snapshot carries a SHA-256 business fingerprint')
+})
+
+test('snapshot business fingerprint is stable in a real unchanged repository and tracks preferences', async () => {
+  const first = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
+  const second = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
+  const hidden = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, showInputPill: false }, SID)
+  assert.equal(first.ok, true)
+  assert.equal(second.ok, true)
+  assert.equal(hidden.ok, true)
+  assert.match(first.value.stateFingerprint, /^[0-9a-f]{64}$/)
+  assert.equal(first.value.stateFingerprint, second.value.stateFingerprint)
+  assert.notEqual(first.value.stateFingerprint, hidden.value.stateFingerprint)
 })
 
 test('showInputPill config flows into the snapshot and normalizes volatile refs', async () => {

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { GitPanelRemote } from './rpc.js'
-import { queryAs } from './rpc.js'
-import { DIFF_EXPAND_CONTEXT } from './types.js'
-import type { GitDiffPayload, GitSnapshot, StashEntry } from './types.js'
+import { queryAs, type GitPanelRemote } from './rpc.js'
+import { DIFF_EXPAND_CONTEXT, type GitDiffPayload, type GitSnapshot, type StashEntry } from './types.js'
 import { useVisibleRequest } from './use-visible-request.js'
+import type { QueryKey } from './query-key.js'
 
 type DiffTarget = { path: string; base: 'worktree' | 'staged'; expand: boolean; version: number }
 
@@ -15,9 +14,9 @@ export function useChangesData(
   snapshot: GitSnapshot,
   visible: boolean,
   onStashError: () => void,
+  queryKey: QueryKey,
 ): {
   stashes: readonly StashEntry[]
-  loadStashes: () => Promise<void>
   diffPath: DiffTarget | null
   diffData: GitDiffPayload | null
   expanded: boolean
@@ -28,12 +27,7 @@ export function useChangesData(
   const [diffData, setDiffData] = useState<GitDiffPayload | null>(null)
   const selection = useRef<DiffTarget | null>(null)
   const version = useRef(0)
-  const lastSnapshot = useRef({ value: snapshot, revision: 0 })
-  if (lastSnapshot.current.value !== snapshot) {
-    lastSnapshot.current = { value: snapshot, revision: lastSnapshot.current.revision + 1 }
-  }
-  const refreshKey = JSON.stringify([sessionId, snapshot.root, lastSnapshot.current.revision])
-  const loadStashes = useVisibleRequest(refreshKey, visible, async (isCurrent) => {
+  useVisibleRequest([sessionId, ...queryKey], visible, async (isCurrent) => {
     const res = await remote.query({ sessionId, query: { kind: 'stash-list' } })
     if (!isCurrent()) return
     const result = queryAs(res, 'stash-list')
@@ -50,8 +44,8 @@ export function useChangesData(
   }, [diffPath, stillThere])
 
   // Each open changes version: identical parameters still reload cleared data.
-  const diffKey = JSON.stringify([refreshKey, diffPath?.path, diffPath?.base, diffPath?.expand, diffPath?.version])
-  useVisibleRequest(diffKey, visible && stillThere, async (isCurrent) => {
+  const diffQueryKey: QueryKey = [sessionId, ...queryKey, diffPath?.path, diffPath?.base, diffPath?.expand, diffPath?.version]
+  useVisibleRequest(diffQueryKey, visible && stillThere, async (isCurrent) => {
     if (diffPath === null) return
     const target = diffPath
     const res = await remote.query({
@@ -70,5 +64,5 @@ export function useChangesData(
     setDiffData(null)
   }, [])
 
-  return { stashes, loadStashes, diffPath, diffData, expanded: diffPath?.expand ?? false, showDiff }
+  return { stashes, diffPath, diffData, expanded: diffPath?.expand ?? false, showDiff }
 }

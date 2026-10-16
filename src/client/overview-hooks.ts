@@ -4,14 +4,12 @@
  * Behavior (generation guards, LRU cache, debounced paging) is unchanged.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { GitPanelRemote } from './rpc'
-import { queryAs } from './rpc'
-import { DIFF_EXPAND_CONTEXT } from './types'
-import type { GitBranch, GitCommit, GitDiffPayload, GitFileStat, GraphCommit } from './types'
-import type { DiffMode } from './DiffView'
-import type { DiffViewMode } from './types'
+import { queryAs, type GitPanelRemote } from './rpc.js'
+import { DIFF_EXPAND_CONTEXT, type GitBranch, type GitCommit, type GitDiffPayload, type GitFileStat, type GraphCommit, type DiffViewMode } from './types.js'
+import type { DiffMode } from './DiffView.js'
 import { useVisibleRequest } from './use-visible-request.js'
 import { pageVisibility } from './visibility.js'
+import type { QueryKey } from './query-key.js'
 
 const PAGE = 100
 
@@ -33,10 +31,10 @@ export interface HistoryFilter {
 type CommitDetail = { commit: GitCommit | null; body: string; stats: readonly GitFileStat[]; insertions: number; deletions: number }
 
 /**
- * Left column: branch/tag tree + author list. Reloads on `refreshKey` (commit
+ * Left column: branch/tag tree + author list. Reloads on `queryKey` (commit
  * landed / poll) and on mount; a fetch failure surfaces `treeError` with retry.
  */
-export function useBranchTree(remote: GitPanelRemote, sessionId: string, refreshKey: number, visible = true): {
+export function useBranchTree(remote: GitPanelRemote, sessionId: string, queryKey: QueryKey, visible = true): {
   tree: BranchTree | null
   treeError: boolean
   authors: readonly string[]
@@ -46,7 +44,7 @@ export function useBranchTree(remote: GitPanelRemote, sessionId: string, refresh
   const [treeError, setTreeError] = useState(false)
   const [authors, setAuthors] = useState<readonly string[]>([])
 
-  const reload = useVisibleRequest(JSON.stringify([sessionId, refreshKey]), visible, async (isCurrent, canContinue) => {
+  const reload = useVisibleRequest([sessionId, ...queryKey], visible, async (isCurrent, canContinue) => {
     setTreeError(false)
     const [branchesRes, tagsRes] = await Promise.all([
       remote.query({ sessionId, query: { kind: 'branches' } }),
@@ -77,14 +75,13 @@ export function useBranchTree(remote: GitPanelRemote, sessionId: string, refresh
 
 /**
  * Middle column: paged commit history. One effect owns page 0 (keyed on
- * filter + refreshKey) so a filter change and a snapshot advance can't race and
+ * filter + queryKey) so a filter change and a snapshot advance can't race and
  * discard each other; `seqRef` drops stale responses, `loadingRef` guards a
  * double page-append from two scroll events in one frame.
  *
  * `onReset` fires only when the *filter* changed (branch / search / author /
  * date), where the selected commit may have dropped out of the new list. A
- * plain snapshot advance (`refreshKey`, bumped every poll because `checkedAt`
- * is always fresh) reloads page 0 to pick up new commits but preserves the
+ * content tick or forced query epoch reloads page 0 to pick up new commits but preserves the
  * selection and scroll — otherwise a background poll would wipe the commit the
  * user is reading.
  */
@@ -92,7 +89,7 @@ export function useHistory(
   remote: GitPanelRemote,
   sessionId: string,
   filter: HistoryFilter,
-  refreshKey: number,
+  queryKey: QueryKey,
   onReset: () => void,
   visible = true,
 ): {
@@ -142,7 +139,7 @@ export function useHistory(
   }, [remote, sessionId])
 
   const prevFilter = useRef(filter)
-  useVisibleRequest(JSON.stringify([sessionId, filter, refreshKey]), visible, async (isCurrent) => {
+  useVisibleRequest([sessionId, ...queryKey, filter.ref, filter.search, filter.author, filter.since], visible, async (isCurrent) => {
     seqRef.current += 1
     loadingRef.current = false
     currentPage.current = isCurrent

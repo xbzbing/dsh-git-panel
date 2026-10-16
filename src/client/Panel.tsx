@@ -5,19 +5,18 @@
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { gitPanelRemoteOf, hasSession, type ClientCtx } from './rpc'
-import type { GitPanelRemote } from './rpc'
-import { useGitView, controllerFor } from './registry'
-import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } from './jump'
-import { OverviewTab } from './OverviewTab'
-import { ChangesTab } from './ChangesTab'
-import { FilesTab } from './FilesTab'
-import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons'
-import { usePanelLayout } from './layout'
-import { useHoverTip } from './tip'
-import type { GitAction, GitVersionInfo } from './types'
-import type { GitKey } from './locales'
-import { opErrorText } from './ops-modals'
+import { gitPanelRemoteOf, hasSession, type ClientCtx, type GitPanelRemote } from './rpc.js'
+import { useGitView, controllerFor } from './registry.js'
+import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } from './jump.js'
+import { OverviewTab } from './OverviewTab.js'
+import { ChangesTab } from './ChangesTab.js'
+import { FilesTab } from './FilesTab.js'
+import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
+import { usePanelLayout } from './layout.js'
+import { useHoverTip } from './tip.js'
+import type { GitAction, GitVersionInfo } from './types.js'
+import type { GitKey } from './locales.js'
+import { opErrorText } from './ops-modals.js'
 import { usePageVisibility } from './use-page-visibility.js'
 
 const FONT_DELTA_KEY = 'gp.panel.fontDelta'
@@ -90,10 +89,9 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     if (sid !== undefined && tab !== null) stashSubTab(sid, tab)
   }, [])
 
-  // The snapshot's checkedAt drives child reloads directly (no extra state /
-  // first-mount bump): OverviewTab/ChangesTab reload when it advances.
-  const refreshKey = view.state === 'ready' ? view.snapshot.checkedAt : 0
-  const queryVisible = pageVisible && hasSession(sessionId) && controllerFor(sessionId).isVisibilitySnapshotCurrent()
+  // Visible leaf tabs subscribe to query ticks and the restore gate themselves;
+  // a same-fingerprint catch-up must not require a Panel business notification.
+  const queryVisible = pageVisible && hasSession(sessionId)
 
   // Work-tree generation: bumped whenever the *contents* of the work tree are
   // replaced wholesale — a branch switch, or a switch that stashed the local
@@ -157,7 +155,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     const snapshot = view.snapshot
     return h('div', { style: { display: 'contents' } }, [
       visited.current.tabs.has('overview') ? h('div', { key: 'overview', style: activeTab === 'overview' ? { display: 'contents' } : { display: 'none' } },
-        h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', refreshKey, defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })) : null,
+        h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })) : null,
       visited.current.tabs.has('changes') ? h('div', { key: 'changes', style: activeTab === 'changes' ? { display: 'contents' } : { display: 'none' } },
         h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, compact, t })) : null,
       // Files tab mounts on first visit (keeps cold cost zero — no dir-list

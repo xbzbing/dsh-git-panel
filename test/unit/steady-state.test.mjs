@@ -109,7 +109,7 @@ test('controller does not start a queued trailing refresh when the in-flight req
   await drain()
   assert.equal(h.calls, 1)
   assert.equal(h.timers, 0)
-  assert.equal(h.controller.getSnapshot().state, 'ready')
+  assert.equal(h.controller.getSnapshot().state, 'loading', 'superseded initial request waits for fresh catch-up')
   h.show()
   await drain()
   assert.equal(h.calls, 2)
@@ -208,6 +208,152 @@ test('visibility source shares one DOM listener and releases it after the last c
   assert.equal(h.eventListeners, 1)
   h.controller.dispose()
   assert.equal(h.eventListeners, 0)
+})
+
+test('equal fingerprints preserve business references while advancing independent query tick and sampling time', async (t) => {
+  const h = setup(t, false, async (n) => ok({ ...snapshot, stateFingerprint: 'same', checkedAt: n }))
+  const signals = []
+  h.controller.subscribeQueries(() => signals.push(h.controller.getQuerySignal()))
+  h.controller.ensure(); await drain()
+  const view = h.controller.getSnapshot(), notifications = h.notifications
+  await h.advance(30_000)
+  assert.equal(h.controller.getSnapshot(), view)
+  assert.equal(h.controller.getSnapshot().snapshot, view.snapshot)
+  assert.equal(h.notifications, notifications)
+  assert.deepEqual(signals.map(({ tick, epoch, sampledAt, ready }) => ({ tick, epoch, sampledAt, ready })), [
+    { tick: 1, epoch: 0, sampledAt: 1, ready: true },
+    { tick: 2, epoch: 0, sampledAt: 2, ready: true },
+  ])
+})
+
+test('multiple ensure callers do not queue a trailing refresh while the initial snapshot is loading', async (t) => {
+  const gate = deferred()
+  const h = setup(t, false, () => gate.promise)
+  h.controller.ensure(); h.controller.ensure(); h.controller.ensure()
+  assert.equal(h.calls, 1)
+  gate.resolve(ok(snapshot)); await drain()
+  assert.equal(h.calls, 1)
+  assert.equal(h.controller.getQuerySignal().tick, 1)
+  assert.equal(h.timers, 1)
+})
+
+test('legacy snapshots without fingerprints still publish every successful sample', async (t) => {
+  const h = setup(t, false, async (n) => ok({ ...snapshot, checkedAt: n }))
+  h.controller.ensure(); await drain()
+  const before = h.controller.getSnapshot(), notifications = h.notifications
+  await h.advance(30_000)
+  assert.notEqual(h.controller.getSnapshot(), before)
+  assert.equal(h.notifications, notifications + 1)
+  assert.equal(h.controller.getQuerySignal().tick, 2)
+})
+
+test('hidden resync coalesces invalidation and publishes tick with epoch only after catch-up succeeds', async (t) => {
+  const h = setup(t, false, async (n) => ok({ ...snapshot, stateFingerprint: 'same', checkedAt: n }))
+  h.controller.ensure(); await drain()
+  h.hide()
+  const signal = h.controller.getQuerySignal()
+  h.controller.resync(); h.controller.resync()
+  assert.equal(h.controller.getQuerySignal(), signal)
+  assert.equal(signal.epoch, 0)
+  h.show(); await drain()
+  assert.equal(h.calls, 2)
+  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, epoch: 1, sampledAt: 2, ready: true, root: '/fixture' })
+})
+
+test('accept invalidates an older in-flight poll without publishing its response or advancing its tick', async (t) => {
+  const stale = deferred()
+  const h = setup(t, false, (n) => n === 2 ? stale.promise : Promise.resolve(ok({ ...snapshot, stateFingerprint: 'old' })))
+  h.controller.ensure(); await drain()
+  void h.controller.refresh()
+  const accepted = { ...snapshot, stateFingerprint: 'new', checkedAt: 3, changes: [{ path: 'new.txt' }] }
+  h.controller.accept(accepted)
+  const view = h.controller.getSnapshot(), signal = h.controller.getQuerySignal()
+  assert.equal(signal.tick, 2)
+  assert.equal(signal.epoch, 1)
+  stale.resolve(ok({ ...snapshot, stateFingerprint: 'old', checkedAt: 2 })); await drain()
+  assert.equal(h.controller.getSnapshot(), view)
+  assert.equal(h.controller.getQuerySignal(), signal)
+  assert.equal(h.calls, 2)
+})
+
+test('resync during a poll ignores the old completion and emits one forced query batch for the trailing sample', async (t) => {
+  const stale = deferred(), fresh = deferred()
+  const h = setup(t, false, (n) => n === 1 ? Promise.resolve(ok(snapshot)) : n === 2 ? stale.promise : fresh.promise)
+  h.controller.ensure(); await drain()
+  let notifications = 0
+  h.controller.subscribeQueries(() => notifications++)
+  void h.controller.refresh()
+  h.controller.resync(); h.controller.resync()
+  stale.resolve(ok({ ...snapshot, checkedAt: 2 })); await drain()
+  assert.equal(h.calls, 3)
+  assert.equal(h.controller.getQuerySignal().tick, 1)
+  assert.equal(notifications, 0)
+  fresh.resolve(ok({ ...snapshot, checkedAt: 3 })); await drain()
+  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, epoch: 1, sampledAt: 3, ready: true, root: '/fixture' })
+  assert.equal(notifications, 1)
+})
+
+test('error recovery advances epoch once and query subscriptions stop after unsubscribe or dispose', async (t) => {
+  const h = setup(t, false, async (n) => n === 2 ? { ok: false, error: { code: 'git-error' } }
+    : ok({ ...snapshot, stateFingerprint: 'same', checkedAt: n }))
+  h.controller.ensure(); await drain()
+  await h.advance(30_000)
+  assert.equal(h.controller.getQuerySignal().ready, false)
+  assert.equal(h.controller.getQuerySignal().tick, 1)
+  let notifications = 0
+  const unsubscribe = h.controller.subscribeQueries(() => notifications++)
+  await h.advance(30_000)
+  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, epoch: 1, sampledAt: 3, ready: true, root: '/fixture' })
+  assert.equal(notifications, 1)
+  unsubscribe()
+  await h.advance(30_000)
+  assert.equal(notifications, 1)
+  const signal = h.controller.getQuerySignal()
+  h.controller.dispose(); h.controller.accept(snapshot); h.controller.resync()
+  assert.equal(h.controller.getQuerySignal(), signal)
+})
+
+for (const rejected of [false, true]) {
+  test(`accept shields its snapshot and tick from an older poll ${rejected ? 'rejection' : 'failure'}`, async (t) => {
+    const stale = deferred()
+    const h = setup(t, false, (n) => n === 2 ? stale.promise : Promise.resolve(ok(snapshot)))
+    h.controller.ensure(); await drain()
+    void h.controller.refresh()
+    h.controller.accept({ ...snapshot, checkedAt: 3 })
+    const view = h.controller.getSnapshot(), signal = h.controller.getQuerySignal()
+    if (rejected) stale.reject(new Error('old connection failed'))
+    else stale.resolve({ ok: false, error: { code: 'git-error' } })
+    await drain()
+    assert.equal(h.controller.getSnapshot(), view)
+    assert.equal(h.controller.getQuerySignal(), signal)
+  })
+}
+
+test('resync after accept still fetches a fresh sample after the superseded poll settles', async (t) => {
+  const stale = deferred(), fresh = deferred()
+  const h = setup(t, false, (n) => n === 1 ? Promise.resolve(ok(snapshot)) : n === 2 ? stale.promise : fresh.promise)
+  h.controller.ensure(); await drain()
+  void h.controller.refresh()
+  h.controller.resync()
+  h.controller.accept({ ...snapshot, checkedAt: 2 })
+  assert.equal(h.controller.getQuerySignal().tick, 2)
+  h.controller.resync()
+  stale.resolve(ok(snapshot)); await drain()
+  assert.equal(h.calls, 3)
+  assert.equal(h.controller.getQuerySignal().tick, 2)
+  fresh.resolve(ok({ ...snapshot, checkedAt: 3 })); await drain()
+  assert.deepEqual(h.controller.getQuerySignal(), { tick: 3, epoch: 2, sampledAt: 3, ready: true, root: '/fixture' })
+})
+
+test('business and query listeners observe one atomically updated view and signal on root change', async (t) => {
+  const h = setup(t)
+  h.controller.ensure(); await drain()
+  const observed = []
+  const read = () => observed.push([h.controller.getSnapshot().snapshot.root, h.controller.getQuerySignal().root, h.controller.getQuerySignal().tick])
+  h.controller.subscribe(read)
+  h.controller.subscribeQueries(read)
+  h.controller.accept({ ...snapshot, root: '/other', checkedAt: 2 })
+  assert.deepEqual(observed, [['/other', '/other', 2], ['/other', '/other', 2]])
 })
 
 test('visibility source without document remains visible and subscribes safely', () => {

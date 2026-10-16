@@ -8,25 +8,25 @@
 import { createElement as h, useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
-import type { GitPanelRemote } from './rpc'
-import { queryAs } from './rpc'
-import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode } from './types'
-import type { GitKey } from './locales'
-import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons'
-import { layoutGraph, graphWidth, type GraphRow } from './git-graph'
-import { buildFileTree } from './file-tree'
-import { absoluteDateTime, absoluteTime, timeAgo } from './time'
-import { statusChar, statusClass } from './status'
-import { DiffView, diffSummary, type DiffMode } from './DiffView'
-import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
-import { useResizableColumn } from './resizable'
-import { segButtons } from './seg'
-import { opErrorText, renderConfirmModal } from './ops-modals'
-import { renderResetModal, renderTagCreateModal } from './overview-modals'
-import { renderBranchSwitchConfirm } from './branch-switch'
-import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options'
-import { pullScopeNode, pushScopeNode, renderStatusBar } from './overview-statusbar'
-import type { DiffViewMode } from './types'
+import { queryAs, type GitPanelRemote } from './rpc.js'
+import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
+import type { GitKey } from './locales.js'
+import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
+import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
+import { buildFileTree } from './file-tree.js'
+import { absoluteDateTime, absoluteTime, timeAgo } from './time.js'
+import { statusChar, statusClass } from './status.js'
+import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
+import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks.js'
+import { useResizableColumn } from './resizable.js'
+import { segButtons } from './seg.js'
+import { opErrorText, renderConfirmModal } from './ops-modals.js'
+import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
+import { renderBranchSwitchConfirm } from './branch-switch.js'
+import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
+import { pullScopeNode, pushScopeNode, renderStatusBar } from './overview-statusbar.js'
+import { useGitQuerySignal } from './registry.js'
+import type { QueryKey } from './query-key.js'
 
 /** Stable empty collapsed-dirs set; shared so a fully-expanded tree never allocates. */
 const EMPTY_DIRS: ReadonlySet<string> = new Set()
@@ -35,8 +35,6 @@ interface OverviewProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
   readonly visible?: boolean
-  /** Snapshot checkedAt; bumps drive a history/tree reload (commit landed / poll). */
-  readonly refreshKey: number
   /** Default diff layout new file-diff overlays open with. */
   readonly defaultDiffView: DiffViewMode
   /** Live snapshot — the dirty flag + change list feed the reset/revert guards. */
@@ -87,17 +85,18 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, refreshKey, defaultDiffView, snapshot, onAction, onResync, compact, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, t }: OverviewProps): JSX.Element {
+  const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
   const searchNarrow = useNarrow(searchEl, SEARCH_HINT_MIN_W)
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
   // Tag write ops (create/delete) don't change the work tree, so they never bump
-  // the snapshot's refreshKey; a local counter folds into the reload key so the
+  // the business snapshot; a local counter folds into the query key so the
   // history graph and branch/tag list pick up the new ref set.
   const [opBump, setOpBump] = useState(0)
-  const effRefresh = refreshKey + opBump
+  const overviewQueryKey: QueryKey = [...queryKey, opBump]
   const afterTagOp = (): void => setOpBump((n) => n + 1)
   // Tag create modal (anchored to a commit) and tag delete confirm.
   const [tagForm, setTagForm] = useState<{ hash: string; shortHash: string } | null>(null)
@@ -174,7 +173,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
     return () => { alive = false }
   }, [pushConfirm, remote, sessionId])
 
-  const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, effRefresh, visible)
+  const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, overviewQueryKey, queryVisible)
   // Switch targets keyed like the branch rows (`local:<name>` / `remote:<ref>`);
   // only rows with a selectable target get a switch button.
   const switchOptions = useMemo(() => {
@@ -184,9 +183,9 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
     return map
   }, [tree])
   const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
-  const detail = useCommitDetail(remote, sessionId, defaultDiffView, visible)
+  const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
   const { commits, loading, listError, hasMore, listRef, loadMore } = useHistory(
-    remote, sessionId, filter, effRefresh, detail.clearSelection, visible,
+    remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
   )
 
   // Search debounce → filter change (which reloads history from page 0).
@@ -214,7 +213,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
     if (compact) setPane('detail')
   }
 
-  const now = useMemo(() => Date.now(), [commits])
+  const now = useMemo(() => Date.now(), [commits, querySignal.sampledAt])
   const fileTree = useMemo(() => (detail.detail === null ? [] : buildFileTree(detail.detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail.detail])
   const selected = detail.selected
 
@@ -279,7 +278,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
   }
 
   // Revert / reset move HEAD or the work tree, so they go through `onAction`
-  // (controller feeds the fresh snapshot back → refreshKey advances → history
+  // (controller accepts the fresh snapshot → query signal advances → history
   // reloads). The returned error is already localized by Panel's opErrorText.
   const runRevert = async (): Promise<void> => {
     if (revertTarget === null || opBusy) return
@@ -303,7 +302,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
   }
 
   // Branch switch. It moves HEAD *and* the whole work tree, so it goes through
-  // `onAction` (the fresh snapshot feeds the controller → refreshKey advances →
+  // `onAction` (the fresh snapshot feeds the controller → query signal advances →
   // history, branch list, changes and Files caches all reload). `stash` is the
   // user's explicit choice in the confirm dialog for a dirty work tree.
   const runBranchSwitch = async (stash: boolean): Promise<void> => {
@@ -317,7 +316,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
         ...(switchTarget.createFrom === undefined ? {} : { createFrom: switchTarget.createFrom }),
         ...(stash ? { stashMessage: t('switch.stashMessage', { branch: switchTarget.name }) } : {}),
       })
-      if (res.ok) { setSwitchTarget(null); reloadTree() }
+      if (res.ok) setSwitchTarget(null)
       else setOpError(res.error ?? t('error.generic'))
     } finally { setSwitchBusy(false) }
   }
@@ -331,8 +330,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
     setSyncBusy(true)
     try {
       const res = await onAction({ kind: 'fetch' })
-      if (res.ok) reloadTree()
-      else setOpError(res.error ?? t('error.generic'))
+      if (!res.ok) setOpError(res.error ?? t('error.generic'))
     } finally { setSyncBusy(false) }
   }
   const runPullFf = async (): Promise<void> => {
@@ -341,7 +339,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
     setPullBusy(true)
     try {
       const res = await onAction({ kind: 'pull-ff' })
-      if (res.ok) { setPullConfirm(false); reloadTree() }
+      if (res.ok) setPullConfirm(false)
       else setOpError(res.error ?? t('error.generic'))
     } finally { setPullBusy(false) }
   }
@@ -351,7 +349,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
     setPushBusy(true)
     try {
       const res = await onAction({ kind: 'push' })
-      if (res.ok) { setPushConfirm(false); reloadTree() }
+      if (res.ok) setPushConfirm(false)
       else setOpError(res.error ?? t('error.generic'))
     } finally { setPushBusy(false) }
   }
@@ -361,7 +359,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
     setPublishBusy(true)
     try {
       const res = await onAction({ kind: 'publish', remote: snapshot.remote.name })
-      if (res.ok) { setPublishConfirm(false); reloadTree() }
+      if (res.ok) setPublishConfirm(false)
       else setOpError(res.error ?? t('error.generic'))
     } finally { setPublishBusy(false) }
   }
@@ -376,7 +374,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
   }
 
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
-    visible,
+    visible: queryVisible,
     data: detail.fileDiffData,
     error: detail.fileDiffError,
     mode: detail.fileDiffMode,
@@ -518,7 +516,7 @@ export function OverviewTab({ remote, sessionId, visible = true, refreshKey, def
         h('option', { key: '7d', value: '7 days ago' }, t('overview.last7d')),
         h('option', { key: '30d', value: '30 days ago' }, t('overview.last30d')),
       ]),
-      h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), onClick: () => { void remote.run({ sessionId, action: { kind: 'fetch' } }).then(() => reloadTree()) } }, h(RefreshIcon, { size: 14 })),
+      h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), disabled: syncBusy, onClick: () => void runCheckSync() }, h(RefreshIcon, { size: 14 })),
     ]),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
       commits.length === 0

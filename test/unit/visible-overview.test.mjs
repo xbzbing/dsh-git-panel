@@ -23,8 +23,8 @@ test('hidden overview coalesces ticks and resumes one current ref/history batch'
   } }
   const props = { visible: false, key: 0, filter: F }
   const h = mount(() => ({
-    tree: useBranchTree(remote, 's', props.key, props.visible),
-    history: useHistory(remote, 's', props.filter, props.key, () => {}, props.visible),
+    tree: useBranchTree(remote, 's', [props.key], props.visible),
+    history: useHistory(remote, 's', props.filter, [props.key], () => {}, props.visible),
   }))
   await h.settle()
   props.key = 1; h.rerender()
@@ -46,7 +46,7 @@ test('branch completion after hide cannot start authors; restore at the same key
     return refResult(q.kind)
   } }
   let visible = true
-  const h = mount(() => useBranchTree(remote, 's', 1, visible))
+  const h = mount(() => useBranchTree(remote, 's', [1], visible))
   visible = false; h.rerender()
   gate.resolve(refResult('branches'))
   await h.settle()
@@ -65,7 +65,7 @@ test('hide/restore with an unchanged request in flight reuses that request', asy
     return refResult(q.kind)
   } }
   let visible = true
-  const h = mount(() => useBranchTree(remote, 's', 1, visible))
+  const h = mount(() => useBranchTree(remote, 's', [1], visible))
   visible = false; h.rerender()
   visible = true; h.rerender()
   assert.equal(branches, 1)
@@ -79,7 +79,7 @@ test('stale tree response cannot overwrite a new session or refresh generation',
   const gate = deferred()
   let sid = 'old'
   const remote = { query: async ({ sessionId, query: q }) => q.kind === 'branches' && sessionId === 'old' ? gate.promise : refResult(q.kind, sessionId) }
-  const h = mount(() => useBranchTree(remote, sid, 1, true))
+  const h = mount(() => useBranchTree(remote, sid, [1], true))
   sid = 'new'; h.rerender(); await h.settle()
   gate.resolve(refResult('branches', 'old'))
   await h.settle()
@@ -92,7 +92,7 @@ for (const failedKind of ['tags', 'authors']) {
     let key = 1, fail = true
     const remote = { query: async ({ query: q }) => q.kind === failedKind && fail
       ? { ok: false, error: { code: 'git-error' } } : refResult(q.kind) }
-    const h = mount(() => useBranchTree(remote, 's', key, true))
+    const h = mount(() => useBranchTree(remote, 's', [key], true))
     t.after(() => h.unmount())
     await h.settle()
     assert.equal(h.value.treeError, false)
@@ -112,7 +112,7 @@ test('secondary refresh failures preserve loaded tags without hiding fresh branc
     if (fail && q.kind !== 'branches') return { ok: false, error: { code: 'git-error' } }
     return q.kind === 'tags' ? { ok: true, value: { kind: 'tags', tags } } : refResult(q.kind, `branch-${key}`)
   } }
-  const h = mount(() => useBranchTree(remote, 's', key, true))
+  const h = mount(() => useBranchTree(remote, 's', [key], true))
   t.after(() => h.unmount())
   await h.settle()
   assert.deepEqual(h.value.tree.tags, tags)
@@ -137,7 +137,7 @@ for (const rejected of [false, true]) {
       }
       return refResult(q.kind)
     } }
-    const h = mount(() => useBranchTree(remote, 's', 1, true))
+    const h = mount(() => useBranchTree(remote, 's', [1], true))
     t.after(() => h.unmount())
     await h.settle()
     assert.equal(h.value.treeError, true)
@@ -157,7 +157,7 @@ test('hidden history blocks pagination, then resumes current filter without poll
     calls.push(q)
     return { ok: true, value: { kind: 'history', commits: [{ hash: q.ref ?? 'main' }], total: 5 } }
   } }
-  const h = mount(() => useHistory(remote, 's', props.filter, props.key, () => { resets++ }, props.visible))
+  const h = mount(() => useHistory(remote, 's', props.filter, [props.key], () => { resets++ }, props.visible))
   await h.settle()
   props.visible = false; h.rerender()
   h.value.loadMore()
@@ -178,7 +178,7 @@ test('old pagination cannot clear the loading guard of a new first-page request'
   let filter = F
   const remote = { query: async ({ query: q }) => q.ref === 'new' ? newPage.promise : q.skip > 0 ? oldMore.promise
     : { ok: true, value: { kind: 'history', commits: [{ hash: 'old' }], total: 10 } } }
-  const h = mount(() => useHistory(remote, 's', filter, 1, () => {}, true))
+  const h = mount(() => useHistory(remote, 's', filter, [1], () => {}, true))
   await h.settle()
   h.value.loadMore()
   filter = { ...F, ref: 'new' }; h.rerender()

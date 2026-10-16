@@ -44,12 +44,21 @@ page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
 await page.goto(harness)
 await page.addScriptTag({ path: resolve(DIR, 'client.js') })
+await page.addScriptTag({ path: resolve(DIR, 'steady-state-helper.mjs') })
 
 const out = await page.evaluate(async (snap) => {
   const result = { steps: [] }
   // Mutable snapshot the mock serves: the status-bar test flips it to an ahead
   // and a no-upstream state and re-drives the panel through the check button.
-  let liveSnap = snap
+  const fixture = {
+    snapshot: snap, fingerprints: false, snapshotError: null,
+    snapshotCalls: 0, snapshotReplies: 0, holdSnapshot: false, releaseSnapshot: null,
+    // Resident Git queries only; Files' explicit reads have their own log.
+    queries: [], actions: [], renders: { panel: 0, pill: 0 }, resetConnection: null,
+    diffText: null, history: null,
+    defaultStashes: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }],
+  }
+  fixture.stashes = fixture.defaultStashes
   // Valid 64×64 PNG, served as both image-diff sides and the file preview.
   // Real dimensions matter: a 1×1 image's integer clientWidth rounds every
   // zoom level back to 100%, which would hide fit-label regressions.
@@ -66,17 +75,16 @@ const out = await page.evaluate(async (snap) => {
   const MOCK_MTIME = Date.now() - 60_000
   // Branch-switch probes: every `run` action lands here, and `branchQueries`
   // counts the branch-list reloads a landed checkout must trigger.
-  const runActions = []
   let runFailure = null
   let branchQueries = 0
   let secondaryQueryFailure = null
   const secondaryFailures = []
   let repeatedDiffRevision = null
-  // Counts resident Overview/Changes queries, excluding Files' on-demand reads.
-  const visibilityQueries = []
-  let visibilitySnapshots = 0
-  let deferVisibilitySnapshot = false
-  let releaseVisibilitySnapshot = null
+  const snapshotValue = () => {
+    if (!fixture.fingerprints) return fixture.snapshot
+    const { checkedAt, stateFingerprint, ...business } = fixture.snapshot
+    return { ...fixture.snapshot, checkedAt: Date.now(), stateFingerprint: JSON.stringify(business) }
+  }
   let deferBinaryDiff = false
   let releaseBinaryDiff = null
   // The suggest endpoint parks until the test releases it, so the in-flight
@@ -90,9 +98,15 @@ const out = await page.evaluate(async (snap) => {
       call: async (_channel, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
         if (endpoint === 'gitPanel/snapshot') {
-          visibilitySnapshots++
-          if (deferVisibilitySnapshot) await new Promise((resolve) => { releaseVisibilitySnapshot = resolve })
-          return { ok: true, value: { ok: true, value: liveSnap } }
+          fixture.snapshotCalls++
+          if (fixture.holdSnapshot) await new Promise((resolve) => { fixture.releaseSnapshot = resolve })
+          fixture.snapshotReplies++
+          if (fixture.snapshotError !== null) {
+            const error = fixture.snapshotError
+            fixture.snapshotError = null
+            return { ok: true, value: { ok: false, error } }
+          }
+          return { ok: true, value: { ok: true, value: snapshotValue() } }
         }
         if (endpoint === 'gitPanel/query') {
           const q = request.query
@@ -100,11 +114,12 @@ const out = await page.evaluate(async (snap) => {
             secondaryFailures.push(q.kind)
             return { ok: true, value: { ok: false, error: { code: 'git-error' } } }
           }
-          if (q.kind === 'branches' || q.kind === 'tags' || q.kind === 'authors' || q.kind === 'history' || q.kind === 'stash-list' || q.kind === 'diff' || q.kind === 'image-diff') visibilityQueries.push(q.kind)
+          if (q.kind === 'branches' || q.kind === 'tags' || q.kind === 'authors' || q.kind === 'history' || q.kind === 'stash-list' || q.kind === 'diff' || q.kind === 'image-diff') fixture.queries.push(q.kind)
           if (q.kind === 'worktree-stats') return { ok: true, value: { ok: true, value: { kind: 'worktree-stats', stats: { fileCount: 3, staged: 0, modified: 2, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: new Date().toISOString() } } } }
           if (q.kind === 'branches') { branchQueries += 1; return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'feature', shortHash: 'd196623' }, { name: 'main', shortHash: 'de54fc0' }], remote: [{ name: 'origin/main', shortHash: 'de54fc0' }, { name: 'origin/release', shortHash: 'e5f6a7b' }] } } } }
           if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
           if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: ['Tester'] } } }
+          if (q.kind === 'history' && fixture.history !== null) return fixture.history
           if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 2, commits: [
             { hash: 'd196623aaa', shortHash: 'd196623', subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString(), parents: ['de54fc0bbb'], refs: [{ kind: 'branch', name: 'feature', head: false }] },
             { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [{ kind: 'branch', name: 'main', head: true }] },
@@ -117,7 +132,7 @@ const out = await page.evaluate(async (snap) => {
             // An SVG is text: git produces a real source diff for it.
             if (q.path.endsWith('.svg')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/icon.svg b/icon.svg\n--- a/icon.svg\n+++ b/icon.svg\n@@ -1 +1 @@\n-<svg width="1"/>\n+<svg width="2"/>\n', newLines: 1 } } }
             if (q.path.endsWith('.ts')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-const count = 1\n+const count = 2\n', newLines: 1 } } }
-            const addedLine = repeatedDiffRevision !== null && q.path === 'a.txt' ? 'repeat-diff-' + ++repeatedDiffRevision : 'line2'
+            const addedLine = repeatedDiffRevision !== null && q.path === 'a.txt' ? 'repeat-diff-' + ++repeatedDiffRevision : fixture.diffText ?? 'line2'
             return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+${addedLine}\n`, newLines: 2 } } }
           }
           if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: q.path.endsWith('.svg') ? 'image/svg+xml' : 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
@@ -151,12 +166,12 @@ const out = await page.evaluate(async (snap) => {
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
           if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
-          if (q.kind === 'push-preview') return { ok: true, value: { ok: true, value: { kind: 'push-preview', hasUpstream: liveSnap.hasUpstream === true, commits: 3, files: 2, insertions: 7, deletions: 1 } } }
-          if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }] } } }
+          if (q.kind === 'push-preview') return { ok: true, value: { ok: true, value: { kind: 'push-preview', hasUpstream: fixture.snapshot.hasUpstream === true, commits: 3, files: 2, insertions: 7, deletions: 1 } } }
+          if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: fixture.stashes } } }
         }
         if (endpoint === 'gitPanel/run') {
           const act = request.action
-          runActions.push(act)
+          fixture.actions.push(act)
           // A forced failure drives the refusal path (dirty work tree) without
           // needing the mock to model git's real work-tree checks.
           if (runFailure !== null && act.kind === 'branch-checkout') {
@@ -166,8 +181,8 @@ const out = await page.evaluate(async (snap) => {
           }
           // A landed checkout moves HEAD: the panel must show the branch it read
           // back from the returned snapshot.
-          if (act.kind === 'branch-checkout') liveSnap = { ...liveSnap, branch: act.name }
-          return { ok: true, value: { ok: true, snapshot: liveSnap } }
+          if (act.kind === 'branch-checkout') fixture.snapshot = { ...fixture.snapshot, branch: act.name }
+          return { ok: true, value: { ok: true, snapshot: snapshotValue() } }
         }
         if (endpoint === 'gitPanel/suggest') {
           await new Promise((r) => { suggestRelease = r })
@@ -184,20 +199,22 @@ const out = await page.evaluate(async (snap) => {
   const ctx = {
     get: (k) => services[k],
     effect: (cb) => { try { cb() } catch (e) { /* ignore */ } },
-    on: () => () => {},
+    on: (event, listener) => { if (event === 'connection/reset') fixture.resetConnection = listener; return () => {} },
     inject: (_deps, cb) => cb(ctx),
     slots: {
       inject: (name, provider) => provider(),
       register: (reg, component) => { registered[reg.name] = { reg, component }; return () => {} },
     },
-    locale: { register: () => () => {}, bind: () => (key) => key },
+    locale: { register: () => () => {}, bind: () => (key, params) => (key.startsWith('time.') || key === 'stats.lastChange') && params ? key + JSON.stringify(params) : key },
   }
   entry.apply(ctx)
   result.slots = Object.keys(registered)
 
   const ReactDOM = window.ReactDOM
   const pillEntry = registered['conversation.input.left']
-  ReactDOM.createRoot(document.getElementById('pill')).render(pillEntry.component({ sessionId: 'sess-1' }))
+  const pillElement = pillEntry.component({ sessionId: 'sess-1' })
+  function CountedPill(props) { fixture.renders.pill++; return pillElement.type(props) }
+  ReactDOM.createRoot(document.getElementById('pill')).render(window.React.createElement(CountedPill, pillElement.props))
   await new Promise((r) => setTimeout(r, 300))
   result.pillHasDirty = document.querySelector('.gp-pill--dirty') !== null
 
@@ -205,7 +222,9 @@ const out = await page.evaluate(async (snap) => {
   result.viewLabel = viewEntry.reg.label ? viewEntry.reg.label() : null
   result.viewOrder = viewEntry.reg.order
   const viewRoot = ReactDOM.createRoot(document.getElementById('panel'))
-  viewRoot.render(viewEntry.component({ sessionId: 'sess-1' }))
+  const panelElement = viewEntry.component({ sessionId: 'sess-1' })
+  function CountedPanel(props) { fixture.renders.panel++; return panelElement.type(props) }
+  viewRoot.render(window.React.createElement(CountedPanel, panelElement.props))
   await new Promise((r) => setTimeout(r, 500))
   result.tabCount = document.querySelectorAll('.gp-tab').length
   result.dirtyDefault = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.changes') ?? false
@@ -398,7 +417,7 @@ const out = await page.evaluate(async (snap) => {
     if (btn) { btn.click(); await new Promise((r) => setTimeout(r, 300)) }
   }
   const findBarBtn = (key) => [...document.querySelectorAll('.gp-col--left .gp-statusbar__sync button')].find((b) => (b.textContent || '').includes(key)) || null
-  liveSnap = { ...snap, ahead: 3, behind: 0 }
+  fixture.snapshot = { ...snap, ahead: 3, behind: 0 }
   await clickCheck()
   const pushBtn = findBarBtn('status.push')
   result.statusAheadPushShown = pushBtn != null
@@ -408,7 +427,7 @@ const out = await page.evaluate(async (snap) => {
   document.querySelector('.gp-modal__close')?.click(); await new Promise((r) => setTimeout(r, 150))
   // Flip to a no-upstream branch: the publish button replaces push, and its
   // confirm opens (the second reminder before `git push -u`).
-  liveSnap = { ...snap, ahead: 0, behind: 0, hasUpstream: false }
+  fixture.snapshot = { ...snap, ahead: 0, behind: 0, hasUpstream: false }
   await clickCheck()
   result.statusNoUpstreamNoPush = findBarBtn('status.push') == null
   const publishBtn = findBarBtn('status.publish')
@@ -416,7 +435,7 @@ const out = await page.evaluate(async (snap) => {
   if (publishBtn) { publishBtn.click(); await new Promise((r) => setTimeout(r, 250)) }
   result.statusPublishConfirmOpened = [...document.querySelectorAll('.gp-modal__path')].some((n) => (n.textContent || '').includes('status.publishConfirmTitle'))
   document.querySelector('.gp-modal__close')?.click(); await new Promise((r) => setTimeout(r, 150))
-  liveSnap = snap
+  fixture.snapshot = snap
   // Search box: a wide panel uses the full "(message / hash)" placeholder key;
   // narrowing it below the threshold swaps to the short key (a placeholder is a
   // DOM attribute, so this is a JS swap, not CSS). The harness binds t() to the
@@ -472,19 +491,19 @@ const out = await page.evaluate(async (snap) => {
   const confirmBtn = [...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirmStash'))
   confirmBtn?.click()
   await wait(150)
-  const switchAction = runActions[runActions.length - 1]
+  const switchAction = fixture.actions[fixture.actions.length - 1]
   result.switchAction = switchAction
   result.switchModalClosed = document.querySelector('.gp-modal__path') === null
   result.switchReloadedBranches = branchQueries > branchQueriesBefore
-  liveSnap = snap
+  fixture.snapshot = snap
   await clickCheck()
   // Closing the confirm without confirming runs nothing.
-  const runsBeforeCancel = runActions.length
+  const runsBeforeCancel = fixture.actions.length
   switchBtnOf('feature')?.click()
   await wait(80)
   document.querySelector('.gp-modal__close')?.click()
   await wait(60)
-  result.switchCancelRunsNothing = runActions.length === runsBeforeCancel && document.querySelector('.gp-modal__path') === null
+  result.switchCancelRunsNothing = fixture.actions.length === runsBeforeCancel && document.querySelector('.gp-modal__path') === null
   // Refusal path: git rejects the switch, the error lands inside the still-open
   // dialog (with the stash option already on screen as the way out).
   switchBtnOf('feature')?.click()
@@ -1042,7 +1061,7 @@ const out = await page.evaluate(async (snap) => {
   viewRoot.unmount()
   await new Promise((r) => setTimeout(r, 50))
   const viewRoot2 = ReactDOM.createRoot(document.getElementById('panel'))
-  viewRoot2.render(viewEntry.component({ sessionId: 'sess-1' }))
+  viewRoot2.render(window.React.createElement(CountedPanel, panelElement.props))
   await new Promise((r) => setTimeout(r, 500))
   result.restoredFilesActive = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.files') ?? false
   result.restoredChildVisible = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].some((r) => (r.textContent || '').includes('a.txt'))
@@ -1065,6 +1084,10 @@ const out = await page.evaluate(async (snap) => {
   await wait(250)
   result.switchRelistsFiles = fileQueries.filter((p) => p === '').length > rootListsBefore
   result.switchClearsFileSelection = document.querySelector('.gp-files__tree .gp-tree-row--active') === null
+  // P1 helper shares the mock RPC state; React roots and all later scenarios
+  // remain owned here. Its finally restores the fixture before returning.
+  Object.assign(result, await window.runSteadyStateScenarios(fixture))
+
   // Secondary failures must leave real branch rows visible in the Overview UI.
   result.secondaryFailuresKeepBranches = []
   try {
@@ -1089,17 +1112,17 @@ const out = await page.evaluate(async (snap) => {
   try {
     repeatDiffRow?.click(); await wait(80)
     const firstLoaded = (document.querySelector('.gp-changes .gp-diff__wrap')?.textContent || '').includes('repeat-diff-1')
-    const diffCallsBeforeReopen = visibilityQueries.filter((kind) => kind === 'diff').length
-    const snapshotsBeforeReopen = visibilitySnapshots
+    const diffCallsBeforeReopen = fixture.queries.filter((kind) => kind === 'diff').length
+    const snapshotsBeforeReopen = fixture.snapshotCalls
     repeatDiffRow?.click(); await wait(80)
     const pane = document.querySelector('.gp-changes .gp-diff')
     result.repeatedDiffReloads = {
       firstLoaded,
-      requests: visibilityQueries.filter((kind) => kind === 'diff').length - diffCallsBeforeReopen,
+      requests: fixture.queries.filter((kind) => kind === 'diff').length - diffCallsBeforeReopen,
       revision: repeatedDiffRevision,
       freshRendered: (pane?.querySelector('.gp-diff__wrap')?.textContent || '').includes('repeat-diff-2') && pane.getClientRects().length > 0,
       loading: (pane?.textContent || '').includes('common.loading'),
-      snapshots: visibilitySnapshots - snapshotsBeforeReopen,
+      snapshots: fixture.snapshotCalls - snapshotsBeforeReopen,
     }
   } finally { repeatedDiffRevision = null }
 
@@ -1116,48 +1139,48 @@ const out = await page.evaluate(async (snap) => {
     ;[...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('img.png'))?.click()
     await wait(50)
     setHidden(true); await wait(30)
-    const imageStagesBefore = visibilityQueries.filter((kind) => kind === 'image-diff').length
+    const imageStagesBefore = fixture.queries.filter((kind) => kind === 'image-diff').length
     deferBinaryDiff = false
     releaseBinaryDiff?.(); releaseBinaryDiff = null
     await wait(80)
-    result.visibilityNoHiddenImageStage = visibilityQueries.filter((kind) => kind === 'image-diff').length === imageStagesBefore
+    result.visibilityNoHiddenImageStage = fixture.queries.filter((kind) => kind === 'image-diff').length === imageStagesBefore
     ;[...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('a.txt'))?.click()
     await wait(100)
-    liveSnap = { ...liveSnap, refreshIntervalMs: 300_000 }
+    fixture.snapshot = { ...fixture.snapshot, refreshIntervalMs: 300_000 }
     setHidden(true); await wait(50)
-    visibilityQueries.length = 0
-    const snapshotsBeforeRestore = visibilitySnapshots
-    deferVisibilitySnapshot = true
+    fixture.queries.length = 0
+    const snapshotsBeforeRestore = fixture.snapshotCalls
+    fixture.holdSnapshot = true
     setHidden(false); await wait(80)
-    result.visibilityWaitsForSnapshot = visibilityQueries.length === 0 && visibilitySnapshots === snapshotsBeforeRestore + 1
-    liveSnap = { ...liveSnap, checkedAt: liveSnap.checkedAt + 1 }
-    deferVisibilitySnapshot = false
-    releaseVisibilitySnapshot?.(); releaseVisibilitySnapshot = null
+    result.visibilityWaitsForSnapshot = fixture.queries.length === 0 && fixture.snapshotCalls === snapshotsBeforeRestore + 1
+    fixture.snapshot = { ...fixture.snapshot, checkedAt: fixture.snapshot.checkedAt + 1 }
+    fixture.holdSnapshot = false
+    fixture.releaseSnapshot?.(); fixture.releaseSnapshot = null
     await wait(150)
-    result.visibilityChangesCatchup = [...visibilityQueries].sort()
+    result.visibilityChangesCatchup = [...fixture.queries].sort()
 
     pickTab('tab.overview'); await wait(150)
     setHidden(true); await wait(40)
-    visibilityQueries.length = 0
-    deferVisibilitySnapshot = true
+    fixture.queries.length = 0
+    fixture.holdSnapshot = true
     setHidden(false); await wait(80)
-    result.visibilityOverviewWaits = visibilityQueries.length === 0
-    liveSnap = { ...liveSnap, checkedAt: liveSnap.checkedAt + 1 }
-    deferVisibilitySnapshot = false
-    releaseVisibilitySnapshot?.(); releaseVisibilitySnapshot = null
+    result.visibilityOverviewWaits = fixture.queries.length === 0
+    fixture.snapshot = { ...fixture.snapshot, checkedAt: fixture.snapshot.checkedAt + 1 }
+    fixture.holdSnapshot = false
+    fixture.releaseSnapshot?.(); fixture.releaseSnapshot = null
     await wait(150)
-    result.visibilityOverviewCatchup = [...visibilityQueries].sort()
+    result.visibilityOverviewCatchup = [...fixture.queries].sort()
 
     pickTab('tab.files'); await wait(100)
-    visibilityQueries.length = 0
+    fixture.queries.length = 0
     setHidden(true); await wait(30)
     setHidden(false); await wait(150)
-    result.visibilityFilesNoQueries = visibilityQueries.length === 0
+    result.visibilityFilesNoQueries = fixture.queries.length === 0
   } finally {
     deferBinaryDiff = false
     releaseBinaryDiff?.(); releaseBinaryDiff = null
-    deferVisibilitySnapshot = false
-    releaseVisibilitySnapshot?.(); releaseVisibilitySnapshot = null
+    fixture.holdSnapshot = false
+    fixture.releaseSnapshot?.(); fixture.releaseSnapshot = null
     if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor)
     else delete document.hidden
   }
@@ -1214,6 +1237,28 @@ try {
   assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
   assert.equal(out.tabCount, 3, 'three sub-tabs')
   assert.equal(out.dirtyDefault, true, 'opening a dirty Git workspace defaults to Changes')
+  assert.deepEqual(out.sameFingerprintPolling, {
+    panelRenders: 0, pillRenders: 0, queries: ['diff', 'diff', 'stash-list', 'stash-list'],
+    freshDiff: true, nonTipStashRemoved: true, relativeStatsUpdated: true,
+  }, 'same-business polls keep Panel/pill idle while refreshing current diff, stash and relative time')
+  assert.deepEqual(out.sameFingerprintAction, {
+    kind: 'stash-drop', queriesAfterAction: ['diff', 'stash-list'], queriesAfterOldPoll: ['diff', 'stash-list'],
+  }, 'action accept refreshes one batch and an older held poll cannot refresh again')
+  assert.deepEqual(out.sameFingerprintOverviewClock, {
+    before: 'time.justNow', after: 'time.minutesAgo{"n":1}', queries: ['authors', 'branches', 'history', 'tags'],
+  }, 'Overview clock advances on query ticks even with the same business snapshot and history array')
+  assert.deepEqual(out.tagCreateRefresh, {
+    action: { kind: 'tag-create', name: 'p1-refresh-tag', commit: 'fixed-clock-commit' },
+    queries: ['authors', 'branches', 'history', 'tags'], snapshots: 0, panelRenders: 0, sameBusiness: true,
+  }, 'a real tag-create UI operation refreshes one local batch without a snapshot tick or business publish')
+  assert.deepEqual(out.toolbarFetchRefresh, {
+    kind: 'fetch', queries: ['authors', 'branches', 'history', 'tags'],
+    queriesAfterOldPoll: ['authors', 'branches', 'history', 'tags'],
+  }, 'the history toolbar fetch routes through accept and refreshes one batch even with an older held poll')
+  assert.deepEqual(out.snapshotErrorRecovery, {
+    errorShown: true, queriesWhileFailed: [], remounted: true,
+    queries: ['authors', 'branches', 'history', 'tags'], overviewActive: true,
+  }, 'a snapshot failure unmounts Git tabs and recovery remounts only the active query batch once')
   assert.deepEqual(out.secondaryFailuresKeepBranches, [
     { kind: 'tags', injected: true, visible: true, error: false },
     { kind: 'authors', injected: true, visible: true, error: false },

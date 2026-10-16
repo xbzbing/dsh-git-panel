@@ -109,6 +109,9 @@ export interface GitSnapshot {
     readonly graphStyle: GraphStyle;
     /** Whether the commit box shows the AI-suggest button (user preference). */
     readonly suggestEnabled: boolean;
+    /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
+     * Optional for compatibility with hosts that do not provide fingerprints. */
+    readonly stateFingerprint?: string;
     /** Epoch millis of the snapshot. */
     readonly checkedAt: number;
 }

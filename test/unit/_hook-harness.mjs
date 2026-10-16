@@ -4,7 +4,9 @@
  * the scheduler). Supports useState / useRef / useMemo / useCallback / useEffect
  * with dependency arrays, a manual `rerender`, and `flushEffects`. Deterministic
  * and exits cleanly — enough to drive fetch timing, generation guards, and the
- * detail LRU. Not React; a stand-in scoped to these hooks' hook surface.
+ * detail LRU. Optional autoRender schedules renders only after changed state,
+ * letting subscription tests distinguish listener updates from manual settle.
+ * Not React; real browser tests cover the production renderer.
  */
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
@@ -18,10 +20,12 @@ function shallowEqualDeps(a, b) {
 }
 
 /** Mount `hook` (a zero-arg thunk closing over props) and return a driver. */
-export function mount(hook) {
+export function mount(hook, options = {}) {
   const slots = []
   let index = 0
   const pendingEffects = []
+  let renderScheduled = false
+  let active = true
 
   const dispatcher = {
     useState(initial) {
@@ -30,7 +34,18 @@ export function mount(hook) {
         const setter = (next) => {
           const cur = slots[i].value
           const val = typeof next === 'function' ? next(cur) : next
-          if (!Object.is(val, cur)) { slots[i].value = val }
+          if (!Object.is(val, cur)) {
+            slots[i].value = val
+            if (options.autoRender && !renderScheduled) {
+              renderScheduled = true
+              queueMicrotask(() => {
+                renderScheduled = false
+                if (!active) return
+                render()
+                runEffects()
+              })
+            }
+          }
         }
         slots[i] = { value: typeof initial === 'function' ? initial() : initial, setter }
       }
@@ -94,6 +109,10 @@ export function mount(hook) {
       await new Promise((r) => setTimeout(r, 0))
       for (let i = 0; i < 8; i++) { render(); runEffects(); await Promise.resolve() }
     },
-    unmount() { for (const s of slots) if (s && typeof s.cleanup === 'function') { try { s.cleanup() } catch { /* ignore */ } } },
+    unmount() {
+      if (!active) return
+      active = false
+      for (const s of slots) if (s && typeof s.cleanup === 'function') { try { s.cleanup() } catch { /* ignore */ } }
+    },
   }
 }

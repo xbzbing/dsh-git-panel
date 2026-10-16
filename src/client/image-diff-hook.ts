@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import type { GitPanelRemote } from './rpc.js'
-import { queryAs } from './rpc.js'
+import { queryAs, type GitPanelRemote } from './rpc.js'
 import type { GitQuery, GitQueryResult } from './types.js'
 import type { DiffBase } from './DiffView.js'
 import { useVisibleRequest } from './use-visible-request.js'
+import type { QueryKey } from './query-key.js'
 
 type ImageState =
   | { readonly kind: 'idle' | 'loading' | 'failed' }
@@ -18,18 +18,19 @@ export function useImageDiff(
   commit: string | undefined,
   visible: boolean,
 ): ImageState {
-  const key = JSON.stringify([sessionId, path, base, commit])
-  const [saved, setSaved] = useState<{ key: string; value: ImageState }>({ key, value: { kind: 'idle' } })
-  useVisibleRequest(key, visible && remote !== undefined && sessionId !== undefined && path !== undefined && base !== undefined, async (isCurrent) => {
+  const queryKey: QueryKey = [sessionId, path, base, commit]
+  const [saved, setSaved] = useState<{ queryKey: QueryKey; value: ImageState }>({ queryKey, value: { kind: 'idle' } })
+  const matches = (key: QueryKey): boolean => key.every((part, index) => part === queryKey[index])
+  useVisibleRequest(queryKey, visible && remote !== undefined && sessionId !== undefined && path !== undefined && base !== undefined, async (isCurrent) => {
     if (remote === undefined || sessionId === undefined || path === undefined || base === undefined) return
-    setSaved((prev) => prev.key === key && prev.value.kind === 'ready' ? prev : { key, value: { kind: 'loading' } })
+    setSaved((prev) => matches(prev.queryKey) && prev.value.kind === 'ready' ? prev : { queryKey, value: { kind: 'loading' } })
     const query: GitQuery = base === 'commit' && commit !== undefined
       ? { kind: 'image-diff', path, base: 'commit', commit }
       : base === 'staged' ? { kind: 'image-diff', path, base: 'staged' } : { kind: 'image-diff', path, base: 'worktree' }
     const res = await remote.query({ sessionId, query })
     if (!isCurrent()) return
     const image = queryAs(res, 'image-diff')
-    setSaved({ key, value: image !== null ? { kind: 'ready', res: image } : { kind: 'failed' } })
-  }, () => setSaved({ key, value: { kind: 'failed' } }))
-  return saved.key === key ? saved.value : { kind: 'idle' }
+    setSaved({ queryKey, value: image !== null ? { kind: 'ready', res: image } : { kind: 'failed' } })
+  }, () => setSaved({ queryKey, value: { kind: 'failed' } }))
+  return matches(saved.queryKey) ? saved.value : { kind: 'idle' }
 }

@@ -25,8 +25,8 @@ test('useHistory loads page 0 on mount and appends on loadMore', async () => {
   const remote = historyRemote((q) => q.skip === 0
     ? { commits: [{ hash: 'a' }, { hash: 'b' }], total: 4 }
     : { commits: [{ hash: 'c' }, { hash: 'd' }], total: 4 })
-  const props = { remote, sid: 's', filter: F, refreshKey: 0 }
-  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.refreshKey, () => {}))
+  const props = { remote, sid: 's', filter: F, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
   await h.settle()
   assert.deepEqual(h.value.commits.map((c) => c.hash), ['a', 'b'])
   assert.equal(h.value.total, 4)
@@ -50,8 +50,8 @@ test('useHistory drops a stale in-flight page when the filter changes (generatio
       return { ok: true, value: { kind: 'history', commits: [{ hash: 'fresh' }], total: 1 } }
     },
   }
-  const props = { remote, sid: 's', filter: F, refreshKey: 0 }
-  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.refreshKey, () => {}))
+  const props = { remote, sid: 's', filter: F, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
   props.filter = { ref: 'feature', search: '', author: '', since: '' }
   h.rerender()
   await h.settle()
@@ -63,8 +63,8 @@ test('useHistory drops a stale in-flight page when the filter changes (generatio
 
 test('useHistory treats total:-1 as always-more (hash-jump paging)', async () => {
   const remote = historyRemote(() => ({ commits: [{ hash: 'x' }], total: -1 }))
-  const props = { remote, sid: 's', filter: F, refreshKey: 0 }
-  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.refreshKey, () => {}))
+  const props = { remote, sid: 's', filter: F, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
   await h.settle()
   assert.equal(h.value.total, -1)
   assert.equal(h.value.hasMore, true)
@@ -74,14 +74,13 @@ test('useHistory treats total:-1 as always-more (hash-jump paging)', async () =>
 test('useHistory resets selection on a filter change but not on a plain poll refresh', async () => {
   let resets = 0
   const remote = historyRemote(() => ({ commits: [], total: 0 }))
-  const props = { remote, sid: 's', filter: F, refreshKey: 0 }
-  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.refreshKey, () => { resets += 1 }))
+  const props = { remote, sid: 's', filter: F, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => { resets += 1 }))
   await h.settle()
   // Mount keeps the initial filter → no reset (nothing selected yet either).
   assert.equal(resets, 0)
-  // A plain snapshot advance (checkedAt bumps every poll) must NOT reset the
-  // selection — that was the bug where a background poll wiped the open commit.
-  props.refreshKey = 1
+  // A content tick refreshes history while preserving the selected commit.
+  props.queryKey = [1]
   h.rerender()
   await h.settle()
   assert.equal(resets, 0)
@@ -165,7 +164,7 @@ test('useBranchTree surfaces treeError when branches fail, and reload recovers',
       return { ok: true, value: { kind: 'authors', authors: [] } }
     },
   }
-  const h = mount(() => useBranchTree(remote, 's', 0))
+  const h = mount(() => useBranchTree(remote, 's', [0]))
   await h.settle()
   assert.equal(h.value.treeError, true)
   assert.equal(h.value.tree, null)

@@ -6,6 +6,7 @@ import type { GitRunner } from './git.js'
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
+import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
 import { SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS } from './types.js'
 import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, WorktreeStats } from './types.js'
@@ -496,7 +497,7 @@ export async function snapshotForSession(
     suggestEnabled: config.suggestEnabled,
     checkedAt: Date.now(),
   }
-  return { ok: true, value: snapshot }
+  return { ok: true, value: { ...snapshot, stateFingerprint: snapshotFingerprint(snapshot) } }
 }
 
 /** Max mtime among changed files (epoch ms), capped for large sets. */
