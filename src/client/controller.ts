@@ -1,13 +1,14 @@
 /**
  * Per-session snapshot controller (React-free observable).
  *
- * Single-flight refresh, polling at the interval the host snapshot carries
- * (0 disables), resync on connection reset, dispose on teardown. The pill,
+ * Single-flight refresh, polling while the page is visible, resync on
+ * connection reset, dispose on teardown. The pill,
  * changes page, and stats bar all subscribe to one controller per session so
  * a single git snapshot serves everyone.
  */
 import type { GitPanelRemote } from './rpc'
 import type { GitSnapshot } from './types'
+import { pageVisibility, type VisibilitySource } from './visibility.js'
 
 export type GitView =
   | { readonly state: 'cold' }
@@ -28,11 +29,22 @@ export class GitController {
   private pendingRefresh = false
   private disposed = false
   private pollMs = DEFAULT_POLL_MS
+  private readonly unsubscribeVisibility: () => void
+  private visibilityGeneration = 0
+  private snapshotGeneration = -1
 
   constructor(
     private readonly remote: GitPanelRemote,
     private readonly sessionId: string,
-  ) {}
+    private readonly visibility: VisibilitySource = pageVisibility,
+  ) {
+    this.unsubscribeVisibility = visibility.subscribe(() => {
+      if (this.disposed) return
+      this.visibilityGeneration += 1
+      if (visibility.isVisible()) void this.refresh()
+      else this.clearPoll()
+    })
+  }
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener)
@@ -43,20 +55,34 @@ export class GitController {
     return this.view
   }
 
+  /** Query consumers wait for the catch-up snapshot after page restoration. */
+  isVisibilitySnapshotCurrent(): boolean {
+    return this.visibility.isVisible() && this.view.state === 'ready' && this.snapshotGeneration === this.visibilityGeneration
+  }
+
   ensure(): void {
     if (this.view.state !== 'cold' && this.view.state !== 'no-cwd') return
     void this.refresh()
   }
 
   refresh(): Promise<void> {
-    if (this.inflight !== undefined) { this.pendingRefresh = true; return this.inflight }
     if (this.disposed) return Promise.resolve()
+    if (!this.visibility.isVisible()) {
+      this.pendingRefresh = true
+      this.clearPoll()
+      return Promise.resolve()
+    }
+    if (this.inflight !== undefined) { this.pendingRefresh = true; return this.inflight }
+    this.pendingRefresh = false
+    this.clearPoll()
+    const generation = this.visibilityGeneration
     if (this.view.state === 'cold') this.setView({ state: 'loading' })
     this.inflight = this.remote.snapshot({ sessionId: this.sessionId })
       .then((result) => {
         if (this.disposed) return
         if (result.ok) {
           this.pollMs = result.value.refreshIntervalMs || DEFAULT_POLL_MS
+          this.snapshotGeneration = generation
           this.setView({ state: 'ready', snapshot: result.value })
         } else if (result.error.code === 'cancelled') {
           // A caller-driven abort (navigation/reset) is not an error state:
@@ -84,12 +110,9 @@ export class GitController {
         this.inflight = undefined
         // A resync arriving mid-flight is coalesced into one trailing refresh
         // so the view can't be stale for a whole poll period.
-        if (this.pendingRefresh && !this.disposed) {
-          this.pendingRefresh = false
-          void this.refresh()
-        } else {
-          this.schedulePoll()
-        }
+        if (this.disposed || !this.visibility.isVisible()) return
+        if (this.pendingRefresh) void this.refresh()
+        else this.schedulePoll()
       })
     return this.inflight
   }
@@ -104,15 +127,23 @@ export class GitController {
   accept(snapshot: GitSnapshot): void {
     if (this.disposed) return
     this.pollMs = snapshot.refreshIntervalMs || DEFAULT_POLL_MS
+    this.snapshotGeneration = this.visibilityGeneration
     this.setView({ state: 'ready', snapshot })
     this.schedulePoll()
   }
 
-  private schedulePoll(): void {
-    if (this.disposed) return
+  private clearPoll(): void {
     if (this.timer !== undefined) clearTimeout(this.timer)
-    if (this.pollMs <= 0) return
-    this.timer = setTimeout(() => { void this.refresh() }, this.pollMs)
+    this.timer = undefined
+  }
+
+  private schedulePoll(): void {
+    this.clearPoll()
+    if (this.disposed || !this.visibility.isVisible() || this.inflight !== undefined || this.pollMs <= 0) return
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      void this.refresh()
+    }, this.pollMs)
   }
 
   private setView(view: GitView): void {
@@ -122,8 +153,9 @@ export class GitController {
 
   dispose(): void {
     this.disposed = true
-    if (this.timer !== undefined) clearTimeout(this.timer)
-    this.timer = undefined
+    this.clearPoll()
+    this.unsubscribeVisibility()
+    this.pendingRefresh = false
     this.listeners.clear()
   }
 }

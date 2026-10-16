@@ -2,12 +2,13 @@
  * Changes tab: stats bar + uncommitted change list (checkboxes) + commit box
  * (with Amend) on the left; the selected file's diff on the right.
  */
-import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import { DIFF_EXPAND_CONTEXT } from './types'
-import type { GitAction, GitChange, GitDiffPayload, GitErrorCode, GitSnapshot, StashEntry } from './types'
+import { useChangesData } from './changes-hooks.js'
+import { pageVisibility } from './visibility.js'
+import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types'
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
@@ -22,6 +23,7 @@ import { useViewportTracker } from './use-viewport'
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
+  readonly visible?: boolean
   readonly snapshot: GitSnapshot
   readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
   /** Compact (single-column drill-in) layout for a narrow panel. */
@@ -46,7 +48,7 @@ type ListItem =
   | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number } }
   | { readonly kind: 'row'; readonly c: GitChange }
 
-export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, compact, t }: ChangesTabProps): JSX.Element {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [amend, setAmend] = useState(false)
@@ -54,12 +56,10 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState<ReadonlySet<GroupKey>>(new Set())
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
-  const [diffPath, setDiffPath] = useState<{ path: string; base: 'worktree' | 'staged' } | null>(null)
-  // Diff text and its new-side line count travel together (one query result):
-  // the gap logic needs both, so they are never stored separately.
-  const [diffData, setDiffData] = useState<GitDiffPayload | null>(null)
+  const { stashes, loadStashes, diffPath, diffData, expanded, showDiff } = useChangesData(
+    remote, sessionId, snapshot, visible, () => setError(t('error.generic')),
+  )
   const [diffMode, setDiffMode] = useState<DiffMode>(() => snapshot.defaultDiffView)
-  const [expanded, setExpanded] = useState(false)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
   const [armedSuggest, setArmedSuggest] = useState(false)
@@ -69,25 +69,13 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
   const [pane, setPane] = useState<'list' | 'diff'>('list')
   // Stash stack (queried on demand), its collapse state, the push dialog, and
   // the drop-confirm target index.
-  const [stashes, setStashes] = useState<readonly StashEntry[]>([])
   const [stashClosed, setStashClosed] = useState(true)
   const [stashPushOpen, setStashPushOpen] = useState(false)
   const [stashDrop, setStashDrop] = useState<StashEntry | null>(null)
   const msgRef = useRef<HTMLTextAreaElement | null>(null)
-  const diffSeq = useRef(0)
   // Virtualized change-list viewport, tracked by the shared hook (re-attaches
   // across the compact list↔diff remount).
   const { setEl: setListEl, viewport } = useViewportTracker()
-
-  const loadStashes = useCallback(async () => {
-    const res = await remote.query({ sessionId, query: { kind: 'stash-list' } })
-    const sl = queryAs(res, 'stash-list')
-    setStashes(sl?.entries ?? [])
-  }, [remote, sessionId])
-
-  // Reload the stash list whenever the snapshot advances (a push/pop changes the
-  // work tree and bumps checkedAt) and on first mount.
-  useEffect(() => { void loadStashes() }, [loadStashes, snapshot.checkedAt])
 
   const staged = useMemo(() => snapshot.changes.filter((c) => c.staged).sort(byPath), [snapshot])
   const unstaged = useMemo(() => snapshot.changes.filter((c) => !c.staged && c.status !== 'untracked').sort(byPath), [snapshot])
@@ -136,7 +124,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
 
   // Prefill amend message from the last commit when the box is toggled on empty.
   useEffect(() => {
-    if (!amend || amendPrefilled || message.trim() !== '') return
+    if (!visible || !pageVisibility.isVisible() || !amend || amendPrefilled || message.trim() !== '') return
     let alive = true
     void remote.query({ sessionId, query: { kind: 'last-commit-message' } }).then((res) => {
       const msg = queryAs(res, 'last-commit-message')
@@ -146,30 +134,11 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
       }
     })
     return () => { alive = false }
-  }, [amend, amendPrefilled, message, remote, sessionId])
+  }, [amend, amendPrefilled, message, remote, sessionId, visible])
 
-  const showDiff = useCallback(async (path: string, base: 'worktree' | 'staged', expand = false, keepPrevious = false) => {
-    const seq = ++diffSeq.current
-    setDiffPath({ path, base })
-    // Only blank the pane on a user-initiated open; a background re-pull keeps
-    // the current text so a poll/snapshot tick doesn't flash "Loading".
-    if (!keepPrevious) setDiffData(null)
-    setExpanded(expand)
-    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: DIFF_EXPAND_CONTEXT } : {}) } })
-    if (seq !== diffSeq.current) return
-    const diff = queryAs(res, 'diff')
-    setDiffData(diff !== null ? { text: diff.text, newLines: diff.newLines, truncated: diff.truncated } : { text: '', newLines: 0 })
-  }, [remote, sessionId])
-
-  // Re-pull the open diff after snapshot changes (content may have shifted);
-  // keep the old text visible during the refetch to avoid a Loading flash.
-  useEffect(() => {
-    if (diffPath === null) return
-    const stillThere = snapshot.changes.some((c) => c.path === diffPath.path)
-    if (!stillThere) { setDiffPath(null); setDiffData(null); setPane('list'); return }
-    void showDiff(diffPath.path, diffPath.base, expanded, true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot])
+  // Path pruning belongs to the data hook even while hidden; keep compact
+  // navigation in sync without gating local selection/draft cleanup.
+  useEffect(() => { if (diffPath === null) setPane('list') }, [diffPath])
 
   // Disarm a pending discard confirmation when the snapshot changes (the row
   // may be gone) so the destructive "click again" state can't linger.
@@ -437,7 +406,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
       })()),
       diffData === null
         ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
-        : h(DiffView, { key: 'diff', text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
+        : h(DiffView, { key: 'diff', visible, text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
     ])
 
   // Stash dialogs (push + drop confirm), portaled; included in both layouts.

@@ -34,6 +34,7 @@ const EMPTY_DIRS: ReadonlySet<string> = new Set()
 interface OverviewProps {
   readonly remote: GitPanelRemote
   readonly sessionId: string
+  readonly visible?: boolean
   /** Snapshot checkedAt; bumps drive a history/tree reload (commit landed / poll). */
   readonly refreshKey: number
   /** Default diff layout new file-diff overlays open with. */
@@ -86,7 +87,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, snapshot, onAction, onResync, compact, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, refreshKey, defaultDiffView, snapshot, onAction, onResync, compact, t }: OverviewProps): JSX.Element {
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
@@ -173,7 +174,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
     return () => { alive = false }
   }, [pushConfirm, remote, sessionId])
 
-  const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, effRefresh)
+  const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, effRefresh, visible)
   // Switch targets keyed like the branch rows (`local:<name>` / `remote:<ref>`);
   // only rows with a selectable target get a switch button.
   const switchOptions = useMemo(() => {
@@ -183,9 +184,9 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
     return map
   }, [tree])
   const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
-  const detail = useCommitDetail(remote, sessionId, defaultDiffView)
+  const detail = useCommitDetail(remote, sessionId, defaultDiffView, visible)
   const { commits, loading, listError, hasMore, listRef, loadMore } = useHistory(
-    remote, sessionId, filter, effRefresh, detail.clearSelection,
+    remote, sessionId, filter, effRefresh, detail.clearSelection, visible,
   )
 
   // Search debounce → filter change (which reloads history from page 0).
@@ -375,6 +376,7 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
   }
 
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
+    visible,
     data: detail.fileDiffData,
     error: detail.fileDiffError,
     mode: detail.fileDiffMode,
@@ -885,6 +887,7 @@ function renderFileTree(nodes: ReturnType<typeof buildFileTree>, cb: FileTreeCbs
 }
 
 interface FileDiffModalCbs {
+  visible: boolean
   /** Diff text + new-side line count from the same query (null while loading). */
   data: GitDiffPayload | null
   error: boolean
@@ -907,7 +910,7 @@ function renderFileDiffModal(
   cb: FileDiffModalCbs,
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
-  const { data, error, mode, onMode, expanded, onExpand, onClose, remote, sessionId, compact, t } = cb
+  const { visible, data, error, mode, onMode, expanded, onExpand, onClose, remote, sessionId, compact, t } = cb
   // Compact drops the side-by-side mode (no room on a phone) and renders split
   // as unified instead; the preference itself is left untouched.
   const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
@@ -947,7 +950,7 @@ function renderFileDiffModal(
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       data === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : h(DiffView, { key: 'diff', text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId, base: 'commit', commit: fileDiff.hash, expanded, truncated: data.truncated === true, newLines: data.newLines, t })),
+        : h(DiffView, { key: 'diff', visible, text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId, base: 'commit', commit: fileDiff.hash, expanded, truncated: data.truncated === true, newLines: data.newLines, t })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }

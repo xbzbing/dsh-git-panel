@@ -69,6 +69,12 @@ const out = await page.evaluate(async (snap) => {
   const runActions = []
   let runFailure = null
   let branchQueries = 0
+  const visibilityQueries = []
+  let visibilitySnapshots = 0
+  let deferVisibilitySnapshot = false
+  let releaseVisibilitySnapshot = null
+  let deferBinaryDiff = false
+  let releaseBinaryDiff = null
   // The suggest endpoint parks until the test releases it, so the in-flight
   // lock on the commit box is observable.
   let suggestRelease = null
@@ -79,9 +85,14 @@ const out = await page.evaluate(async (snap) => {
     rpc: {
       call: async (_channel, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: liveSnap } }
+        if (endpoint === 'gitPanel/snapshot') {
+          visibilitySnapshots++
+          if (deferVisibilitySnapshot) await new Promise((resolve) => { releaseVisibilitySnapshot = resolve })
+          return { ok: true, value: { ok: true, value: liveSnap } }
+        }
         if (endpoint === 'gitPanel/query') {
           const q = request.query
+          if (q.kind === 'branches' || q.kind === 'tags' || q.kind === 'authors' || q.kind === 'history' || q.kind === 'stash-list' || q.kind === 'diff' || q.kind === 'image-diff') visibilityQueries.push(q.kind)
           if (q.kind === 'worktree-stats') return { ok: true, value: { ok: true, value: { kind: 'worktree-stats', stats: { fileCount: 3, staged: 0, modified: 2, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: new Date().toISOString() } } } }
           if (q.kind === 'branches') { branchQueries += 1; return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'feature', shortHash: 'd196623' }, { name: 'main', shortHash: 'de54fc0' }], remote: [{ name: 'origin/main', shortHash: 'de54fc0' }, { name: 'origin/release', shortHash: 'e5f6a7b' }] } } } }
           if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
@@ -92,6 +103,7 @@ const out = await page.evaluate(async (snap) => {
           ] } } }
           if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }, { path: 'src/app.ts', status: 'added' }], insertions: 12, deletions: 4 } } }
           if (q.kind === 'diff') {
+            if (deferBinaryDiff && q.path === 'img.png') await new Promise((resolve) => { releaseBinaryDiff = resolve })
             // An image path diffs as the binary marker, like real git.
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n', newLines: 0 } } }
             // An SVG is text: git produces a real source diff for it.
@@ -1044,8 +1056,64 @@ const out = await page.evaluate(async (snap) => {
   await wait(250)
   result.switchRelistsFiles = fileQueries.filter((p) => p === '').length > rootListsBefore
   result.switchClearsFileSelection = document.querySelector('.gp-files__tree .gp-tree-row--active') === null
+  // P0: exercise the actual Panel/registry/controller with resident sub-tabs.
+  // Delay the restore snapshot so an early child batch cannot hide in batching.
+  const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden')
+  let fakeHidden = false
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => fakeHidden })
+  const setHidden = (hidden) => { fakeHidden = hidden; document.dispatchEvent(new Event('visibilitychange')) }
+  const pickTab = (key) => [...document.querySelectorAll('.gp-tab')].find((button) => (button.textContent || '').includes(key))?.click()
+  try {
+    pickTab('tab.changes'); await wait(100)
+    deferBinaryDiff = true
+    ;[...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('img.png'))?.click()
+    await wait(50)
+    setHidden(true); await wait(30)
+    const imageStagesBefore = visibilityQueries.filter((kind) => kind === 'image-diff').length
+    deferBinaryDiff = false
+    releaseBinaryDiff?.(); releaseBinaryDiff = null
+    await wait(80)
+    result.visibilityNoHiddenImageStage = visibilityQueries.filter((kind) => kind === 'image-diff').length === imageStagesBefore
+    ;[...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('a.txt'))?.click()
+    await wait(100)
+    liveSnap = { ...liveSnap, refreshIntervalMs: 300_000 }
+    setHidden(true); await wait(50)
+    visibilityQueries.length = 0
+    const snapshotsBeforeRestore = visibilitySnapshots
+    deferVisibilitySnapshot = true
+    setHidden(false); await wait(80)
+    result.visibilityWaitsForSnapshot = visibilityQueries.length === 0 && visibilitySnapshots === snapshotsBeforeRestore + 1
+    liveSnap = { ...liveSnap, checkedAt: liveSnap.checkedAt + 1 }
+    deferVisibilitySnapshot = false
+    releaseVisibilitySnapshot?.(); releaseVisibilitySnapshot = null
+    await wait(150)
+    result.visibilityChangesCatchup = [...visibilityQueries].sort()
+
+    pickTab('tab.overview'); await wait(150)
+    setHidden(true); await wait(40)
+    visibilityQueries.length = 0
+    deferVisibilitySnapshot = true
+    setHidden(false); await wait(80)
+    result.visibilityOverviewWaits = visibilityQueries.length === 0
+    liveSnap = { ...liveSnap, checkedAt: liveSnap.checkedAt + 1 }
+    deferVisibilitySnapshot = false
+    releaseVisibilitySnapshot?.(); releaseVisibilitySnapshot = null
+    await wait(150)
+    result.visibilityOverviewCatchup = [...visibilityQueries].sort()
+
+    pickTab('tab.files'); await wait(100)
+    visibilityQueries.length = 0
+    setHidden(true); await wait(30)
+    setHidden(false); await wait(150)
+    result.visibilityFilesNoQueries = visibilityQueries.length === 0
+  } finally {
+    deferVisibilitySnapshot = false
+    releaseVisibilitySnapshot?.()
+    if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor)
+    else delete document.hidden
+  }
   // Back to Files for the real-input zoom phase (it needs a visible pane).
-  filesTabBtn?.click()
+  pickTab('tab.files')
   await wait(200)
   return result
 }, SNAP)
@@ -1097,6 +1165,12 @@ try {
   assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
   assert.equal(out.tabCount, 3, 'three sub-tabs')
   assert.equal(out.dirtyDefault, true, 'opening a dirty Git workspace defaults to Changes')
+  assert.equal(out.visibilityNoHiddenImageStage, true, 'a binary diff completed hidden cannot start image-side queries')
+  assert.equal(out.visibilityWaitsForSnapshot, true, 'restoring Changes waits for one fresh snapshot before queries')
+  assert.deepEqual(out.visibilityChangesCatchup, ['diff', 'stash-list'], 'restored Changes issues one batch, hidden overview stays idle')
+  assert.equal(out.visibilityOverviewWaits, true, 'restoring Overview does not query using the pre-hide snapshot')
+  assert.deepEqual(out.visibilityOverviewCatchup, ['authors', 'branches', 'history', 'tags'], 'restored Overview issues one batch, hidden Changes stays idle')
+  assert.equal(out.visibilityFilesNoQueries, true, 'Files active leaves resident overview/Changes idle after restore')
   assert.equal(out.noInitialFileListing, true, 'dirty default does not fetch hidden file-browser data')
   assert.equal(out.fontDefault, '13px', 'panel keeps the existing default font size')
   assert.equal(out.fontIncreased, '14px', 'font control increases panel text size')

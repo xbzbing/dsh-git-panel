@@ -21,3 +21,5 @@ export { splitRemoteRef, buildBranchOptions, isSelectable } from './branch-optio
 export { formatBytes } from './bytes.js'
 export { langLabel } from './lang-label.js'
 export { isUntrackedPath } from './status.js'
+export { GitController } from './controller.js'
+export { createVisibilitySource } from './visibility.js'

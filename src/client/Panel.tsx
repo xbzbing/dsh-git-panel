@@ -18,6 +18,7 @@ import { useHoverTip } from './tip'
 import type { GitAction, GitVersionInfo } from './types'
 import type { GitKey } from './locales'
 import { opErrorText } from './ops-modals'
+import { usePageVisibility } from './use-page-visibility.js'
 
 const FONT_DELTA_KEY = 'gp.panel.fontDelta'
 
@@ -36,6 +37,7 @@ interface PanelProps {
 }
 
 export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
+  const pageVisible = usePageVisibility()
   const [fontDelta, setFontDelta] = useState<FontDelta>(readFontDelta)
   const [selection, setSelection] = useState<{ sessionId: string; tab: SubTab } | null>(null)
   const [rootEl, setRootEl] = useState<HTMLElement | null>(null)
@@ -91,6 +93,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // The snapshot's checkedAt drives child reloads directly (no extra state /
   // first-mount bump): OverviewTab/ChangesTab reload when it advances.
   const refreshKey = view.state === 'ready' ? view.snapshot.checkedAt : 0
+  const queryVisible = pageVisible && hasSession(sessionId) && controllerFor(sessionId).isVisibilitySnapshotCurrent()
 
   // Work-tree generation: bumped whenever the *contents* of the work tree are
   // replaced wholesale — a branch switch, or a switch that stashed the local
@@ -154,9 +157,9 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     const snapshot = view.snapshot
     return h('div', { style: { display: 'contents' } }, [
       visited.current.tabs.has('overview') ? h('div', { key: 'overview', style: activeTab === 'overview' ? { display: 'contents' } : { display: 'none' } },
-        h(OverviewTab, { key: sessionId, remote, sessionId, refreshKey, defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })) : null,
+        h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', refreshKey, defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })) : null,
       visited.current.tabs.has('changes') ? h('div', { key: 'changes', style: activeTab === 'changes' ? { display: 'contents' } : { display: 'none' } },
-        h(ChangesTab, { key: sessionId, remote, sessionId, snapshot, onAction, compact, t })) : null,
+        h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, compact, t })) : null,
       // Files tab mounts on first visit (keeps cold cost zero — no dir-list
       // until the user opens it), then stays mounted to retain its tree state.
       filesVisited

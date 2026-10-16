@@ -17,7 +17,8 @@ import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, M
 import { ImageCompare } from './ImageCompare'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import { DIFF_EXPAND_CONTEXT, type GitQuery, type GitQueryResult } from './types'
+import { DIFF_EXPAND_CONTEXT, type GitQuery } from './types'
+import { useImageDiff } from './image-diff-hook.js'
 import type { GitKey } from './locales'
 
 /** unified = single inline column; split = side-by-side; before/after show one
@@ -55,6 +56,7 @@ interface FindCtx {
 }
 
 interface DiffViewProps {
+  readonly visible?: boolean
   readonly text: string
   readonly mode: DiffMode
   /** File path, used to pick a syntax-highlighting grammar. */
@@ -83,12 +85,7 @@ interface DiffViewProps {
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-type ImageDiffValue = Extract<GitQueryResult, { kind: 'image-diff' }>
-type ImageState =
-  | { readonly kind: 'idle' | 'loading' | 'failed' }
-  | { readonly kind: 'ready'; readonly res: ImageDiffValue }
-
-export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, base, commit, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
+export const DiffView = memo(function DiffView({ visible = true, text, mode, path, remote, sessionId, base, commit, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
   const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
 
@@ -128,7 +125,7 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   const wantImage = imageable && (!svg || svgView === 'render')
   const image = useImageDiff(
     wantImage ? remote : undefined, wantImage ? sessionId : undefined, wantImage ? path : undefined,
-    wantImage ? base : undefined, wantImage ? commit : undefined,
+    wantImage ? base : undefined, wantImage ? commit : undefined, visible,
   )
 
   // In-diff Find (Ctrl/Cmd+F): matches are computed over every row of the
@@ -493,38 +490,6 @@ function sliceRequest(gap: GapInfo, direction: 'all' | 'up' | 'down'): { start: 
   }
   // 'up': reveal the bottom window of the gap.
   return { start: gap.rightStart + total - GAP_STEP, end: gap.rightStart + total - 1 }
-}
-
-/**
- * Fetch the old/new image sides for a binary image path. Identity-stable
- * primitives only (base/commit are plain values), and a generation guard drops a
- * response that a newer path/base took over.
- */
-function useImageDiff(
-  remote: GitPanelRemote | undefined,
-  sessionId: string | undefined,
-  path: string | undefined,
-  base: DiffBase | undefined,
-  commit: string | undefined,
-): ImageState {
-  const [state, setState] = useState<ImageState>({ kind: 'idle' })
-  useEffect(() => {
-    if (remote === undefined || sessionId === undefined || path === undefined || base === undefined) return
-    let alive = true
-    setState({ kind: 'loading' })
-    const query: GitQuery = base === 'commit' && commit !== undefined
-      ? { kind: 'image-diff', path, base: 'commit', commit }
-      : base === 'staged'
-        ? { kind: 'image-diff', path, base: 'staged' }
-        : { kind: 'image-diff', path, base: 'worktree' }
-    void remote.query({ sessionId, query }).then((res) => {
-      if (!alive) return
-      const img = queryAs(res, 'image-diff')
-      setState(img !== null ? { kind: 'ready', res: img } : { kind: 'failed' })
-    }).catch(() => { if (alive) setState({ kind: 'failed' }) })
-    return () => { alive = false }
-  }, [remote, sessionId, path, base, commit])
-  return state
 }
 
 /** Syntax runs are React text nodes, not untrusted HTML. */

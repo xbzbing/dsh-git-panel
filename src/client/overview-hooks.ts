@@ -10,6 +10,8 @@ import { DIFF_EXPAND_CONTEXT } from './types'
 import type { GitBranch, GitCommit, GitDiffPayload, GitFileStat, GraphCommit } from './types'
 import type { DiffMode } from './DiffView'
 import type { DiffViewMode } from './types'
+import { useVisibleRequest } from './use-visible-request.js'
+import { pageVisibility } from './visibility.js'
 
 const PAGE = 100
 
@@ -34,7 +36,7 @@ type CommitDetail = { commit: GitCommit | null; body: string; stats: readonly Gi
  * Left column: branch/tag tree + author list. Reloads on `refreshKey` (commit
  * landed / poll) and on mount; a fetch failure surfaces `treeError` with retry.
  */
-export function useBranchTree(remote: GitPanelRemote, sessionId: string, refreshKey: number): {
+export function useBranchTree(remote: GitPanelRemote, sessionId: string, refreshKey: number, visible = true): {
   tree: BranchTree | null
   treeError: boolean
   authors: readonly string[]
@@ -44,33 +46,32 @@ export function useBranchTree(remote: GitPanelRemote, sessionId: string, refresh
   const [treeError, setTreeError] = useState(false)
   const [authors, setAuthors] = useState<readonly string[]>([])
 
-  const reload = useCallback(() => {
+  const reload = useVisibleRequest(JSON.stringify([sessionId, refreshKey]), visible, async (isCurrent, canContinue) => {
     setTreeError(false)
-    void (async () => {
-      const [branchesRes, tagsRes] = await Promise.all([
-        remote.query({ sessionId, query: { kind: 'branches' } }),
-        remote.query({ sessionId, query: { kind: 'tags' } }),
-      ])
-      const branches = queryAs(branchesRes, 'branches')
-      if (branches === null) { setTreeError(true); return }
-      const tags = queryAs(tagsRes, 'tags')
-      setTree({
-        current: branches.current,
-        defaultBranch: branches.defaultBranch,
-        local: branches.local,
-        remote: branches.remote,
-        tags: tags?.tags ?? [],
-      })
-      void remote.query({ sessionId, query: { kind: 'authors' } }).then((res) => {
-        setAuthors(queryAs(res, 'authors')?.authors ?? [])
-      })
-    })()
-  }, [remote, sessionId])
-
-  useEffect(() => {
-    reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey])
+    const [branchesRes, tagsRes] = await Promise.all([
+      remote.query({ sessionId, query: { kind: 'branches' } }),
+      remote.query({ sessionId, query: { kind: 'tags' } }),
+    ])
+    if (!isCurrent()) return
+    const branches = queryAs(branchesRes, 'branches')
+    const tags = queryAs(tagsRes, 'tags')
+    if (branches === null) { setTreeError(true); return }
+    setTree({
+      current: branches.current,
+      defaultBranch: branches.defaultBranch,
+      local: branches.local,
+      remote: branches.remote,
+      tags: tags?.tags ?? tree?.tags ?? [],
+    })
+    if (tags === null) setTreeError(true)
+    // Authors must not block the tree, or start after a hide while refs load.
+    if (!canContinue()) return
+    const res = await remote.query({ sessionId, query: { kind: 'authors' } })
+    if (!isCurrent()) return
+    const result = queryAs(res, 'authors')
+    if (result !== null) setAuthors(result.authors)
+    else setTreeError(true)
+  }, () => setTreeError(true))
 
   return { tree, treeError, authors, reload }
 }
@@ -94,6 +95,7 @@ export function useHistory(
   filter: HistoryFilter,
   refreshKey: number,
   onReset: () => void,
+  visible = true,
 ): {
   commits: readonly GraphCommit[]
   total: number
@@ -109,9 +111,12 @@ export function useHistory(
   const [listError, setListError] = useState(false)
   const seqRef = useRef(0)
   const loadingRef = useRef(false)
+  const currentPage = useRef<() => boolean>(() => false)
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
   const listRef = useRef<HTMLDivElement>(null)
 
-  const loadPage = useCallback(async (skip: number, f: HistoryFilter) => {
+  const loadPage = useCallback(async (skip: number, f: HistoryFilter, isCurrent: () => boolean) => {
     if (loadingRef.current) return
     loadingRef.current = true
     const seq = seqRef.current
@@ -127,8 +132,8 @@ export function useHistory(
         ...(f.since ? { since: f.since } : {}),
       },
     })
+    if (!isCurrent() || seq !== seqRef.current) return
     loadingRef.current = false
-    if (seq !== seqRef.current) return
     setLoading(false)
     const history = queryAs(res, 'history')
     if (history === null) { setListError(true); return }
@@ -138,25 +143,29 @@ export function useHistory(
   }, [remote, sessionId])
 
   const prevFilter = useRef(filter)
-  useEffect(() => {
+  useVisibleRequest(JSON.stringify([sessionId, filter, refreshKey]), visible, async (isCurrent) => {
     seqRef.current += 1
     loadingRef.current = false
-    // Distinguish a filter change (selection may no longer be in the list, and
-    // the view should jump back to the top) from a plain poll refresh (same
-    // filter, just a newer snapshot): only the former resets selection/scroll.
+    currentPage.current = isCurrent
+    // Only a changed filter clears selection/scroll; poll and visibility do not.
     if (prevFilter.current !== filter) {
       prevFilter.current = filter
       onReset()
       if (listRef.current) listRef.current.scrollTop = 0
     }
-    void loadPage(0, filter)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, refreshKey])
+    await loadPage(0, filter, isCurrent)
+  }, () => { loadingRef.current = false; setLoading(false); setListError(true) })
 
   const hasMore = total < 0 ? true : commits.length < total
   const loadMore = useCallback(() => {
-    if (loadingRef.current || !hasMore) return
-    void loadPage(commits.length, filter)
+    if (!visibleRef.current || !pageVisibility.isVisible() || loadingRef.current || !hasMore || !currentPage.current()) return
+    const isCurrent = currentPage.current
+    void loadPage(commits.length, filter, isCurrent).catch(() => {
+      if (!isCurrent()) return
+      loadingRef.current = false
+      setLoading(false)
+      setListError(true)
+    })
   }, [loadPage, commits.length, filter, hasMore])
 
   return { commits, total, loading, listError, hasMore, listRef, loadMore }
@@ -168,7 +177,7 @@ export function useHistory(
  * pane and the hover card, the full-width file-diff overlay (generation-guarded
  * + Esc-to-close), and the hover fetch (debounced, unmount-safe).
  */
-export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defaultDiffView: DiffViewMode): {
+export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defaultDiffView: DiffViewMode, visible = true): {
   selected: GraphCommit | null
   detail: CommitDetail | null
   detailError: boolean
@@ -289,10 +298,13 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   const [hoverBody, setHoverBody] = useState<string | null>(null)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const hoverHash = useRef<string | null>(null)
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
 
   const onHoverEnter = useCallback((commit: GraphCommit, x: number, y: number) => {
     if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
     hoverTimer.current = setTimeout(() => {
+      if (!visibleRef.current || !pageVisibility.isVisible()) return
       hoverHash.current = commit.hash
       setHover({ commit, x, y })
       const cached = detailCache.current.get(commit.hash)
@@ -315,6 +327,8 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     setHover(null)
     setHoverBody(null)
   }, [])
+
+  useEffect(() => { if (!visible) onHoverLeave() }, [visible, onHoverLeave])
 
   // Clear a pending hover timer on unmount so it can't setState after teardown.
   useEffect(() => () => { if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current) }, [])
