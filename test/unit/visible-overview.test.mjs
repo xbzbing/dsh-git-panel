@@ -87,17 +87,67 @@ test('stale tree response cannot overwrite a new session or refresh generation',
   h.unmount()
 })
 
-test('failed partial ref load is not a success cache; the next visible tick recovers', async () => {
-  let key = 1, fail = true
-  const remote = { query: async ({ query: q }) => q.kind === 'tags' && fail ? { ok: false, error: { code: 'git-error' } } : refResult(q.kind) }
+for (const failedKind of ['tags', 'authors']) {
+  test(`${failedKind} failure leaves successful branches visible and recovers on the next tick`, async (t) => {
+    let key = 1, fail = true
+    const remote = { query: async ({ query: q }) => q.kind === failedKind && fail
+      ? { ok: false, error: { code: 'git-error' } } : refResult(q.kind) }
+    const h = mount(() => useBranchTree(remote, 's', key, true))
+    t.after(() => h.unmount())
+    await h.settle()
+    assert.equal(h.value.treeError, false)
+    assert.equal(h.value.tree.current, 'main')
+    assert.deepEqual(h.value.tree.tags, [])
+    assert.deepEqual(h.value.authors, failedKind === 'authors' ? [] : ['Tester'])
+    fail = false; key++; h.rerender(); await h.settle()
+    assert.equal(h.value.treeError, false)
+    assert.deepEqual(h.value.authors, ['Tester'])
+  })
+}
+
+test('secondary refresh failures preserve loaded tags without hiding fresh branches or stale author options', async (t) => {
+  let key = 1, fail = false
+  const tags = [{ name: 'v1' }]
+  const remote = { query: async ({ query: q }) => {
+    if (fail && q.kind !== 'branches') return { ok: false, error: { code: 'git-error' } }
+    return q.kind === 'tags' ? { ok: true, value: { kind: 'tags', tags } } : refResult(q.kind, `branch-${key}`)
+  } }
   const h = mount(() => useBranchTree(remote, 's', key, true))
+  t.after(() => h.unmount())
   await h.settle()
-  assert.equal(h.value.treeError, true)
-  assert.equal(h.value.tree.current, 'main')
+  assert.deepEqual(h.value.tree.tags, tags)
+  assert.deepEqual(h.value.authors, ['Tester'])
+  fail = true; key++; h.rerender(); await h.settle()
+  assert.equal(h.value.treeError, false)
+  assert.equal(h.value.tree.current, 'branch-2')
+  assert.deepEqual(h.value.tree.tags, tags)
+  assert.deepEqual(h.value.authors, [])
   fail = false; key++; h.rerender(); await h.settle()
   assert.equal(h.value.treeError, false)
-  h.unmount()
+  assert.deepEqual(h.value.authors, ['Tester'])
 })
+
+for (const rejected of [false, true]) {
+  test(`branches ${rejected ? 'rejection' : 'failure'} still shows the retry error and manual retry recovers`, async (t) => {
+    let fail = true
+    const remote = { query: async ({ query: q }) => {
+      if (q.kind === 'branches' && fail) {
+        if (rejected) throw new Error('disconnected')
+        return { ok: false, error: { code: 'git-error' } }
+      }
+      return refResult(q.kind)
+    } }
+    const h = mount(() => useBranchTree(remote, 's', 1, true))
+    t.after(() => h.unmount())
+    await h.settle()
+    assert.equal(h.value.treeError, true)
+    assert.equal(h.value.tree, null)
+    fail = false; await h.value.reload(); await h.settle()
+    assert.equal(h.value.treeError, false)
+    assert.equal(h.value.tree.current, 'main')
+    assert.deepEqual(h.value.authors, ['Tester'])
+  })
+}
 
 test('hidden history blocks pagination, then resumes current filter without poll selection resets', async () => {
   const calls = []

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef } from 'react'
 import { pageVisibility } from './visibility.js'
 
 /** A visible query keeps its data while hidden; only matching responses may
- * publish. Failed loads remain eligible for the next tick/activation/retry. */
+ * publish. Failed loads remain eligible for the next tick/activation/retry.
+ * `visible` carries the tab/snapshot gate; the live page check also covers the
+ * interval before React renders a visibility change and asynchronous continuations. */
 export function useVisibleRequest(
   key: string,
   visible: boolean,

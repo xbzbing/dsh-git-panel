@@ -58,6 +58,31 @@ test('opening or toggling a diff sends exactly one request and polling keeps pre
   h.unmount()
 })
 
+for (const pending of [false, true]) {
+  test(`reopening the same diff ${pending ? 'while pending' : 'after loading'} requests fresh data without a snapshot tick`, async (t) => {
+    const first = deferred(), second = deferred()
+    let diffs = 0
+    const remote = remoteFixture((q) => q.kind === 'diff'
+      ? (++diffs === 1 ? pending ? first.promise : diff('first') : second.promise)
+      : { ok: true, value: { kind: 'stash-list', entries: [] } })
+    const h = mount(() => useChangesData(remote, 's', initial, true, fail))
+    t.after(() => h.unmount())
+    h.value.showDiff('a.txt', 'worktree'); await h.settle()
+    assert.equal(diffs, 1)
+    assert.equal(h.value.diffData?.text ?? null, pending ? null : 'first')
+    h.value.showDiff('a.txt', 'worktree'); await h.settle()
+    assert.equal(diffs, 2)
+    assert.equal(h.value.diffData, null)
+    second.resolve(diff('fresh')); await h.settle()
+    assert.equal(h.value.diffData.text, 'fresh')
+    if (pending) {
+      first.resolve(diff('stale')); await h.settle()
+      assert.equal(h.value.diffData.text, 'fresh')
+    }
+    assert.equal(remote.calls.filter((q) => q.kind === 'stash-list').length, 1)
+  })
+}
+
 test('old path response cannot replace a newly selected diff', async () => {
   const gate = deferred()
   const remote = remoteFixture((q) => q.kind === 'diff' ? q.path === 'a.txt' ? gate.promise : diff('new-b') : { ok: true, value: { kind: 'stash-list', entries: [] } })

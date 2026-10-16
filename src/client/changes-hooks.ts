@@ -49,7 +49,9 @@ export function useChangesData(
     setDiffData(null)
   }, [diffPath, stillThere])
 
-  useVisibleRequest(JSON.stringify([refreshKey, diffPath]), visible && stillThere, async (isCurrent) => {
+  // Each open changes version: identical parameters still reload cleared data.
+  const diffKey = JSON.stringify([refreshKey, diffPath?.path, diffPath?.base, diffPath?.expand, diffPath?.version])
+  useVisibleRequest(diffKey, visible && stillThere, async (isCurrent) => {
     if (diffPath === null) return
     const target = diffPath
     const res = await remote.query({

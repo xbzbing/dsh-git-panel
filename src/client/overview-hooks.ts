@@ -63,14 +63,13 @@ export function useBranchTree(remote: GitPanelRemote, sessionId: string, refresh
       remote: branches.remote,
       tags: tags?.tags ?? tree?.tags ?? [],
     })
-    if (tags === null) setTreeError(true)
-    // Authors must not block the tree, or start after a hide while refs load.
+    // Secondary queries must not hide successful branches; authors cannot start
+    // after a hide while refs load.
     if (!canContinue()) return
     const res = await remote.query({ sessionId, query: { kind: 'authors' } })
     if (!isCurrent()) return
     const result = queryAs(res, 'authors')
-    if (result !== null) setAuthors(result.authors)
-    else setTreeError(true)
+    setAuthors(result?.authors ?? [])
   }, () => setTreeError(true))
 
   return { tree, treeError, authors, reload }

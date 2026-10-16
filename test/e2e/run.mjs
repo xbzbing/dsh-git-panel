@@ -69,6 +69,10 @@ const out = await page.evaluate(async (snap) => {
   const runActions = []
   let runFailure = null
   let branchQueries = 0
+  let secondaryQueryFailure = null
+  const secondaryFailures = []
+  let repeatedDiffRevision = null
+  // Counts resident Overview/Changes queries, excluding Files' on-demand reads.
   const visibilityQueries = []
   let visibilitySnapshots = 0
   let deferVisibilitySnapshot = false
@@ -92,6 +96,10 @@ const out = await page.evaluate(async (snap) => {
         }
         if (endpoint === 'gitPanel/query') {
           const q = request.query
+          if (q.kind === secondaryQueryFailure) {
+            secondaryFailures.push(q.kind)
+            return { ok: true, value: { ok: false, error: { code: 'git-error' } } }
+          }
           if (q.kind === 'branches' || q.kind === 'tags' || q.kind === 'authors' || q.kind === 'history' || q.kind === 'stash-list' || q.kind === 'diff' || q.kind === 'image-diff') visibilityQueries.push(q.kind)
           if (q.kind === 'worktree-stats') return { ok: true, value: { ok: true, value: { kind: 'worktree-stats', stats: { fileCount: 3, staged: 0, modified: 2, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: new Date().toISOString() } } } }
           if (q.kind === 'branches') { branchQueries += 1; return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'feature', shortHash: 'd196623' }, { name: 'main', shortHash: 'de54fc0' }], remote: [{ name: 'origin/main', shortHash: 'de54fc0' }, { name: 'origin/release', shortHash: 'e5f6a7b' }] } } } }
@@ -109,7 +117,8 @@ const out = await page.evaluate(async (snap) => {
             // An SVG is text: git produces a real source diff for it.
             if (q.path.endsWith('.svg')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/icon.svg b/icon.svg\n--- a/icon.svg\n+++ b/icon.svg\n@@ -1 +1 @@\n-<svg width="1"/>\n+<svg width="2"/>\n', newLines: 1 } } }
             if (q.path.endsWith('.ts')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-const count = 1\n+const count = 2\n', newLines: 1 } } }
-            return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n', newLines: 2 } } }
+            const addedLine = repeatedDiffRevision !== null && q.path === 'a.txt' ? 'repeat-diff-' + ++repeatedDiffRevision : 'line2'
+            return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+${addedLine}\n`, newLines: 2 } } }
           }
           if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: q.path.endsWith('.svg') ? 'image/svg+xml' : 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
           if (q.kind === 'dir-list') {
@@ -1056,6 +1065,44 @@ const out = await page.evaluate(async (snap) => {
   await wait(250)
   result.switchRelistsFiles = fileQueries.filter((p) => p === '').length > rootListsBefore
   result.switchClearsFileSelection = document.querySelector('.gp-files__tree .gp-tree-row--active') === null
+  // Secondary failures must leave real branch rows visible in the Overview UI.
+  result.secondaryFailuresKeepBranches = []
+  try {
+    for (const kind of ['tags', 'authors']) {
+      filesTabBtn?.click(); await wait(80)
+      secondaryQueryFailure = kind
+      overviewTabBtn?.click(); await wait(150)
+      result.secondaryFailuresKeepBranches.push({
+        kind,
+        injected: secondaryFailures.includes(kind),
+        visible: [...document.querySelectorAll('.gp-overview .gp-branch-row')].some((row) => (row.textContent || '').includes('feature') && row.getClientRects().length > 0),
+        error: (document.querySelector('.gp-overview')?.textContent || '').includes('overview.branchesError'),
+      })
+    }
+  } finally { secondaryQueryFailure = null }
+
+  // Reopening the same row must reload without waiting for another snapshot.
+  ;[...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))?.click()
+  await wait(100)
+  const repeatDiffRow = [...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('a.txt'))
+  repeatedDiffRevision = 0
+  try {
+    repeatDiffRow?.click(); await wait(80)
+    const firstLoaded = (document.querySelector('.gp-changes .gp-diff__wrap')?.textContent || '').includes('repeat-diff-1')
+    const diffCallsBeforeReopen = visibilityQueries.filter((kind) => kind === 'diff').length
+    const snapshotsBeforeReopen = visibilitySnapshots
+    repeatDiffRow?.click(); await wait(80)
+    const pane = document.querySelector('.gp-changes .gp-diff')
+    result.repeatedDiffReloads = {
+      firstLoaded,
+      requests: visibilityQueries.filter((kind) => kind === 'diff').length - diffCallsBeforeReopen,
+      revision: repeatedDiffRevision,
+      freshRendered: (pane?.querySelector('.gp-diff__wrap')?.textContent || '').includes('repeat-diff-2') && pane.getClientRects().length > 0,
+      loading: (pane?.textContent || '').includes('common.loading'),
+      snapshots: visibilitySnapshots - snapshotsBeforeReopen,
+    }
+  } finally { repeatedDiffRevision = null }
+
   // P0: exercise the actual Panel/registry/controller with resident sub-tabs.
   // Delay the restore snapshot so an early child batch cannot hide in batching.
   const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden')
@@ -1107,8 +1154,10 @@ const out = await page.evaluate(async (snap) => {
     setHidden(false); await wait(150)
     result.visibilityFilesNoQueries = visibilityQueries.length === 0
   } finally {
+    deferBinaryDiff = false
+    releaseBinaryDiff?.(); releaseBinaryDiff = null
     deferVisibilitySnapshot = false
-    releaseVisibilitySnapshot?.()
+    releaseVisibilitySnapshot?.(); releaseVisibilitySnapshot = null
     if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor)
     else delete document.hidden
   }
@@ -1165,6 +1214,12 @@ try {
   assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
   assert.equal(out.tabCount, 3, 'three sub-tabs')
   assert.equal(out.dirtyDefault, true, 'opening a dirty Git workspace defaults to Changes')
+  assert.deepEqual(out.secondaryFailuresKeepBranches, [
+    { kind: 'tags', injected: true, visible: true, error: false },
+    { kind: 'authors', injected: true, visible: true, error: false },
+  ], 'secondary query failures must not replace successful branches with an error pane')
+  assert.deepEqual(out.repeatedDiffReloads, { firstLoaded: true, requests: 1, revision: 2, freshRendered: true, loading: false, snapshots: 0 },
+    'reopening the same diff must request and render fresh data without a snapshot tick')
   assert.equal(out.visibilityNoHiddenImageStage, true, 'a binary diff completed hidden cannot start image-side queries')
   assert.equal(out.visibilityWaitsForSnapshot, true, 'restoring Changes waits for one fresh snapshot before queries')
   assert.deepEqual(out.visibilityChangesCatchup, ['diff', 'stash-list'], 'restored Changes issues one batch, hidden overview stays idle')
