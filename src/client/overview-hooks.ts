@@ -81,7 +81,7 @@ export function useBranchTree(remote: GitPanelRemote, sessionId: string, queryKe
  *
  * `onReset` fires only when the *filter* changed (branch / search / author /
  * date), where the selected commit may have dropped out of the new list. A
- * content tick or forced query epoch reloads page 0 to pick up new commits but preserves the
+ * content tick reloads page 0 to pick up new commits but preserves the
  * selection and scroll — otherwise a background poll would wipe the commit the
  * user is reading.
  */

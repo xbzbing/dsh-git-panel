@@ -122,9 +122,16 @@ for (const tab of ['overview', 'changes']) {
     }
     calls.length = 0
     controller.accept({ ...initial }); await h.settle()
-    assert.deepEqual(calls.sort(), batch, 'accept tick and epoch form one query key, not two batches')
-    assert.equal(h.value.signal.epoch, 1)
+    assert.deepEqual(calls.sort(), batch, 'accept atomically advances one query key and triggers one batch')
+    assert.equal(h.value.signal.tick, 3)
     assert.equal(businessNotifications, 1, 'accept deliberately publishes its action snapshot')
+    const acceptedView = controller.getSnapshot()
+    calls.length = 0
+    controller.resync(); await h.settle()
+    assert.equal(controller.getSnapshot(), acceptedView, 'same-business resync retains the accepted view')
+    assert.equal(businessNotifications, 1)
+    assert.equal(h.value.signal.tick, 4)
+    assert.deepEqual(calls.sort(), batch, 'resync refreshes one batch even when fingerprint and sampling time stay the same')
     active = false; h.rerender()
     assert.equal(subscriptions, 0)
     calls.length = 0

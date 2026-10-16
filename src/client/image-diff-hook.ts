@@ -20,7 +20,7 @@ export function useImageDiff(
 ): ImageState {
   const queryKey: QueryKey = [sessionId, path, base, commit]
   const [saved, setSaved] = useState<{ queryKey: QueryKey; value: ImageState }>({ queryKey, value: { kind: 'idle' } })
-  const matches = (key: QueryKey): boolean => key.every((part, index) => part === queryKey[index])
+  const matches = (key: QueryKey): boolean => key.length === queryKey.length && key.every((part, index) => part === queryKey[index])
   useVisibleRequest(queryKey, visible && remote !== undefined && sessionId !== undefined && path !== undefined && base !== undefined, async (isCurrent) => {
     if (remote === undefined || sessionId === undefined || path === undefined || base === undefined) return
     setSaved((prev) => matches(prev.queryKey) && prev.value.kind === 'ready' ? prev : { queryKey, value: { kind: 'loading' } })

@@ -220,9 +220,9 @@ test('equal fingerprints preserve business references while advancing independen
   assert.equal(h.controller.getSnapshot(), view)
   assert.equal(h.controller.getSnapshot().snapshot, view.snapshot)
   assert.equal(h.notifications, notifications)
-  assert.deepEqual(signals.map(({ tick, epoch, sampledAt, ready }) => ({ tick, epoch, sampledAt, ready })), [
-    { tick: 1, epoch: 0, sampledAt: 1, ready: true },
-    { tick: 2, epoch: 0, sampledAt: 2, ready: true },
+  assert.deepEqual(signals.map(({ tick, sampledAt, ready }) => ({ tick, sampledAt, ready })), [
+    { tick: 1, sampledAt: 1, ready: true },
+    { tick: 2, sampledAt: 2, ready: true },
   ])
 })
 
@@ -247,17 +247,17 @@ test('legacy snapshots without fingerprints still publish every successful sampl
   assert.equal(h.controller.getQuerySignal().tick, 2)
 })
 
-test('hidden resync coalesces invalidation and publishes tick with epoch only after catch-up succeeds', async (t) => {
+test('hidden resync coalesces refreshes and advances tick only after catch-up succeeds', async (t) => {
   const h = setup(t, false, async (n) => ok({ ...snapshot, stateFingerprint: 'same', checkedAt: n }))
   h.controller.ensure(); await drain()
   h.hide()
   const signal = h.controller.getQuerySignal()
   h.controller.resync(); h.controller.resync()
   assert.equal(h.controller.getQuerySignal(), signal)
-  assert.equal(signal.epoch, 0)
+  assert.equal(signal.tick, 1)
   h.show(); await drain()
   assert.equal(h.calls, 2)
-  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, epoch: 1, sampledAt: 2, ready: true, root: '/fixture' })
+  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, sampledAt: 2, ready: true, root: '/fixture' })
 })
 
 test('accept invalidates an older in-flight poll without publishing its response or advancing its tick', async (t) => {
@@ -269,7 +269,6 @@ test('accept invalidates an older in-flight poll without publishing its response
   h.controller.accept(accepted)
   const view = h.controller.getSnapshot(), signal = h.controller.getQuerySignal()
   assert.equal(signal.tick, 2)
-  assert.equal(signal.epoch, 1)
   stale.resolve(ok({ ...snapshot, stateFingerprint: 'old', checkedAt: 2 })); await drain()
   assert.equal(h.controller.getSnapshot(), view)
   assert.equal(h.controller.getQuerySignal(), signal)
@@ -289,11 +288,11 @@ test('resync during a poll ignores the old completion and emits one forced query
   assert.equal(h.controller.getQuerySignal().tick, 1)
   assert.equal(notifications, 0)
   fresh.resolve(ok({ ...snapshot, checkedAt: 3 })); await drain()
-  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, epoch: 1, sampledAt: 3, ready: true, root: '/fixture' })
+  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, sampledAt: 3, ready: true, root: '/fixture' })
   assert.equal(notifications, 1)
 })
 
-test('error recovery advances epoch once and query subscriptions stop after unsubscribe or dispose', async (t) => {
+test('error recovery publishes one query tick and subscriptions stop after unsubscribe or dispose', async (t) => {
   const h = setup(t, false, async (n) => n === 2 ? { ok: false, error: { code: 'git-error' } }
     : ok({ ...snapshot, stateFingerprint: 'same', checkedAt: n }))
   h.controller.ensure(); await drain()
@@ -303,7 +302,7 @@ test('error recovery advances epoch once and query subscriptions stop after unsu
   let notifications = 0
   const unsubscribe = h.controller.subscribeQueries(() => notifications++)
   await h.advance(30_000)
-  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, epoch: 1, sampledAt: 3, ready: true, root: '/fixture' })
+  assert.deepEqual(h.controller.getQuerySignal(), { tick: 2, sampledAt: 3, ready: true, root: '/fixture' })
   assert.equal(notifications, 1)
   unsubscribe()
   await h.advance(30_000)
@@ -342,7 +341,7 @@ test('resync after accept still fetches a fresh sample after the superseded poll
   assert.equal(h.calls, 3)
   assert.equal(h.controller.getQuerySignal().tick, 2)
   fresh.resolve(ok({ ...snapshot, checkedAt: 3 })); await drain()
-  assert.deepEqual(h.controller.getQuerySignal(), { tick: 3, epoch: 2, sampledAt: 3, ready: true, root: '/fixture' })
+  assert.deepEqual(h.controller.getQuerySignal(), { tick: 3, sampledAt: 3, ready: true, root: '/fixture' })
 })
 
 test('business and query listeners observe one atomically updated view and signal on root change', async (t) => {

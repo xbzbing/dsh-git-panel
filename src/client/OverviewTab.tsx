@@ -110,6 +110,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Left-column status bar: a sync check (fetch) and a fast-forward pull, each
   // with its own in-flight guard; the pull is gated behind a confirm dialog.
   const [syncBusy, setSyncBusy] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
   const [pullBusy, setPullBusy] = useState(false)
   const [pullConfirm, setPullConfirm] = useState(false)
   const [pushBusy, setPushBusy] = useState(false)
@@ -326,11 +327,13 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // list reloads too. Pull = `git pull --ff-only`, also through onAction.
   const runCheckSync = async (): Promise<void> => {
     if (syncBusy) return
-    setOpError(null)
+    setSyncError(null)
     setSyncBusy(true)
     try {
       const res = await onAction({ kind: 'fetch' })
-      if (!res.ok) setOpError(res.error ?? t('error.generic'))
+      if (!res.ok) setSyncError(res.error ?? t('error.generic'))
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : t('error.generic'))
     } finally { setSyncBusy(false) }
   }
   const runPullFf = async (): Promise<void> => {
@@ -365,7 +368,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   }
   // One status-bar callback set, shared by the wide and compact placements.
   const statusCbs = {
-    syncBusy, pullBusy, pushBusy, publishBusy,
+    syncBusy, syncError, pullBusy, pushBusy, publishBusy,
     onCheck: () => void runCheckSync(),
     onPull: () => { setOpError(null); setPullConfirm(true) },
     onPush: () => { setOpError(null); setPushConfirm(true) },

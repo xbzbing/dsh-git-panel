@@ -19,7 +19,6 @@ export type GitView =
 
 export interface GitQuerySignal {
   readonly tick: number
-  readonly epoch: number
   readonly sampledAt: number
   readonly ready: boolean
   readonly root: string | null
@@ -40,8 +39,7 @@ export class GitController {
   private readonly unsubscribeVisibility: () => void
   private visibilityGeneration = 0
   private requestGeneration = 0
-  private pendingInvalidation = false
-  private querySignal: GitQuerySignal = { tick: 0, epoch: 0, sampledAt: 0, ready: false, root: null }
+  private querySignal: GitQuerySignal = { tick: 0, sampledAt: 0, ready: false, root: null }
   private readonly queryListeners = new Set<() => void>()
 
   constructor(
@@ -135,7 +133,6 @@ export class GitController {
   resync(): void {
     if (this.disposed) return
     this.requestGeneration += 1
-    this.pendingInvalidation = true
     void this.refresh()
   }
 
@@ -145,7 +142,6 @@ export class GitController {
     if (this.disposed) return
     this.requestGeneration += 1
     this.pendingRefresh = false
-    this.pendingInvalidation = true
     this.publishSnapshot(snapshot, this.visibilityGeneration, true)
     this.schedulePoll()
   }
@@ -155,11 +151,8 @@ export class GitController {
     const previous = this.view.state === 'ready' ? this.view.snapshot : null
     const same = !force && previous !== null && snapshot.root === previous.root
       && snapshot.stateFingerprint !== undefined && snapshot.stateFingerprint === previous.stateFingerprint
-    const invalidated = this.pendingInvalidation || force || this.view.state === 'error' || this.view.state === 'no-cwd'
-    this.pendingInvalidation = false
     const nextSignal: GitQuerySignal = {
       tick: this.querySignal.tick + 1,
-      epoch: this.querySignal.epoch + (invalidated ? 1 : 0),
       sampledAt: snapshot.checkedAt,
       ready: this.visibility.isVisible() && generation === this.visibilityGeneration,
       root: snapshot.root,
@@ -185,8 +178,8 @@ export class GitController {
     }, this.pollMs)
   }
 
-  private setView(view: GitView): void {
-    this.publish(view, view.state === 'ready' ? this.querySignal : this.unreadySignal())
+  private setView(view: Exclude<GitView, { state: 'ready' }>): void {
+    this.publish(view, this.unreadySignal())
   }
 
   private publish(view: GitView, signal: GitQuerySignal): void {
@@ -204,7 +197,6 @@ export class GitController {
     this.clearPoll()
     this.unsubscribeVisibility()
     this.pendingRefresh = false
-    this.pendingInvalidation = false
     this.listeners.clear()
     this.queryListeners.clear()
   }

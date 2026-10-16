@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { GitController, GitQuerySignal } from './controller.js'
 import type { QueryKey } from './query-key.js'
 
-const COLD: GitQuerySignal = { tick: 0, epoch: 0, sampledAt: 0, ready: false, root: null }
+const COLD: GitQuerySignal = { tick: 0, sampledAt: 0, ready: false, root: null }
 
 export interface GitQueryGate {
   readonly signal: GitQuerySignal
@@ -34,6 +34,6 @@ export function useControllerQueryGate(controller: GitController | undefined, ac
     // Store notifications can render a leaf before its parent supplies new props.
     // Root equality prevents that transient old-props/new-store query pairing.
     queryVisible: active && signal.ready && signal.root === expectedRoot,
-    queryKey: [signal.root, signal.tick, signal.epoch],
+    queryKey: [signal.root, signal.tick],
   }
 }
