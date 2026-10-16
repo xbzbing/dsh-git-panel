@@ -7,8 +7,8 @@
 import { createElement as h, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
-import { CloseIcon } from './icons'
-import type { GitKey } from './locales'
+import { CloseIcon } from './icons.js'
+import type { GitKey } from './locales.js'
 
 export type OpT = (key: GitKey, params?: Record<string, string | number>) => string
 

@@ -4,7 +4,7 @@
  * lane column and compute the passing edges for that row, so a canvas/SVG
  * layer can draw nodes and connecting lines.
  */
-import type { GraphCommit, GraphStyle } from './types'
+import type { GraphCommit, GraphStyle } from './types.js'
 
 export interface GraphEdge {
   /** Lane the edge occupies at the top of the row. */

@@ -7,8 +7,8 @@
  */
 import { createElement as h, useState } from 'react'
 import type { JSX } from 'react'
-import type { BranchOption } from './branch-options'
-import { renderConfirmModal, type OpT } from './ops-modals'
+import type { BranchOption } from './branch-options.js'
+import { renderConfirmModal, type OpT } from './ops-modals.js'
 
 export interface BranchSwitchCbs {
   /** Branch currently checked out; null on a detached HEAD. */

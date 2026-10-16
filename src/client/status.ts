@@ -1,7 +1,7 @@
 /** Changed-file status → display helpers, shared by the Changes list and the
  * Overview commit-file tree so both map every status (incl. conflicted /
  * typechange) onto a CSS class that actually exists in styles.ts. */
-import type { GitChange, GitChangeStatus } from './types'
+import type { GitChange, GitChangeStatus } from './types.js'
 
 /** Single-letter badge for a status. */
 export const statusChar: Record<string, string> = {

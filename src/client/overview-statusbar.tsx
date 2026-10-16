@@ -5,10 +5,10 @@
  */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
-import type { GitSnapshot } from './types'
-import type { GitKey } from './locales'
-import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons'
-import { useHoverTip } from './tip'
+import type { GitSnapshot } from './types.js'
+import type { GitKey } from './locales.js'
+import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons.js'
+import { useHoverTip } from './tip.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
 

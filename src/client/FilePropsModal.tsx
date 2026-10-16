@@ -11,13 +11,13 @@
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { renderModalShell, type OpT } from './ops-modals'
-import { formatBytes } from './bytes'
-import { langLabel } from './lang-label'
-import { absoluteDateTime, timeAgo } from './time'
-import { isUntrackedPath, statusClass } from './status'
+import { renderModalShell, type OpT } from './ops-modals.js'
+import { formatBytes } from './bytes.js'
+import { langLabel } from './lang-label.js'
+import { absoluteDateTime, timeAgo } from './time.js'
+import { isUntrackedPath, statusClass } from './status.js'
 import { FileTypeIcon, languageForPath, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
-import { imageMimeFor, type GitChange, type GitSnapshot } from './types'
+import { imageMimeFor, type GitChange, type GitSnapshot } from './types.js'
 
 export interface FilePropsInput {
   readonly path: string

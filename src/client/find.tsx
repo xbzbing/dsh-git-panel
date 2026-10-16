@@ -6,7 +6,7 @@
 import { createElement as h, useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { GitKey } from './locales'
+import type { GitKey } from './locales.js'
 
 type T = (key: GitKey, params?: Record<string, string | number>) => string
 

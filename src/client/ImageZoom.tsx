@@ -21,8 +21,8 @@
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import type { GitKey } from './locales'
-import { CloseIcon } from './icons'
+import type { GitKey } from './locales.js'
+import { CloseIcon } from './icons.js'
 import { anchoredScroll, clampScale, isDragGesture, normalizeWheel, panScroll, wheelZoomFactor, ZOOM_STEP } from './zoom.js'
 
 type T = (key: GitKey, params?: Record<string, string | number>) => string

@@ -5,7 +5,7 @@
  * expand on demand (via a file-lines query), and modified line pairs carry
  * word-level change ranges for intra-line emphasis.
  */
-import { imageMimeFor } from './types'
+import { imageMimeFor } from './types.js'
 
 export type RowKind = 'context' | 'add' | 'del' | 'mod' | 'hunk' | 'gap' | 'meta'
 

@@ -9,7 +9,7 @@
  * MutationObserver on the tab list re-applies the dot if the shell re-renders
  * the button. Color mirrors the input-bar pill: green synced / orange dirty.
  */
-import { SHELL_TABLIST_SELECTOR, SHELL_TAB_SELECTOR } from './jump'
+import { SHELL_TABLIST_SELECTOR, SHELL_TAB_SELECTOR } from './jump.js'
 
 export type GitTabDotStatus = 'synced' | 'dirty' | null
 

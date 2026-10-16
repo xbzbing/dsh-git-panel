@@ -1,4 +1,4 @@
-import type { GitKey } from './locales'
+import type { GitKey } from './locales.js'
 
 /** Relative-time formatting bound to the locale dictionary. */
 type T = (key: GitKey, params?: Record<string, string | number>) => string

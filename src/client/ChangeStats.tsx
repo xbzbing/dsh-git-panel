@@ -1,9 +1,9 @@
 /** Changes-page statistics bar: file count / line changes / last-change time. */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
-import type { WorktreeStats } from './types'
-import type { GitKey } from './locales'
-import { absoluteTime, timeAgo } from './time'
+import type { WorktreeStats } from './types.js'
+import type { GitKey } from './locales.js'
+import { absoluteTime, timeAgo } from './time.js'
 
 interface StatsProps {
   /** Stats ride the snapshot (single git source); no separate query. */

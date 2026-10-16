@@ -9,11 +9,11 @@
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
-import { useGitView } from './registry'
-import { hasSession } from './rpc'
-import { activateGitTab, isGitTabActive, requestSubTab, returnToConversation } from './jump'
-import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot'
-import type { GitKey } from './locales'
+import { useGitView } from './registry.js'
+import { hasSession } from './rpc.js'
+import { activateGitTab, isGitTabActive, requestSubTab, returnToConversation } from './jump.js'
+import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot.js'
+import type { GitKey } from './locales.js'
 
 interface PillProps {
   readonly sessionId?: string

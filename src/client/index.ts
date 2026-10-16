@@ -9,13 +9,13 @@
  * per-session snapshot controller registry is bound to this context.
  */
 import { createElement as h } from 'react'
-import { ensureStyles } from './styles'
-import { en, zh } from './locales'
-import { bindContext, disposeAll, resyncAll } from './registry'
-import { Panel } from './Panel'
-import { GitPill } from './GitPill'
-import { PillConfig } from './PillConfig'
-import type { ClientCtx } from './rpc'
+import { ensureStyles } from './styles.js'
+import { en, zh } from './locales.js'
+import { bindContext, disposeAll, resyncAll } from './registry.js'
+import { Panel } from './Panel.js'
+import { GitPill } from './GitPill.js'
+import { PillConfig } from './PillConfig.js'
+import type { ClientCtx } from './rpc.js'
 
 const NS = 'gitPanel'
 /**

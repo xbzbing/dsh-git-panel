@@ -5,9 +5,9 @@
  */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
-import type { DiffMode } from './DiffView'
-import type { GitKey } from './locales'
-import { ZoomableImage } from './ImageZoom'
+import type { DiffMode } from './DiffView.js'
+import type { GitKey } from './locales.js'
+import { ZoomableImage } from './ImageZoom.js'
 
 interface ImageCompareProps {
   readonly oldUrl?: string

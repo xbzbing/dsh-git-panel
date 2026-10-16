@@ -7,19 +7,19 @@ import type { JSX } from 'react'
 import {
   buildSideBySide, flattenToUnified, isBinaryDiff, retargetTrailingGap,
   isImagePath, isSvgPath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
-} from './diff'
+} from './diff.js'
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
-import { splitHighlightSpans } from './code-spans'
-import { memoizeHighlighter } from './highlight-cache'
-import { buildTops, findWindowRange, windowRange } from './virtual-list'
-import { useViewportTracker } from './use-viewport'
-import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
-import { ImageCompare } from './ImageCompare'
-import type { GitPanelRemote } from './rpc'
-import { queryAs } from './rpc'
-import { DIFF_EXPAND_CONTEXT, type GitQuery } from './types'
+import { splitHighlightSpans } from './code-spans.js'
+import { memoizeHighlighter } from './highlight-cache.js'
+import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
+import { useViewportTracker } from './use-viewport.js'
+import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
+import { ImageCompare } from './ImageCompare.js'
+import type { GitPanelRemote } from './rpc.js'
+import { queryAs } from './rpc.js'
+import { DIFF_EXPAND_CONTEXT, type GitQuery } from './types.js'
 import { useImageDiff } from './image-diff-hook.js'
-import type { GitKey } from './locales'
+import type { GitKey } from './locales.js'
 
 /** unified = single inline column; split = side-by-side; before/after show one
  * side's full content. */

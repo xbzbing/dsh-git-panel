@@ -3,7 +3,7 @@
  * shadowing rule and the current-branch lock are unit-tested; the branch list
  * (OverviewTab.tsx) and the confirm dialog (branch-switch.tsx) only consume it.
  */
-import type { GitBranch } from './types'
+import type { GitBranch } from './types.js'
 
 /**
  * One pickable row. `name` is always the *local* branch that ends up checked

@@ -9,12 +9,12 @@
  */
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
-import { resyncAll } from './registry'
-import { segButtons } from './seg'
-import type { ClientCtx, ConfigFormsFace, SettingsNamespaceView } from './rpc'
-import type { GraphStyle, SuggestLanguage } from './types'
-import { SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types'
-import type { GitKey } from './locales'
+import { resyncAll } from './registry.js'
+import { segButtons } from './seg.js'
+import type { ClientCtx, ConfigFormsFace, SettingsNamespaceView } from './rpc.js'
+import type { GraphStyle, SuggestLanguage } from './types.js'
+import { SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
+import type { GitKey } from './locales.js'
 
 interface PillConfigProps {
   readonly ctx: ClientCtx

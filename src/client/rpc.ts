@@ -11,7 +11,7 @@ import type {
   GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitQueryResult,
   GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult,
   GitVersionInfo, GitVersionRequest,
-} from './types'
+} from './types.js'
 
 const API_CHANNEL = '/api'
 const NS = 'gitPanel'

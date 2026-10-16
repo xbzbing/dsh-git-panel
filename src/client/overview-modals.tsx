@@ -8,10 +8,10 @@
  */
 import { createElement as h, useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import type { GitKey } from './locales'
-import { ResetIcon, TagIcon } from './icons'
-import { renderAiHint, renderModalFooter, renderModalShell, type OpT } from './ops-modals'
-import type { ResetMode } from './types'
+import type { GitKey } from './locales.js'
+import { ResetIcon, TagIcon } from './icons.js'
+import { renderAiHint, renderModalFooter, renderModalShell, type OpT } from './ops-modals.js'
+import type { ResetMode } from './types.js'
 
 interface TagCreateCbs {
   onClose: () => void
