@@ -7,7 +7,7 @@
  * or `npm run test:e2e` which chains it).
  */
 import { chromium } from 'playwright-core'
-import assert from 'node:assert/strict'
+import { assertPanelResults } from './assert-panel-results.mjs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
@@ -44,155 +44,16 @@ page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
 await page.goto(harness)
 await page.addScriptTag({ path: resolve(DIR, 'client.js') })
+await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
 await page.addScriptTag({ path: resolve(DIR, 'steady-state-helper.mjs') })
+await page.addScriptTag({ path: resolve(DIR, 'overview-fetch-helper.mjs') })
+await page.addScriptTag({ path: resolve(DIR, 'confirmation-state-helper.mjs') })
 
 const out = await page.evaluate(async (snap) => {
   const result = { steps: [] }
-  // Mutable snapshot the mock serves: the status-bar test flips it to an ahead
-  // and a no-upstream state and re-drives the panel through the check button.
-  const fixture = {
-    snapshot: snap, fingerprints: false, snapshotError: null,
-    snapshotCalls: 0, snapshotReplies: 0, holdSnapshot: false, releaseSnapshot: null,
-    // Resident Git queries only; Files' explicit reads have their own log.
-    queries: [], actions: [], renders: { panel: 0, pill: 0 }, resetConnection: null,
-    diffText: null, history: null,
-    defaultStashes: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }],
-  }
-  fixture.stashes = fixture.defaultStashes
-  // Valid 64×64 PNG, served as both image-diff sides and the file preview.
-  // Real dimensions matter: a 1×1 image's integer clientWidth rounds every
-  // zoom level back to 100%, which would hide fit-label regressions.
-  const MOCK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3PQQkAAAgEsItjJtMZ1Qi+hcEKLNXzWgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQELgtQSiEPtYVDTgAAAABJRU5ErkJggg=='
-  // 800×800 PNG for the drag-to-pan test: at 100% it is wider than the preview
-  // pane, so the viewport is actually scrollable and a drag has somewhere to go.
-  const MOCK_PNG_BIG = 'iVBORw0KGgoAAAANSUhEUgAAAyAAAAMgCAIAAABUEpE/AAAMK0lEQVR42u3WMQ0AIAwAwQpDCepQRxgQUQ/QrZecgp8+xlwAABQKCQAADBYAgMECAGg7WPtcAAAeGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGSx0AAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMlDQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQAYLIMFAGCwAAAMFgCAwTJYAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAAg2WwAAAMFgCAwQIAMFgAABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDBQCAwQIAMFgAAAYLAACDBQBgsAAADBYAgMEyWAAABgsAwGABABgsgwUAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAyWOgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABksdAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAYLAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAGy2ABABgsAACDBQBgsAAAMFgAAAYLAMBgAQBgsAAADBYAgMECADBYBgsAwGABABgsAACDJQ0AgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAGCyDBQBgsAAADBYAgMEyWAAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMFgAABgsAwGABABgsAAAMFgCAwQIAMFgAABgsAACDBQBgsAAADJbBAgAwWAAABgsAwGABAGCwAAAMFgCAwQIAwGABABgsAACDBQBgsAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAINlsAAADBYAgMECADBYAAAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgwUAgMECADBYAAAGCwAAgwUAYLAAAAwWAIDBMlgAAAYLAMBgAQAYLIMFAGCwAAAMFgCAwQIAwGABABgsAACDBQCAwQIAMFgAAAYLAMBgGSwAAIMFAGCwAAAMljoAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAZLHQAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGCwAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAABstgAQAYLAAAgwUAYLAAADBYAAAGCwDAYAEAYLAAAAwWAIDBAgAwWAYLAMBgAQAYLAAAgyUNAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABABgsgwUAYLAAAAwWAIDBMlgAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADBYAAAYLAMBgAQAYLAAADBYAgMECADBYAAAYLAAAgwUAYLAAAAyWwQIAMFgAAAYLAMBgAQBgsAAADBYAgMECAMBgAQAYLAAAgwUAYLAMFgCAwQIAMFgAAAbLYAEAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgAABgsAwGABABgsAACDZbAAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAwWAAABgsAwGABAGCwAAAMFgCAwQIAMFgGCwDAYAEAGCwAAIMFAIDBAgAwWAAABgsAAIMFAGCwAAAMFgCAwTJYAAAGCwDAYAEAGCyDBQBgsAAADBYAgMECAMBgAQAYLAAAgwUAgMECADBYAAAGCwDAYBksAACDBQBgsAAADJY6AAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAIDBAgAwWAAABgsAwGAZLAAAgwUAYLAAAAwWAAAGCwDAYAEAGCwAAAwWAIDBAgAwWAAAGCwAAIMFAGCwAAAMlsECADBYAAAGCwDAYAEAYLAAAAwWAIDBAgDAYAEAGCwAAIMFAGCwDBYAgMECADBYAAAGSx0AgNrBAgDgn8ECADBYAAAGCwCglQQBoowL1tK/2wAAAABJRU5ErkJggg=='
-  // 1200×300 PNG: a *width-constrained* image, so a pane-width change moves its
-  // fit ratio (the square fixture is height-constrained instead).
-  const MOCK_PNG_WIDE = 'iVBORw0KGgoAAAANSUhEUgAABLAAAAEsCAIAAABc390HAAAGB0lEQVR42u3XQQ0AIBDEwJODJpSgEwc4QAI6uJ1kFPTXGmsCAAAQqCQAAAAwhAAAABhCAAAAooZwnwsAAEBjhhAAAMAQGkIAAABDaAgBAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAAAYQkMIAABgCA0hAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAAQ2gIAQAADKEhBAAAMISGEAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAgCE0hAAAAIbQEAIAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAADCEhhAAAMAQGkIAAABDaAgBAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAAAYQkMIAABgCA0hAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAAQ2gIAQAADKEhBAAAMITSAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAMISGEAAAwBAaQgAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAAIbQEAIAABhCQwgAAGAI1QEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAGAIDSEAAIAhNIQAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAMoSEEAAAwhIYQAADAEKoDAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAADAEBpCAAAAQ2gIAQAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAGEJDCAAAYAgNIQAAgCEEAADAEAIAAGAIAQAAMIQAAAAYQgAAAAwhAAAAhhAAAID/hhAAAIAchhAAAMAQAgAAYAgBAABo7wH350/iheM7iwAAAABJRU5ErkJggg=='
-  const fileQueries = []
-  // One fixed mtime for every mocked file-content response, so the properties
-  // dialog can assert a real absolute timestamp without pinning a date.
-  const MOCK_MTIME = Date.now() - 60_000
-  // Branch-switch probes: every `run` action lands here, and `branchQueries`
-  // counts the branch-list reloads a landed checkout must trigger.
-  let runFailure = null
-  let branchQueries = 0
-  let secondaryQueryFailure = null
-  const secondaryFailures = []
-  let repeatedDiffRevision = null
-  const snapshotValue = () => {
-    if (!fixture.fingerprints) return fixture.snapshot
-    const { checkedAt, stateFingerprint, ...business } = fixture.snapshot
-    return { ...fixture.snapshot, checkedAt: Date.now(), stateFingerprint: JSON.stringify(business) }
-  }
-  let deferBinaryDiff = false
-  let releaseBinaryDiff = null
-  // The suggest endpoint parks until the test releases it, so the in-flight
-  // lock on the commit box is observable.
-  let suggestRelease = null
+  const { fixture, connection } = window.createGitPanelMock(snap)
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
-
-  const connection = {
-    rpc: {
-      call: async (_channel, endpoint, payload) => {
-        const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') {
-          fixture.snapshotCalls++
-          if (fixture.holdSnapshot) await new Promise((resolve) => { fixture.releaseSnapshot = resolve })
-          fixture.snapshotReplies++
-          if (fixture.snapshotError !== null) {
-            const error = fixture.snapshotError
-            fixture.snapshotError = null
-            return { ok: true, value: { ok: false, error } }
-          }
-          return { ok: true, value: { ok: true, value: snapshotValue() } }
-        }
-        if (endpoint === 'gitPanel/query') {
-          const q = request.query
-          if (q.kind === secondaryQueryFailure) {
-            secondaryFailures.push(q.kind)
-            return { ok: true, value: { ok: false, error: { code: 'git-error' } } }
-          }
-          if (q.kind === 'branches' || q.kind === 'tags' || q.kind === 'authors' || q.kind === 'history' || q.kind === 'stash-list' || q.kind === 'diff' || q.kind === 'image-diff') fixture.queries.push(q.kind)
-          if (q.kind === 'worktree-stats') return { ok: true, value: { ok: true, value: { kind: 'worktree-stats', stats: { fileCount: 3, staged: 0, modified: 2, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: new Date().toISOString() } } } }
-          if (q.kind === 'branches') { branchQueries += 1; return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'feature', shortHash: 'd196623' }, { name: 'main', shortHash: 'de54fc0' }], remote: [{ name: 'origin/main', shortHash: 'de54fc0' }, { name: 'origin/release', shortHash: 'e5f6a7b' }] } } } }
-          if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
-          if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: ['Tester'] } } }
-          if (q.kind === 'history' && fixture.history !== null) return fixture.history
-          if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 2, commits: [
-            { hash: 'd196623aaa', shortHash: 'd196623', subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString(), parents: ['de54fc0bbb'], refs: [{ kind: 'branch', name: 'feature', head: false }] },
-            { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [{ kind: 'branch', name: 'main', head: true }] },
-          ] } } }
-          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }, { path: 'src/app.ts', status: 'added' }], insertions: 12, deletions: 4 } } }
-          if (q.kind === 'diff') {
-            if (deferBinaryDiff && q.path === 'img.png') await new Promise((resolve) => { releaseBinaryDiff = resolve })
-            // An image path diffs as the binary marker, like real git.
-            if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n', newLines: 0 } } }
-            // An SVG is text: git produces a real source diff for it.
-            if (q.path.endsWith('.svg')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/icon.svg b/icon.svg\n--- a/icon.svg\n+++ b/icon.svg\n@@ -1 +1 @@\n-<svg width="1"/>\n+<svg width="2"/>\n', newLines: 1 } } }
-            if (q.path.endsWith('.ts')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-const count = 1\n+const count = 2\n', newLines: 1 } } }
-            const addedLine = repeatedDiffRevision !== null && q.path === 'a.txt' ? 'repeat-diff-' + ++repeatedDiffRevision : fixture.diffText ?? 'line2'
-            return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+${addedLine}\n`, newLines: 2 } } }
-          }
-          if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: q.path.endsWith('.svg') ? 'image/svg+xml' : 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
-          if (q.kind === 'dir-list') {
-            fileQueries.push(q.path)
-            if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
-            ] } } }
-            if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
-              { name: 'index.ts', dir: false, size: 40 },
-            ] } } }
-            if (q.path === 'newdir') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'newdir', truncated: false, entries: [
-              { name: 'note.txt', dir: false, size: 10 },
-            ] } } }
-            return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: [] } } }
-          }
-          if (q.kind === 'file-content') {
-            if (q.path.endsWith('.md')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# Hello Markdown\n', lines: 1, size: 1536, mtimeMs: MOCK_MTIME } } }
-            if (q.path.endsWith('.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><title>Doc</title><p id="hi">Hello HTML</p>', lines: 1 } } }
-            // A big text file exercises both source-view guards: >5000 lines
-            // (highlight off) with one >5000-char line (truncation).
-            if (q.path.endsWith('big.js')) {
-              const huge = 'x'.repeat(6000)
-              const body = `const long = "${huge}"\n` + Array.from({ length: 5100 }, (_, i) => `line ${i}`).join('\n') + '\n'
-              return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: body, lines: 5101 } } }
-            }
-            if (q.path.endsWith('wide.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_WIDE}` } } }
-            if (q.path.endsWith('big.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_BIG}` } } }
-            if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}`, size: 64, mtimeMs: MOCK_MTIME } } }
-            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2, size: 24, mtimeMs: MOCK_MTIME } } }
-          }
-          if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
-          if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
-          if (q.kind === 'push-preview') return { ok: true, value: { ok: true, value: { kind: 'push-preview', hasUpstream: fixture.snapshot.hasUpstream === true, commits: 3, files: 2, insertions: 7, deletions: 1 } } }
-          if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: fixture.stashes } } }
-        }
-        if (endpoint === 'gitPanel/run') {
-          const act = request.action
-          fixture.actions.push(act)
-          // A forced failure drives the refusal path (dirty work tree) without
-          // needing the mock to model git's real work-tree checks.
-          if (runFailure !== null && act.kind === 'branch-checkout') {
-            const failure = runFailure
-            runFailure = null
-            return { ok: true, value: { ok: false, error: failure } }
-          }
-          // A landed checkout moves HEAD: the panel must show the branch it read
-          // back from the returned snapshot.
-          if (act.kind === 'branch-checkout') fixture.snapshot = { ...fixture.snapshot, branch: act.name }
-          return { ok: true, value: { ok: true, snapshot: snapshotValue() } }
-        }
-        if (endpoint === 'gitPanel/suggest') {
-          await new Promise((r) => { suggestRelease = r })
-          return { ok: true, value: { ok: true, value: { message: 'feat: suggested', truncated: false } } }
-        }
-        if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
-        return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
-      },
-    },
-  }
 
   const registered = {}
   const services = { connection }
@@ -228,7 +89,7 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 500))
   result.tabCount = document.querySelectorAll('.gp-tab').length
   result.dirtyDefault = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.changes') ?? false
-  result.noInitialFileListing = fileQueries.length === 0
+  result.noInitialFileListing = fixture.fileQueries.length === 0
   const panelRoot = document.querySelector('.gp-panel')
   result.fontDefault = getComputedStyle(panelRoot).fontSize
   document.querySelector('.gp-font__increase')?.click()
@@ -341,7 +202,7 @@ const out = await page.evaluate(async (snap) => {
     } else {
       result.suggestFieldSpinnerInside = false
     }
-    if (suggestRelease) suggestRelease()
+    fixture.releaseSuggest?.()
     await new Promise((r) => setTimeout(r, 80))
     result.suggestUnlocksMessage = msgBox.readOnly === false && amendCb?.disabled === false
     result.suggestFieldSpinnerGone = document.querySelector('.gp-commitbox__msg-wrap .gp-commitbox__spin') === null
@@ -470,7 +331,7 @@ const out = await page.evaluate(async (snap) => {
   })
   result.switchBtnTitleTrack = switchBtnOf('origin/release')?.getAttribute('title') === 'switch.rowTitleTrack'
   result.switchBtnTitleLocal = switchBtnOf('feature')?.getAttribute('title') === 'switch.rowTitle'
-  const branchQueriesBefore = branchQueries
+  const branchQueriesBefore = fixture.branchQueries
   // Remote row → confirm dialog states the tracking branch it will create. The
   // button click must not also toggle the row's history filter.
   switchBtnOf('origin/release')?.click()
@@ -494,7 +355,7 @@ const out = await page.evaluate(async (snap) => {
   const switchAction = fixture.actions[fixture.actions.length - 1]
   result.switchAction = switchAction
   result.switchModalClosed = document.querySelector('.gp-modal__path') === null
-  result.switchReloadedBranches = branchQueries > branchQueriesBefore
+  result.switchReloadedBranches = fixture.branchQueries > branchQueriesBefore
   fixture.snapshot = snap
   await clickCheck()
   // Closing the confirm without confirming runs nothing.
@@ -508,7 +369,7 @@ const out = await page.evaluate(async (snap) => {
   // dialog (with the stash option already on screen as the way out).
   switchBtnOf('feature')?.click()
   await wait(80)
-  runFailure = { code: 'local-changes-block', message: 'local changes' }
+  fixture.runFailure = { code: 'local-changes-block', message: 'local changes' }
   ;[...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirm'))?.click()
   await wait(150)
   result.switchRefusalShown = (document.querySelector('.gp-modal .gp-feedback')?.textContent || '').includes('error.localChangesBlock')
@@ -1075,14 +936,14 @@ const out = await page.evaluate(async (snap) => {
   const overviewTabBtn = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.overview'))
   overviewTabBtn?.click()
   await wait(400)
-  const rootListsBefore = fileQueries.filter((p) => p === '').length
+  const rootListsBefore = fixture.fileQueries.filter((p) => p === '').length
   // The branch tree loads async; wait for the row's button before using it.
   for (let i = 0; i < 20 && switchBtnOf('feature') === null; i += 1) await wait(50)
   switchBtnOf('feature')?.click()
   await wait(80)
   ;[...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirm'))?.click()
   await wait(250)
-  result.switchRelistsFiles = fileQueries.filter((p) => p === '').length > rootListsBefore
+  result.switchRelistsFiles = fixture.fileQueries.filter((p) => p === '').length > rootListsBefore
   result.switchClearsFileSelection = document.querySelector('.gp-files__tree .gp-tree-row--active') === null
   // P1 helper shares the mock RPC state; React roots and all later scenarios
   // remain owned here. Its finally restores the fixture before returning.
@@ -1093,22 +954,22 @@ const out = await page.evaluate(async (snap) => {
   try {
     for (const kind of ['tags', 'authors']) {
       filesTabBtn?.click(); await wait(80)
-      secondaryQueryFailure = kind
+      fixture.secondaryQueryFailure = kind
       overviewTabBtn?.click(); await wait(150)
       result.secondaryFailuresKeepBranches.push({
         kind,
-        injected: secondaryFailures.includes(kind),
+        injected: fixture.secondaryFailures.includes(kind),
         visible: [...document.querySelectorAll('.gp-overview .gp-branch-row')].some((row) => (row.textContent || '').includes('feature') && row.getClientRects().length > 0),
         error: (document.querySelector('.gp-overview')?.textContent || '').includes('overview.branchesError'),
       })
     }
-  } finally { secondaryQueryFailure = null }
+  } finally { fixture.secondaryQueryFailure = null }
 
   // Reopening the same row must reload without waiting for another snapshot.
   ;[...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))?.click()
   await wait(100)
   const repeatDiffRow = [...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('a.txt'))
-  repeatedDiffRevision = 0
+  fixture.repeatedDiffRevision = 0
   try {
     repeatDiffRow?.click(); await wait(80)
     const firstLoaded = (document.querySelector('.gp-changes .gp-diff__wrap')?.textContent || '').includes('repeat-diff-1')
@@ -1119,12 +980,12 @@ const out = await page.evaluate(async (snap) => {
     result.repeatedDiffReloads = {
       firstLoaded,
       requests: fixture.queries.filter((kind) => kind === 'diff').length - diffCallsBeforeReopen,
-      revision: repeatedDiffRevision,
+      revision: fixture.repeatedDiffRevision,
       freshRendered: (pane?.querySelector('.gp-diff__wrap')?.textContent || '').includes('repeat-diff-2') && pane.getClientRects().length > 0,
       loading: (pane?.textContent || '').includes('common.loading'),
       snapshots: fixture.snapshotCalls - snapshotsBeforeReopen,
     }
-  } finally { repeatedDiffRevision = null }
+  } finally { fixture.repeatedDiffRevision = null }
 
   // P0: exercise the actual Panel/registry/controller with resident sub-tabs.
   // Delay the restore snapshot so an early child batch cannot hide in batching.
@@ -1135,13 +996,13 @@ const out = await page.evaluate(async (snap) => {
   const pickTab = (key) => [...document.querySelectorAll('.gp-tab')].find((button) => (button.textContent || '').includes(key))?.click()
   try {
     pickTab('tab.changes'); await wait(100)
-    deferBinaryDiff = true
+    fixture.deferBinaryDiff = true
     ;[...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('img.png'))?.click()
     await wait(50)
     setHidden(true); await wait(30)
     const imageStagesBefore = fixture.queries.filter((kind) => kind === 'image-diff').length
-    deferBinaryDiff = false
-    releaseBinaryDiff?.(); releaseBinaryDiff = null
+    fixture.deferBinaryDiff = false
+    fixture.releaseBinaryDiff?.(); fixture.releaseBinaryDiff = null
     await wait(80)
     result.visibilityNoHiddenImageStage = fixture.queries.filter((kind) => kind === 'image-diff').length === imageStagesBefore
     ;[...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('a.txt'))?.click()
@@ -1177,8 +1038,8 @@ const out = await page.evaluate(async (snap) => {
     setHidden(false); await wait(150)
     result.visibilityFilesNoQueries = fixture.queries.length === 0
   } finally {
-    deferBinaryDiff = false
-    releaseBinaryDiff?.(); releaseBinaryDiff = null
+    fixture.deferBinaryDiff = false
+    fixture.releaseBinaryDiff?.(); fixture.releaseBinaryDiff = null
     fixture.holdSnapshot = false
     fixture.releaseSnapshot?.(); fixture.releaseSnapshot = null
     if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor)
@@ -1231,281 +1092,7 @@ const realInput = await (async () => {
 await browser.close()
 
 try {
-  assert.equal(out.error, undefined, out.error)
-  assert.deepEqual(out.slots.sort(), ['conversation.input.left', 'conversation.view', 'plugins.bundle.config'])
-  assert.equal(out.pillHasDirty, true, 'dirty pill shows the orange git class')
-  assert.equal(out.viewOrder, 30, 'panel is ordered after Chat/Trajectory')
-  assert.equal(out.tabCount, 3, 'three sub-tabs')
-  assert.equal(out.dirtyDefault, true, 'opening a dirty Git workspace defaults to Changes')
-  assert.deepEqual(out.sameFingerprintPolling, {
-    panelRenders: 0, pillRenders: 0, queries: ['diff', 'diff', 'stash-list', 'stash-list'],
-    freshDiff: true, nonTipStashRemoved: true, relativeStatsUpdated: true,
-  }, 'same-business polls keep Panel/pill idle while refreshing current diff, stash and relative time')
-  assert.deepEqual(out.sameFingerprintAction, {
-    kind: 'stash-drop', queriesAfterAction: ['diff', 'stash-list'], queriesAfterOldPoll: ['diff', 'stash-list'],
-  }, 'action accept refreshes one batch and an older held poll cannot refresh again')
-  assert.deepEqual(out.sameFingerprintOverviewClock, {
-    before: 'time.justNow', after: 'time.minutesAgo{"n":1}', queries: ['authors', 'branches', 'history', 'tags'],
-  }, 'Overview clock advances on query ticks even with the same business snapshot and history array')
-  assert.deepEqual(out.tagCreateRefresh, {
-    action: { kind: 'tag-create', name: 'p1-refresh-tag', commit: 'fixed-clock-commit' },
-    queries: ['authors', 'branches', 'history', 'tags'], snapshots: 0, panelRenders: 0, sameBusiness: true,
-  }, 'a real tag-create UI operation refreshes one local batch without a snapshot tick or business publish')
-  assert.deepEqual(out.toolbarFetchRefresh, {
-    kind: 'fetch', queries: ['authors', 'branches', 'history', 'tags'],
-    queriesAfterOldPoll: ['authors', 'branches', 'history', 'tags'],
-  }, 'the history toolbar fetch routes through accept and refreshes one batch even with an older held poll')
-  assert.deepEqual(out.snapshotErrorRecovery, {
-    errorShown: true, queriesWhileFailed: [], remounted: true,
-    queries: ['authors', 'branches', 'history', 'tags'], overviewActive: true,
-  }, 'a snapshot failure unmounts Git tabs and recovery remounts only the active query batch once')
-  assert.deepEqual(out.secondaryFailuresKeepBranches, [
-    { kind: 'tags', injected: true, visible: true, error: false },
-    { kind: 'authors', injected: true, visible: true, error: false },
-  ], 'secondary query failures must not replace successful branches with an error pane')
-  assert.deepEqual(out.repeatedDiffReloads, { firstLoaded: true, requests: 1, revision: 2, freshRendered: true, loading: false, snapshots: 0 },
-    'reopening the same diff must request and render fresh data without a snapshot tick')
-  assert.equal(out.visibilityNoHiddenImageStage, true, 'a binary diff completed hidden cannot start image-side queries')
-  assert.equal(out.visibilityWaitsForSnapshot, true, 'restoring Changes waits for one fresh snapshot before queries')
-  assert.deepEqual(out.visibilityChangesCatchup, ['diff', 'stash-list'], 'restored Changes issues one batch, hidden overview stays idle')
-  assert.equal(out.visibilityOverviewWaits, true, 'restoring Overview does not query using the pre-hide snapshot')
-  assert.deepEqual(out.visibilityOverviewCatchup, ['authors', 'branches', 'history', 'tags'], 'restored Overview issues one batch, hidden Changes stays idle')
-  assert.equal(out.visibilityFilesNoQueries, true, 'Files active leaves resident overview/Changes idle after restore')
-  assert.equal(out.noInitialFileListing, true, 'dirty default does not fetch hidden file-browser data')
-  assert.equal(out.fontDefault, '13px', 'panel keeps the existing default font size')
-  assert.equal(out.fontIncreased, '14px', 'font control increases panel text size')
-  assert.equal(out.fontStored, '1', 'font adjustment persists locally')
-  assert.equal(out.fontReset, '13px', 'font reset restores default size')
-  assert.equal(out.wideLayout, 'wide', 'a wide panel uses the three-column wide layout')
-  assert.equal(out.wideShowsControls, true, 'a wide panel shows the trailing controls')
-  assert.equal(out.wideShowsLabel, true, 'a wide panel shows the tab labels')
-  assert.equal(out.narrowLayout, 'compact', 'a phone-width panel switches to the compact layout')
-  assert.equal(out.narrowShowsControls, true, 'the compact layout keeps the trailing controls (wrapped, not hidden)')
-  assert.equal(out.narrowKeepsLabel, true, 'the compact layout still keeps the tab labels')
-  assert.equal(out.tinyHidesLabel, true, 'a very narrow panel drops the tab labels')
-  assert.equal(out.tinyKeepsIcon, true, 'a very narrow panel keeps the tab icons')
-  assert.equal(out.tinyShowsControls, true, 'a very narrow compact panel still keeps the trailing controls')
-  assert.equal(out.restoresLayout, 'wide', 'widening the panel restores the wide layout')
-  assert.equal(out.restoresLabel, true, 'widening the panel restores the tab labels')
-  assert.equal(out.hasStats, true, 'stats bar rendered')
-  assert.equal(out.hasCommitBox, true, 'commit box rendered')
-  assert.equal(out.hasAmend, true, 'amend checkbox present')
-  assert.equal(out.hasStashBtn, true, 'stash button present in the changes toolbar')
-  assert.equal(out.stashRows, 1, 'the stash list expands to its one entry')
-  assert.equal(out.stashDropHint, true, 'the stash drop confirm shows the AI hint')
-  assert.equal(out.stashDropEscClosed, true, 'Escape dismisses the stash drop confirm')
-  assert.equal(out.stashPushOpened, true, 'the stash push dialog opens from the toolbar button')
-  assert.equal(out.stashPushHint, true, 'the stash push dialog shows the AI hint')
-  assert.equal(out.stashPushEscClosed, true, 'Escape dismisses the stash push dialog')
-  assert.equal(out.commitDisabledEmpty, true, 'commit button is disabled without a message')
-  assert.equal(out.commitEnabledWithMessage, true, 'commit button enables once a message is typed')
-  assert.equal(out.commitPrimaryHoverKeepsColor, true, 'primary button defines a hover style that keeps its color')
-  assert.equal(out.suggestLocksMessage, true, 'commit message box is read-only while AI suggest is in flight')
-  assert.equal(out.suggestLocksAmend, true, 'amend toggle is disabled while AI suggest is in flight')
-  assert.equal(out.suggestUnlocksMessage, true, 'message box and amend unlock once the suggestion lands')
-  assert.equal(out.suggestFieldSpinner, true, 'a loading spinner renders inside the message field while generating')
-  assert.equal(out.suggestFieldSpinnerAnimates, true, 'the field spinner actually animates')
-  assert.equal(out.suggestFieldSpinnerAria, true, 'the decorative spinner is hidden from assistive tech')
-  assert.equal(out.suggestFieldSpinnerInside, true, 'the spinner is laid out inside the message field')
-  assert.equal(out.suggestFieldSpinnerGone, true, 'the field spinner disappears once the suggestion lands')
-  assert.equal(out.suggestFilled, true, 'the suggestion fills the message box')
-  assert.equal(out.changeRows, 6, 'six change rows (two modified text + untracked file + untracked dir + image + svg)')
-  assert.equal(out.imagePanes, 2, 'image diff renders both panes in split mode')
-  assert.equal(out.imageImgs, 2, 'both panes render an image')
-  assert.equal(out.imageSrcOk, true, 'panes carry data URL images')
-  assert.deepEqual(out.imageHeads, ['diff.before', 'diff.after'], 'pane labels before/after')
-  assert.equal(out.imageSingle, true, 'after-mode collapses to one pane')
-  assert.equal(out.imageSingleHead, 'diff.after', 'the single pane keeps its label')
-  assert.equal(out.svgHasToggle, true, 'an SVG diff shows the render/source toggle bar')
-  assert.equal(out.svgRenderDefault, true, 'an SVG diff defaults to the rendered comparison')
-  assert.equal(out.svgSourceShowsDiff, true, 'switching an SVG to source shows the text diff')
-  assert.equal(out.svgRenderRestored, true, 'switching an SVG back to render restores the comparison')
-  assert.equal(out.hasBranchList, true, 'branch list rendered on overview')
-  assert.equal(out.statusBarShown, true, 'the wide left column renders the status bar')
-  assert.equal(out.statusRepoHref, 'https://github.com/owner/repo', 'the status bar links to the parsed GitHub repo page')
-  assert.equal(out.statusSyncedShown, true, 'a synced branch shows the up-to-date state')
-  assert.equal(out.statusNoPullWhenSynced, true, 'a synced branch offers no pull button')
-  assert.equal(out.statusNoPushWhenSynced, true, 'a synced branch offers no push button')
-  assert.equal(out.statusAheadPushShown, true, 'a strictly-ahead branch offers a push button')
-  assert.equal(out.statusPushConfirmOpened, true, 'push opens a confirm dialog')
-  assert.equal(out.statusPushScopeShown, true, 'the push confirm shows the outgoing scope')
-  assert.equal(out.statusNoUpstreamNoPush, true, 'a branch without an upstream offers no push button')
-  assert.equal(out.statusPublishShown, true, 'a branch without an upstream offers a publish button')
-  assert.equal(out.statusPublishConfirmOpened, true, 'publish opens a second-reminder confirm dialog')
-  assert.equal(out.searchFullHint, true, 'a wide search box shows the full message/hash hint')
-  assert.equal(out.searchShortHint, true, 'a narrow search box drops the hint to the short placeholder')
-  assert.equal(out.searchHintRestored, true, 'widening the search box restores the full hint')
-  assert.equal(out.commitRows, 2, 'two commit rows')
-  assert.equal(out.hasGraph, true, 'commit graph svg rendered')
-  assert.equal(out.hasDetailFileRow, true, 'selecting a commit lists its changed files')
-  assert.equal(out.hasChangeSummary, true, 'commit detail shows a change summary row')
-  assert.equal(out.summaryHasFileCount, true, 'summary carries the file-count label')
-  assert.equal(out.summaryAdd, '+12', 'summary shows added lines')
-  assert.equal(out.summaryDel, '\u22124', 'summary shows deleted lines')
-  assert.equal(out.treeDirRowShown, true, 'changed-file tree shows a folder row')
-  assert.equal(out.treeChildVisibleDefault, true, 'folder is expanded by default')
-  assert.equal(out.treeDirExpandedDefault, true, 'folder row reports aria-expanded=true by default')
-  assert.equal(out.treeChildHiddenAfterCollapse, true, 'clicking the folder collapses its children')
-  assert.equal(out.treeDirCollapsedAttr, true, 'collapsed folder reports aria-expanded=false')
-  assert.equal(out.treeChildVisibleAfterReexpand, true, 'clicking again re-expands the folder')
-  assert.equal(out.treeDirFocusable, true, 'folder row is keyboard-focusable (tabIndex 0)')
-  assert.equal(out.treeChildHiddenAfterKeyToggle, true, 'Enter on the folder collapses it')
-  assert.equal(out.treeChildVisibleAfterKeyReexpand, true, 'Enter again re-expands it')
-  assert.equal(out.hasCreateTagBtn, true, 'commit detail shows a create-tag action')
-  assert.equal(out.tagModalOpened, true, 'the create-tag dialog opens')
-  assert.equal(out.tagModalHint, true, 'the create-tag dialog shows the AI hint')
-  assert.equal(out.tagModalClosed, true, 'the create-tag dialog closes via its close button')
-  assert.equal(out.hasRevertBtn, true, 'commit detail shows a revert action')
-  assert.equal(out.revertModalHint, true, 'the revert confirm shows the AI hint')
-  assert.equal(out.hasResetBtn, true, 'commit detail shows a reset action')
-  assert.equal(out.resetModeCount, 3, 'the reset dialog offers soft/mixed/hard')
-  assert.equal(out.resetHardAck, true, 'hard mode reveals the acknowledgement')
-  assert.equal(out.resetConfirmDisabledBeforeAck, true, 'hard reset confirm is disabled until acknowledged')
-  assert.equal(out.resetConfirmEnabledAfterAck, true, 'acknowledging enables the hard reset confirm')
-  assert.equal(out.resetModalClosed, true, 'Escape dismisses the reset dialog')
-  assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
-  assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
-  assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')
-  assert.equal(out.diffFindOpened, true, 'Ctrl+F opens Find inside the diff modal')
-  assert.ok(out.diffFindHits >= 1, 'the diff Find highlights matches')
-  assert.equal(out.diffFindActive, 1, 'exactly one diff match is the active hit')
-  assert.ok(/^1\/\d+$/.test(out.diffFindCount || ''), 'the diff Find shows an active/total count')
-  assert.ok(out.diffFindCaseInsensitiveHits >= 1, 'diff Find is case-insensitive by default: COUNT matches count')
-  assert.equal(out.diffFindCaseSensitiveHits, 0, 'enabling Match case in the diff Find drops mismatched-case matches')
-  assert.equal(out.diffFindClosedModalKept, true, 'Esc closes diff Find without closing the modal')
-  assert.equal(out.modalClosedByEsc, true, 'Esc closes the modal')
-  assert.equal(out.modalClosedByBtn, true, 'the close button closes the modal')
-  assert.equal(out.livePillJump, true, 'pill jump still takes the active panel to Changes')
-  assert.ok(out.filesTreeRows >= 3, 'files tab lists the root directory entries')
-  assert.equal(out.ignoredRowsDimmed, true, 'Git ignored files and directories appear translucent')
-  assert.equal(out.folderIcon, 'folder', 'folder rows use the official folder glyph')
-  assert.ok(out.filesTreeRowsAfterExpand > out.filesTreeRows, 'expanding a directory reveals its children')
-  assert.equal(out.filesCodeShown, true, 'selecting a text file shows the code preview')
-  assert.equal(out.txtRowSelected, true, 'the selected file row carries the active class')
-  assert.equal(out.selectionStyled, true, 'the active file row has a distinct primary-tinted highlight')
-  assert.equal(out.officialCodeHighlight, true, 'code preview renders syntax spans from the DSH highlighter')
-  assert.equal(out.codeIconPath, 'src/index.ts', 'code file glyph receives its relative path for official type classification')
-  assert.equal(out.copiedPath, 'src/index.ts', 'preview copies the selected file path relative to browse root')
-  assert.equal(out.copyFeedback, 'files.pathCopied', 'copy button confirms successful clipboard write')
-  assert.equal(out.copyFeedbackReset, true, 'late copy of previous file cannot change current file feedback')
-  assert.equal(out.copyDeniedFeedback, true, 'clipboard denial shows an actionable failure state')
-  assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
-  assert.equal(out.zoomDiffBars, 2, 'each diff image pane renders its own zoom bar')
-  assert.equal(out.zoomBarShown, true, 'the file preview shows the zoom bar')
-  assert.equal(out.zoomPctBefore, '100%', 'the fit label starts at the fit percentage')
-  assert.equal(out.zoomWheelZoomed, true, 'ctrl+wheel (pinch) zooms the image')
-  assert.equal(out.zoomPctAfter, '120%', 'a pinch step applies the 1.2x scale factor')
-  assert.equal(out.zoomPlainWheelNoop, true, 'a plain wheel leaves zoom alone so panning stays native')
-  assert.equal(out.zoomDblClickFit, true, 'double click returns to fit')
-  assert.equal(out.zoomFitPressed, true, 'fit reports aria-pressed while active')
-  assert.equal(out.zoomLightboxShown, true, 'the fullscreen lightbox opens')
-  assert.equal(out.zoomLightboxClosed, true, 'Escape closes the lightbox')
-  assert.equal(out.zoomLightboxImagePressKeeps, true, 'pressing the lightbox image keeps it open')
-  assert.equal(out.zoomLightboxBackdropCloses, true, 'pressing the lightbox empty area closes it')
-  assert.equal(out.zoomInZoomed, true, 'the zoom bar steps the zoom level up')
-  assert.equal(out.zoomFitLabelHonest, true, 'after resizing while zoomed, the fit label matches the rendered size')
-  assert.equal(out.zoomResetsOnNewImage, true, 'switching images resets the zoom instead of carrying it over')
-  assert.equal(out.zoomFitTracksViewport, true, 'the fit label tracks a viewport resize at the size actually rendered')
-  assert.equal(out.zoomAboveNaturalRendered, true, 'zooming past 100% really grows the rendered image, not just the label')
-  assert.equal(out.zoomAboveNaturalScrolls, true, 'zooming past 100% extends the scrollable area instead of fake-panning')
-  assert.equal(out.zoomImgClickNoFullscreen, true, 'a click on the image does not open the lightbox (fullscreen lives in the zoom bar)')
-  assert.equal(out.zoomPanScrollable, true, 'a zoomed image overflows its viewport, so it can be panned')
-  assert.equal(out.zoomPanImgNotDraggable, true, 'the image opts out of the browser native drag so a mouse drag pans instead')
-  assert.equal(out.zoomFitCursor, 'zoom-in', 'the fit viewport advertises click-to-zoom, not a drag')
-  assert.equal(out.zoomGrabCursor, 'grab', 'the zoomed viewport advertises drag-to-pan')
-  assert.equal(out.zoomDragPanned, true, 'dragging with the mouse pans the zoomed image')
-  assert.equal(out.zoomDragKeepsMode, true, 'a drag never doubles as a double click that changes the zoom')
-  assert.equal(out.zoomTouchNotTakenOver, true, 'touch presses keep native scrolling instead of being taken over')
-  assert.equal(out.zoomGestureScales, true, "Safari's gesture events scale the image")
-  assert.equal(out.zoomDiffPanesIndependent, true, 'each comparison pane zooms on its own')
-  assert.equal(out.zoomDiffResetsOnFileSwitch, true, 'a new diff file drops the panes\u2019 zoom instead of carrying it over')
-  assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
-  assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
-  assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
-  assert.equal(out.htmlSourceDefault, true, 'HTML defaults to the source view, never auto-rendered')
-  assert.equal(out.htmlRenderShown, true, 'switching HTML to render mounts the preview iframe')
-  assert.equal(out.htmlFrameSandbox, 'allow-scripts', 'the HTML iframe runs scripts but stays a unique opaque origin (no allow-same-origin)')
-  assert.equal(out.htmlFrameHasSrcdoc, true, 'the HTML iframe carries the page bytes via srcdoc (no extra fetch)')
-  assert.equal(out.bigHighlightOff, true, 'a large text file skips highlighting and shows the notice')
-  assert.equal(out.bigNoSyntaxSpans, true, 'a large text file renders plain text (no syntax spans)')
-  assert.equal(out.bigLineTruncated, true, 'an over-long line is truncated with a marker')
-  assert.ok(out.bigMountedRows > 0 && out.bigMountedRows < out.bigTotalLines, `virtualized: mounts a window (${out.bigMountedRows}), not all ${out.bigTotalLines} rows`)
-  assert.equal(out.bigSpacerHeight, out.bigTotalLines * 20, 'the virtual spacer height reflects the full line count')
-  assert.equal(out.findOpened, true, 'Ctrl+F opens the in-panel find while the preview is visible')
-  assert.equal(out.findHitCount, 2, 'the query highlights every match in the file')
-  assert.equal(out.findActiveCount, 1, 'exactly one match is the active hit')
-  assert.equal(out.findCountLabel, '1/2', 'the count shows the active index and total')
-  assert.equal(out.findCountAfterNext, '2/2', 'next-match navigation advances the active index')
-  assert.equal(out.findNoMatchLabel, 'files.findNoMatch', 'a query with no results shows the no-match label')
-  assert.equal(out.findCaseInsensitiveHits, 2, 'case-insensitive by default: CONST matches lowercase const')
-  assert.equal(out.findCaseButtonActive, true, 'the Match case toggle reflects its active state')
-  assert.equal(out.findCaseSensitiveHits, 0, 'enabling Match case drops mismatched-case matches')
-  assert.equal(out.findCaseSensitiveLabel, 'files.findNoMatch', 'case-sensitive no-match shows the no-match label')
-  assert.equal(out.findClosed, true, 'Esc closes the find box')
-  assert.equal(out.propsBtnShown, true, 'the preview toolbar shows the properties entry')
-  assert.equal(out.propsOpened, true, 'the properties dialog opens from the toolbar')
-  assert.equal(out.propsTitle, 'files.propsTitle', 'the dialog bar carries the properties title')
-  assert.deepEqual(out.propsGroups, ['files.propsGroupStats', 'files.propsGroupTime'], 'a text file gets the size/stats and time groups')
-  assert.equal(out.propsName, 'a.txt', 'the name row shows the file name')
-  assert.equal(out.propsTypeKey, 'files.propsTypeFmt', 'the type row renders the language/ext label')
-  assert.equal(out.propsRelPath, 'a.txt', 'the relative-path row copies the browse-relative path')
-  assert.equal(out.propsAbsPath, 'fixture-repo/a.txt', 'the absolute-path row shows the root-prefixed path')
-  assert.equal(out.propsSize, '24 B', 'a sub-KiB size stays exact')
-  assert.equal(out.propsSizeSub, null, 'a sub-KiB size omits the raw-byte parenthetical')
-  assert.equal(out.propsLines, '2', 'the stats block shows the line count')
-  assert.equal(out.propsMtime, true, 'the time group shows an absolute timestamp')
-  assert.deepEqual(out.propsBadges, ['files.propsTrackedYes', 'files.stModified'], 'the footer states tracked + modified once')
-  assert.equal(out.propsCopiedAbs, 'fixture-repo/a.txt', 'copying the path row writes the root-prefixed path')
-  assert.equal(out.propsCopyFeedback, 'files.pathCopied', 'the footer confirms the copy')
-  assert.equal(out.propsClosed, true, 'Escape closes the properties dialog')
-  assert.deepEqual(out.propsUntrackedBadges, ['files.propsUntracked'], 'an untracked file states untracked exactly once')
-  assert.deepEqual(out.propsUntrackedDirBadges, ['files.propsUntracked'], 'a file inside a collapsed untracked directory reads untracked, not tracked')
-  assert.deepEqual(out.propsIgnoredBadges, ['files.ignored'], 'an ignored file states only the ignored fact')
-  assert.equal(out.propsImageDimsRow, true, 'an image gets its natural size probed onto the dialog')
-  assert.deepEqual(out.propsImageBadges, ['files.propsTrackedYes'], 'an unchanged tracked image carries no working-tree chip')
-  assert.equal(out.propsSizeKiB, '1.5 KB', 'a rounded size steps to the display unit')
-  assert.equal(out.propsSizeKiBSub, 'files.propsSizeBytes', 'a rounded size carries the raw byte count parenthetical')
-  assert.equal(out.preUnmountFilesActive, true, 'before the switch the Files tab is active')
-  assert.ok(out.preUnmountSelected, 'before the switch a file is selected')
-  assert.equal(out.preUnmountChildVisible, true, 'before the switch the expanded dir shows its child')
-  assert.equal(out.restoredFilesActive, true, 'a quick return restores the Files sub-tab')
-  assert.equal(out.restoredChildVisible, true, 'a quick return keeps the expanded directory open')
-  assert.equal(out.restoredSelected, out.preUnmountSelected, 'a quick return keeps the same file selected')
-  assert.equal(out.restoredPreviewShown, true, 'a quick return restores the file preview')
-
-  // Branch switch (wide): per-row switch button, confirm + stash choice,
-  // run payload, refusal kept in the dialog.
-  assert.equal(out.switchNoFixedEntry, true, 'the left column has no fixed switch entry any more')
-  assert.deepEqual(out.switchBtnRows, ['feature', 'origin/release'],
-    'only rows with a switch target carry the button (not the current branch or the remote resolving to it)')
-  assert.equal(out.switchBtnHidden, true, 'the switch button is hidden until the row is hovered')
-  assert.equal(out.switchBtnHoverRule, true, 'a hover rule reveals the switch button')
-  assert.equal(out.switchBtnTitleTrack, true, 'a remote row without a local branch says it creates a tracking branch')
-  assert.equal(out.switchBtnTitleLocal, true, 'a local row titles a plain switch')
-  assert.equal(out.switchBtnNoFilter, true, 'clicking the switch button does not toggle the history filter')
-  assert.equal(out.switchCancelRunsNothing, true, 'closing the confirm runs no checkout')
-  assert.equal(out.switchConfirmOpened, true, 'picking a row opens the switch confirm')
-  assert.equal(out.switchConfirmBody, true, 'the confirm states the from → to switch')
-  assert.equal(out.switchTrackingNote, true, 'a remote row explains the local branch it will create and track')
-  assert.equal(out.switchDirtyWarn, true, 'a dirty work tree is called out before switching')
-  assert.equal(out.switchStashChoice, true, 'the dirty work tree offers the stash-first choice')
-  assert.equal(out.switchDefaultNoStash, true, 'the default is a plain switch, not a stash')
-  assert.equal(out.switchStashRelabel, true, 'choosing stash relabels the confirm button')
-  assert.deepEqual(out.switchAction, {
-    kind: 'branch-checkout', name: 'release', createFrom: 'origin/release', stashMessage: 'switch.stashMessage',
-  }, 'the confirm runs the tracking checkout, stashing first when chosen')
-  assert.equal(out.switchModalClosed, true, 'a landed switch closes the dialog')
-  assert.equal(out.switchReloadedBranches, true, 'a landed switch reloads the branch list')
-  assert.equal(out.switchRefusalShown, true, 'a refused switch shows the refusal inside the dialog')
-  assert.equal(out.switchRefusalStaysOpen, true, 'a refused switch keeps the dialog open for another choice')
-  assert.equal(out.switchRelistsFiles, true, 'a branch switch makes the Files tab re-list the root')
-  assert.equal(out.switchClearsFileSelection, true, 'a branch switch drops the Files tab selection')
-
-  assert.ok(realInput !== null && realInput.before.rendered > realInput.before.natural, `real input: zooming past 100% grows the rendered image (${JSON.stringify(realInput?.before)})`)
-  assert.ok(realInput !== null && realInput.after.left > realInput.before.left && realInput.after.top > realInput.before.top, `real input: a mouse drag pans the zoomed image (${JSON.stringify(realInput?.before)} -> ${JSON.stringify(realInput?.after)})`)
-  assert.equal(realInput?.after.pct, realInput?.before.pct, 'real input: a drag leaves the zoom level untouched')
-  assert.equal(realInput?.after.lightbox, false, 'real input: a drag never opens the lightbox')
-  assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
+  assertPanelResults(out, realInput, errors)
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {
   console.error('e2e run.mjs: FAIL', e.message)

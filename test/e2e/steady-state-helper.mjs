@@ -100,6 +100,8 @@ window.runSteadyStateScenarios = async (fixture) => {
       relativeStatsUpdated: document.querySelector('.gp-stats')?.textContent !== statsBefore,
     }
 
+    result.confirmationState = await window.runConfirmationStateScenarios(fixture, { waitFor, flushUI, click, releaseAndParkNext })
+
     // The action lands while an ordinary poll is held. Waiting for the next
     // parked poll proves its predecessor settled without relying on a short nap.
     const actionQueriesBefore = fixture.queries.length
@@ -172,6 +174,8 @@ window.runSteadyStateScenarios = async (fixture) => {
       queries: queriesAfterFetch,
       queriesAfterOldPoll: queriesSince(fetchQueriesBefore),
     }
+
+    result.fetchFailureFeedback = await window.runOverviewFetchScenarios(fixture, { waitFor, flushUI, click, releaseAndParkNext })
 
     // A snapshot error removes resident Git tabs. Recovery must remount them,
     // reopen only the active Overview gate, and issue exactly one fresh batch.
