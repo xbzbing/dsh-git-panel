@@ -56,6 +56,16 @@ export function FullscreenIcon({ size }: IconProps): JSX.Element {
   ], size)
 }
 
+/** Soft-return arrow: three text lines wrapping onto a fourth. */
+export function WrapIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'a', d: 'M2 3.5h12' }),
+    h('path', { key: 'b', d: 'M2 7.5h12' }),
+    h('path', { key: 'c', d: 'M2 11.5h7' }),
+    h('path', { key: 'd', d: 'M2 11.5c0 2 1.5 3 3.5 3H10' }),
+  ], size)
+}
+
 /** Left-pointing arrow for the compact drill-in back button. */
 export function ArrowLeftIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M10 3L5 8l5 5' }), h('path', { key: 'b', d: 'M5 8h8' })], size)

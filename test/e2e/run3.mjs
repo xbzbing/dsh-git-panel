@@ -370,12 +370,19 @@ const out = await page.evaluate(async (snap) => {
   result.flBackBtnHeight = Math.round(document.querySelector('.gp-files__bar .gp-subhead__back').getBoundingClientRect().height)
   result.ovfFilesDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-files--compact'))
   // The compact toolbar drops the relative path and both copy buttons; a plain
-  // text file has no source/render switch, only fullscreen + properties.
+  // text file has no source/render switch, only word-wrap + fullscreen +
+  // properties.
   result.flNoPath = document.querySelector('.gp-files__bar .gp-files__path') === null
   result.flNoCopy = document.querySelector('.gp-files__bar .gp-files__copy-path') === null
   result.flPlainNoMode = document.querySelector('.gp-files__bar [role="tablist"]') === null
   result.flHasFullscreen = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]') !== null
   result.flHasProps = document.querySelector('.gp-files__bar [aria-label="files.propsTitle"]') !== null
+  result.flHasWrap = document.querySelector('.gp-files__bar [aria-label="files.wrap"]') !== null
+  result.flWrapDefaultOn = document.querySelector('.gp-files__bar [aria-label="files.wrap"]')?.getAttribute('aria-pressed') === 'true'
+  result.flWrapDefaultWrapped = (() => {
+    const cell = document.querySelector('.gp-files__preview-content .gp-files__code .gp-diff-cell')
+    return cell !== null && getComputedStyle(cell).whiteSpace.startsWith('pre-wrap')
+  })()
   // Trailing icons stay pinned to the toolbar's right edge even when the file
   // has no source/render switcher to take up the space between.
   const barEl = document.querySelector('.gp-files__bar--compact')
@@ -387,11 +394,24 @@ const out = await page.evaluate(async (snap) => {
     - (document.querySelector('.gp-files__bar .gp-subhead__back').getBoundingClientRect().top
       + document.querySelector('.gp-files__bar .gp-subhead__back').getBoundingClientRect().height / 2),
   ) <= 2
-  // The two icon buttons match the 30px back button / mode control, not their
-  // inline 24px size.
+  // The three icon buttons match the 30px back button / mode control, not
+  // their inline 24px size.
   const barEndBtns = [...document.querySelectorAll('.gp-files__bar-end .gp-files__props')]
-  result.flBarEndHeights = barEndBtns.length === 2
+  result.flBarEndHeights = barEndBtns.length === 3
     && barEndBtns.every((b) => Math.round(b.getBoundingClientRect().height) === 30)
+  // Toggling wrap off switches the source body to non-wrapping cells and
+  // re-enables the aria-pressed state.
+  const wrapBtn = document.querySelector('.gp-files__bar [aria-label="files.wrap"]')
+  wrapBtn?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  result.flWrapToggledOff = wrapBtn?.getAttribute('aria-pressed') === 'false'
+    && (() => {
+      const cell = document.querySelector('.gp-files__preview-content .gp-files__code .gp-diff-cell')
+      return cell !== null && getComputedStyle(cell).whiteSpace === 'pre'
+    })()
+  wrapBtn?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  result.flWrapRestored = wrapBtn?.getAttribute('aria-pressed') === 'true'
   // Fullscreen renders the same mode in the near-fullscreen modal and closes on Escape.
   // Focus the trigger first: a programmatic .click() does not focus it, and the
   // dialog is expected to restore focus to the control that opened it.
@@ -568,9 +588,14 @@ try {
   assert.equal(out.flPlainNoMode, true, 'a plain text file shows no source/render switch')
   assert.equal(out.flHasFullscreen, true, 'the compact toolbar carries the fullscreen entry')
   assert.equal(out.flHasProps, true, 'the compact toolbar keeps the properties entry')
+  assert.equal(out.flHasWrap, true, 'the compact toolbar carries the word-wrap toggle')
+  assert.equal(out.flWrapDefaultOn, true, 'word wrap defaults to on')
+  assert.equal(out.flWrapDefaultWrapped, true, 'the source body wraps by default')
+  assert.equal(out.flWrapToggledOff, true, 'toggling wrap off stops wrapping')
+  assert.equal(out.flWrapRestored, true, 'toggling wrap on again restores wrapping')
   assert.equal(out.flPropsRightAligned, true, 'without a mode switcher the properties entry still sits at the right edge')
   assert.equal(out.flIconsOneRow, true, 'the back button and the trailing icons share one row')
-  assert.equal(out.flBarEndHeights, true, 'fullscreen / properties match the 30px bar height')
+  assert.equal(out.flBarEndHeights, true, 'wrap / fullscreen / properties match the 30px bar height')
   assert.equal(out.flFullscreenOpened, true, 'fullscreen opens the near-fullscreen modal')
   assert.equal(out.flFullscreenCode, true, 'the fullscreen modal renders the code view')
   assert.equal(out.flFullscreenHasPath, true, 'the fullscreen modal shows the file path')

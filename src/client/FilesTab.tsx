@@ -12,7 +12,7 @@ import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CloseIcon, FullscreenIcon, InfoIcon } from './icons.js'
+import { ArrowLeftIcon, CloseIcon, FullscreenIcon, InfoIcon, WrapIcon } from './icons.js'
 import { useResizableColumn } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, languageForPath, MarkdownText, SegmentedControl, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
@@ -63,6 +63,10 @@ const OVERSCAN = 12
 // Assumed viewport height before the first layout measurement, so the initial
 // paint mounts a bounded window instead of the whole file.
 const VIEWPORT_FALLBACK = 600
+// Wrap drops the fixed-height grid for flow layout, so every line mounts.
+// Above this line count the view keeps the virtualized nowrap grid instead —
+// wrapping a 15k-line file would mount the whole body on the main thread.
+const MAX_WRAP_LINES = 2000
 
 type FileState =
   | { readonly kind: 'idle' }
@@ -85,6 +89,8 @@ interface FilesState {
   readonly selected: string | null
   readonly file: FileState
   readonly renderMarkdown: boolean
+  /** Source-view word wrap (default on); nowrap scrolls horizontally. */
+  readonly wrap: boolean
   /** Compact drill pane ('tree' = list, 'preview' = open file); wide ignores it. */
   readonly pane: 'tree' | 'preview'
 }
@@ -117,6 +123,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
   const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
+  const [wrap, setWrap] = useState(() => init?.wrap ?? true)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [showProps, setShowProps] = useState(false)
@@ -227,8 +234,8 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   // Persist the browsing state when the panel unmounts (view-tab switch or
   // session change) so a quick return restores it; a ref carries the latest
   // values into the unmount-only cleanup.
-  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown, pane })
-  liveRef.current = { dirs, open, selected, file, renderMarkdown, pane }
+  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown, wrap, pane })
+  liveRef.current = { dirs, open, selected, file, renderMarkdown, wrap, pane }
   useEffect(() => () => { stashFilesState(sessionId, liveRef.current) }, [sessionId])
 
   // A restored selection whose preview was still loading at unmount comes back
@@ -312,6 +319,17 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       onClick: () => setFullscreen(true),
     }, h(FullscreenIcon, { size: 14 }))
     : null
+  // Word wrap only affects the source/code body (rendered Markdown already wraps).
+  // Hidden when the file is over MAX_WRAP_LINES — the view keeps the virtualized
+  // nowrap grid there, so the toggle would do nothing.
+  const wrapApplicable = file.kind === 'text' && (file.lines === undefined || file.lines <= MAX_WRAP_LINES)
+  const wrapButton = wrapApplicable && (richPreview ? !renderMarkdown : true)
+    ? h('button', {
+      key: 'wrap', type: 'button', className: 'gp-files__props',
+      title: t('files.wrap'), 'aria-label': t('files.wrap'), 'aria-pressed': wrap,
+      onClick: () => setWrap((w) => !w),
+    }, h(WrapIcon, { size: 14 }))
+    : null
   const propsButton = h('button', {
     key: 'props', type: 'button', className: 'gp-files__props',
     title: t('files.propsTitle'), 'aria-label': t('files.propsTitle'),
@@ -326,7 +344,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       modeSeg,
       // Trailing icons keep their own right-aligned group: without the mode
       // switcher (plain files) they would otherwise sit next to the back button.
-      h('div', { key: 'end', className: 'gp-files__bar-end' }, [fullscreenButton, propsButton]),
+      h('div', { key: 'end', className: 'gp-files__bar-end' }, [wrapButton, fullscreenButton, propsButton]),
     ])
     : null
 
@@ -351,6 +369,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
           }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
           : null,
       ]),
+      wrapButton,
       fullscreenButton,
       propsButton,
     ])
@@ -362,19 +381,19 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       h('div', {
         key: 'src', id: `${modeId}-source-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-source`,
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, markdownLabels, pathImages, markdownSegments, t)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, t)),
       h('div', {
         key: 'rnd', id: `${modeId}-render-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-render`,
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, markdownLabels, pathImages, markdownSegments, t) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, t) : null),
     ]
-    : renderContent(file, renderMarkdown, markdownLabels, pathImages, markdownSegments, t)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, t)
 
   const previewBlock = h('div', { key: 'right', className: 'gp-files__preview' }, [
     selected !== null ? (compact ? compactBar : wideBar) : null,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     fullscreen && selected !== null && file.kind === 'text'
-      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, markdownLabels, pathImages, markdownSegments, onClose: () => setFullscreen(false), t })
+      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, onClose: () => setFullscreen(false), t })
       : null,
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
@@ -397,6 +416,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
 function renderContent(
   file: FileState,
   renderMarkdown: boolean,
+  wrap: boolean,
   markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string },
   pathImages: PathImages | undefined,
   markdownSegments: MermaidSegment[] | undefined,
@@ -424,7 +444,7 @@ function renderContent(
       sandbox: 'allow-scripts', referrerPolicy: 'no-referrer',
     })
   }
-  return renderPreview(file, t)
+  return renderPreview(file, wrap, t)
 }
 
 /**
@@ -436,13 +456,14 @@ function renderContent(
 function FileFullscreen(props: {
   file: FileState
   renderMarkdown: boolean
+  wrap: boolean
   markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string }
   pathImages: PathImages | undefined
   markdownSegments: MermaidSegment[] | undefined
   onClose: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }): JSX.Element | null {
-  const { file, renderMarkdown, markdownLabels, pathImages, markdownSegments, onClose, t } = props
+  const { file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, onClose, t } = props
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   useDialogFocus(dialogRef, onClose, closeRef)
@@ -459,7 +480,7 @@ function FileFullscreen(props: {
       }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
-      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, pathImages, markdownSegments, t))),
+      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, t))),
   ])), document.body, 'file-fullscreen')
 }
 
@@ -520,7 +541,7 @@ function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Element[] 
   return rows
 }
 
-function renderPreview(file: FileState, t: (key: GitKey, params?: Record<string, string | number>) => string): JSX.Element {
+function renderPreview(file: FileState, wrap: boolean, t: (key: GitKey, params?: Record<string, string | number>) => string): JSX.Element {
   switch (file.kind) {
     case 'idle': return h('div', { className: 'gp-empty' }, t('files.selectFile'))
     case 'loading': return h('div', { className: 'gp-empty' }, t('common.loading'))
@@ -530,7 +551,7 @@ function renderPreview(file: FileState, t: (key: GitKey, params?: Record<string,
     case 'image':
       return h(ZoomableImage, { src: file.dataUrl, alt: file.path, t, viewportClass: 'gp-files__image' })
     case 'text':
-      return h(CodePreview, { content: file.content, path: file.path, t })
+      return h(CodePreview, { content: file.content, path: file.path, wrap, t })
   }
 }
 
@@ -561,7 +582,7 @@ function findMatches(hays: readonly string[], needle: string): Match[] {
  * is intercepted only while this preview is actually visible (offsetParent), so
  * it never steals Ctrl+F from the rest of the app.
  */
-function CodePreview({ content, path, t }: { content: string; path: string; t: (key: GitKey, params?: Record<string, string | number>) => string }): JSX.Element {
+function CodePreview({ content, path, wrap, t }: { content: string; path: string; wrap: boolean; t: (key: GitKey, params?: Record<string, string | number>) => string }): JSX.Element {
   const lines = useMemo(() => {
     const arr = content.split('\n')
     if (arr.length > 0 && arr[arr.length - 1] === '') arr.pop()
@@ -626,8 +647,12 @@ function CodePreview({ content, path, t }: { content: string; path: string; t: (
   }, [])
 
   // Virtualization: mount only the rows in (or near) the viewport. Uniform row
-  // height, so the window math reuses the shared prefix-sum helpers.
+  // height, so the window math reuses the shared prefix-sum helpers. Wrap mode
+  // drops the fixed-height grid for flow layout (rows grow), so the window
+  // math no longer applies and every line mounts instead — capped by
+  // MAX_WRAP_LINES so a huge file keeps the virtualized nowrap grid.
   const total = lines.length
+  const wrapActive = wrap && total <= MAX_WRAP_LINES
   const tops = useMemo(() => buildTops(new Array<number>(total).fill(ROW_HEIGHT)), [total])
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
   const { first, last } = windowRange(tops, viewport.top, effHeight, OVERSCAN * ROW_HEIGHT)
@@ -636,7 +661,9 @@ function CodePreview({ content, path, t }: { content: string; path: string; t: (
   // findWindowRange snaps onto a match outside the window instead of spanning
   // the gap to it — a span would mount every intervening row in one commit.
   const activeLine = matches.length > 0 ? matches[safeActive].line : -1
-  const { first: windowFirst, last: windowLast } = findWindowRange({ first, last }, activeLine, total, OVERSCAN)
+  const { first: windowFirst, last: windowLast } = wrapActive
+    ? { first: 0, last: total }
+    : findWindowRange({ first, last }, activeLine, total, OVERSCAN)
 
   // Keep the active match scrolled into view as navigation moves. rAF waits for
   // the widened window to mount the row before scrolling to it.
@@ -665,19 +692,24 @@ function CodePreview({ content, path, t }: { content: string; path: string; t: (
     findBox,
   ]) : null
 
-  // Only the [windowFirst, windowLast) rows are mounted; a top pad + total
-  // height spacer preserve the scrollbar geometry so scrolling feels native.
+  // Only the [windowFirst, windowLast) rows are mounted in the virtualized
+  // (nowrap) grid; a top pad + total height spacer preserve the scrollbar
+  // geometry so scrolling feels native. Wrap mode is a plain flow list.
   const windowRows: JSX.Element[] = []
   for (let i = windowFirst; i < windowLast; i++) {
-    windowRows.push(h('div', { key: i, className: 'gp-files__row', style: { top: i * ROW_HEIGHT } }, [
+    windowRows.push(h('div', { key: i, className: 'gp-files__row', style: wrapActive ? undefined : { top: i * ROW_HEIGHT } }, [
       h('div', { key: 'n', className: 'gp-diff-no' }, i + 1),
       renderCodeLine(lines[i], i, highlighted?.[i], perLine.get(i), active, activeRef, t),
     ]))
   }
 
-  return h('div', { className: 'gp-files__code gp-diff__scroll', ref: setContainerEl }, [
+  return h('div', { className: `gp-files__code gp-diff__scroll${wrapActive ? ' gp-files__code--wrap' : ' gp-files__code--nowrap'}`, ref: setContainerEl }, [
     header,
-    h('div', { key: 'grid', className: 'gp-files__single gp-files__single--virt', style: { height: total * ROW_HEIGHT } }, windowRows),
+    h('div', {
+      key: 'grid',
+      className: 'gp-files__single gp-files__single--virt',
+      ...(wrapActive ? {} : { style: { height: total * ROW_HEIGHT } }),
+    }, windowRows),
   ])
 }
 
