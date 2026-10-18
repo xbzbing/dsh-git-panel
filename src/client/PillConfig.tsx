@@ -37,8 +37,7 @@ type DiffView = 'unified' | 'split'
 /** Catalog load lifecycle for the model cascading selects. */
 type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error'
 
-/** SESSION_PLACEHOLDER: model-catalog is host-level; the request type still
- * carries sessionId, so an empty string is the deliberate non-session value. */
+/** Model-catalog is host-level; the request type still carries sessionId. */
 const SESSION_PLACEHOLDER = ''
 
 // Suggest-limit display units, derived from the host units in SUGGEST_LIMITS
@@ -76,10 +75,14 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [draftMaxKib, setDraftMaxKib] = useState<string | null>(null)
   const [draftOutputTokens, setDraftOutputTokens] = useState<string | null>(null)
   const [draftTimeout, setDraftTimeout] = useState<string | null>(null)
-  // Model catalog (issue #54): host-level list of providers / models / efforts.
+  // Model catalog: host-level providers / models / efforts.
   const [catalog, setCatalog] = useState<readonly ModelCatalogGroup[]>([])
   const [catalogFailures, setCatalogFailures] = useState<readonly { id: string; name: string; message: string }[]>([])
   const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>('idle')
+  // In-flight model-route write: keeps the cascade selects open until the
+  // snapshot can carry the complete pair (an incomplete pair is dropped
+  // host-side, so the form value alone cannot hold "provider picked").
+  const [pendingRoute, setPendingRoute] = useState<{ provider: string; model: string; effort: string } | null>(null)
   const bump = (): void => { setTick((n) => n + 1) }
 
   const forms = ctx.get('configForms') as ConfigFormsFace | undefined
@@ -129,16 +132,18 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     typeof snap?.value?.suggestTimeoutMs === 'number' ? (snap.value.suggestTimeoutMs as number) / 1000 : SUGGEST_LIMITS.timeoutMs.default / 1000,
     TIMEOUT_S,
   )
-  // Fixed model route: both halves of the pair must be non-empty (host mirrors
-  // this rule in normalizeConfig). Effort is only meaningful on a fixed route.
+  // Model route: pending write wins over the snapshot. Provider alone drives
+  // the model row; model alone drives the effort row. The effort select is
+  // blank until both halves of the pair are set.
   const rawProvider = typeof snap?.value?.suggestProvider === 'string' ? (snap.value.suggestProvider as string) : ''
   const rawModel = typeof snap?.value?.suggestModel === 'string' ? (snap.value.suggestModel as string) : ''
   const rawEffort = typeof snap?.value?.suggestReasoningEffort === 'string' ? (snap.value.suggestReasoningEffort as string) : ''
-  const fixedProvider = rawProvider !== '' && rawModel !== '' ? rawProvider : ''
-  const fixedModel = fixedProvider !== '' ? rawModel : ''
-  const fixedEffort = fixedProvider !== '' ? rawEffort : ''
-  const activeGroup = catalog.find((g) => g.id === fixedProvider)
-  const activeModel = activeGroup?.models.find((m) => m.id === fixedModel)
+  const uiProvider = pendingRoute?.provider ?? rawProvider
+  const uiModel = pendingRoute !== null ? pendingRoute.model : (rawProvider !== '' ? rawModel : '')
+  const uiEffort = pendingRoute !== null ? pendingRoute.effort : rawEffort
+  const fixedEffort = uiProvider !== '' && uiModel !== '' ? uiEffort : ''
+  const activeGroup = catalog.find((g) => g.id === uiProvider)
+  const activeModel = activeGroup?.models.find((m) => m.id === uiModel)
   const efforts = activeModel?.reasoning?.efforts
 
   // Load the host catalog once the config form is readable; reload on demand.
@@ -216,10 +221,10 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     return commitField('suggestLanguage', next, () => setPendingLang(null))
   }
 
-  // Cascade writes: picking a provider clears the model and effort (the model
-  // list is per-provider); picking a model clears a stale effort; session-
-  // default clears all three. Empty string is the host's "absent" spelling
-  // (normalizeConfig treats '' as unset for the pair and for effort).
+  // Write the three route fields together. Empty string is the host's "absent"
+  // spelling. pendingRoute keeps the cascade open across an incomplete pair
+  // (provider without model): the host drops that from the live config, so
+  // the snapshot alone cannot hold it.
   const writeModelRoute = async (
     provider: string,
     model: string,
@@ -228,6 +233,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     if (form === undefined) return
     setFailed(false)
     setBusy(true)
+    setPendingRoute({ provider, model, effort })
     try {
       const okP = await form.set('suggestProvider', provider)
       const okM = await form.set('suggestModel', model)
@@ -238,29 +244,30 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       setFailed(true)
     } finally {
       setBusy(false)
+      // Incomplete pair: keep pending until the snapshot can carry it.
+      if (provider === '' || model !== '') setPendingRoute(null)
     }
   }
 
   const setProvider = (next: string): Promise<void> => {
     if (next === '') return writeModelRoute('', '', '')
-    // Keep the existing model if it belongs to the new provider; otherwise
-    // leave model/effort blank so the user picks from the new list.
+    // Keep the model only if it belongs to the new provider.
     const group = catalog.find((g) => g.id === next)
-    const keepModel = group?.models.some((m) => m.id === fixedModel) === true ? fixedModel : ''
-    return writeModelRoute(next, keepModel, keepModel !== '' ? fixedEffort : '')
+    const keepModel = group?.models.some((m) => m.id === uiModel) === true ? uiModel : ''
+    return writeModelRoute(next, keepModel, keepModel !== '' ? uiEffort : '')
   }
 
   const setModel = (next: string): Promise<void> => {
-    if (next === '') return writeModelRoute(fixedProvider, '', '')
-    // A model without efforts must not carry a stale effort id.
-    const group = catalog.find((g) => g.id === fixedProvider)
+    if (next === '') return writeModelRoute(uiProvider, '', '')
+    // Drop a stale effort when the new model does not advertise it.
+    const group = catalog.find((g) => g.id === uiProvider)
     const model = group?.models.find((m) => m.id === next)
-    const keepEffort = model?.reasoning?.efforts.some((e) => e.id === fixedEffort) === true ? fixedEffort : ''
-    return writeModelRoute(fixedProvider, next, keepEffort)
+    const keepEffort = model?.reasoning?.efforts.some((e) => e.id === uiEffort) === true ? uiEffort : ''
+    return writeModelRoute(uiProvider, next, keepEffort)
   }
 
   const setEffort = (next: string): Promise<void> =>
-    writeModelRoute(fixedProvider, fixedModel, next)
+    writeModelRoute(uiProvider, uiModel, next)
 
   // Commit one numeric draft: parse → clamp to the display-unit range → write
   // in storage units (KiB→bytes, s→ms, tokens as-is). The clamped value is
@@ -381,7 +388,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-provider' }, t('cfg.suggestModelLabel')),
         h('select', {
           key: 'sel', id: 'gp-cfg-provider', className: 'gp-cfg__select',
-          value: fixedProvider, disabled: busy || snap?.writable === false || catalogStatus === 'loading',
+          value: uiProvider, disabled: busy || snap?.writable === false || catalogStatus === 'loading',
           'aria-describedby': 'gp-cfg-model-hint',
           onChange: (e: ChangeEvent<HTMLSelectElement>) => { void setProvider(e.currentTarget.value) },
         }, [
@@ -389,12 +396,12 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           ...catalog.map((g) => h('option', { key: g.id, value: g.id }, g.name)),
         ]),
       ]),
-      fixedProvider !== ''
+      uiProvider !== ''
         ? h('div', { key: 'sgmodel2', className: 'gp-cfg__selectrow' }, [
           h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-model' }, t('cfg.suggestProviderLabel')),
           h('select', {
             key: 'sel', id: 'gp-cfg-model', className: 'gp-cfg__select',
-            value: fixedModel, disabled: busy || snap?.writable === false || activeGroup === undefined,
+            value: uiModel, disabled: busy || snap?.writable === false || activeGroup === undefined,
             'aria-describedby': 'gp-cfg-model-hint',
             onChange: (e: ChangeEvent<HTMLSelectElement>) => { void setModel(e.currentTarget.value) },
           }, [
@@ -403,7 +410,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           ]),
         ])
         : null,
-      fixedProvider !== '' && fixedModel !== '' && efforts !== undefined && efforts.length > 0
+      uiProvider !== '' && uiModel !== '' && efforts !== undefined && efforts.length > 0
         ? h('div', { key: 'sgeffort', className: 'gp-cfg__selectrow' }, [
           h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-effort' }, t('cfg.suggestEffortLabel')),
           h('select', {

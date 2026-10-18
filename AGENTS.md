@@ -11,7 +11,7 @@
   - **变更记录**：未提交变更（暂存、放弃、提交、Amend、AI 生成提交信息）、贮藏、文件差异（统一 / 并排、图片对照）。
   - **文件浏览**：工作区目录树 + 文件预览（语法高亮、Markdown/HTML 渲染、图片缩放、属性）。非 Git 目录或系统未安装 git 时只显示此页，以 cwd 为根。
 - 输入框左侧 zsh 风格标记 `<仓库名> (<分支>)`：绿=已同步、橙=有待提交，点击跳转面板。插件详情页可隐藏标记，隐藏时改在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
-- 插件详情页配置表单（`PillConfig.tsx`）：标记开关、diff 默认视图、提交图线条样式、AI 生成提交信息（开关、语言、输入预算 / 输出上限 / 超时）。写入被接受后立即 `resyncAll()`。
+- 插件详情页配置表单（`PillConfig.tsx`）：标记开关、diff 默认视图、提交图线条样式、AI 生成提交信息（开关、语言、模型级联 provider→model→推理强度、输入预算 / 输出上限 / 超时）。写入被接受后立即 `resyncAll()`。
 - 面板宽度 ≤620px（`layout.ts` 的 `COMPACT_BP`）进入 compact 单栏「钻取」布局。
 
 ## 架构总览
@@ -44,7 +44,7 @@ Host 半 (Cordis + typert, lib/host)
 - `core.ts`：仓库根解析（realpath）+ `snapshotForSession`；`resolveBrowseRoot` 在非 Git 目录回退到 cwd。
 - `snapshot-fingerprint.ts`：快照的 `stateFingerprint`（键排序后 SHA-256，排除 `checkedAt`）。
 - `actions.ts`：`GitAction` → git 命令序列，以及 git 输出 → 错误码映射（冲突、`index-busy`、`not-found`、`auth-failed`、`push-rejected`、`not-ff` 等，兜底 `git-error`）。
-- `queries.ts`：`query` 端点的各类按需查询（history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / stash-list / authors / pull-preview / push-preview 等）。
+- `queries.ts`：`query` 端点的各类按需查询（history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / stash-list / authors / pull-preview / push-preview / model-catalog 等）。
 - `history-topology.ts`：筛选后的历史页追加一次有界无过滤父链（10000 节点 / 2 MiB），失败只退化祖先数据，不丢列表。
 - `validate.ts`：信任边界输入校验。
 - `suggest.ts` / `llm-face.ts`：AI 生成提交信息；`llm-face.ts` 用 `@deepseek-ai/dsh-llm` type-only 类型钉住 wire 契约。
@@ -86,7 +86,7 @@ Host 半 (Cordis + typert, lib/host)
 
 ## AI 生成提交信息
 
-- `llm` / `agentDefaultModel` 按请求解析（`getLlm` / `getAgentDefaultModel`），不在构造期冻结、不进 `static inject`；模型路由 config 覆盖（provider/model 必须成对）优先，否则 `agentDefaultModel.currentSelection()`。
+- `llm` / `agentDefaultModel` 按请求解析（`getLlm` / `getAgentDefaultModel`），不在构造期冻结、不进 `static inject`；模型路由 config 覆盖（provider/model 必须成对）优先，否则 `agentDefaultModel.currentSelection()`。固定路由可带 `suggestReasoningEffort`（成对时才保留）；**会话默认路径永不带 effort**。effort 留空则 `GenerateOptions` 不出现该键，用模型默认。
 - 生成语言默认 `auto`：按仓库自身近期提交推断，先滤掉机械提交（release / merge / revert / fixup! / squash!，否则自动生成的英文提交会把结论翻成 `en`），本人提交足够时只看本人；**不跟随界面语言**。
 - 语言要求必须同时写进 system 和 user 消息末尾的独立 text block（位于 diff 截断预算之外）；只在 system 强调仍会输出错误语言。请求构造单测不代表模型遵循率，需经官方适配器 + 真实模型验证，不能用手工重组的 HTTP 请求替代。
 - diff 进预算前先折叠超长行（压缩产物会吃光预算），但结构性行（`@@`、`diff --git`、`---`/`+++` 等）一律不折；折叠不算截断。
@@ -158,7 +158,7 @@ npm run typecheck     # 类型检查
 - 相对导入一律写 `./x.js` 后缀：同一份源码要同时产出可运行的 `lib/host/*.js` 和能解析的 `lib/host/*.d.ts`。
 - 数据模型改动从 `host/types.ts` 起，client 直接复用，不存在第二份需手工同步的定义；常量范围（如 `SUGGEST_LIMITS`）同样单源，UI 与 host 校验从同一处派生。
 - 新增 wire 字段保持向后兼容：旧 client 可忽略新字段，client 对旧 host 缺失字段要降级而非崩溃。
-- 注释精简，只写最终实现意图，不写演进历史。
+- **注释只写代码行为**：描述这段代码现在做什么、约束是什么；除非有大坑（不写就会踩），否则不写演进过程、不写「曾经怎样 / 为何改过来」。演进与决策放 ADR / PR / 提交信息，不放注释。issue 号不必写进注释——PR 描述里关联即可。
 - 安装身份三处必须一致且等于包名 `@xbzbing/dsh-git-panel`：`package.json.name`、`cordis.patch.yml` 的 row `name`、`build.mjs` 产出的 ModuleLoader 注册 `id`。任一不一致，面板会整个消失（`plugin-contract.test.mjs` 守住）。
 
 ## 目录与提交

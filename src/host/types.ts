@@ -367,8 +367,7 @@ export type GitQuery =
   // (commits / files / +- lines). Local-only, so it previews what a push would
   // publish. No upstream → hasUpstream:false and zeroed counts.
   | { readonly kind: 'push-preview' }
-  // Host-level model catalog for the plugin config form (issue #54). No
-  // workspace required — reads ctx.llm only.
+  // Model catalog for the config form. No workspace required — reads ctx.llm only.
   | { readonly kind: 'model-catalog' }
 
 /** One entry in a `dir-list` result. */
@@ -546,9 +545,8 @@ export type GitQueryResult =
   // the branch tracks nothing (then the counts are all 0).
   | { readonly kind: 'pull-preview'; readonly hasUpstream: boolean; readonly commits: number; readonly files: number; readonly insertions: number; readonly deletions: number }
   | { readonly kind: 'push-preview'; readonly hasUpstream: boolean; readonly commits: number; readonly files: number; readonly insertions: number; readonly deletions: number }
-  // Host-level model catalog. `groups` only carries providers that yielded at
-  // least one model; isolated per-provider / per-model failures land in
-  // `failures` instead of failing the whole query.
+  // Model catalog. `groups` only carries providers that yielded at least one
+  // model; isolated per-provider / per-model failures land in `failures`.
   | {
     readonly kind: 'model-catalog'
     readonly groups: readonly ModelCatalogGroup[]

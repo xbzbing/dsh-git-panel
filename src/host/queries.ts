@@ -42,8 +42,7 @@ export async function runQuery(
   request: GitQueryRequest,
 ): Promise<GitQueryResponse> {
   const q = request.query
-  // Host-level model catalog for the config form (issue #54): reads ctx.llm
-  // only, so it must not require a workspace or a git repository.
+  // Model catalog for the config form: reads ctx.llm only, no workspace.
   if (q.kind === 'model-catalog') {
     try {
       return await queryModelCatalog(deps)
@@ -816,10 +815,9 @@ async function queryWorktreeStats(
 }
 
 /**
- * Host-level model catalog for the plugin config form (issue #54). Mirrors
- * dsh's own buildModelCatalog shape: listProviders → per-provider listModels
- * → per-model resolveModelInfo for reasoning metadata. Every failure is
- * isolated into `failures` so one broken adapter never blanks the form.
+ * Aggregate ctx.llm providers / models / reasoning metadata for the config
+ * form. Each provider and model lookup is isolated into `failures` so one
+ * broken adapter never blanks the whole catalog.
  */
 async function queryModelCatalog(deps: SnapshotDeps): Promise<GitQueryResponse> {
   const llm = deps.getLlm?.()

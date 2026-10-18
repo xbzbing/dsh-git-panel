@@ -641,8 +641,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-cfg__numinput:disabled{opacity:.5;cursor:default}
 .gp-cfg__numunit{flex:none;width:44px;font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .gp-cfg__rangehint{margin:-4px 0 0;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
-/* Cascading model selects (issue #54): native <select> styled like the number
- * inputs so the config form keeps one control language. */
+/* Cascading model selects: native <select> styled like the number inputs. */
 .gp-cfg__selectrow{display:flex;align-items:center;gap:8px}
 .gp-cfg__selectlabel{flex:1;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary)}
 .gp-cfg__select{flex:1;min-width:0;max-width:260px;height:26px;padding:0 6px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
