@@ -749,6 +749,29 @@ test('normalizeConfig keeps effort only on a complete provider/model pair', () =
   assert.equal(blank.suggestReasoningEffort, undefined)
 })
 
+test('normalizeConfig unwraps volatile refs for the fixed model route', () => {
+  // cordis resolveConfig wraps every .volatile() field in a { get() } ref —
+  // without unwrapping, the pair check fails and suggest silently uses the
+  // session model instead of the configured override.
+  const vol = normalizeConfig({
+    suggestProvider: { get: () => 'vp' },
+    suggestModel: { get: () => 'vm' },
+    suggestReasoningEffort: { get: () => 'high' },
+  })
+  assert.equal(vol.suggestProvider, 'vp')
+  assert.equal(vol.suggestModel, 'vm')
+  assert.equal(vol.suggestReasoningEffort, 'high')
+  // Empty volatile string is still "absent".
+  const empty = normalizeConfig({
+    suggestProvider: { get: () => 'vp' },
+    suggestModel: { get: () => '' },
+    suggestReasoningEffort: { get: () => 'low' },
+  })
+  assert.equal(empty.suggestProvider, undefined)
+  assert.equal(empty.suggestModel, undefined)
+  assert.equal(empty.suggestReasoningEffort, undefined)
+})
+
 test('timeout: a stream that never finishes maps to llm-error', async () => {
   const llm = stubLlm([], { onSignalAbort: true, streamError: new Error('aborted by signal') })
   const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })

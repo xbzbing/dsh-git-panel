@@ -74,12 +74,20 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
   // Provider/model overrides must be supplied together; a lone half is ignored
   // so a mistyped profile degrades to the agent default route. The effort is
   // only meaningful on a fixed route, so an unpaired config drops it too —
-  // no half-applied residual can survive a broken pair.
-  const hasProvider = typeof c.suggestProvider === 'string' && c.suggestProvider !== ''
-  const hasModel = typeof c.suggestModel === 'string' && c.suggestModel !== ''
-  const effortRaw = unwrapVolatile(c.suggestReasoningEffort)
-  const effort = typeof effortRaw === 'string' && effortRaw !== '' ? { suggestReasoningEffort: effortRaw } : {}
-  const route = hasProvider && hasModel ? { suggestProvider: c.suggestProvider, suggestModel: c.suggestModel, ...effort } : {}
+  // no half-applied residual can survive a broken pair. All three are volatile:
+  // unwrap the `{ get() }` ref before the pair check, or a live-edited route
+  // never matches and suggest falls back to the session model.
+  const provider = unwrapVolatile(c.suggestProvider)
+  const model = unwrapVolatile(c.suggestModel)
+  const effort = unwrapVolatile(c.suggestReasoningEffort)
+  const route = typeof provider === 'string' && provider !== ''
+    && typeof model === 'string' && model !== ''
+    ? {
+      suggestProvider: provider,
+      suggestModel: model,
+      ...(typeof effort === 'string' && effort !== '' ? { suggestReasoningEffort: effort } : {}),
+    }
+    : {}
   return {
     timeoutMs: num(c.timeoutMs, DEFAULT_CONFIG.timeoutMs),
     maxBytes: num(c.maxBytes, DEFAULT_CONFIG.maxBytes),
