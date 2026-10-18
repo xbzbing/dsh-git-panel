@@ -79,6 +79,11 @@ function defaultRoute(provider = 'p1', model = 'm1') {
   return { currentSelection: () => ({ provider, model }) }
 }
 
+/** getSessionModel returning a fixed session selection. */
+function sessionRoute(provider, model, reasoningEffort) {
+  return () => ({ provider, model, ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) })
+}
+
 /**
  * A stub LLM face recording every call and replaying a chunk script. Chunks
  * use the real StreamChunk envelope: text-delta carries `text`, the terminal
@@ -657,6 +662,55 @@ test('config provider/model override beats the agent default route', async () =>
   assert.equal(llm.calls[0].provider, 'cfg-p')
   assert.equal(llm.calls[0].model, 'cfg-m')
   assert.equal('reasoningEffort' in llm.calls[0], false, 'no effort key when unset')
+})
+
+test('the session model selection beats the agent default route', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, {
+    getLlm: () => llm,
+    getAgentDefaultModel: () => defaultRoute('agent-p', 'agent-m'),
+    getSessionModel: sessionRoute('sess-p', 'sess-m'),
+  })
+  await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
+  assert.equal(llm.calls[0].provider, 'sess-p')
+  assert.equal(llm.calls[0].model, 'sess-m')
+  assert.equal('reasoningEffort' in llm.calls[0], false, 'session without effort sends none')
+})
+
+test('the session model selection carries its reasoningEffort', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, {
+    getLlm: () => llm,
+    getSessionModel: sessionRoute('sess-p', 'sess-m', 'high'),
+  })
+  const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
+  assert.equal(llm.calls[0].reasoningEffort, 'high')
+  if (res.ok) assert.equal(res.value.reasoningEffort, 'high')
+})
+
+test('config override still beats the session model selection', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, {
+    getLlm: () => llm,
+    getSessionModel: sessionRoute('sess-p', 'sess-m', 'low'),
+  })
+  const config = { ...DEFAULT_CONFIG, suggestProvider: 'cfg-p', suggestModel: 'cfg-m' }
+  await runSuggest(deps, config, { sessionId: SID })
+  assert.equal(llm.calls[0].provider, 'cfg-p')
+  assert.equal(llm.calls[0].model, 'cfg-m')
+  assert.equal('reasoningEffort' in llm.calls[0], false, 'config without effort sends none, not the session effort')
+})
+
+test('falls back to the agent default when the session has no selection', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, {
+    getLlm: () => llm,
+    getAgentDefaultModel: () => defaultRoute('agent-p', 'agent-m'),
+    getSessionModel: () => undefined,
+  })
+  await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
+  assert.equal(llm.calls[0].provider, 'agent-p')
+  assert.equal(llm.calls[0].model, 'agent-m')
 })
 
 test('a fixed route with an effort sends reasoningEffort', async () => {

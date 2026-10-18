@@ -86,7 +86,7 @@ Host 半 (Cordis + typert, lib/host)
 
 ## AI 生成提交信息
 
-- `llm` / `agentDefaultModel` 按请求解析（`getLlm` / `getAgentDefaultModel`），不在构造期冻结、不进 `static inject`；模型路由 config 覆盖（provider/model 必须成对）优先，否则 `agentDefaultModel.currentSelection()`。固定路由可带 `suggestReasoningEffort`（成对时才保留）；**会话默认路径永不带 effort**。effort 留空则 `GenerateOptions` 不出现该键，用模型默认。
+- `llm` / `agentDefaultModel` / 会话模型投影按请求解析（`getLlm` / `getSessionModel` / `getAgentDefaultModel`），不在构造期冻结、不进 `static inject`。路由优先级：config 固定覆盖（provider/model 成对）→ **当前会话的 `modelSelection.next`**（含会话自己的 effort）→ `agentDefaultModel.currentSelection()`。config 固定路由可带 `suggestReasoningEffort`（成对时才保留）；effort 留空则 `GenerateOptions` 不出现该键，用模型默认。
 - 生成语言默认 `auto`：按仓库自身近期提交推断，先滤掉机械提交（release / merge / revert / fixup! / squash!，否则自动生成的英文提交会把结论翻成 `en`），本人提交足够时只看本人；**不跟随界面语言**。
 - 语言要求必须同时写进 system 和 user 消息末尾的独立 text block（位于 diff 截断预算之外）；只在 system 强调仍会输出错误语言。请求构造单测不代表模型遵循率，需经官方适配器 + 真实模型验证，不能用手工重组的 HTTP 请求替代。
 - diff 进预算前先折叠超长行（压缩产物会吃光预算），但结构性行（`@@`、`diff --git`、`---`/`+++` 等）一律不折；折叠不算截断。

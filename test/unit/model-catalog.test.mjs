@@ -54,10 +54,27 @@ test('aggregates providers, models and reasoning efforts', async () => {
   assert.equal(p1.models.length, 2)
   const m2 = p1.models.find((m) => m.id === 'm2')
   assert.deepEqual(m2.reasoning.efforts.map((e) => e.id), ['low', 'high'])
-  assert.equal(m2.reasoning.defaultEffort, 'low')
+  // The adapter's defaultEffort is not propagated: the wire type carries only
+  // the effort ids the form renders.
+  assert.equal(m2.reasoning.defaultEffort, undefined)
   // A model without metadata has no reasoning key.
   const m1 = p1.models.find((m) => m.id === 'm1')
   assert.equal(m1.reasoning, undefined)
+})
+
+test('parallel aggregation keeps provider input order regardless of completion order', async () => {
+  const llm = {
+    listProviders: () => [{ id: 'slow' }, { id: 'fast' }],
+    async listModels(provider) {
+      // 'slow' resolves last: output order must follow the input, not completion.
+      if (provider === 'slow') await new Promise((resolve) => setTimeout(resolve, 30))
+      return [{ id: 'm', name: 'M' }]
+    },
+    resolveModelInfo: async () => ({}),
+  }
+  const res = await runQuery(depsWithLlm(llm), DEFAULT_CONFIG, catalogQuery())
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.value.groups.map((g) => g.id), ['slow', 'fast'])
 })
 
 test('a failing provider is isolated into failures; others still load', async () => {

@@ -22,7 +22,6 @@ export interface LlmFace {
   resolveModelInfo?(provider: string, model: string, signal?: AbortSignal): Promise<{
     readonly reasoning?: {
       readonly efforts: readonly { readonly id: string; readonly name: string }[]
-      readonly defaultEffort?: string
     }
   }>
 }
@@ -30,4 +29,11 @@ export interface LlmFace {
 /** Minimal face of the host `agentDefaultModel` service. */
 export interface AgentDefaultModelFace {
   currentSelection(): { readonly provider: string; readonly model: string } | undefined
+}
+
+/** One session's durable model selection (projection `next`: pending, else lastUsed). */
+export interface SessionModelSelection {
+  readonly provider: string
+  readonly model: string
+  readonly reasoningEffort?: string
 }

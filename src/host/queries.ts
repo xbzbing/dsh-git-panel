@@ -817,50 +817,56 @@ async function queryWorktreeStats(
 /**
  * Aggregate ctx.llm providers / models / reasoning metadata for the config
  * form. Each provider and model lookup is isolated into `failures` so one
- * broken adapter never blanks the whole catalog.
+ * broken adapter never blanks the whole catalog; providers run in parallel
+ * because `listModels` / `resolveModelInfo` may be remote-backed, while the
+ * input order is kept for a stable listing.
  */
 async function queryModelCatalog(deps: SnapshotDeps): Promise<GitQueryResponse> {
   const llm = deps.getLlm?.()
-  if (llm === undefined) {
-    return { ok: true, value: { kind: 'model-catalog', groups: [], failures: [] } }
+  const listModels = llm?.listModels
+  const empty = { kind: 'model-catalog' as const, groups: [], failures: [] }
+  if (llm === undefined || listModels === undefined) {
+    return { ok: true, value: empty }
   }
+  const resolveModelInfo = llm.resolveModelInfo
   const providers = llm.listProviders?.() ?? []
-  const groups: ModelCatalogGroup[] = []
-  const failures: ModelCatalogFailure[] = []
-  for (const provider of providers) {
+  const results = await Promise.all(providers.map(async (provider): Promise<ModelCatalogGroup | ModelCatalogFailure | null> => {
     const name = provider.name ?? provider.id
-    if (llm.listModels === undefined) continue
     let listed: readonly { readonly id: string; readonly name?: string }[]
     try {
-      listed = await llm.listModels(provider.id)
+      listed = await listModels(provider.id)
     } catch (error) {
-      failures.push({ id: provider.id, name, message: error instanceof Error ? error.message : String(error) })
-      continue
+      return { id: provider.id, name, message: error instanceof Error ? error.message : String(error) }
     }
-    const models: ModelCatalogModel[] = []
-    for (const model of listed) {
+    const models: ModelCatalogModel[] = await Promise.all(listed.map(async (model): Promise<ModelCatalogModel> => {
       const entry: ModelCatalogModel = { id: model.id, name: model.name ?? model.id }
-      if (llm.resolveModelInfo !== undefined) {
-        try {
-          const info = await llm.resolveModelInfo(provider.id, model.id, deps.signal)
-          const reasoning = info.reasoning
-          if (reasoning !== undefined && reasoning.efforts.length > 0) {
-            models.push({
-              ...entry,
-              reasoning: {
-                efforts: reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name })),
-                ...(reasoning.defaultEffort !== undefined ? { defaultEffort: reasoning.defaultEffort } : {}),
-              },
-            })
-            continue
+      if (resolveModelInfo === undefined) return entry
+      try {
+        const info = await resolveModelInfo(provider.id, model.id, deps.signal)
+        const reasoning = info.reasoning
+        if (reasoning !== undefined && reasoning.efforts.length > 0) {
+          return {
+            ...entry,
+            reasoning: {
+              efforts: reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name })),
+            },
           }
-        } catch {
-          // Metadata is advisory; the model still appears without efforts.
         }
+      } catch {
+        // Metadata is advisory; the model still appears without efforts.
       }
-      models.push(entry)
-    }
-    if (models.length > 0) groups.push({ id: provider.id, name, models })
+      return entry
+    }))
+    // A provider that lists zero models is dropped entirely, not a failure.
+    if (models.length === 0) return null
+    return { id: provider.id, name, models }
+  }))
+  const groups: ModelCatalogGroup[] = []
+  const failures: ModelCatalogFailure[] = []
+  for (const one of results) {
+    if (one === null) continue
+    if ('models' in one) groups.push(one)
+    else failures.push(one)
   }
   return { ok: true, value: { kind: 'model-catalog', groups, failures } }
 }

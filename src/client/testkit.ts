@@ -20,6 +20,7 @@ export { buildTops, lowerBound, windowRange, findWindowRange } from './virtual-l
 export { normalizeWheel, wheelZoomFactor, clampScale, anchoredScroll, isDragGesture, panScroll, SCALE_MIN, SCALE_MAX, ZOOM_STEP, DELTA_CLAMP, DRAG_THRESHOLD } from './zoom.js'
 export { activateGitTab, isGitTabActive, returnToConversation, stashSubTab, recentSubTab } from './jump.js'
 export { splitRemoteRef, buildBranchOptions, isSelectable } from './branch-options.js'
+export { modelForProvider, effortForModel } from './model-route.js'
 export { changeKey, sideOf, pathOfKey, pickDiscardTargets } from './selection-keys.js'
 export { formatBytes } from './bytes.js'
 export { langLabel } from './lang-label.js'

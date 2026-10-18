@@ -16,7 +16,7 @@ import type { GitPanelConfig, SnapshotDeps } from './core.js'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand } from './core.js'
 import { isSafePath } from './validate.js'
 import { parseStatus } from './parser.js'
-import type { AgentDefaultModelFace } from './llm-face.js'
+import type { AgentDefaultModelFace, SessionModelSelection } from './llm-face.js'
 import type { GitChange, GitSuggestRequest, GitSuggestResult, ResolvedLanguage, SuggestLanguage } from './types.js'
 
 /** One endpoint failure (the inner envelope of GitSuggestResult). */
@@ -154,11 +154,12 @@ const UNTRACKED_FILE_CAP = 16
  */
 const PROMPT_FILE_CAP = 200
 
-/** Resolve the model route: config override pair first, then the agent default.
- * A fixed route may carry an effort; the agent-default path never does — the
- * session's Agent owns its own reasoning configuration. */
+/** Resolve the model route: config override pair first, then the session's
+ * durable model selection, then the agent default. A route may carry an effort
+ * (config override or session selection); the agent-default path never does. */
 function resolveRoute(
   config: GitPanelConfig,
+  sessionModel: SessionModelSelection | undefined,
   agentDefaultModel: AgentDefaultModelFace | undefined,
 ): { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | undefined {
   if (config.suggestProvider !== undefined && config.suggestModel !== undefined) {
@@ -166,6 +167,13 @@ function resolveRoute(
       provider: config.suggestProvider,
       model: config.suggestModel,
       ...(config.suggestReasoningEffort !== undefined ? { reasoningEffort: config.suggestReasoningEffort } : {}),
+    }
+  }
+  if (sessionModel !== undefined) {
+    return {
+      provider: sessionModel.provider,
+      model: sessionModel.model,
+      ...(sessionModel.reasoningEffort !== undefined ? { reasoningEffort: sessionModel.reasoningEffort } : {}),
     }
   }
   return agentDefaultModel?.currentSelection()
@@ -450,7 +458,7 @@ export async function runSuggest(
   // Resolved per request so a model service that activates late or restarts
   // is picked up (never frozen at construction).
   const llm = deps.getLlm?.()
-  const route = resolveRoute(config, deps.getAgentDefaultModel?.())
+  const route = resolveRoute(config, deps.getSessionModel?.(request.sessionId), deps.getAgentDefaultModel?.())
   if (llm === undefined || route === undefined) {
     return { ok: false, error: { code: 'llm-unavailable', message: 'no model service or route is configured' } }
   }

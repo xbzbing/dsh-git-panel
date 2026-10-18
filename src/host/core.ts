@@ -3,7 +3,7 @@
  */
 import { dirname, join } from 'node:path'
 import type { GitRunner } from './git.js'
-import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
+import type { AgentDefaultModelFace, LlmFace, SessionModelSelection } from './llm-face.js'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
@@ -179,14 +179,17 @@ export interface SnapshotDeps {
    */
   readonly rootNegCache?: Map<string, number>
   /**
-   * Optional per-request resolvers for the host `llm` and `agentDefaultModel`
-   * services (see llm-face.ts). Resolved on every suggest call — never frozen
-   * at construction — so a provider fiber that activates late or restarts is
+   * Optional per-request resolvers for the host model services (see
+   * llm-face.ts). Resolved on every suggest call — never frozen at
+   * construction — so a provider fiber that activates late or restarts is
    * picked up. Absent in deployments without a model backend; the suggest
    * endpoint then reports `llm-unavailable` instead of failing activation.
    */
   readonly getLlm?: () => LlmFace | undefined
   readonly getAgentDefaultModel?: () => AgentDefaultModelFace | undefined
+  /** The session's durable model selection (projection next); undefined when
+   * the session has never selected a model. */
+  readonly getSessionModel?: (sessionId: string) => SessionModelSelection | undefined
 }
 
 /** Non-repo negative-cache lifetime; short so a freshly-created repo is seen. */

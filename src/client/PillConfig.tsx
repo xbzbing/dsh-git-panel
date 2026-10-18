@@ -9,9 +9,11 @@
  */
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
-import { IconChevronDownOutlineRegular, Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { resyncAll } from './registry.js'
 import { segButtons } from './seg.js'
+import { effortForModel, modelForProvider } from './model-route.js'
+import { selectTrigger } from './select-trigger.js'
 import { gitPanelRemoteOf, queryAs } from './rpc.js'
 import type { ClientCtx, ConfigFormsFace, SettingsNamespaceView } from './rpc.js'
 import type { GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
@@ -80,9 +82,10 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [catalog, setCatalog] = useState<readonly ModelCatalogGroup[]>([])
   const [catalogFailures, setCatalogFailures] = useState<readonly { id: string; name: string; message: string }[]>([])
   const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>('idle')
-  // In-flight model-route write: keeps the cascade selects open until the
-  // snapshot can carry the complete pair (an incomplete pair is dropped
-  // host-side, so the form value alone cannot hold "provider picked").
+  // In-flight model-route write: the optimistic value while the write is in
+  // flight — and, for an incomplete pair (provider without model), until the
+  // next selection, because the host drops that half from the live config so
+  // the snapshot alone cannot hold "provider picked".
   const [pendingRoute, setPendingRoute] = useState<{ provider: string; model: string; effort: string } | null>(null)
   // Platform Menu is controlled; the caller toggles open state per row.
   const [providerOpen, setProviderOpen] = useState(false)
@@ -227,9 +230,10 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   }
 
   // Write the three route fields together. Empty string is the host's "absent"
-  // spelling. pendingRoute keeps the cascade open across an incomplete pair
-  // (provider without model): the host drops that from the live config, so
-  // the snapshot alone cannot hold it.
+  // spelling. An incomplete pair (provider without model) is dropped host-side,
+  // so on success the optimistic value is kept until the next selection; every
+  // other outcome — including any write failure — drops it and falls back to
+  // the snapshot, matching the other pendingX fields.
   const writeModelRoute = async (
     provider: string,
     model: string,
@@ -239,35 +243,35 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     setFailed(false)
     setBusy(true)
     setPendingRoute({ provider, model, effort })
+    let ok = false
     try {
       const okP = await form.set('suggestProvider', provider)
       const okM = await form.set('suggestModel', model)
       const okE = await form.set('suggestReasoningEffort', effort)
-      if (!(okP && okM && okE)) setFailed(true)
+      ok = okP && okM && okE
+      if (!ok) setFailed(true)
       else { resyncAll(); setTimeout(() => resyncAll(), 1000) }
     } catch {
       setFailed(true)
     } finally {
       setBusy(false)
-      // Incomplete pair: keep pending until the snapshot can carry it.
-      if (provider === '' || model !== '') setPendingRoute(null)
+      if (provider === '' || model !== '' || !ok) setPendingRoute(null)
     }
   }
 
   const setProvider = (next: string): Promise<void> => {
     if (next === '') return writeModelRoute('', '', '')
-    // Keep the model only if it belongs to the new provider.
-    const group = catalog.find((g) => g.id === next)
-    const keepModel = group?.models.some((m) => m.id === uiModel) === true ? uiModel : ''
-    return writeModelRoute(next, keepModel, keepModel !== '' ? uiEffort : '')
+    // Keep the model only if it belongs to the new provider, and the effort
+    // only if the kept model still advertises it (same rule as setModel).
+    const keepModel = modelForProvider(catalog, next, uiModel)
+    const keepEffort = effortForModel(catalog, next, keepModel, uiEffort)
+    return writeModelRoute(next, keepModel, keepEffort)
   }
 
   const setModel = (next: string): Promise<void> => {
     if (next === '') return writeModelRoute(uiProvider, '', '')
     // Drop a stale effort when the new model does not advertise it.
-    const group = catalog.find((g) => g.id === uiProvider)
-    const model = group?.models.find((m) => m.id === next)
-    const keepEffort = model?.reasoning?.efforts.some((e) => e.id === uiEffort) === true ? uiEffort : ''
+    const keepEffort = effortForModel(catalog, uiProvider, next, uiEffort)
     return writeModelRoute(uiProvider, next, keepEffort)
   }
 
@@ -324,18 +328,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     label: string,
     toggle: () => void,
     disabled: boolean,
-  ): JSX.Element => h('button', {
-    type: 'button',
-    className: 'gp-select-trigger gp-cfg__select-trigger',
-    'aria-haspopup': 'menu',
-    'aria-expanded': open,
-    title: label,
-    disabled,
-    onClick: toggle,
-  }, [
-    h('span', { key: 'l', className: 'gp-select-trigger__label' }, label),
-    h(IconChevronDownOutlineRegular, { key: 'c', className: 'gp-select-trigger__chevron', size: 14 }),
-  ])
+  ): JSX.Element => selectTrigger(open, label, toggle, { disabled, extraClass: 'gp-cfg__select-trigger' })
   const menuDisabled = busy || snap?.writable === false
   const providerLabel = uiProvider === ''
     ? t('cfg.suggestModelSession')
@@ -492,9 +485,9 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       ])
       : null,
     catalogStatus === 'loading'
-      ? h('p', { key: 'sgload', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' }, t('cfg.suggestModelLoading'))
+      ? h('p', { key: 'sgload', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelLoading'))
       : catalogStatus === 'error'
-        ? h('p', { key: 'sgerr', className: 'gp-cfg__err', id: 'gp-cfg-model-hint', role: 'alert' }, [
+        ? h('p', { key: 'sgerr', className: 'gp-cfg__err', role: 'alert' }, [
           t('cfg.suggestModelFailed'),
           ' ',
           h('button', {
@@ -503,11 +496,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           }, t('cfg.suggestModelRetry')),
         ])
         : catalog.length === 0
-          ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' }, t('cfg.suggestModelEmpty'))
+          ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelEmpty'))
           : catalogFailures.length > 0
-            ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' },
+            ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint' },
               `${t('cfg.suggestModelFailed')}: ${catalogFailures.map((f) => f.name).join(', ')}`)
-            : h('p', { key: 'sghint', id: 'gp-cfg-model-hint', className: 'gp-cfg__rangehint' }, ''),
+            : null,
     h('p', { key: 'sghint2', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
     failed ? h('p', { key: 'error', className: 'gp-cfg__err', role: 'alert' }, t('cfg.saveFailed')) : null,
   ])

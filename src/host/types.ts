@@ -421,7 +421,6 @@ export interface ModelCatalogModel {
   /** Adapter-advertised efforts; absent when the model exposes none. */
   readonly reasoning?: {
     readonly efforts: readonly ModelCatalogEffort[]
-    readonly defaultEffort?: string
   }
 }
 

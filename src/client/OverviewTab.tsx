@@ -8,8 +8,9 @@
 import { createElement as h, useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
-import { IconChevronDownOutlineRegular, Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
+import { selectTrigger } from './select-trigger.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
@@ -534,8 +535,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // The history middle column: a toolbar (search / author / since / fetch, plus
   // a filter trigger in compact) over the scrolling commit list.
   // The two filters are the platform Menu — the same dropdown surface the shell
-  // uses for its own selectors — instead of a native <select>. The trigger is
-  // ours (Menu only wraps it), and Menu never closes itself, so onSelect closes.
+  // uses for its own selectors (trigger via select-trigger.js) — instead of a
+  // native <select>. Menu never closes itself, so onSelect closes.
   const authorItems: readonly MenuItem[] = [
     { id: '', label: t('overview.allUsers') },
     ...authors.map((a) => ({ id: a, label: a })),
@@ -543,21 +544,6 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const sinceItems: readonly MenuItem[] = SINCE_OPTIONS.map(([value, key]) => ({ id: value, label: t(key) }))
   const sinceLabel = t(SINCE_OPTIONS.find(([value]) => value === filter.since)?.[1] ?? 'overview.allTime')
   const authorLabel = filter.author === '' ? t('overview.allUsers') : filter.author
-  const renderFilterTrigger = (
-    open: boolean,
-    label: string,
-    toggle: () => void,
-  ): JSX.Element => h('button', {
-    type: 'button',
-    className: 'gp-select-trigger',
-    'aria-haspopup': 'menu',
-    'aria-expanded': open,
-    title: label,
-    onClick: toggle,
-  }, [
-    h('span', { key: 'l', className: 'gp-select-trigger__label' }, label),
-    h(IconChevronDownOutlineRegular, { key: 'c', className: 'gp-select-trigger__chevron', size: 14 }),
-  ])
 
   // The refresh action leaves the compact first row with everything else that
   // is not needed for the common "pick a branch, search" flow.
@@ -586,7 +572,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     align: 'start',
     portal: true,
     className: 'gp-filter',
-    anchor: renderFilterTrigger(authorOpen, authorLabel, () => setAuthorOpen((v) => !v)),
+    anchor: selectTrigger(authorOpen, authorLabel, () => setAuthorOpen((v) => !v)),
   })
   const sinceMenu = h(Menu, {
     key: 'since',
@@ -601,7 +587,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     align: 'start',
     portal: true,
     className: 'gp-filter',
-    anchor: renderFilterTrigger(sinceOpen, sinceLabel, () => setSinceOpen((v) => !v)),
+    anchor: selectTrigger(sinceOpen, sinceLabel, () => setSinceOpen((v) => !v)),
   })
   const searchInputEl = h('input', {
     key: 'search', className: 'gp-search', placeholder: t(searchNarrow || compact ? 'overview.searchShort' : 'overview.search'), value: searchInput,

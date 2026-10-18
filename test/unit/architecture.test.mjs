@@ -162,8 +162,8 @@ const HOST_IMPORT_ALLOWED = new Set(['client/types.ts', 'client/testkit.ts'])
 const PURE_ALGORITHMS = [
   'branch-options.ts', 'branch-tree.ts', 'bytes.ts', 'code-spans.ts', 'copy-content.ts', 'diff.ts',
   'file-tree.ts', 'filtered-graph.ts', 'git-graph.ts', 'lang-label.ts', 'mermaid-blocks.ts',
-  'path-images.ts', 'push-policy.ts', 'selection-keys.ts', 'status.ts', 'time.ts', 'virtual-list.ts',
-  'zoom.ts',
+  'model-route.ts', 'path-images.ts', 'push-policy.ts', 'selection-keys.ts', 'status.ts', 'time.ts',
+  'virtual-list.ts', 'zoom.ts',
 ]
 
 test('every source module resolves its relative imports', () => {
