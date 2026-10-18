@@ -615,38 +615,37 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-pill--compact .gp-pill__dot{display:block}
 .gp-pill--compact .gp-pill__repo,.gp-pill--compact .gp-pill__git{display:none}
 
-/* plugin detail config form (plugins.bundle.config slot body) */
-.gp-cfg{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
-.gp-cfg__title{margin:0;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}
+/* plugin detail config form (plugins.bundle.config slot body) — font sizes
+ * follow the shell settings page: 15px section titles, 14px labels, 13px hints. */
+.gp-cfg{display:flex;flex-direction:column;gap:12px;padding:16px 20px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
+.gp-cfg__title{margin:0;font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .gp-cfg__row{display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
 /* 开关清零 border/padding：::after 按 padding box 定位，UA 默认 1px 边框会把定位框上下各缩 1px，滑块上缘就多出 1px 空隙。 */
-.gp-cfg__switch{appearance:none;-webkit-appearance:none;flex:none;width:32px;height:18px;margin:0;padding:0;border:0;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;transition:background .15s ease;cursor:pointer}
-.gp-cfg__switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s ease}
+.gp-cfg__switch{appearance:none;-webkit-appearance:none;flex:none;width:36px;height:20px;margin:0;padding:0;border:0;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;transition:background .15s ease;cursor:pointer}
+.gp-cfg__switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s ease}
 .gp-cfg__switch:checked{background:var(--dsw-alias-state-business-primary)}
-.gp-cfg__switch:checked::after{transform:translateX(14px)}
+.gp-cfg__switch:checked::after{transform:translateX(16px)}
 .gp-cfg__switch:disabled{opacity:.5;cursor:default}
 .gp-cfg__switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
-.gp-cfg__text{font-size:13px;color:var(--dsw-alias-label-primary)}
+.gp-cfg__text{font-size:14px;color:var(--dsw-alias-label-primary)}
 .gp-cfg__seg{align-self:flex-start}
-.gp-cfg__seglabel{margin:0;font-size:13px;color:var(--dsw-alias-label-primary)}
-.gp-cfg__hint{margin:0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}
-.gp-cfg__err{margin:0;font-size:12px;color:var(--dsw-alias-state-error-primary)}
-.gp-cfg__card{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
-.gp-cfg__card-title{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.gp-cfg__seglabel{margin:0;font-size:14px;color:var(--dsw-alias-label-primary)}
+.gp-cfg__hint{margin:0;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}
+.gp-cfg__err{margin:0;font-size:13px;color:var(--dsw-alias-state-error-primary)}
 .gp-cfg__numrow{display:flex;align-items:center;gap:8px}
-.gp-cfg__numlabel{flex:1;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary)}
-.gp-cfg__numinput{flex:none;width:76px;height:26px;padding:0 8px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:right}
+.gp-cfg__numlabel{flex:1;min-width:0;font-size:14px;color:var(--dsw-alias-label-primary)}
+.gp-cfg__numinput{flex:none;width:80px;height:30px;padding:0 8px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;text-align:right}
 .gp-cfg__numinput:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
 .gp-cfg__numinput:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 .gp-cfg__numinput:disabled{opacity:.5;cursor:default}
-.gp-cfg__numunit{flex:none;width:44px;font-size:11px;color:var(--dsw-alias-label-tertiary)}
-.gp-cfg__rangehint{margin:-4px 0 0;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+.gp-cfg__numunit{flex:none;width:44px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.gp-cfg__rangehint{margin:-4px 0 0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
 /* Cascading model selects use the platform Menu; the row is label + trigger. */
 .gp-cfg__menur{display:flex;align-items:center;gap:8px}
-.gp-cfg__menulabel{flex:1;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary)}
-.gp-cfg__select-trigger{max-width:220px}
+.gp-cfg__menulabel{flex:1;min-width:0;font-size:14px;color:var(--dsw-alias-label-primary)}
+.gp-cfg__select-trigger{max-width:240px;min-height:30px;font-size:13px}
 .gp-cfg__menu{display:inline-flex;align-items:center;min-width:0}
-.gp-cfg__retry{margin-left:6px;padding:0 6px;height:20px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;cursor:pointer}
+.gp-cfg__retry{margin-left:6px;padding:0 8px;height:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
 .gp-cfg__retry:hover{background:var(--dsw-alias-interactive-bg-hover)}
 
 /* status dot appended to the shell's Git view-tab button — shown only when the

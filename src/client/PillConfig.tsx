@@ -419,98 +419,96 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       segButtons<GraphStyle>(['parallel', 'compact'], graphStyle, (v) => { void setGraph(v) },
         (v) => t(v === 'parallel' ? 'cfg.graphParallel' : 'cfg.graphCompact'), busy || snap?.writable === false)),
     h('p', { key: 'graphhint', className: 'gp-cfg__hint' }, t('cfg.graphHint')),
-    h('div', { key: 'suggestcard', className: 'gp-cfg__card' }, [
-      h('h3', { key: 'sgtitle', className: 'gp-cfg__card-title' }, t('cfg.suggestTitle')),
-      h('label', { key: 'sgrow', className: 'gp-cfg__row' }, [
-        h('input', {
-          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
-          checked: suggestEnabled, disabled: busy || snap?.writable === false,
-          onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleSuggest(e.currentTarget.checked) },
-        }),
-        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.suggestToggle')),
-      ]),
-      h('p', { key: 'sglangtitle', className: 'gp-cfg__seglabel' }, t('cfg.suggestLangLabel')),
-      h('div', { key: 'sglang', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.suggestLangLabel') },
-        segButtons<SuggestLanguage>([...SUGGEST_LANGUAGES], suggestLanguage, (v) => { void setLanguage(v) },
-          (v) => t(v === 'auto' ? 'cfg.suggestLangAuto' : v === 'zh' ? 'cfg.suggestLangZh' : 'cfg.suggestLangEn'), busy || snap?.writable === false)),
-      h('p', { key: 'sglanghint', className: 'gp-cfg__rangehint' }, t('cfg.suggestLangHint')),
-      h('div', { key: 'numax', className: 'gp-cfg__numrow' }, [
-        h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-maxkib' }, t('cfg.suggestMaxBytesLabel')),
-        h('input', {
-          key: 'input', id: 'gp-cfg-maxkib', type: 'number', className: 'gp-cfg__numinput',
-          inputMode: 'numeric', min: MAX_KIB.min, max: MAX_KIB.max, 'aria-describedby': 'gp-cfg-maxkib-hint',
-          value: draftMaxKib ?? String(suggestMaxKib),
-          disabled: busy || snap?.writable === false,
-          onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftMaxKib(e.currentTarget.value) },
-          onBlur: () => { void commitMaxKib(draftMaxKib) },
-          onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
-        }),
-        h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestMaxBytesUnit')),
-      ]),
-      h('p', { key: 'numaxhint', id: 'gp-cfg-maxkib-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestMaxBytesHint')),
-      h('div', { key: 'nuout', className: 'gp-cfg__numrow' }, [
-        h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-outtok' }, t('cfg.suggestOutputLabel')),
-        h('input', {
-          key: 'input', id: 'gp-cfg-outtok', type: 'number', className: 'gp-cfg__numinput',
-          inputMode: 'numeric', min: SUGGEST_LIMITS.maxOutputTokens.min, max: SUGGEST_LIMITS.maxOutputTokens.max, 'aria-describedby': 'gp-cfg-outtok-hint',
-          value: draftOutputTokens ?? String(suggestOutputTokens),
-          disabled: busy || snap?.writable === false,
-          onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftOutputTokens(e.currentTarget.value) },
-          onBlur: () => { void commitOutputTokens(draftOutputTokens) },
-          onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
-        }),
-        h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestOutputUnit')),
-      ]),
-      h('p', { key: 'nuouthint', id: 'gp-cfg-outtok-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestOutputHint')),
-      h('div', { key: 'nuto', className: 'gp-cfg__numrow' }, [
-        h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-timeout' }, t('cfg.suggestTimeoutLabel')),
-        h('input', {
-          key: 'input', id: 'gp-cfg-timeout', type: 'number', className: 'gp-cfg__numinput',
-          inputMode: 'numeric', min: TIMEOUT_S.min, max: TIMEOUT_S.max, 'aria-describedby': 'gp-cfg-timeout-hint',
-          value: draftTimeout ?? String(suggestTimeoutS),
-          disabled: busy || snap?.writable === false,
-          onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftTimeout(e.currentTarget.value) },
-          onBlur: () => { void commitTimeout(draftTimeout) },
-          onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
-        }),
-        h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestTimeoutUnit')),
-      ]),
-      h('p', { key: 'nutohint', id: 'gp-cfg-timeout-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestTimeoutHint')),
-      h('div', { key: 'sgmodel', className: 'gp-cfg__menur' }, [
-        h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestModelLabel')),
-        providerMenu,
-      ]),
-      uiProvider !== ''
-        ? h('div', { key: 'sgmodel2', className: 'gp-cfg__menur' }, [
-          h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestProviderLabel')),
-          modelMenu,
-        ])
-        : null,
-      uiProvider !== '' && uiModel !== '' && efforts !== undefined && efforts.length > 0
-        ? h('div', { key: 'sgeffort', className: 'gp-cfg__menur' }, [
-          h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestEffortLabel')),
-          effortMenu,
-        ])
-        : null,
-      catalogStatus === 'loading'
-        ? h('p', { key: 'sgload', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' }, t('cfg.suggestModelLoading'))
-        : catalogStatus === 'error'
-          ? h('p', { key: 'sgerr', className: 'gp-cfg__err', id: 'gp-cfg-model-hint', role: 'alert' }, [
-            t('cfg.suggestModelFailed'),
-            ' ',
-            h('button', {
-              key: 'retry', type: 'button', className: 'gp-cfg__retry',
-              onClick: () => { loadCatalog() },
-            }, t('cfg.suggestModelRetry')),
-          ])
-          : catalog.length === 0
-            ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' }, t('cfg.suggestModelEmpty'))
-            : catalogFailures.length > 0
-              ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' },
-                `${t('cfg.suggestModelFailed')}: ${catalogFailures.map((f) => f.name).join(', ')}`)
-              : h('p', { key: 'sghint', id: 'gp-cfg-model-hint', className: 'gp-cfg__rangehint' }, ''),
-      h('p', { key: 'sghint2', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
+    h('h3', { key: 'sgtitle', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.suggestTitle')),
+    h('label', { key: 'sgrow', className: 'gp-cfg__row' }, [
+      h('input', {
+        key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+        checked: suggestEnabled, disabled: busy || snap?.writable === false,
+        onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleSuggest(e.currentTarget.checked) },
+      }),
+      h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.suggestToggle')),
     ]),
+    h('p', { key: 'sglangtitle', className: 'gp-cfg__seglabel' }, t('cfg.suggestLangLabel')),
+    h('div', { key: 'sglang', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.suggestLangLabel') },
+      segButtons<SuggestLanguage>([...SUGGEST_LANGUAGES], suggestLanguage, (v) => { void setLanguage(v) },
+        (v) => t(v === 'auto' ? 'cfg.suggestLangAuto' : v === 'zh' ? 'cfg.suggestLangZh' : 'cfg.suggestLangEn'), busy || snap?.writable === false)),
+    h('p', { key: 'sglanghint', className: 'gp-cfg__rangehint' }, t('cfg.suggestLangHint')),
+    h('div', { key: 'numax', className: 'gp-cfg__numrow' }, [
+      h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-maxkib' }, t('cfg.suggestMaxBytesLabel')),
+      h('input', {
+        key: 'input', id: 'gp-cfg-maxkib', type: 'number', className: 'gp-cfg__numinput',
+        inputMode: 'numeric', min: MAX_KIB.min, max: MAX_KIB.max, 'aria-describedby': 'gp-cfg-maxkib-hint',
+        value: draftMaxKib ?? String(suggestMaxKib),
+        disabled: busy || snap?.writable === false,
+        onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftMaxKib(e.currentTarget.value) },
+        onBlur: () => { void commitMaxKib(draftMaxKib) },
+        onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
+      }),
+      h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestMaxBytesUnit')),
+    ]),
+    h('p', { key: 'numaxhint', id: 'gp-cfg-maxkib-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestMaxBytesHint')),
+    h('div', { key: 'nuout', className: 'gp-cfg__numrow' }, [
+      h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-outtok' }, t('cfg.suggestOutputLabel')),
+      h('input', {
+        key: 'input', id: 'gp-cfg-outtok', type: 'number', className: 'gp-cfg__numinput',
+        inputMode: 'numeric', min: SUGGEST_LIMITS.maxOutputTokens.min, max: SUGGEST_LIMITS.maxOutputTokens.max, 'aria-describedby': 'gp-cfg-outtok-hint',
+        value: draftOutputTokens ?? String(suggestOutputTokens),
+        disabled: busy || snap?.writable === false,
+        onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftOutputTokens(e.currentTarget.value) },
+        onBlur: () => { void commitOutputTokens(draftOutputTokens) },
+        onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
+      }),
+      h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestOutputUnit')),
+    ]),
+    h('p', { key: 'nuouthint', id: 'gp-cfg-outtok-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestOutputHint')),
+    h('div', { key: 'nuto', className: 'gp-cfg__numrow' }, [
+      h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-timeout' }, t('cfg.suggestTimeoutLabel')),
+      h('input', {
+        key: 'input', id: 'gp-cfg-timeout', type: 'number', className: 'gp-cfg__numinput',
+        inputMode: 'numeric', min: TIMEOUT_S.min, max: TIMEOUT_S.max, 'aria-describedby': 'gp-cfg-timeout-hint',
+        value: draftTimeout ?? String(suggestTimeoutS),
+        disabled: busy || snap?.writable === false,
+        onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftTimeout(e.currentTarget.value) },
+        onBlur: () => { void commitTimeout(draftTimeout) },
+        onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
+      }),
+      h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestTimeoutUnit')),
+    ]),
+    h('p', { key: 'nutohint', id: 'gp-cfg-timeout-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestTimeoutHint')),
+    h('div', { key: 'sgmodel', className: 'gp-cfg__menur' }, [
+      h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestModelLabel')),
+      providerMenu,
+    ]),
+    uiProvider !== ''
+      ? h('div', { key: 'sgmodel2', className: 'gp-cfg__menur' }, [
+        h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestProviderLabel')),
+        modelMenu,
+      ])
+      : null,
+    uiProvider !== '' && uiModel !== '' && efforts !== undefined && efforts.length > 0
+      ? h('div', { key: 'sgeffort', className: 'gp-cfg__menur' }, [
+        h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestEffortLabel')),
+        effortMenu,
+      ])
+      : null,
+    catalogStatus === 'loading'
+      ? h('p', { key: 'sgload', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' }, t('cfg.suggestModelLoading'))
+      : catalogStatus === 'error'
+        ? h('p', { key: 'sgerr', className: 'gp-cfg__err', id: 'gp-cfg-model-hint', role: 'alert' }, [
+          t('cfg.suggestModelFailed'),
+          ' ',
+          h('button', {
+            key: 'retry', type: 'button', className: 'gp-cfg__retry',
+            onClick: () => { loadCatalog() },
+          }, t('cfg.suggestModelRetry')),
+        ])
+        : catalog.length === 0
+          ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' }, t('cfg.suggestModelEmpty'))
+          : catalogFailures.length > 0
+            ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' },
+              `${t('cfg.suggestModelFailed')}: ${catalogFailures.map((f) => f.name).join(', ')}`)
+            : h('p', { key: 'sghint', id: 'gp-cfg-model-hint', className: 'gp-cfg__rangehint' }, ''),
+    h('p', { key: 'sghint2', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
     failed ? h('p', { key: 'error', className: 'gp-cfg__err', role: 'alert' }, t('cfg.saveFailed')) : null,
   ])
 }
