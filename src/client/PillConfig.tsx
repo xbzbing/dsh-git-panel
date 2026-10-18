@@ -9,6 +9,7 @@
  */
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
+import { IconChevronDownOutlineRegular, Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { resyncAll } from './registry.js'
 import { segButtons } from './seg.js'
 import { gitPanelRemoteOf, queryAs } from './rpc.js'
@@ -83,6 +84,10 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   // snapshot can carry the complete pair (an incomplete pair is dropped
   // host-side, so the form value alone cannot hold "provider picked").
   const [pendingRoute, setPendingRoute] = useState<{ provider: string; model: string; effort: string } | null>(null)
+  // Platform Menu is controlled; the caller toggles open state per row.
+  const [providerOpen, setProviderOpen] = useState(false)
+  const [modelOpen, setModelOpen] = useState(false)
+  const [effortOpen, setEffortOpen] = useState(false)
   const bump = (): void => { setTick((n) => n + 1) }
 
   const forms = ctx.get('configForms') as ConfigFormsFace | undefined
@@ -300,6 +305,93 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const commitTimeout = (raw: string | null): Promise<void> =>
     commitSuggestNumber(raw, TIMEOUT_S, 1000, 'suggestTimeoutMs', setDraftTimeout, () => setDraftTimeout(null))
 
+  // Platform Menu rows: the same dropdown surface as the overview author /
+  // since filters. Trigger is ours; Menu never closes itself, so onSelect closes.
+  const providerItems: readonly MenuItem[] = [
+    { id: '', label: t('cfg.suggestModelSession') },
+    ...catalog.map((g) => ({ id: g.id, label: g.name })),
+  ]
+  const modelItems: readonly MenuItem[] = [
+    { id: '', label: t('cfg.suggestModelPick') },
+    ...(activeGroup?.models ?? []).map((m) => ({ id: m.id, label: m.name })),
+  ]
+  const effortItems: readonly MenuItem[] = [
+    { id: '', label: t('cfg.suggestEffortUnset') },
+    ...(efforts ?? []).map((eff) => ({ id: eff.id, label: eff.name })),
+  ]
+  const renderMenuTrigger = (
+    open: boolean,
+    label: string,
+    toggle: () => void,
+    disabled: boolean,
+  ): JSX.Element => h('button', {
+    type: 'button',
+    className: 'gp-select-trigger gp-cfg__select-trigger',
+    'aria-haspopup': 'menu',
+    'aria-expanded': open,
+    title: label,
+    disabled,
+    onClick: toggle,
+  }, [
+    h('span', { key: 'l', className: 'gp-select-trigger__label' }, label),
+    h(IconChevronDownOutlineRegular, { key: 'c', className: 'gp-select-trigger__chevron', size: 14 }),
+  ])
+  const menuDisabled = busy || snap?.writable === false
+  const providerLabel = uiProvider === ''
+    ? t('cfg.suggestModelSession')
+    : catalog.find((g) => g.id === uiProvider)?.name ?? uiProvider
+  const modelLabel = uiModel === ''
+    ? t('cfg.suggestModelPick')
+    : activeModel?.name ?? uiModel
+  const effortLabel = fixedEffort === ''
+    ? t('cfg.suggestEffortUnset')
+    : efforts?.find((eff) => eff.id === fixedEffort)?.name ?? fixedEffort
+  const providerMenu = h(Menu, {
+    key: 'provider',
+    open: providerOpen,
+    onClose: () => setProviderOpen(false),
+    items: providerItems,
+    selectedId: uiProvider,
+    onSelect: (id: string) => {
+      setProviderOpen(false)
+      void setProvider(id)
+    },
+    align: 'start',
+    portal: true,
+    className: 'gp-cfg__menu',
+    anchor: renderMenuTrigger(providerOpen, providerLabel, () => setProviderOpen((v) => !v), menuDisabled || catalogStatus === 'loading'),
+  })
+  const modelMenu = h(Menu, {
+    key: 'model',
+    open: modelOpen,
+    onClose: () => setModelOpen(false),
+    items: modelItems,
+    selectedId: uiModel,
+    onSelect: (id: string) => {
+      setModelOpen(false)
+      void setModel(id)
+    },
+    align: 'start',
+    portal: true,
+    className: 'gp-cfg__menu',
+    anchor: renderMenuTrigger(modelOpen, modelLabel, () => setModelOpen((v) => !v), menuDisabled || activeGroup === undefined),
+  })
+  const effortMenu = h(Menu, {
+    key: 'effort',
+    open: effortOpen,
+    onClose: () => setEffortOpen(false),
+    items: effortItems,
+    selectedId: fixedEffort,
+    onSelect: (id: string) => {
+      setEffortOpen(false)
+      void setEffort(id)
+    },
+    align: 'start',
+    portal: true,
+    className: 'gp-cfg__menu',
+    anchor: renderMenuTrigger(effortOpen, effortLabel, () => setEffortOpen((v) => !v), menuDisabled),
+  })
+
   if (forms === undefined) return h('p', { className: 'gp-cfg__hint' }, t('cfg.notLoaded'))
   if (!loaded) {
     if (mirrorStatus === 'idle' || mirrorStatus === 'loading') return h('p', { className: 'gp-cfg__hint' }, t('common.loading'))
@@ -384,44 +476,20 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestTimeoutUnit')),
       ]),
       h('p', { key: 'nutohint', id: 'gp-cfg-timeout-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestTimeoutHint')),
-      h('div', { key: 'sgmodel', className: 'gp-cfg__selectrow' }, [
-        h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-provider' }, t('cfg.suggestModelLabel')),
-        h('select', {
-          key: 'sel', id: 'gp-cfg-provider', className: 'gp-cfg__select',
-          value: uiProvider, disabled: busy || snap?.writable === false || catalogStatus === 'loading',
-          'aria-describedby': 'gp-cfg-model-hint',
-          onChange: (e: ChangeEvent<HTMLSelectElement>) => { void setProvider(e.currentTarget.value) },
-        }, [
-          h('option', { key: 'session', value: '' }, t('cfg.suggestModelSession')),
-          ...catalog.map((g) => h('option', { key: g.id, value: g.id }, g.name)),
-        ]),
+      h('div', { key: 'sgmodel', className: 'gp-cfg__menur' }, [
+        h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestModelLabel')),
+        providerMenu,
       ]),
       uiProvider !== ''
-        ? h('div', { key: 'sgmodel2', className: 'gp-cfg__selectrow' }, [
-          h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-model' }, t('cfg.suggestProviderLabel')),
-          h('select', {
-            key: 'sel', id: 'gp-cfg-model', className: 'gp-cfg__select',
-            value: uiModel, disabled: busy || snap?.writable === false || activeGroup === undefined,
-            'aria-describedby': 'gp-cfg-model-hint',
-            onChange: (e: ChangeEvent<HTMLSelectElement>) => { void setModel(e.currentTarget.value) },
-          }, [
-            h('option', { key: 'pick', value: '' }, t('cfg.suggestModelPick')),
-            ...(activeGroup?.models ?? []).map((m) => h('option', { key: m.id, value: m.id }, m.name)),
-          ]),
+        ? h('div', { key: 'sgmodel2', className: 'gp-cfg__menur' }, [
+          h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestProviderLabel')),
+          modelMenu,
         ])
         : null,
       uiProvider !== '' && uiModel !== '' && efforts !== undefined && efforts.length > 0
-        ? h('div', { key: 'sgeffort', className: 'gp-cfg__selectrow' }, [
-          h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-effort' }, t('cfg.suggestEffortLabel')),
-          h('select', {
-            key: 'sel', id: 'gp-cfg-effort', className: 'gp-cfg__select',
-            value: fixedEffort, disabled: busy || snap?.writable === false,
-            'aria-describedby': 'gp-cfg-model-hint',
-            onChange: (e: ChangeEvent<HTMLSelectElement>) => { void setEffort(e.currentTarget.value) },
-          }, [
-            h('option', { key: 'unset', value: '' }, t('cfg.suggestEffortUnset')),
-            ...efforts.map((eff) => h('option', { key: eff.id, value: eff.id }, eff.name)),
-          ]),
+        ? h('div', { key: 'sgeffort', className: 'gp-cfg__menur' }, [
+          h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestEffortLabel')),
+          effortMenu,
         ])
         : null,
       catalogStatus === 'loading'
