@@ -56,17 +56,26 @@ const MAX_LINE_CHARS = 5000
 
 // Row virtualization: the source view renders only the rows in (or near) the
 // viewport, so a 15k-line file mounts ~a screenful of nodes instead of 30k.
-// Rows are fixed-height and non-wrapping (horizontal scroll) so the window math
-// is exact; ROW_HEIGHT must match the .gp-files__row line box.
+// The nowrap grid keeps rows fixed-height (long lines scroll horizontally)
+// so the window math is exact; ROW_HEIGHT must match the .gp-files__row line
+// box. Wrap mode leaves that grid for a flow layout where rows grow.
 const ROW_HEIGHT = 20
 const OVERSCAN = 12
 // Assumed viewport height before the first layout measurement, so the initial
 // paint mounts a bounded window instead of the whole file.
 const VIEWPORT_FALLBACK = 600
 // Wrap drops the fixed-height grid for flow layout, so every line mounts.
-// Above this line count the view keeps the virtualized nowrap grid instead —
-// wrapping a 15k-line file would mount the whole body on the main thread.
+// Above either cap the view keeps the virtualized nowrap grid instead —
+// mounting thousands of wrapping rows on the main thread stalls first paint
+// (line count alone is not enough: a short file of 5000-char lines reaches
+// tens of MB of layout work under the 10MB text read cap).
 const MAX_WRAP_LINES = 2000
+const MAX_WRAP_BYTES = 1024 * 1024
+
+/** Whether the source body may use flow-layout wrapping for this content. */
+function wrapCapOk(content: string, lines: number): boolean {
+  return lines <= MAX_WRAP_LINES && content.length <= MAX_WRAP_BYTES
+}
 
 type FileState =
   | { readonly kind: 'idle' }
@@ -320,13 +329,17 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     }, h(FullscreenIcon, { size: 14 }))
     : null
   // Word wrap only affects the source/code body (rendered Markdown already wraps).
-  // Hidden when the file is over MAX_WRAP_LINES — the view keeps the virtualized
-  // nowrap grid there, so the toggle would do nothing.
-  const wrapApplicable = file.kind === 'text' && (file.lines === undefined || file.lines <= MAX_WRAP_LINES)
-  const wrapButton = wrapApplicable && (richPreview ? !renderMarkdown : true)
+  // Over the wrap cap the toggle stays visible but disabled — hiding it would
+  // discard the preference with no explanation (the body falls back to nowrap).
+  const isTextSource = file.kind === 'text' && (richPreview ? !renderMarkdown : true)
+  const capOk = file.kind === 'text' ? wrapCapOk(file.content, file.lines) : false
+  const wrapButton = isTextSource
     ? h('button', {
       key: 'wrap', type: 'button', className: 'gp-files__props',
-      title: t('files.wrap'), 'aria-label': t('files.wrap'), 'aria-pressed': wrap,
+      title: capOk ? t('files.wrap') : t('files.wrapDisabled'),
+      'aria-label': t('files.wrap'),
+      'aria-pressed': capOk && wrap,
+      disabled: !capOk,
       onClick: () => setWrap((w) => !w),
     }, h(WrapIcon, { size: 14 }))
     : null
@@ -649,10 +662,10 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
   // Virtualization: mount only the rows in (or near) the viewport. Uniform row
   // height, so the window math reuses the shared prefix-sum helpers. Wrap mode
   // drops the fixed-height grid for flow layout (rows grow), so the window
-  // math no longer applies and every line mounts instead — capped by
-  // MAX_WRAP_LINES so a huge file keeps the virtualized nowrap grid.
+  // math no longer applies and every line mounts instead — gated by wrapCapOk
+  // so a huge file keeps the virtualized nowrap grid.
   const total = lines.length
-  const wrapActive = wrap && total <= MAX_WRAP_LINES
+  const wrapActive = wrap && wrapCapOk(content, total)
   const tops = useMemo(() => buildTops(new Array<number>(total).fill(ROW_HEIGHT)), [total])
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
   const { first, last } = windowRange(tops, viewport.top, effHeight, OVERSCAN * ROW_HEIGHT)

@@ -1162,6 +1162,9 @@ const out = await page.evaluate(async (snap) => {
   const sourceBtn = modeTab('files.source')
   if (sourceBtn) { sourceBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownSourceShown = document.querySelector('.gp-files__code') !== null && document.querySelector('[data-markdown-rendered]') === null
+  // Wide bar: source mode for a rich file exposes the wrap toggle too (rendered
+  // Markdown hides it — the mode above already restored render, so re-check here).
+  result.wideSourceHasWrap = document.querySelector('.gp-files__bar [aria-label="files.wrap"]') !== null
   const renderBtn = modeTab('files.render')
   if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownRenderRestored = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
@@ -1195,6 +1198,11 @@ const out = await page.evaluate(async (snap) => {
   result.bigHighlightOff = document.querySelector('.gp-files__note')?.textContent === 'files.highlightOff'
   result.bigNoSyntaxSpans = document.querySelector('.gp-files__code .gp-diff-cell span[style]') === null
   result.bigLineTruncated = [...document.querySelectorAll('.gp-files__trunc')].some((n) => n.textContent === 'files.lineTruncated')
+  // Over the wrap cap the toggle stays visible but disabled with a reason,
+  // instead of vanishing and silently discarding the preference.
+  const bigWrapBtn = document.querySelector('.gp-files__bar [aria-label="files.wrap"]')
+  result.bigWrapDisabled = bigWrapBtn !== null && bigWrapBtn.disabled === true
+    && bigWrapBtn.getAttribute('title') === 'files.wrapDisabled'
   // Virtualization: the 5101-line big.js mounts only a windowed subset of rows,
   // not all of them, while the spacer height reflects the full line count.
   result.bigMountedRows = document.querySelectorAll('.gp-files__row').length

@@ -272,7 +272,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-mermaid__fallback{overflow:auto;background:var(--dsw-alias-markdown-code-block);border-radius:6px;padding:10px 12px;font-family:var(--dsw-font-mono,monospace);font-size:12px;margin:8px 0}
 .gp-files__html{flex:1;min-height:0;width:100%;border:0;background:#fff}
 .gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;position:relative}
-.gp-files__header{position:sticky;top:0;z-index:2}
+/* Both sticky axes: the header must also stay put under horizontal scroll
+ * (reachable only in nowrap mode), or the find bar slides out of view. */
+.gp-files__header{position:sticky;top:0;left:0;z-index:2}
 .gp-files__note{padding:5px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-find{display:flex;align-items:center;gap:4px;padding:5px 8px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-find__input{flex:1;min-width:60px;height:26px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 8px;box-sizing:border-box}

@@ -69,7 +69,10 @@ const out = await page.evaluate(async (snap) => {
           }
           if (q.kind === 'file-content') {
             const md = typeof q.path === 'string' && q.path.endsWith('.md')
-            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: md ? '# Hello\n\nbody line\n' : 'const x = 1\n', lines: md ? 3 : 1 } } }
+            // The long line exists so the wrap toggle's scrollWidth assertions
+            // can tell a wrapping body from a horizontally scrolling one.
+            const long = 'const long = "' + 'x'.repeat(300) + '"\n'
+            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: md ? '# Hello\n\nbody line\n' : 'const x = 1\n' + long, lines: md ? 3 : 2 } } }
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
           if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
@@ -383,6 +386,13 @@ const out = await page.evaluate(async (snap) => {
     const cell = document.querySelector('.gp-files__preview-content .gp-files__code .gp-diff-cell')
     return cell !== null && getComputedStyle(cell).whiteSpace.startsWith('pre-wrap')
   })()
+  // Wrap must keep the body inside the viewport (no horizontal overflow), so
+  // the nowrap state below has something real to contrast against.
+  const codeBox = () => document.querySelector('.gp-files__preview-content .gp-files__code')
+  result.flWrapNoHScroll = (() => {
+    const el = codeBox()
+    return el !== null && el.scrollWidth <= el.clientWidth + 1
+  })()
   // Trailing icons stay pinned to the toolbar's right edge even when the file
   // has no source/render switcher to take up the space between.
   const barEl = document.querySelector('.gp-files__bar--compact')
@@ -409,9 +419,19 @@ const out = await page.evaluate(async (snap) => {
       const cell = document.querySelector('.gp-files__preview-content .gp-files__code .gp-diff-cell')
       return cell !== null && getComputedStyle(cell).whiteSpace === 'pre'
     })()
+  // The spec's other half: nowrap must actually scroll the long fixture line
+  // horizontally (not clip it silently — the pre-PR box model did exactly that).
+  result.flNowrapHScroll = (() => {
+    const el = codeBox()
+    return el !== null && el.scrollWidth > el.clientWidth + 1
+  })()
   wrapBtn?.click()
   await new Promise((r) => setTimeout(r, 150))
   result.flWrapRestored = wrapBtn?.getAttribute('aria-pressed') === 'true'
+  result.flWrapRestoredNoHScroll = (() => {
+    const el = codeBox()
+    return el !== null && el.scrollWidth <= el.clientWidth + 1
+  })()
   // Fullscreen renders the same mode in the near-fullscreen modal and closes on Escape.
   // Focus the trigger first: a programmatic .click() does not focus it, and the
   // dialog is expected to restore focus to the control that opened it.
@@ -591,8 +611,11 @@ try {
   assert.equal(out.flHasWrap, true, 'the compact toolbar carries the word-wrap toggle')
   assert.equal(out.flWrapDefaultOn, true, 'word wrap defaults to on')
   assert.equal(out.flWrapDefaultWrapped, true, 'the source body wraps by default')
+  assert.equal(out.flWrapNoHScroll, true, 'the wrapped body fits the viewport without horizontal scrolling')
   assert.equal(out.flWrapToggledOff, true, 'toggling wrap off stops wrapping')
+  assert.equal(out.flNowrapHScroll, true, 'nowrap exposes horizontal scrolling for a long line instead of clipping it')
   assert.equal(out.flWrapRestored, true, 'toggling wrap on again restores wrapping')
+  assert.equal(out.flWrapRestoredNoHScroll, true, 'restoring wrap removes the horizontal overflow again')
   assert.equal(out.flPropsRightAligned, true, 'without a mode switcher the properties entry still sits at the right edge')
   assert.equal(out.flIconsOneRow, true, 'the back button and the trailing icons share one row')
   assert.equal(out.flBarEndHeights, true, 'wrap / fullscreen / properties match the 30px bar height')
