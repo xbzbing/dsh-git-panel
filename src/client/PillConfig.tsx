@@ -495,11 +495,13 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
             onClick: () => { loadCatalog() },
           }, t('cfg.suggestModelRetry')),
         ])
-        : catalog.length === 0
-          ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelEmpty'))
-          : catalogFailures.length > 0
-            ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint' },
-              `${t('cfg.suggestModelFailed')}: ${catalogFailures.map((f) => f.name).join(', ')}`)
+        // Failures win over the empty hint: a fully failed catalog is an
+        // adapter error, not proof that the host has no models.
+        : catalogFailures.length > 0
+          ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint' },
+            `${t('cfg.suggestModelFailed')}: ${catalogFailures.map((f) => f.name).join(', ')}`)
+          : catalog.length === 0
+            ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelEmpty'))
             : null,
     h('p', { key: 'sghint2', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
     failed ? h('p', { key: 'error', className: 'gp-cfg__err', role: 'alert' }, t('cfg.saveFailed')) : null,

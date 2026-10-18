@@ -128,3 +128,26 @@ test('without listModels the catalog is empty (not an error)', async () => {
   assert.equal(res.ok, true)
   assert.deepEqual(res.value.groups, [])
 })
+
+// Host LlmRuntime implements listModels / resolveModelInfo with
+// this.registration(...). Detaching those methods before the call would lose
+// the receiver and blank every provider — lock the call-site binding shape.
+test('catalog methods keep their receiver (this-dependent LlmRuntime shape)', async () => {
+  const llm = {
+    listProviders() { return [{ id: 'p', name: 'P' }] },
+    async listModels(provider) {
+      if (!this.listProviders().some((row) => row.id === provider)) throw new Error('unknown provider')
+      return [{ id: 'm', name: 'M' }]
+    },
+    async resolveModelInfo(provider, model) {
+      await this.listModels(provider)
+      if (model !== 'm') throw new Error('unknown model')
+      return { reasoning: { efforts: [{ id: 'low', name: 'low' }] } }
+    },
+  }
+  const res = await runQuery(depsWithLlm(llm), DEFAULT_CONFIG, catalogQuery())
+  assert.equal(res.ok, true)
+  assert.equal(res.value.groups.length, 1)
+  assert.equal(res.value.groups[0].models[0].reasoning.efforts[0].id, 'low')
+  assert.deepEqual(res.value.failures, [])
+})

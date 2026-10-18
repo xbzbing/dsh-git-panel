@@ -820,15 +820,19 @@ async function queryWorktreeStats(
  * broken adapter never blanks the whole catalog; providers run in parallel
  * because `listModels` / `resolveModelInfo` may be remote-backed, while the
  * input order is kept for a stable listing.
+ *
+ * The host `LlmRuntime` implements catalog methods with `this.registration(...)`,
+ * so bind the service as receiver before detaching — an unbound call throws
+ * on every provider and blanks the catalog.
  */
 async function queryModelCatalog(deps: SnapshotDeps): Promise<GitQueryResponse> {
   const llm = deps.getLlm?.()
-  const listModels = llm?.listModels
   const empty = { kind: 'model-catalog' as const, groups: [], failures: [] }
-  if (llm === undefined || listModels === undefined) {
+  if (llm === undefined || typeof llm.listModels !== 'function') {
     return { ok: true, value: empty }
   }
-  const resolveModelInfo = llm.resolveModelInfo
+  const listModels = llm.listModels.bind(llm)
+  const resolveModelInfo = typeof llm.resolveModelInfo === 'function' ? llm.resolveModelInfo.bind(llm) : undefined
   const providers = llm.listProviders?.() ?? []
   const results = await Promise.all(providers.map(async (provider): Promise<ModelCatalogGroup | ModelCatalogFailure | null> => {
     const name = provider.name ?? provider.id
