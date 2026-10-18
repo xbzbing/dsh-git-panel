@@ -11,8 +11,9 @@ import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { resyncAll } from './registry.js'
 import { segButtons } from './seg.js'
+import { gitPanelRemoteOf, queryAs } from './rpc.js'
 import type { ClientCtx, ConfigFormsFace, SettingsNamespaceView } from './rpc.js'
-import type { GraphStyle, SuggestLanguage } from './types.js'
+import type { GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
 import { SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
 import type { GitKey } from './locales.js'
 
@@ -32,6 +33,13 @@ function findNamespace(namespaces: readonly SettingsNamespaceView[]): string | u
 }
 
 type DiffView = 'unified' | 'split'
+
+/** Catalog load lifecycle for the model cascading selects. */
+type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+/** SESSION_PLACEHOLDER: model-catalog is host-level; the request type still
+ * carries sessionId, so an empty string is the deliberate non-session value. */
+const SESSION_PLACEHOLDER = ''
 
 // Suggest-limit display units, derived from the host units in SUGGEST_LIMITS
 // (bytes / tokens / ms) so the form's ranges and fallbacks cannot drift from
@@ -68,6 +76,10 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [draftMaxKib, setDraftMaxKib] = useState<string | null>(null)
   const [draftOutputTokens, setDraftOutputTokens] = useState<string | null>(null)
   const [draftTimeout, setDraftTimeout] = useState<string | null>(null)
+  // Model catalog (issue #54): host-level list of providers / models / efforts.
+  const [catalog, setCatalog] = useState<readonly ModelCatalogGroup[]>([])
+  const [catalogFailures, setCatalogFailures] = useState<readonly { id: string; name: string; message: string }[]>([])
+  const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>('idle')
   const bump = (): void => { setTick((n) => n + 1) }
 
   const forms = ctx.get('configForms') as ConfigFormsFace | undefined
@@ -117,6 +129,43 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     typeof snap?.value?.suggestTimeoutMs === 'number' ? (snap.value.suggestTimeoutMs as number) / 1000 : SUGGEST_LIMITS.timeoutMs.default / 1000,
     TIMEOUT_S,
   )
+  // Fixed model route: both halves of the pair must be non-empty (host mirrors
+  // this rule in normalizeConfig). Effort is only meaningful on a fixed route.
+  const rawProvider = typeof snap?.value?.suggestProvider === 'string' ? (snap.value.suggestProvider as string) : ''
+  const rawModel = typeof snap?.value?.suggestModel === 'string' ? (snap.value.suggestModel as string) : ''
+  const rawEffort = typeof snap?.value?.suggestReasoningEffort === 'string' ? (snap.value.suggestReasoningEffort as string) : ''
+  const fixedProvider = rawProvider !== '' && rawModel !== '' ? rawProvider : ''
+  const fixedModel = fixedProvider !== '' ? rawModel : ''
+  const fixedEffort = fixedProvider !== '' ? rawEffort : ''
+  const activeGroup = catalog.find((g) => g.id === fixedProvider)
+  const activeModel = activeGroup?.models.find((m) => m.id === fixedModel)
+  const efforts = activeModel?.reasoning?.efforts
+
+  // Load the host catalog once the config form is readable; reload on demand.
+  const loadCatalog = (): void => {
+    setCatalogStatus('loading')
+    void gitPanelRemoteOf(ctx)
+      .query({ sessionId: SESSION_PLACEHOLDER, query: { kind: 'model-catalog' } })
+      .then((res) => {
+        const value = queryAs(res, 'model-catalog')
+        if (value === null) {
+          setCatalogStatus('error')
+          return
+        }
+        setCatalog(value.groups)
+        setCatalogFailures(value.failures)
+        setCatalogStatus('ready')
+      })
+      .catch(() => { setCatalogStatus('error') })
+  }
+
+  useEffect(() => {
+    if (!loaded) return
+    if (catalogStatus !== 'idle') return
+    loadCatalog()
+    // Intentionally once per form load: reload is the retry button's job.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded])
 
   // Write one config field, then resync so the pill/tab-dot reflect it without
   // waiting for the next poll; `clearPending` resets that field's optimistic
@@ -166,6 +215,52 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     setPendingLang(next)
     return commitField('suggestLanguage', next, () => setPendingLang(null))
   }
+
+  // Cascade writes: picking a provider clears the model and effort (the model
+  // list is per-provider); picking a model clears a stale effort; session-
+  // default clears all three. Empty string is the host's "absent" spelling
+  // (normalizeConfig treats '' as unset for the pair and for effort).
+  const writeModelRoute = async (
+    provider: string,
+    model: string,
+    effort: string,
+  ): Promise<void> => {
+    if (form === undefined) return
+    setFailed(false)
+    setBusy(true)
+    try {
+      const okP = await form.set('suggestProvider', provider)
+      const okM = await form.set('suggestModel', model)
+      const okE = await form.set('suggestReasoningEffort', effort)
+      if (!(okP && okM && okE)) setFailed(true)
+      else { resyncAll(); setTimeout(() => resyncAll(), 1000) }
+    } catch {
+      setFailed(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const setProvider = (next: string): Promise<void> => {
+    if (next === '') return writeModelRoute('', '', '')
+    // Keep the existing model if it belongs to the new provider; otherwise
+    // leave model/effort blank so the user picks from the new list.
+    const group = catalog.find((g) => g.id === next)
+    const keepModel = group?.models.some((m) => m.id === fixedModel) === true ? fixedModel : ''
+    return writeModelRoute(next, keepModel, keepModel !== '' ? fixedEffort : '')
+  }
+
+  const setModel = (next: string): Promise<void> => {
+    if (next === '') return writeModelRoute(fixedProvider, '', '')
+    // A model without efforts must not carry a stale effort id.
+    const group = catalog.find((g) => g.id === fixedProvider)
+    const model = group?.models.find((m) => m.id === next)
+    const keepEffort = model?.reasoning?.efforts.some((e) => e.id === fixedEffort) === true ? fixedEffort : ''
+    return writeModelRoute(fixedProvider, next, keepEffort)
+  }
+
+  const setEffort = (next: string): Promise<void> =>
+    writeModelRoute(fixedProvider, fixedModel, next)
 
   // Commit one numeric draft: parse → clamp to the display-unit range → write
   // in storage units (KiB→bytes, s→ms, tokens as-is). The clamped value is
@@ -282,7 +377,64 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestTimeoutUnit')),
       ]),
       h('p', { key: 'nutohint', id: 'gp-cfg-timeout-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestTimeoutHint')),
-      h('p', { key: 'sghint', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
+      h('div', { key: 'sgmodel', className: 'gp-cfg__selectrow' }, [
+        h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-provider' }, t('cfg.suggestModelLabel')),
+        h('select', {
+          key: 'sel', id: 'gp-cfg-provider', className: 'gp-cfg__select',
+          value: fixedProvider, disabled: busy || snap?.writable === false || catalogStatus === 'loading',
+          'aria-describedby': 'gp-cfg-model-hint',
+          onChange: (e: ChangeEvent<HTMLSelectElement>) => { void setProvider(e.currentTarget.value) },
+        }, [
+          h('option', { key: 'session', value: '' }, t('cfg.suggestModelSession')),
+          ...catalog.map((g) => h('option', { key: g.id, value: g.id }, g.name)),
+        ]),
+      ]),
+      fixedProvider !== ''
+        ? h('div', { key: 'sgmodel2', className: 'gp-cfg__selectrow' }, [
+          h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-model' }, t('cfg.suggestProviderLabel')),
+          h('select', {
+            key: 'sel', id: 'gp-cfg-model', className: 'gp-cfg__select',
+            value: fixedModel, disabled: busy || snap?.writable === false || activeGroup === undefined,
+            'aria-describedby': 'gp-cfg-model-hint',
+            onChange: (e: ChangeEvent<HTMLSelectElement>) => { void setModel(e.currentTarget.value) },
+          }, [
+            h('option', { key: 'pick', value: '' }, t('cfg.suggestModelPick')),
+            ...(activeGroup?.models ?? []).map((m) => h('option', { key: m.id, value: m.id }, m.name)),
+          ]),
+        ])
+        : null,
+      fixedProvider !== '' && fixedModel !== '' && efforts !== undefined && efforts.length > 0
+        ? h('div', { key: 'sgeffort', className: 'gp-cfg__selectrow' }, [
+          h('label', { key: 'lab', className: 'gp-cfg__selectlabel', htmlFor: 'gp-cfg-effort' }, t('cfg.suggestEffortLabel')),
+          h('select', {
+            key: 'sel', id: 'gp-cfg-effort', className: 'gp-cfg__select',
+            value: fixedEffort, disabled: busy || snap?.writable === false,
+            'aria-describedby': 'gp-cfg-model-hint',
+            onChange: (e: ChangeEvent<HTMLSelectElement>) => { void setEffort(e.currentTarget.value) },
+          }, [
+            h('option', { key: 'unset', value: '' }, t('cfg.suggestEffortUnset')),
+            ...efforts.map((eff) => h('option', { key: eff.id, value: eff.id }, eff.name)),
+          ]),
+        ])
+        : null,
+      catalogStatus === 'loading'
+        ? h('p', { key: 'sgload', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' }, t('cfg.suggestModelLoading'))
+        : catalogStatus === 'error'
+          ? h('p', { key: 'sgerr', className: 'gp-cfg__err', id: 'gp-cfg-model-hint', role: 'alert' }, [
+            t('cfg.suggestModelFailed'),
+            ' ',
+            h('button', {
+              key: 'retry', type: 'button', className: 'gp-cfg__retry',
+              onClick: () => { loadCatalog() },
+            }, t('cfg.suggestModelRetry')),
+          ])
+          : catalog.length === 0
+            ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' }, t('cfg.suggestModelEmpty'))
+            : catalogFailures.length > 0
+              ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint', id: 'gp-cfg-model-hint' },
+                `${t('cfg.suggestModelFailed')}: ${catalogFailures.map((f) => f.name).join(', ')}`)
+              : h('p', { key: 'sghint', id: 'gp-cfg-model-hint', className: 'gp-cfg__rangehint' }, ''),
+      h('p', { key: 'sghint2', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
     ]),
     failed ? h('p', { key: 'error', className: 'gp-cfg__err', role: 'alert' }, t('cfg.saveFailed')) : null,
   ])

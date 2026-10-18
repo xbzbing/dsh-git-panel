@@ -15,7 +15,16 @@ import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 /** Minimal face of the host `llm` service (`ctx.llm`). */
 export interface LlmFace {
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>
-  listProviders?(): readonly { readonly id: string }[]
+  listProviders?(): readonly { readonly id: string; readonly name?: string }[]
+  /** Adapter-advertised models for one provider; optional on the wire. */
+  listModels?(provider: string): Promise<readonly { readonly id: string; readonly name?: string }[]>
+  /** Exact-route metadata (reasoning efforts etc.); optional on the wire. */
+  resolveModelInfo?(provider: string, model: string, signal?: AbortSignal): Promise<{
+    readonly reasoning?: {
+      readonly efforts: readonly { readonly id: string; readonly name: string }[]
+      readonly defaultEffort?: string
+    }
+  }>
 }
 
 /** Minimal face of the host `agentDefaultModel` service. */

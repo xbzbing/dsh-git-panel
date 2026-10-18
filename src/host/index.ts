@@ -25,6 +25,7 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
+  ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from './types.js'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote, readSuggestLanguage } from './core.js'
 export { createGitRunner } from './git.js'
@@ -75,6 +76,13 @@ export class GitPanelService extends TypertRemoteService {
     suggestMaxBytes: Schema.number().default(DEFAULT_CONFIG.suggestMaxBytes).volatile().description('AI 生成输入预算（diff 字节上限，16–512 KiB）'),
     suggestMaxOutputTokens: Schema.number().default(DEFAULT_CONFIG.suggestMaxOutputTokens).volatile().description('AI 生成输出上限（tokens，256–16384）'),
     suggestTimeoutMs: Schema.number().default(DEFAULT_CONFIG.suggestTimeoutMs).volatile().description('AI 生成超时（毫秒，5–120 秒）'),
+    // Fixed model route for AI suggest (issue #54). Both halves of the pair
+    // must be non-empty to take effect (normalizeConfig); effort is only
+    // meaningful on a fixed route and is omitted from the request when blank.
+    // No .default(): without one the field stays optional in the object schema.
+    suggestProvider: Schema.string().volatile().description('AI 生成固定模型的 provider（留空 = 跟随会话默认）'),
+    suggestModel: Schema.string().volatile().description('AI 生成固定模型的 model id（须与 provider 成对）'),
+    suggestReasoningEffort: Schema.string().volatile().description('AI 生成固定模型的推理强度（留空 = 不设置，用模型默认）'),
   })
 
   private readonly deps: SnapshotDeps

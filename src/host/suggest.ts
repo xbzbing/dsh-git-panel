@@ -11,7 +11,7 @@
  * @deepseek-ai/dsh-session-title-llm: JSON-wrapped input, a bounded input
  * cap, an output token cap, a timeout, and finish-reason → error mapping.
  */
-import type { FinishReason, GenerateOptions, MessageId } from '@deepseek-ai/dsh-llm'
+import type { FinishReason, GenerateOptions, MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { GitPanelConfig, SnapshotDeps } from './core.js'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand } from './core.js'
 import { isSafePath } from './validate.js'
@@ -154,13 +154,19 @@ const UNTRACKED_FILE_CAP = 16
  */
 const PROMPT_FILE_CAP = 200
 
-/** Resolve the model route: config override pair first, then the agent default. */
+/** Resolve the model route: config override pair first, then the agent default.
+ * A fixed route may carry an effort; the agent-default path never does — the
+ * session's Agent owns its own reasoning configuration. */
 function resolveRoute(
   config: GitPanelConfig,
   agentDefaultModel: AgentDefaultModelFace | undefined,
-): { readonly provider: string; readonly model: string } | undefined {
+): { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | undefined {
   if (config.suggestProvider !== undefined && config.suggestModel !== undefined) {
-    return { provider: config.suggestProvider, model: config.suggestModel }
+    return {
+      provider: config.suggestProvider,
+      model: config.suggestModel,
+      ...(config.suggestReasoningEffort !== undefined ? { reasoningEffort: config.suggestReasoningEffort } : {}),
+    }
   }
   return agentDefaultModel?.currentSelection()
 }
@@ -463,6 +469,10 @@ export async function runSuggest(
   const options: GenerateOptions = {
     provider: route.provider,
     model: route.model,
+    // Catalog effort ids come from the same adapter surface GenerateOptions
+    // accepts; the brand is compile-time only (the runtime factory lives in
+    // @deepseek-ai/dsh-llm, which is externalized), so a cast is the boundary.
+    ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort as ReasoningEffortId } : {}),
     system: systemPrompt(language),
     messages: [{
       id: 'git-panel-suggest' as MessageId,
@@ -507,6 +517,7 @@ export async function runSuggest(
       message,
       provider: route.provider,
       model: route.model,
+      ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
       ...(truncated ? { truncated: true } : {}),
     },
   }

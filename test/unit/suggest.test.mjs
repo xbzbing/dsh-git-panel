@@ -656,6 +656,43 @@ test('config provider/model override beats the agent default route', async () =>
   await runSuggest(deps, config, { sessionId: SID })
   assert.equal(llm.calls[0].provider, 'cfg-p')
   assert.equal(llm.calls[0].model, 'cfg-m')
+  assert.equal('reasoningEffort' in llm.calls[0], false, 'no effort key when unset')
+})
+
+test('a fixed route with an effort sends reasoningEffort', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  const config = { ...DEFAULT_CONFIG, suggestProvider: 'cfg-p', suggestModel: 'cfg-m', suggestReasoningEffort: 'high' }
+  const res = await runSuggest(deps, config, { sessionId: SID })
+  assert.equal(llm.calls[0].reasoningEffort, 'high')
+  if (res.ok) assert.equal(res.value.reasoningEffort, 'high')
+})
+
+test('the agent-default route never sends an effort, even if config has one', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute('agent-p', 'agent-m') })
+  // Unpaired provider with an effort: normalizeConfig drops the whole route;
+  // resolveRoute also never attaches effort on the agent-default path.
+  const config = normalizeConfig({ suggestReasoningEffort: 'high' })
+  await runSuggest(deps, config, { sessionId: SID })
+  assert.equal(llm.calls[0].provider, 'agent-p')
+  assert.equal('reasoningEffort' in llm.calls[0], false)
+})
+
+test('normalizeConfig keeps effort only on a complete provider/model pair', () => {
+  const pair = normalizeConfig({ suggestProvider: 'p', suggestModel: 'm', suggestReasoningEffort: 'low' })
+  assert.equal(pair.suggestProvider, 'p')
+  assert.equal(pair.suggestModel, 'm')
+  assert.equal(pair.suggestReasoningEffort, 'low')
+  // Lone provider + effort: whole route dropped, no residual effort.
+  const lone = normalizeConfig({ suggestProvider: 'p', suggestReasoningEffort: 'low' })
+  assert.equal(lone.suggestProvider, undefined)
+  assert.equal(lone.suggestModel, undefined)
+  assert.equal(lone.suggestReasoningEffort, undefined)
+  // Empty effort on a pair is normalized to absent (omit from the request).
+  const blank = normalizeConfig({ suggestProvider: 'p', suggestModel: 'm', suggestReasoningEffort: '' })
+  assert.equal(blank.suggestProvider, 'p')
+  assert.equal(blank.suggestReasoningEffort, undefined)
 })
 
 test('timeout: a stream that never finishes maps to llm-error', async () => {

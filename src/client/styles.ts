@@ -641,6 +641,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-cfg__numinput:disabled{opacity:.5;cursor:default}
 .gp-cfg__numunit{flex:none;width:44px;font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .gp-cfg__rangehint{margin:-4px 0 0;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+/* Cascading model selects (issue #54): native <select> styled like the number
+ * inputs so the config form keeps one control language. */
+.gp-cfg__selectrow{display:flex;align-items:center;gap:8px}
+.gp-cfg__selectlabel{flex:1;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary)}
+.gp-cfg__select{flex:1;min-width:0;max-width:260px;height:26px;padding:0 6px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
+.gp-cfg__select:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
+.gp-cfg__select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.gp-cfg__select:disabled{opacity:.5;cursor:default}
+.gp-cfg__retry{margin-left:6px;padding:0 6px;height:20px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;cursor:pointer}
+.gp-cfg__retry:hover{background:var(--dsw-alias-interactive-bg-hover)}
 
 /* status dot appended to the shell's Git view-tab button — shown only when the
  * input-bar marker is hidden; colour mirrors the pill branch (synced/dirty). */

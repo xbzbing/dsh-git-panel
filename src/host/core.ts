@@ -36,6 +36,9 @@ export interface GitPanelConfig {
   /** Optional provider/model route override; absent → the agent default. */
   readonly suggestProvider?: string
   readonly suggestModel?: string
+  /** Adapter-owned effort for the fixed route; absent → omit from the request
+   * (the model / adapter default applies). Ignored when the route is not fixed. */
+  readonly suggestReasoningEffort?: string
 }
 
 export const DEFAULT_CONFIG: GitPanelConfig = {
@@ -69,10 +72,14 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     return typeof raw === 'number' && Number.isFinite(raw) ? Math.min(limit.max, Math.max(limit.min, Math.floor(raw))) : limit.default
   }
   // Provider/model overrides must be supplied together; a lone half is ignored
-  // so a mistyped profile degrades to the agent default route.
+  // so a mistyped profile degrades to the agent default route. The effort is
+  // only meaningful on a fixed route, so an unpaired config drops it too —
+  // no half-applied residual can survive a broken pair.
   const hasProvider = typeof c.suggestProvider === 'string' && c.suggestProvider !== ''
   const hasModel = typeof c.suggestModel === 'string' && c.suggestModel !== ''
-  const route = hasProvider && hasModel ? { suggestProvider: c.suggestProvider, suggestModel: c.suggestModel } : {}
+  const effortRaw = unwrapVolatile(c.suggestReasoningEffort)
+  const effort = typeof effortRaw === 'string' && effortRaw !== '' ? { suggestReasoningEffort: effortRaw } : {}
+  const route = hasProvider && hasModel ? { suggestProvider: c.suggestProvider, suggestModel: c.suggestModel, ...effort } : {}
   return {
     timeoutMs: num(c.timeoutMs, DEFAULT_CONFIG.timeoutMs),
     maxBytes: num(c.maxBytes, DEFAULT_CONFIG.maxBytes),

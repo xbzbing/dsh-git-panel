@@ -9,6 +9,7 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, TruncationReason,
+  ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from '../host/types.js'
 
 export { imageMimeFor, isHistoryFiltered, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
