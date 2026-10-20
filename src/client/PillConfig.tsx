@@ -16,7 +16,7 @@ import { effortForModel, modelForProvider } from './model-route.js'
 import { selectTrigger } from './select-trigger.js'
 import { gitPanelRemoteOf, queryAs } from './rpc.js'
 import type { ClientCtx, ConfigFormsFace } from './rpc.js'
-import type { FontDelta, GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
+import type { FontDelta, GitPanelPlacement, GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
 import { SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
 import type { GitKey } from './locales.js'
 
@@ -59,6 +59,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const [pending, setPending] = useState<boolean | null>(null)
+  const [pendingPlacement, setPendingPlacement] = useState<GitPanelPlacement | null>(null)
   const [pendingView, setPendingView] = useState<DiffView | null>(null)
   const [pendingGraph, setPendingGraph] = useState<GraphStyle | null>(null)
   const [pendingFont, setPendingFont] = useState<FontDelta | null>(null)
@@ -110,6 +111,9 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const loaded = form !== undefined && snap !== undefined && snap.status === 'ready'
   const mirrorStatus = mirror?.getSnapshot().status
   const checked = pending ?? (typeof snap?.value?.showInputPill === 'boolean' ? (snap.value.showInputPill as boolean) : true)
+  const rawPlacement = snap?.value?.placement
+  const placement: GitPanelPlacement = pendingPlacement
+    ?? (rawPlacement === 'tab' || rawPlacement === 'sidebar' ? rawPlacement : 'all')
   const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
   const graphStyle: GraphStyle = pendingGraph ?? (snap?.value?.graphStyle === 'compact' ? 'compact' : 'parallel')
   const fontDelta: FontDelta = pendingFont
@@ -197,6 +201,12 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const toggle = (next: boolean): Promise<void> => {
     setPending(next)
     return commitField('showInputPill', next, () => setPending(null))
+  }
+
+  const setPlacement = (next: GitPanelPlacement): Promise<void> => {
+    if (next === placement) return Promise.resolve()
+    setPendingPlacement(next)
+    return commitField('placement', next, () => setPendingPlacement(null))
   }
 
   const setView = (next: DiffView): Promise<void> => {
@@ -391,7 +401,12 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   }
 
   return h('div', { className: 'gp-cfg' }, [
-    h('h3', { key: 'title', className: 'gp-cfg__title' }, t('cfg.title')),
+    h('h3', { key: 'placetitle', className: 'gp-cfg__title' }, t('cfg.placementTitle')),
+    h('div', { key: 'placeseg', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.placementTitle') },
+      segButtons<GitPanelPlacement>(['all', 'tab', 'sidebar'], placement, (v) => { void setPlacement(v) },
+        (v) => t(v === 'all' ? 'cfg.placementAll' : v === 'tab' ? 'cfg.placementTab' : 'cfg.placementSidebar'), busy || snap?.writable === false)),
+    h('p', { key: 'placehint', className: 'gp-cfg__hint' }, t('cfg.placementHint')),
+    h('h3', { key: 'title', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.title')),
     h('label', { key: 'row', className: 'gp-cfg__row' }, [
       h('input', {
         key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',

@@ -18,6 +18,14 @@ export type GraphStyle = 'compact' | 'parallel'
 export type FontDelta = -1 | 0 | 1
 
 /**
+ * Where the Git panel is mounted: the conversation's view tab (`tab`), the
+ * right sidebar's page type (`sidebar`), or both (`all`). The client half
+ * resolves the effective mount from this preference and what the running
+ * harness actually offers (ADR-0022).
+ */
+export type GitPanelPlacement = 'all' | 'tab' | 'sidebar'
+
+/**
  * Diff context (-U) values shared by both halves. `DEFAULT` matches git's own
  * default and is what the host applies when a request omits `context`.
  * `MAX` is the host's clamp ceiling. `EXPAND` is what the "expand all" button

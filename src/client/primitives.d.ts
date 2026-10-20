@@ -50,6 +50,12 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     appearance?: 'dot' | 'step'
   }) => JSX.Element
 
+  /** The props a platform glyph takes: its size and an optional class. */
+  export interface IconProps {
+    readonly size?: number
+    readonly className?: string
+  }
+
   /** One selectable menu row (optionally with a nested submenu). */
   export interface MenuItem {
     id: string

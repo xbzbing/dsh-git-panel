@@ -55,6 +55,8 @@ export interface ConfigFormFace {
 export interface SettingsNamespaceView {
   readonly ns: string
   readonly schema: unknown
+  /** The resolved value (schema defaults → composition base → user layer). */
+  readonly value?: unknown
 }
 
 export interface ConfigDescribeFace {

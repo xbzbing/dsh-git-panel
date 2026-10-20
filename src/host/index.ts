@@ -24,12 +24,12 @@ export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
-  GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
+  GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode, GitPanelPlacement,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
   GitOpenFileRequest, GitOpenFileResult,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from './types.js'
-export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote, readSuggestLanguage } from './core.js'
+export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote, readSuggestLanguage, readPlacement } from './core.js'
 export { createGitRunner } from './git.js'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 export { parseRemote, classifyHost } from './remote.js'
@@ -101,6 +101,11 @@ export class GitPanelService extends TypertRemoteService {
    */
   static Config = Schema.object({
     showInputPill: Schema.boolean().default(true).volatile().description('显示输入框的 Git 分支标记'),
+    placement: Schema.union([
+      Schema.const('all').description('标签页和侧边栏都显示'),
+      Schema.const('tab').description('只在对话区的标签页显示'),
+      Schema.const('sidebar').description('只在右侧边栏显示'),
+    ]).default('all').volatile().description('Git 面板入口位置'),
     defaultDiffView: Schema.union([
       Schema.const('unified').description('统一视图（单栏行内对比）'),
       Schema.const('split').description('并排视图（左右分栏对比）'),

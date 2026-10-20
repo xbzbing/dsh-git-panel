@@ -13,9 +13,13 @@ import { useGitView } from './registry.js'
 import { hasSession } from './rpc.js'
 import { activateGitTab, isGitTabActive, requestSubTab, returnToConversation } from './jump.js'
 import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot.js'
+import { effectivePlacement } from './placement-state.js'
+import { openSidebarTab } from './sidebar.js'
+import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
 
 interface PillProps {
+  readonly ctx: ClientCtx
   readonly sessionId?: string
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
@@ -81,7 +85,7 @@ function useCompactMarker(anchor: HTMLElement | null): boolean {
 /** Workspace width (px) below which the marker collapses to a status dot. */
 const COMPACT_WIDTH = 620
 
-export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
+export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
   const view = useGitView(sessionId)
   const tip = useTooltip()
   const [wrap, setWrap] = useState<HTMLElement | null>(null)
@@ -121,14 +125,26 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
   const gitClass = dirty ? 'gp-pill--dirty' : 'gp-pill--synced'
 
   // Toggle: a click opens the Git panel; a click while the Git tab is already
-  // active returns to the conversation view.
+  // active returns to the conversation view. When the panel is mounted in the
+  // right sidebar instead, a click opens that page type.
+  const sidebarOnly = effectivePlacement() === 'sidebar'
   const onClick = (): void => {
+    if (sidebarOnly) {
+      openSidebarTab(ctx)
+      return
+    }
     if (isGitTabActive(label)) { returnToConversation(label); return }
     if (hasSession(sessionId)) {
       requestSubTab(sessionId, dirty ? 'changes' : 'overview')
     }
     activateGitTab(label)
   }
+
+  // The pill reads as a status marker, so a click that opens the sidebar
+  // rather than the tab needs saying — otherwise the click looks like it
+  // did nothing.
+  const tipLines = [snap.root, dirty ? t('pill.dirty') : t('pill.synced')]
+  if (sidebarOnly) tipLines.push(t('pill.opensSidebar'))
 
   return h('span', { className: 'gp-pill-wrap', ref: setWrap }, [
     h('button', {
@@ -143,6 +159,6 @@ export function GitPill({ sessionId, t }: PillProps): JSX.Element | null {
         ')',
       ]),
     ]),
-    tip.render([snap.root, dirty ? t('pill.dirty') : t('pill.synced')]),
+    tip.render(tipLines),
   ])
 }

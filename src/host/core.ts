@@ -9,7 +9,7 @@ import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
 import { SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
-import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
+import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -19,6 +19,8 @@ export interface GitPanelConfig {
   readonly refreshIntervalMs: number
   /** Whether the input-bar git marker pill is shown. */
   readonly showInputPill: boolean
+  /** Where the panel is mounted: the view tab, the right sidebar, or both. */
+  readonly placement: GitPanelPlacement
   /** Default diff layout the views open with (user can switch per-diff). */
   readonly defaultDiffView: DiffViewMode
   /** Commit-graph line style (parallel = VSCode-like, compact = git log). */
@@ -49,6 +51,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   maxChanges: 1000,
   refreshIntervalMs: 30000,
   showInputPill: true,
+  placement: 'all',
   defaultDiffView: 'unified',
   graphStyle: 'parallel',
   fontDelta: 0,
@@ -97,6 +100,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     maxChanges: num(c.maxChanges, DEFAULT_CONFIG.maxChanges),
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
+    placement: readPlacement(c.placement, DEFAULT_CONFIG.placement),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
     graphStyle: readGraphStyle(c.graphStyle, DEFAULT_CONFIG.graphStyle),
     fontDelta: readFontDelta(c.fontDelta),
@@ -117,7 +121,18 @@ function unwrapVolatile(value: unknown): unknown {
     : value
 }
 
-/** Read the default-diff-view field, unwrapping a schemastery volatile ref. */
+/**
+ * Read the panel-mount field, unwrapping a schemastery volatile ref. An
+ * unknown string (a hand-edited profile, or a value from a newer version)
+ * falls back to the default rather than mounting nowhere.
+ */
+export function readPlacement(value: unknown, fallback: GitPanelPlacement): GitPanelPlacement {
+  const raw = unwrapVolatile(value)
+  return raw === 'all' || raw === 'tab' || raw === 'sidebar' ? raw : fallback
+}
+
+/**
+ * Read the default-diff-view field, unwrapping a schemastery volatile ref. */
 export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode {
   const raw = unwrapVolatile(value)
   return raw === 'unified' || raw === 'split' ? raw : fallback

@@ -16,6 +16,9 @@ const CSS = `
  * mode). Reserve that height as bottom padding so the panel's own bottom rows
  * (commit box / commit comment) stay above it instead of being covered. */
 .gp-body{flex:1;min-height:0;display:flex;overflow:hidden;padding-bottom:calc(var(--dsh-composer-height,140px) + 12px)}
+/* The sidebar has no composer floating over it, so the reserved height would
+   be dead space at the bottom of every view. */
+.gp-panel[data-gp-host="sidebar"] .gp-body{padding-bottom:0}
 /* version + update-check cluster, pushed to the tab bar's trailing edge */
 .gp-verbar{margin-left:auto;display:inline-flex;align-items:center;gap:8px}
 .gp-verbar__tag{font-size:11px;color:var(--dsw-alias-label-tertiary);font-family:var(--dsw-font-mono,ui-monospace,monospace)}

@@ -37,6 +37,7 @@
 | [ADR-0019](0019-release-process.md) | 发布流程与发布说明 | 分发 |
 | [ADR-0020](0020-html-preview-asset-packing.md) | HTML 预览：`blob:` 独立进程的交互预览 + 相对资源以 data: 内联（静态可选） | 安全 |
 | [ADR-0021](0021-release-notes-record-stable-only.md) | 发布正文归档只收正式版（rc 页面照写但不归档） | 分发 |
+| [ADR-0022](0022-panel-placement-and-sidebar.md) | Git 面板的入口位置配置与右侧边栏接入 | UI |
 
 ## 有效期
 

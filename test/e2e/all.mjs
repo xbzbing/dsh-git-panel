@@ -19,6 +19,7 @@ const RUNNERS = [
   'branch-status-review', 'files-bar-review', 'files-tree-review', 'files-refresh',
   'overview-toolbar-review', 'version-bar-review', 'discard-tip-review',
   'changes-discard', 'changes-toolbar', 'commit-fold-review', 'publish-branch',
+  'sidebar-tab',
   // Served over http://127.0.0.1 so the loopback (local instance) branch of the
   // heavy-preview dialog is exercised; the file:// runners only see the remote one.
   'local-open',

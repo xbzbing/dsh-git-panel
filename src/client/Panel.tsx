@@ -35,9 +35,15 @@ interface PanelProps {
   readonly ctx: ClientCtx
   readonly sessionId?: string
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
+  /** Where the panel is mounted. The sidebar has no composer under it, so the
+   * conversation view's overlay mode and its reserved height do not apply. */
+  readonly host?: 'conversation' | 'sidebar'
+  /** Whether the mounting surface is currently on screen. The sidebar reports
+   * its own tab's visibility, so a hidden tab starts no queries. */
+  readonly visible?: boolean
 }
 
-export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
+export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: PanelProps): JSX.Element {
   const pageVisible = usePageVisibility()
   const [fontPending, setFontPending] = useState<FontDelta | null>(null)
   // Monotonic token for the latest font write: a slow host set for an older
@@ -104,7 +110,9 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
 
   // Visible leaf tabs subscribe to query ticks and the restore gate themselves;
   // a same-fingerprint catch-up must not require a Panel business notification.
-  const queryVisible = pageVisible && hasSession(sessionId)
+  // In the sidebar the mount is only on screen while its tab is selected, so the
+  // host's own visibility gates the queries too.
+  const queryVisible = pageVisible && hasSession(sessionId) && visible !== false
 
   // Work-tree generation: bumped whenever the *contents* of the work tree are
   // replaced wholesale — a branch switch, or a switch that stashed the local
@@ -258,8 +266,10 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // `data-conversation-composer-overlay` opts the view into the shell's
   // full-height layout: the view area is fixed to the visible height with its
   // own overflow, and the composer/input bar floats over the bottom. Without
-  // it the view grows with content and the whole conversation scrolls.
-  return h('div', { className: 'gp-panel', ref: setRootEl, 'data-conversation-composer-overlay': '', 'data-font-delta': fontDelta, 'data-layout': compact ? 'compact' : 'wide' }, [
+  // it the view grows with content and the whole conversation scrolls. The
+  // sidebar has no composer under it, so it opts out.
+  const overlay = host === 'conversation' ? { 'data-conversation-composer-overlay': '' } : {}
+  return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': compact ? 'compact' : 'wide' }, [
     h('div', { key: 'tabs', className: 'gp-tabbar' }, [
       h(SegmentedTabs, {
         key: 'switcher',
