@@ -71,6 +71,9 @@ async function boot(page, opts = {}) {
     } } }
 
     // The settings mirror: one namespace, ours, carrying the preference.
+    // `describe().subscribe` is the live path the plugin follows, so the mock
+    // collects listeners and `setPlacement` notifies them — a runtime switch
+    // is the user changing this config, and the test drives it the same way.
     const settings = {
       view: {
         namespaces: [{
@@ -81,14 +84,22 @@ async function boot(page, opts = {}) {
       },
       status: 'ready',
     }
+    const mirrorListeners = new Set()
+    ctl.setPlacement = (next) => {
+      settings.view.namespaces[0].value = { ...settings.view.namespaces[0].value, placement: next }
+      for (const listener of mirrorListeners) listener()
+    }
     const configForms = {
       describe: () => ({
         getSnapshot: () => settings,
-        subscribe: () => () => {},
+        subscribe: (listener) => {
+          mirrorListeners.add(listener)
+          return () => { mirrorListeners.delete(listener) }
+        },
         ensure: async () => {},
       }),
       get: () => ({
-        getSnapshot: () => ({ status: 'ready', value: { showInputPill: true, placement }, revision: 0, writable: true }),
+        getSnapshot: () => ({ status: 'ready', value: { showInputPill: true, placement: settings.view.namespaces[0].value.placement }, revision: 0, writable: true }),
         subscribe: () => () => {},
         set: async () => true,
       }),
@@ -231,6 +242,44 @@ try {
     assert.equal(m.tab, false, 'the tab is released once the sidebar is available')
     assert.equal(m.sidebarBody, true, 'the sidebar body seat is registered')
     assert.equal(m.types.length, 1, 'the page type is registered')
+    await page.close()
+  }
+
+  // ── a runtime placement switch releases and remounts ──────────────────
+  // The user changes this config while the app is running. Switching away
+  // from the sidebar must tear down all three stages; switching back must
+  // put them all back. This is the only path that exercises `unmountSidebar`'s
+  // rollback and a remount of the same mount point.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: true })
+    let m = await mounts(page)
+    assert.equal(m.tab, true, 'both mounts start registered')
+    assert.equal(m.sidebarBody, true, 'both mounts start registered')
+    assert.equal(m.types.length, 1, 'one page type at start')
+
+    await page.evaluate(() => window.__ctl.setPlacement('tab'))
+    await page.waitForTimeout(100)
+    m = await mounts(page)
+    assert.equal(m.tab, true, 'the tab stays when the preference names it')
+    assert.equal(m.sidebarBody, false, 'the sidebar body is released')
+    assert.equal(m.sidebarTitle, false, 'the sidebar title is released')
+    assert.equal(m.types.length, 0, 'the page type is unregistered')
+
+    await page.evaluate(() => window.__ctl.setPlacement('sidebar'))
+    await page.waitForTimeout(100)
+    m = await mounts(page)
+    assert.equal(m.tab, false, 'the tab is released when the preference drops it')
+    assert.equal(m.sidebarBody, true, 'the sidebar body is remounted')
+    assert.equal(m.sidebarTitle, true, 'the sidebar title is remounted')
+    assert.equal(m.types.length, 1, 'the page type is remounted')
+
+    await page.evaluate(() => window.__ctl.setPlacement('all'))
+    await page.waitForTimeout(100)
+    m = await mounts(page)
+    assert.equal(m.tab, true, 'the tab is remounted')
+    assert.equal(m.sidebarBody, true, 'the sidebar body is still there')
+    assert.equal(m.types.length, 1, 'still exactly one page type')
     await page.close()
   }
 

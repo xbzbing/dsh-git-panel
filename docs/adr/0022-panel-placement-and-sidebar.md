@@ -86,3 +86,4 @@ pill 读的是**模块级**的 `effective`（`placement-state.ts`），不是 Re
 - 侧边栏页签常驻一个 `Panel` 实例（`keepMounted`），大仓库下多一份内存。
 - 侧边栏宽度通常 < 620px，面板因此进入 compact 单栏布局——这是既有断点按**容器**测量的自然结果，是期望行为（窄栏就该 compact）。
 - 官方 dsh 侧栏是 0.2.x 才有的能力；本插件不提升 `dsh` 兼容下限（老版本上仅少一个挂载点，标签页照常）。
+- 延迟 inject 的回调只在 `sidebarRightTabs` 服务**出现**时触发；若运行时被禁用（服务消失），不重新探测、不把 effective 降级回 `'tab'`。此时 pill 的 `openTab` 静默失败（try/catch 返回 false），面板入口暂时丢失，等服务重新出现时 inject 回调再次触发并恢复。这是有意取舍：服务消失路径回切会造成布局跳动，且禁用后通常伴随重启。

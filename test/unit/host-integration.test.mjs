@@ -141,6 +141,19 @@ test('showInputPill config flows into the snapshot and normalizes volatile refs'
   assert.equal(hidden.value.showInputPill, false)
 })
 
+test('placement config normalizes and unwraps volatile refs', () => {
+  // Default all; each known value honored; unknown falls back; volatile ref
+  // unwrapped. It is deliberately NOT carried in the snapshot (it is a mount
+  // preference, not repo state) — so there is no snapshot assertion here.
+  assert.equal(normalizeConfig({}).placement, 'all')
+  assert.equal(normalizeConfig({ placement: 'all' }).placement, 'all')
+  assert.equal(normalizeConfig({ placement: 'tab' }).placement, 'tab')
+  assert.equal(normalizeConfig({ placement: 'sidebar' }).placement, 'sidebar')
+  assert.equal(normalizeConfig({ placement: 'nowhere' }).placement, 'all')
+  assert.equal(normalizeConfig({ placement: 42 }).placement, 'all')
+  assert.equal(normalizeConfig({ placement: { get: () => 'sidebar' } }).placement, 'sidebar')
+})
+
 test('defaultDiffView config normalizes, unwraps volatile refs, and flows into the snapshot', async () => {
   // Default unified; explicit split honored; unknown falls back; volatile ref unwrapped.
   assert.equal(normalizeConfig({}).defaultDiffView, 'unified')

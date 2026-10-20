@@ -38,10 +38,12 @@ export function findNamespace(namespaces: readonly SettingsNamespaceView[]): str
         if (marker in dict) return row.ns
       }
     }
-    const serialized = JSON.stringify(row.schema)
-    for (const marker of NAMESPACE_MARKERS) {
-      if (serialized.includes(marker)) return row.ns
-    }
+    // The dict check above is an exact key match, safe for any name. The
+    // substring fallback below only accepts the unique field name: `placement`
+    // is a common settings word, and another plugin's description mentioning
+    // it would bind this form to that plugin's namespace — then read its
+    // values and write ours into it.
+    if (JSON.stringify(row.schema).includes('showInputPill')) return row.ns
   }
   return undefined
 }

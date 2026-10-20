@@ -15,7 +15,7 @@
  */
 import { createElement as h } from 'react'
 import { ensureStyles } from './styles.js'
-import { en, zh } from './locales.js'
+import { en, zh, NS } from './locales.js'
 import { bindContext, disposeAll, resyncAll } from './registry.js'
 import { Panel } from './Panel.js'
 import { GitPill } from './GitPill.js'
@@ -27,7 +27,6 @@ import { readPlacementFromConfig, watchPlacement } from './placement-config.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
 
-const NS = 'gitPanel'
 /**
  * `plugins.bundle.config` keys: the bundle identity is the install dep key —
  * `@xbzbing/dsh-git-panel` for the npm and (post-rename) github installs,
@@ -68,7 +67,12 @@ function apply(ctx: ClientCtx): void {
       { name: 'conversation.view', id: 'git-panel', order: 30, locale: NS, label: () => t('panel.tab') },
       (props: { sessionId?: string }) => h(Panel, { ctx, sessionId: props.sessionId, t }),
     ))
-    releaseTab = typeof handle === 'function' ? handle as () => void : () => {}
+    // The platform returns an idempotent disposer. A non-function means that
+    // contract broke; saying so is better than faking a release, which would
+    // silently leave the registration in place and double-register on the
+    // next remount.
+    if (typeof handle !== 'function') throw new Error('git-panel: slots.inject must return a disposer')
+    releaseTab = handle as () => void
   }
 
   const unmountTab = (): void => {
@@ -117,9 +121,14 @@ function apply(ctx: ClientCtx): void {
   })
 
   // The preference itself: read the settings mirror and follow its changes.
+  // The resync closes the loop for the pill: its tooltip text and click target
+  // read the effective placement, and those are only re-rendered when a
+  // snapshot arrives. A change arriving from outside the config form (a
+  // profile switch, another window) would otherwise wait for the next poll.
   const stopWatching = watchPlacement(ctx, (next) => {
     setChosenPlacement(next)
     reconcile()
+    resyncAll()
   })
 
   // inputBar zsh-style git marker.

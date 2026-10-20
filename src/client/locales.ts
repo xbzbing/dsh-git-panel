@@ -1,5 +1,8 @@
 /** `gitPanel` namespace dictionaries. zh is the key-set source of truth. */
 
+/** The locale namespace these dictionaries register under. */
+export const NS = 'gitPanel'
+
 export const zh = {
   // panel + tabs
   'panel.tab': 'Git',

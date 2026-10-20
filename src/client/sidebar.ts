@@ -17,6 +17,7 @@ import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import { Panel } from './Panel.js'
 import { CommitIcon } from './icons.js'
+import { NS } from './locales.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
 import type { SidebarRightTabDefinition, SidebarRightTabBodyProps } from './sidebar-types.js'
@@ -87,7 +88,8 @@ function definition(t: (key: GitKey) => string): SidebarRightTabDefinition {
     title: () => t('panel.tab'),
     guide: [{
       id: 'git-panel',
-      order: 20,
+      // Between the official files card (10) and session-inspector (60).
+      order: 30,
       title: () => t('panel.tab'),
       description: () => t('sidebar.guideDescription'),
       icon: CommitIcon,
@@ -100,10 +102,14 @@ function definition(t: (key: GitKey) => string): SidebarRightTabDefinition {
  * information. */
 function bodyFor(ctx: ClientCtx, t: (key: GitKey) => string): (props: SidebarRightTabBodyProps) => JSX.Element {
   return (props) => {
-    // `useTabInfo` throws while the tab record is not committed yet, so a body
-    // that mounts early must not ask for it. The panel treats an absent
-    // visibility as visible, and the host's own gate keeps queries off a
-    // hidden tab.
+    // `useTabInfo` throws while the tab record is not committed, so a body that
+    // mounts early must not ask for it. Catching is safe only because the
+    // platform throws from inside a `useMemo` factory, after its three hooks
+    // (useStore, useTabNavigation, useMemo) have already registered — so the
+    // hook order is unaffected by the throw. If a future platform version
+    // throws before those hooks, this catch would surface as a hooks-order
+    // violation instead. The panel treats an absent visibility as visible, and
+    // the host's own gate keeps queries off a hidden tab.
     let visible: boolean | undefined
     try {
       visible = props.useTabInfo().tab.visible
@@ -152,7 +158,7 @@ export function registerSidebarTab(ctx: ClientCtx, t: (key: GitKey) => string): 
   const releases: Array<() => void> = []
   try {
     const body = ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
-      { name: 'sidebar.right.pane.tab', key: SIDEBAR_ID, locale: 'gitPanel' },
+      { name: 'sidebar.right.pane.tab', key: SIDEBAR_ID, locale: NS },
       bodyFor(ctx, t),
     ))
     if (typeof body === 'function') releases.push(body as () => void)
@@ -163,13 +169,17 @@ export function registerSidebarTab(ctx: ClientCtx, t: (key: GitKey) => string): 
     ))
     if (typeof title === 'function') releases.push(title as () => void)
   } catch {
-    for (const release of releases.reverse()) { try { release() } catch { /* ignore */ } }
-    try { releaseType() } catch { /* ignore */ }
+    rollback()
     return undefined
   }
 
-  return () => {
-    for (const release of releases.reverse()) { try { release() } catch { /* ignore */ } }
-    try { releaseType() } catch { /* ignore */ }
+  // The registry's disposer is idempotent, so this may be called more than
+  // once. Copy before reversing: `releases.reverse()` mutates in place, and a
+  // second call would then release body before title instead of LIFO.
+  function rollback(): void {
+    for (const release of [...releases].reverse()) { try { release() } catch { /* ignore */ } }
+    try { releaseType?.() } catch { /* ignore */ }
   }
+
+  return rollback
 }

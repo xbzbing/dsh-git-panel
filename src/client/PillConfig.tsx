@@ -11,6 +11,7 @@ import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { findNamespace, resyncAfterWrite } from './config-write.js'
+import { normalizePlacement } from './placement.js'
 import { segButtons } from './seg.js'
 import { effortForModel, modelForProvider } from './model-route.js'
 import { selectTrigger } from './select-trigger.js'
@@ -111,9 +112,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const loaded = form !== undefined && snap !== undefined && snap.status === 'ready'
   const mirrorStatus = mirror?.getSnapshot().status
   const checked = pending ?? (typeof snap?.value?.showInputPill === 'boolean' ? (snap.value.showInputPill as boolean) : true)
-  const rawPlacement = snap?.value?.placement
-  const placement: GitPanelPlacement = pendingPlacement
-    ?? (rawPlacement === 'tab' || rawPlacement === 'sidebar' ? rawPlacement : 'all')
+  const placement: GitPanelPlacement = pendingPlacement ?? normalizePlacement(snap?.value?.placement)
   const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
   const graphStyle: GraphStyle = pendingGraph ?? (snap?.value?.graphStyle === 'compact' ? 'compact' : 'parallel')
   const fontDelta: FontDelta = pendingFont

@@ -2,7 +2,9 @@
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
 
-interface IconProps { readonly size?: number }
+/** Glyph props. `className` lets a host (e.g. the sidebar guide card) apply
+ * its own alignment or theme classes; dropping it would break that styling. */
+interface IconProps { readonly size?: number; readonly className?: string }
 export type SyncDirection = 'ahead' | 'behind'
 
 /** Shared glyphs: the tag outline and the star, reused by the branch-row icons. */
@@ -10,16 +12,17 @@ const TAG_PATH = 'M2 7V3h4l8 8-4 4z'
 const STAR_PATH = 'M8 1.8l1.76 3.57 3.94.57-2.85 2.78.67 3.92L8 10.78l-3.52 1.85.67-3.92L2.3 5.94l3.94-.57z'
 
 /** `hidden` marks a purely decorative glyph: its label lives on the wrapper. */
-function svg(path: JSX.Element | JSX.Element[], size = 15, hidden = false): JSX.Element {
+function svg(path: JSX.Element | JSX.Element[], size = 15, hidden = false, className?: string): JSX.Element {
   return h('svg', {
     width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor',
     strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
     ...(hidden ? { 'aria-hidden': true } : {}),
+    ...(className !== undefined ? { className } : {}),
   }, path)
 }
 
-export function CommitIcon({ size }: IconProps): JSX.Element {
-  return svg([h('circle', { key: 'c', cx: 8, cy: 8, r: 2.4 }), h('line', { key: 'l1', x1: 8, y1: 1.5, x2: 8, y2: 5.6 }), h('line', { key: 'l2', x1: 8, y1: 10.4, x2: 8, y2: 14.5 })], size)
+export function CommitIcon({ size, className }: IconProps): JSX.Element {
+  return svg([h('circle', { key: 'c', cx: 8, cy: 8, r: 2.4 }), h('line', { key: 'l1', x1: 8, y1: 1.5, x2: 8, y2: 5.6 }), h('line', { key: 'l2', x1: 8, y1: 10.4, x2: 8, y2: 14.5 })], size, false, className)
 }
 
 export function DiffIcon({ size }: IconProps): JSX.Element {
