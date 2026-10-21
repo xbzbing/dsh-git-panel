@@ -26,7 +26,8 @@ import { renderModalShell } from './ops-modals.js'
 import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { MermaidFigure } from './MermaidFigure.js'
-import { renderPreview, wrapCapOk, type FileState } from './files-preview.js'
+import { renderPreview, type FileState } from './files-preview.js'
+import { wrapCapOk } from './wrap-cap.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -51,8 +52,6 @@ function isMarkdownPath(path: string): boolean { return /\.(?:md|markdown)$/i.te
 function isHtmlPath(path: string): boolean { return /\.(?:html?|xhtml)$/i.test(path) }
 /** Text files that offer a rendered view beside their source. */
 function isRichPath(path: string): boolean { return isMarkdownPath(path) || isHtmlPath(path) }
-
-
 
 
 /** HTML asset pack for the loaded document: in flight, rewritten srcdoc, or a

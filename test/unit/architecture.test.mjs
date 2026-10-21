@@ -163,7 +163,7 @@ const PURE_ALGORITHMS = [
   'branch-options.ts', 'branch-tree.ts', 'bytes.ts', 'code-spans.ts', 'copy-content.ts', 'diff.ts',
   'file-tree.ts', 'filtered-graph.ts', 'git-graph.ts', 'lang-label.ts', 'mermaid-blocks.ts',
   'model-route.ts', 'panel-fit.ts', 'path-images.ts', 'push-policy.ts', 'selection-keys.ts', 'status.ts', 'time.ts',
-  'virtual-list.ts', 'zoom.ts',
+  'virtual-list.ts', 'wrap-cap.ts', 'zoom.ts',
 ]
 
 test('every source module resolves its relative imports', () => {

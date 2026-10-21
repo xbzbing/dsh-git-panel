@@ -12,19 +12,8 @@ import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, M
 import { ZoomableImage } from './ImageZoom.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
+import { wrapCapOk } from './wrap-cap.js'
 
-// Wrap drops the fixed-height grid for flow layout, so every line mounts.
-// Above either cap the view keeps the virtualized nowrap grid instead —
-// mounting thousands of wrapping rows on the main thread stalls first paint
-// (line count alone is not enough: a short file of 5000-char lines reaches
-// tens of MB of layout work under the 10MB text read cap).
-const MAX_WRAP_LINES = 2000
-const MAX_WRAP_BYTES = 1024 * 1024
-
-/** Whether the source body may use flow-layout wrapping for this content. */
-export function wrapCapOk(content: string, lines: number): boolean {
-  return lines <= MAX_WRAP_LINES && content.length <= MAX_WRAP_BYTES
-}
 
 // Source-view performance guards. Syntax highlighting is synchronous and DOM
 // cost scales with line count, so above these limits the code preview degrades
@@ -257,4 +246,3 @@ function renderCodeLine(
   const activeRange = active !== null && active.line === i ? [active.start, active.end] as const : null
   return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, markContent(line, ranges, spans, `c${i}`, activeRange, activeRef))
 }
-

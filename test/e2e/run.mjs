@@ -1592,8 +1592,13 @@ const out = await page.evaluate(async (snap) => {
   result.copyBtnImage = copyBtnLabels()
   await pickFile('blob.bin')
   result.copyBtnBinary = copyBtnLabels()
+  // The placeholder text each unrenderable kind shows. Without it a swapped
+  // branch (binary ↔ too large) is invisible: both look like "one line of
+  // .gp-empty" to every other assertion in the suite.
+  result.placeholderBinary = document.querySelector('.gp-files__preview .gp-empty')?.textContent ?? null
   await pickFile('huge.txt')
   result.copyBtnTooLarge = copyBtnLabels()
+  result.placeholderTooLarge = document.querySelector('.gp-files__preview .gp-empty')?.textContent ?? null
   // Leave README.md selected so the sticky-restore phase sees a rendered preview.
   await pickFile('README.md')
 

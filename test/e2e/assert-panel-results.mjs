@@ -357,6 +357,8 @@ export function assertPanelResults(out, realInput, errors) {
   assert.deepEqual(out.copyBtnImage, ['files.copyPath'], 'an image hides the copy-content button')
   assert.deepEqual(out.copyBtnBinary, ['files.copyPath'], 'a binary file hides the copy-content button')
   assert.deepEqual(out.copyBtnTooLarge, ['files.copyPath'], 'a document over the copy envelope hides the copy-content button')
+  assert.equal(out.placeholderBinary, 'files.binary', 'a binary file says so in the preview')
+  assert.equal(out.placeholderTooLarge, 'files.tooLarge', 'an over-cap document says why it is not shown')
   assert.equal(out.preUnmountFilesActive, true, 'before the switch the Files tab is active')
   assert.ok(out.preUnmountSelected, 'before the switch a file is selected')
   assert.equal(out.preUnmountChildVisible, true, 'before the switch the expanded dir shows its child')
