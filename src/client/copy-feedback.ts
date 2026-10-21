@@ -15,12 +15,17 @@ export type CopyFeedback = 'idle' | 'copied' | 'error'
  * path). The watched `path` stays the guard key either way, so moving to
  * another file invalidates a pending write no matter which form was copied. */
 export function useCopyFeedback(path: string | null): { feedback: CopyFeedback; copy: (text?: string) => void } {
-  const [feedback, setFeedback] = useState<CopyFeedback>('idle')
+  // The outcome is stored together with the path it belongs to and derived on
+  // render, so a path switch can never paint the previous file's confirmation
+  // for a frame: clearing it in an effect would race the next paint. The effect
+  // still drops the stored outcome, so coming back to the same file does not
+  // resurrect it.
+  const [state, setState] = useState<{ key: string | null; kind: CopyFeedback }>({ key: null, kind: 'idle' })
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const keyRef = useRef(path)
   useEffect(() => {
     keyRef.current = path
-    setFeedback('idle')
+    if (state.key !== null) setState({ key: null, kind: 'idle' })
     if (timer.current !== undefined) {
       clearTimeout(timer.current)
       timer.current = undefined
@@ -33,10 +38,10 @@ export function useCopyFeedback(path: string | null): { feedback: CopyFeedback; 
     if (payload === null) return
     void writeClipboard(payload).then((ok) => {
       if (keyRef.current !== key) return
-      setFeedback(ok ? 'copied' : 'error')
+      setState({ key, kind: ok ? 'copied' : 'error' })
       if (timer.current !== undefined) clearTimeout(timer.current)
-      timer.current = setTimeout(() => setFeedback('idle'), 1600)
+      timer.current = setTimeout(() => setState({ key, kind: 'idle' }), 1600)
     })
   }, [])
-  return { feedback, copy }
+  return { feedback: state.key === path ? state.kind : 'idle', copy }
 }

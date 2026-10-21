@@ -29,14 +29,19 @@ const THEME = `body{margin:0;font:13px system-ui,sans-serif;
   background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
   #panel{border:0!important}`
 
-// Dirty on purpose: the panel lands on the changes tab by itself.
+// Dirty on purpose: the panel lands on the changes tab by itself. Two files, so
+// the copy confirmation can be watched across a path switch (one header button
+// is reused for both, which is where a stale check mark would show up).
 const SNAP = {
   root: 'fixture-repo', branch: 'main', head: 'ba78eb4', unborn: false, dirty: true,
-  staged: 0, modified: 1, untracked: 0, ahead: 0, behind: 0, hasUpstream: true,
+  staged: 0, modified: 2, untracked: 0, ahead: 0, behind: 0, hasUpstream: true,
   remote: { name: 'origin', webUrl: 'https://github.com/example/repo', hostKind: 'github' },
   lastCommit: null,
-  changes: [{ path: 'src/client/testkit.ts', status: 'modified', staged: false, isDirectory: false }],
-  stats: { fileCount: 1, staged: 0, modified: 1, untracked: 0, insertions: 1, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
+  changes: [
+    { path: 'src/client/testkit.ts', status: 'modified', staged: false, isDirectory: false },
+    { path: 'src/index.ts', status: 'modified', staged: false, isDirectory: false },
+  ],
+  stats: { fileCount: 2, staged: 0, modified: 2, untracked: 0, insertions: 2, deletions: 2, lastChangeAt: Date.now(), headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, suggestEnabled: true,
   defaultDiffView: 'unified', checkedAt: Date.now(),
 }
@@ -179,6 +184,72 @@ assert.equal(out.pathDenied.check, false, 'failure carries no check mark')
 assert.equal(out.pathDenied.name, 'testkit.ts', 'failure keeps the path untouched')
 assert.equal(out.pathDenied.live, '复制失败', 'the failure rides the live region')
 await page.waitForTimeout(1700)
+
+// Switching to another file mid-confirmation must not carry the old check mark
+// onto the new path. The header button is one node reused for every file, so a
+// stale cooked state would flash a tick on a file just opened. The probe reads
+// inside the FIRST animation frame (before it paints): that is the earliest
+// picture the user could possibly see.
+out.crossFile = await page.evaluate(async () => {
+  const snapshot = () => {
+    const p = document.querySelector('.gp-diff__path')
+    return {
+      text: p?.textContent ?? null,
+      label: p?.getAttribute('aria-label') ?? null,
+      copied: p?.classList.contains('gp-diff__path--copied') ?? false,
+      live: p?.querySelector('.gp-copy-live')?.textContent ?? null,
+      title: p?.getAttribute('title') ?? null,
+    }
+  }
+  // Clipboard answers again, so the copy lands in its confirmation state.
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
+  document.querySelector('.gp-diff__path')?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  const armed = document.querySelector('.gp-diff__path')?.classList.contains('gp-diff__path--copied') ?? false
+  const before = snapshot()
+  // The row click loads the new diff asynchronously, so the header switches on
+  // a later frame. Sample every frame and capture the FIRST one that already
+  // shows the new file — that frame is what the user sees.
+  // Row text is "status + name + dir", never the joined path — the name span's
+  // title carries it.
+  const other = [...document.querySelectorAll('.gp-changes .gp-file-row')]
+    .find((row) => row.querySelector('.gp-tree-name')?.getAttribute('title') === 'src/index.ts')
+  other?.click()
+  // The row click commits the new diff synchronously; sample several frames
+  // from that commit on and fail if ANY of them shows the new path together
+  // with the previous file's check mark — that frame is what the user sees.
+  const watched = []
+  for (let i = 0; i < 5; i++) {
+    await new Promise((r) => requestAnimationFrame(r))
+    const now = snapshot()
+    watched.push(now)
+    if ((now.label || '').includes('src/index.ts')) break
+  }
+  return { armed, before, watched, settled: snapshot() }
+  return { armed, before, firstFrame, settled: snapshot() }
+})
+assert.equal(out.crossFile.armed, true, 'the first file really is in its confirmation state')
+const onNewFile = out.crossFile.watched.filter((f) => (f.label || '').includes('src/index.ts'))
+assert.ok(onNewFile.length > 0, 'the header switches to the other file')
+assert.equal(onNewFile[0].text, 'src/index.ts', 'the first frame showing the new file carries its path')
+assert.ok(
+  onNewFile.every((f) => !f.copied),
+  `no frame paints a check mark on the new file (got ${JSON.stringify(out.crossFile.watched.map((f) => [f.label, f.copied]))})`,
+)
+assert.equal(onNewFile[0].live, '', 'the live region is quiet for the new file')
+assert.equal(out.crossFile.settled.text, 'src/index.ts', 'the settled header shows the second file')
+assert.equal(out.crossFile.settled.copied, false, 'no delayed confirmation arrives for the previous file')
+assert.equal(out.crossFile.settled.title, 'src/index.ts', 'the tooltip names the new file')
+
+// Back to the first file: the rest of this runner drives that one.
+await page.evaluate(() => {
+  const row = [...document.querySelectorAll('.gp-changes .gp-file-row')]
+    .find((r) => r.querySelector('.gp-tree-name')?.getAttribute('title') === 'src/client/testkit.ts')
+  row?.click()
+})
+await page.waitForTimeout(600)
+out.backOnFirst = await page.evaluate(() => document.querySelector('.gp-diff__path')?.textContent ?? null)
+assert.equal(out.backOnFirst, 'src/client/testkit.ts', 'switching back restores the first file\'s header')
 
 await page.evaluate(() => {
   const diff = document.querySelector('.gp-diff')
