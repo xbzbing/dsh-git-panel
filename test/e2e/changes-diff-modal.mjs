@@ -335,8 +335,11 @@ out.cardBox = await page.evaluate(() => {
   return {
     position: s.position,
     zIndex: s.zIndex,
-    width: Math.round(r.width),
-    height: Math.round(r.height),
+    // computed width/height are the content box: the 1px border is excluded, so
+    // this compares the declared box directly instead of eating the tolerance.
+    width: Math.round(parseFloat(s.width)),
+    height: Math.round(parseFloat(s.height)),
+    borderBox: { w: Math.round(r.width), h: Math.round(r.height) },
     radius: s.borderTopLeftRadius,
     centered: Math.abs((r.left + r.width / 2) - window.innerWidth / 2) <= 2,
     backdropPosition: bs.position,
@@ -349,15 +352,39 @@ out.cardBox = await page.evaluate(() => {
 assert.ok(out.cardBox !== null, 'the card and its backdrop are both up')
 assert.equal(out.cardBox.position, 'fixed', 'the card leaves the flow and pins to the viewport')
 assert.equal(out.cardBox.zIndex, '1000', 'the card sits above the backdrop')
-// getBoundingClientRect includes the 1px border on each side, so compare the
-// declared box with a 2px tolerance rather than pinning the border width.
-assert.ok(Math.abs(out.cardBox.width - out.cardBox.expectedWidth) <= 2, `the card is min(920px,86vw) wide (${out.cardBox.width} vs ${out.cardBox.expectedWidth})`)
-assert.ok(Math.abs(out.cardBox.height - out.cardBox.expectedHeight) <= 2, `the card is min(680px,82vh) tall (${out.cardBox.height} vs ${out.cardBox.expectedHeight})`)
+assert.equal(out.cardBox.width, out.cardBox.expectedWidth, `the card is min(920px,86vw) wide (${out.cardBox.width} vs ${out.cardBox.expectedWidth})`)
+assert.equal(out.cardBox.height, out.cardBox.expectedHeight, `the card is min(680px,82vh) tall (${out.cardBox.height} vs ${out.cardBox.expectedHeight})`)
+assert.equal(out.cardBox.borderBox.w, out.cardBox.width + 2, 'the border box adds the 1px border on each side')
 assert.equal(out.cardBox.radius, '14px', 'the card keeps its rounded corners')
 assert.equal(out.cardBox.centered, true, 'the card is centred horizontally')
 assert.equal(out.cardBox.backdropPosition, 'fixed', 'the backdrop is fixed too')
 assert.equal(out.cardBox.backdropZ, '999', 'the backdrop sits just under the card')
 assert.equal(out.cardBox.backdropCovers, true, 'the backdrop covers the viewport')
+
+// The width clamp has two branches and only one is reachable at 1100px wide
+// (min(920, 86vw) picks the 920 cap). Deleting the vw fallback would leave the
+// card overflowing a narrow window with every other assertion green, so walk
+// the second branch here. 800px is the window that isolates it: 86vw = 688 is
+// under the cap, and the <=640px media query (which re-declares width as 96vw)
+// does not apply yet.
+await page.setViewportSize({ width: 800, height: 800 })
+await page.waitForTimeout(150)
+out.narrowCard = await page.evaluate(() => {
+  const el = document.querySelector('.gp-diff--card')
+  if (el === null) return null
+  const s = getComputedStyle(el)
+  const r = el.getBoundingClientRect()
+  return {
+    width: Math.round(parseFloat(s.width)),
+    expected: Math.round(Math.min(920, window.innerWidth * 0.86)),
+    fits: r.right <= window.innerWidth + 1 && r.left >= -1,
+  }
+})
+assert.ok(out.narrowCard !== null, 'the card survives a narrow viewport')
+assert.equal(out.narrowCard.width, out.narrowCard.expected, `86vw takes over below the cap (${out.narrowCard.width} vs ${out.narrowCard.expected})`)
+assert.equal(out.narrowCard.fits, true, 'and the card still fits inside the viewport')
+await page.setViewportSize({ width: 1100, height: 800 })
+await page.waitForTimeout(150)
 
 // Esc closes; the node survives for the next open.
 await page.keyboard.press('Escape')
@@ -370,6 +397,17 @@ out.afterEsc = await page.evaluate(() => ({
 assert.equal(out.afterEsc.card, false, 'Esc closes the card')
 assert.equal(out.afterEsc.backdrop, false, 'Esc removes the backdrop')
 assert.equal(out.afterEsc.sameNode, true, 'the node is still the same instance')
+
+// Focus goes back to the control that opened the card — the dialog contract's
+// other half, and the reason the trigger ref is threaded through the hook.
+out.afterEscFocus = await page.evaluate(() => {
+  const active = document.activeElement
+  return {
+    tag: active?.tagName ?? null,
+    isTrigger: active?.classList.contains('gp-diff__modal-btn') ?? false,
+  }
+})
+assert.equal(out.afterEscFocus.isTrigger, true, `closing returns focus to the toolbar toggle (got ${out.afterEscFocus.tag})`)
 
 // Backdrop click closes as well.
 await page.click('.gp-diff__modal-btn')

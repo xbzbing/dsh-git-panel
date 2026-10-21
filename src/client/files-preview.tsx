@@ -14,7 +14,6 @@ import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { wrapCapOk } from './wrap-cap.js'
 
-
 // Source-view performance guards. Syntax highlighting is synchronous and DOM
 // cost scales with line count, so above these limits the code preview degrades
 // gracefully: no highlighting for a big file, truncation for a huge line.

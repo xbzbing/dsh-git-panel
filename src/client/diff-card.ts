@@ -10,10 +10,10 @@ import type { JSX, RefObject } from 'react'
 import { useDialogFocus } from './dialog-focus.js'
 
 export interface DiffCard {
-  /** Pinned open by the toolbar toggle (its `aria-pressed`). */
-  readonly open: boolean
-  /** Rendered as a dialog right now: open, a diff is selected, and the diff is
-   * the pane on screen (compact drills away from it). */
+  /** Rendered as a dialog right now: the toggle is on, a diff is selected, and
+   * the diff is the pane on screen (compact drills away from it). This is the
+   * one flag callers read — the dialog attributes, the backdrop, the focus
+   * lifecycle and the sibling pane's `inert` all hang off it. */
   readonly visible: boolean
   /** The card element itself — the focus trap's container. */
   readonly cardRef: RefObject<HTMLDivElement | null>
@@ -40,8 +40,8 @@ export function useDiffCard(o: { hasDiff: boolean; compact: boolean; paneIsDiff:
   const toggle = useCallback((): void => setOpen((v) => !v), [])
   const visible = open && o.hasDiff && (!o.compact || o.paneIsDiff)
   return useMemo(
-    () => ({ open, visible, cardRef, triggerRef, closeRef, toggle, close }),
-    [open, visible, toggle, close],
+    () => ({ visible, cardRef, triggerRef, closeRef, toggle, close }),
+    [visible, toggle, close],
   )
 }
 

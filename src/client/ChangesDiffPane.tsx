@@ -17,14 +17,14 @@ import type { CopyFeedback } from './copy-feedback.js'
 import { DiffCardFocus, type DiffCard } from './diff-card.js'
 
 /** The view-mode switch, grouped so its three parts travel together. */
-export interface DiffModeSwitch {
+interface DiffModeSwitch {
   readonly options: readonly DiffMode[]
   readonly current: DiffMode
   readonly onChange: (mode: DiffMode) => void
 }
 
 /** Path-copy state and the write, as handed out by `useCopyFeedback`. */
-export interface PathCopyControl {
+interface PathCopyControl {
   readonly feedback: CopyFeedback
   readonly onCopy: () => void
 }
