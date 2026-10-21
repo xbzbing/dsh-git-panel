@@ -116,6 +116,24 @@ const out = await page.evaluate(async ({ snap, diff }) => {
     result.diffTopGap = Math.round(rect.top)
     result.diffBottomGap = Math.round(window.innerHeight - rect.bottom)
     result.diffFits = rect.top >= -0.5 && rect.bottom <= window.innerHeight + 0.5
+    // The header path doubles as the copy control here too (same as the
+    // changes toolbar): click writes the relative path, the confirmation is
+    // a check mark + tints + the live region — the visible path stays put.
+    window.__copiedPath = null
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { window.__copiedPath = text } } })
+    const mpath = modal.querySelector('.gp-modal__path--copy')
+    result.modalPathTag = mpath === null ? null : mpath.tagName
+    result.modalPathTitle = mpath === null ? null : mpath.getAttribute('title')
+    mpath?.click()
+    await new Promise((r) => setTimeout(r, 150))
+    result.modalPathCopied = window.__copiedPath
+    const mcopy = modal.querySelector('.gp-modal__path--copy')
+    result.modalPathFeedback = {
+      cls: mcopy !== null && mcopy.classList.contains('gp-modal__path--copied'),
+      check: (mcopy?.querySelector('svg') ?? null) !== null,
+      name: mcopy?.querySelector('.gp-modal__name')?.textContent ?? null,
+      live: mcopy?.querySelector('.gp-copy-live')?.textContent ?? null,
+    }
     // The modal bar splits into two rows on compact: header row (icon, path,
     // hash, stats, expand) and a controls row (mode seg + bordered close at
     // its far right).
@@ -155,6 +173,12 @@ try {
   assert.equal(out.diffFits, true, 'the diff modal fits inside the viewport')
   assert.ok(out.diffTopGap >= 20, 'a tappable backdrop strip remains above the diff modal: ' + out.diffTopGap)
   assert.ok(out.diffBottomGap >= 20, 'a tappable backdrop strip remains below the diff modal: ' + out.diffBottomGap)
+  assert.equal(out.modalPathTag, 'BUTTON', 'the modal header path is a button')
+  assert.equal(out.modalPathCopied, out.modalPathTitle, 'clicking the header path copies the relative path')
+  assert.equal(out.modalPathFeedback.cls, true, 'the modal header shows the confirmation state')
+  assert.equal(out.modalPathFeedback.check, true, 'the modal header shows the check mark')
+  assert.equal(out.modalPathFeedback.name, 'a.txt', 'the filename stays on screen')
+  assert.equal(out.modalPathFeedback.live, 'files.pathCopied', 'the phrase rides the live region')
   assert.equal(out.barRows, 2, 'the compact modal bar splits into two rows')
   assert.equal(out.barCtrlRowHasSeg, true, 'the second row holds the mode seg')
   assert.equal(out.barCtrlRowHasClose, true, 'the second row holds the close button')

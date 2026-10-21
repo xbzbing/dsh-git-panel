@@ -7,6 +7,7 @@ import type { JSX } from 'react'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { useChangesData } from './changes-hooks.js'
+import { useCopyFeedback } from './copy-feedback.js'
 import { pageVisibility } from './visibility.js'
 import { useGitQuerySignal } from './registry.js'
 import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types.js'
@@ -14,9 +15,9 @@ import type { GitKey } from './locales.js'
 import { ChangeStats } from './ChangeStats.js'
 import { canPublish } from './push-policy.js'
 import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
-import { ArrowLeftIcon, ChevronIcon, CloseIcon, SparkleIcon, StashIcon, TrashIcon, UploadIcon } from './icons.js'
+import { ArrowLeftIcon, CheckIcon, ChevronIcon, CloseIcon, ExpandAllIcon, ExitFullscreenIcon, FullscreenIcon, SparkleIcon, StashIcon, TrashIcon, UploadIcon } from './icons.js'
 import { statusChar, statusClass } from './status.js'
-import { useResizableColumn } from './resizable.js'
+import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { segButtons } from './seg.js'
 import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
@@ -40,6 +41,9 @@ interface ChangesTabProps {
   readonly onSetFullChanges: (full: boolean) => Promise<void>
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
+  /** Stacked layout: a tall narrow right sidebar — commit editor + change list
+   * above, the diff below; picking a row updates the diff in place. */
+  readonly stacked: boolean
   /**
    * Narrow *and* short: vertical room is genuinely scarce, so height-saving
    * choices apply — the commit editor folds into a one-row bar until tapped and
@@ -67,7 +71,7 @@ type ListItem =
   | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean }; readonly items: readonly GitChange[] }
   | { readonly kind: 'row'; readonly c: GitChange }
 
-export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, compact, cramped, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, compact, stacked, cramped, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
@@ -94,6 +98,19 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     remote, sessionId, snapshot, queryVisible, () => setError(t('error.generic')), queryKey,
   )
   const [diffMode, setDiffMode] = useState<DiffMode>(() => snapshot.defaultDiffView)
+  // The working-tree diff shown in the shared centered modal — the same
+  // surface the overview uses for a commit's file diff. Esc dismisses it,
+  // matching that modal's dialog contract (the caller wires Esc per surface).
+  const [diffModalOpen, setDiffModalOpen] = useState(false)
+  useEffect(() => {
+    if (!diffModalOpen || typeof document === 'undefined') return
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setDiffModalOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [diffModalOpen])
+  // The toolbar header path doubles as its copy control: click writes the
+  // relative path to the clipboard and swaps the label to the confirmation.
+  const pathCopy = useCopyFeedback(diffPath === null ? null : diffPath.path)
   const [amendPrefilled, setAmendPrefilled] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
   const [armedSuggest, setArmedSuggest] = useState(false)
@@ -405,6 +422,9 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // The left change-list column is drag-resizable; the right diff column takes
   // the rest. Width persists across mounts.
   const leftCol = useResizableColumn({ storageKey: 'gp.changes.left', initial: 380, min: 220, reserve: 200, edge: 'end' })
+  // Stacked only reads it here (hooks run unconditionally); the shared split
+  // keeps this tab's bands aligned with the overview and files tabs.
+  const split = useStackedSplit()
 
   // Open a file's diff; in compact drill into the diff pane.
   const openDiff = (path: string, base: 'worktree' | 'staged'): void => {
@@ -690,24 +710,83 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
 
   const diffBlock = diffPath === null
     ? h('div', { className: 'gp-empty' }, t('changes.selectFile'))
-    : h('div', { className: 'gp-diff' }, [
+    : h('div', { className: `gp-diff${diffModalOpen ? ' gp-diff--card' : ''}` }, [
       h('div', { key: 'tb', className: `gp-diff__toolbar${compact ? ' gp-diff__toolbar--compact' : ''}` }, (() => {
         const back = compact
           ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('list') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('changes.backToList')])
           : null
-        const path = h('span', { key: 'path', className: 'gp-diff__path' }, diffPath.path)
+        // The filename must stay whole: the directory shrinks first, eliding
+        // from its left (tail kept, right-to-left run), and the full relative
+        // path rides on the native tooltip instead of the clipped text. The
+        // element is a button: clicking copies that relative path. The path
+        // itself NEVER swaps out for the confirmation (a bare text node wraps
+        // when the toolbar squeezes the button below the phrase's width, which
+        // balloons the row): on success the directory slot trades places with
+        // a check mark, on failure only the color changes — dir/name keep
+        // their nowrap/ellipsis either way. The phrase rides `aria-label`,
+        // `title` (feedback period only) and a visually-hidden live region.
+        const slash = diffPath.path.lastIndexOf('/')
+        const copyState = pathCopy.feedback
+        const copyKey = copyState === 'copied' ? 'files.pathCopied' : 'files.pathCopyFailed'
+        const copyText = t(copyState === 'idle' ? 'files.copyPath' : copyKey)
+        const path = h('button', {
+          key: 'path',
+          type: 'button',
+          className: `gp-diff__path${copyState === 'copied' ? ' gp-diff__path--copied' : copyState === 'error' ? ' gp-diff__path--error' : ''}`,
+          title: copyState === 'idle' ? diffPath.path : `${t(copyKey)} ${diffPath.path}`,
+          'aria-label': `${copyText} ${diffPath.path}`,
+          onClick: () => pathCopy.copy(diffPath.path),
+        }, [
+          copyState === 'copied'
+            ? h(CheckIcon, { key: 'ok', size: 11 })
+            : slash < 0
+              ? null
+              : [
+                h('span', { key: 'd', className: 'gp-diff__path-dir' }, diffPath.path.slice(0, slash)),
+                h('span', { key: 's', className: 'gp-diff__path-sep' }, '/'),
+              ],
+          slash < 0
+            ? diffPath.path
+            : h('span', { key: 'n', className: 'gp-diff__path-name' }, diffPath.path.slice(slash + 1)),
+          h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, copyState === 'idle' ? '' : t(copyKey)),
+        ])
         const sum = summary ? h('span', { key: 'sum', className: 'gp-stats__item', style: { marginLeft: 'auto' } }, [
           h('span', { key: 'a', className: 'gp-stats__add' }, `+${summary.add}`), ' ',
           h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${summary.del}`),
         ]) : null
+        // Icon-only: the text label costs the path the room, and the toggle
+        // state rides the pressed tint (aria-pressed) plus the title swap.
+        const expandLabel = t(expanded ? 'diff.collapse' : 'diff.expandAll')
         const expand = h('button', {
           key: 'expand', type: 'button',
-          className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
+          className: 'gp-icon-btn gp-diff__expand',
           style: summary || compact ? {} : { marginLeft: 'auto' },
           disabled: effDiffMode !== 'split' && effDiffMode !== 'unified',
-          title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
+          'aria-pressed': expanded,
+          title: expandLabel,
+          'aria-label': expandLabel,
           onClick: () => void showDiff(diffPath.path, diffPath.base, !expanded),
-        }, t(expanded ? 'diff.collapse' : 'diff.expandAll'))
+        }, h(ExpandAllIcon, { size: 14 }))
+        // The enlarged-diff toggle — same glyphs the files preview uses for
+        // its fullscreen control. The "modal" is THIS inline .gp-diff restyled
+        // into a card (gp-diff--card, the reader's in-place trick), so the
+        // DiffView never remounts; pressed state marks the card being up.
+        const modalBtn = h('button', {
+          key: 'modal', type: 'button',
+          className: 'gp-icon-btn gp-diff__modal-btn',
+          title: t('diff.openModal'),
+          'aria-label': t('diff.openModal'),
+          'aria-pressed': diffModalOpen,
+          onClick: () => setDiffModalOpen((v) => !v),
+        }, h(diffModalOpen ? ExitFullscreenIcon : FullscreenIcon, { size: 14 }))
+        const cardClose = diffModalOpen
+          ? h('button', {
+            key: 'cardclose', type: 'button',
+            className: 'gp-icon-btn gp-diff__card-close',
+            title: t('common.close'), 'aria-label': t('common.close'),
+            onClick: () => setDiffModalOpen(false),
+          }, h(CloseIcon, { size: 15 }))
+          : null
         const seg = h('div', { key: 'seg', className: 'gp-seg' },
           segButtons<DiffMode>(diffModes, effDiffMode, setDiffMode, (m) => t(`diff.${m}` as GitKey)))
         // One row cannot fit back + path + stats + expand + mode seg at phone
@@ -716,10 +795,10 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         if (compact) {
           return [
             h('div', { key: 'row1', className: 'gp-diff__toolbar-row' }, [back, path, sum]),
-            h('div', { key: 'row2', className: 'gp-diff__toolbar-row gp-diff__toolbar-row--controls' }, [expand, seg]),
+            h('div', { key: 'row2', className: 'gp-diff__toolbar-row gp-diff__toolbar-row--controls' }, [expand, modalBtn, seg, cardClose]),
           ]
         }
-        return [back, path, sum, expand, seg]
+        return [back, path, sum, expand, modalBtn, seg, cardClose]
       })()),
       diffData === null
         ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
@@ -729,6 +808,17 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Write-op dialogs (stash push / stash drop / batch discard), portaled;
   // rendered by both layouts.
   const modals: (JSX.Element | null)[] = [
+    // Backdrop for the in-place enlarged diff (gp-diff--card). Plain fixed
+    // siblings of the diff — no portal, no second DiffView; the card itself
+    // IS the inline pane restyled. The guard mirrors diffBlock's own mount
+    // conditions so a compact back-navigation (which unmounts the diff)
+    // cannot strand a backdrop over the panel.
+    diffModalOpen && diffPath !== null && (!compact || pane === 'diff')
+      ? h('div', {
+        key: 'diff-backdrop', className: 'gp-diff-backdrop',
+        onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) setDiffModalOpen(false) },
+      })
+      : null,
     pushOpen ? h(PushModal, { key: 'remote-push', remote, sessionId, snapshot, onAction, onClose: () => setPushOpen(false), onBusyChange: setPushBusy, t }) : null,
     publishOpen ? h(PublishModal, { key: 'remote-publish', snapshot, onAction, onClose: () => setPublishOpen(false), onBusyChange: setPublishBusy, t }) : null,
     stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,
@@ -782,6 +872,23 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       })
       : null,
   ]
+
+  // Stacked: a tall narrow sidebar keeps the editor + list band on top and the
+  // diff below — picking a row swaps the diff in place, nothing drills. The
+  // full commit editor stays (stacked is tall, so it is not cramped).
+  if (stacked) {
+    return h('div', { className: 'gp-changes gp-changes--stacked' }, [
+      ...modals,
+      tipNode,
+      h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${split.pct}%` } }, leftChildren),
+      h('div', {
+        key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
+        'aria-orientation': 'horizontal',
+        ...split.dividerProps,
+      }),
+      h('div', { key: 'right', className: 'gp-changes__right' }, diffBlock),
+    ])
+  }
 
   // Compact: a single column drilling from the change list into the diff.
   if (compact) {

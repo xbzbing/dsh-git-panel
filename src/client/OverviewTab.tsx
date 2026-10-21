@@ -13,7 +13,7 @@ import { queryAs, type GitPanelRemote } from './rpc.js'
 import { selectTrigger } from './select-trigger.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
+import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, CheckIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
 import { layoutFilteredGraph } from './filtered-graph.js'
 import { CommitGraph, GRAPH_LANE_W } from './CommitGraph.js'
@@ -24,7 +24,8 @@ import { absoluteDateTime, absoluteTime, timeAgo } from './time.js'
 import { statusChar, statusClass } from './status.js'
 import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks.js'
-import { useResizableColumn } from './resizable.js'
+import { useCopyFeedback, type CopyFeedback } from './copy-feedback.js'
+import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { segButtons } from './seg.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
 import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
@@ -72,6 +73,9 @@ interface OverviewProps {
   readonly onResync: () => void
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
+  /** Stacked layout: a tall narrow right sidebar — two columns in the top band
+   * (branch list + history), commit detail spanning the width below. */
+  readonly stacked: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -89,6 +93,9 @@ function refsEqual(a: readonly GraphCommit['refs'][number][], b: readonly GraphC
  * subject + meta can stack on two lines. The graph svg stretches to match it so
  * lane edges still connect between consecutive rows. */
 const ROW_H_COMPACT = 46
+/** Two-line rows in the stacked sidebar at pointer density: enough for subject
+ * + meta without compact's touch padding. */
+const ROW_H_STACKED = 40
 /** Toolbar width below which the search placeholder drops its "(message / hash)"
  * hint — a placeholder is a DOM attribute CSS can't rewrite, so swap it here.
  * Measured on the toolbar (not the input): flex-wrap keeps the input's own
@@ -109,7 +116,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
@@ -242,9 +249,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     : layoutGraph(commits, snapshot.graphStyle), [commits, topology, filtered, snapshot.graphStyle])
   const laneCount = useMemo(() => graphWidth(rows), [rows])
   const graphW = Math.max(GRAPH_LANE_W, laneCount * GRAPH_LANE_W)
-  const rowH = compact ? ROW_H_COMPACT : ROW_H
-  // Wide: graph | subject | hash | author | date. Compact: graph | stacked text.
-  const gridTpl = compact ? `${graphW}px minmax(0,1fr)` : `${graphW}px minmax(120px,1fr) 72px 120px 96px`
+  const rowH = compact ? ROW_H_COMPACT : stacked ? ROW_H_STACKED : ROW_H
+  // Wide: graph | subject | hash | author | date. Compact and stacked: graph |
+  // stacked text — the stacked top band's history column is too narrow for the
+  // five-column grid, but its rows are pointer targets, not touch ones.
+  const gridTpl = compact || stacked ? `${graphW}px minmax(0,1fr)` : `${graphW}px minmax(120px,1fr) 72px 120px 96px`
 
   const onScroll = (): void => {
     const el = listRef.current
@@ -303,6 +312,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // history column takes the remaining space. Widths persist per column.
   const leftCol = useResizableColumn({ storageKey: 'gp.overview.left', initial: 200, min: 130, reserve: 360, edge: 'end' })
   const rightCol = useResizableColumn({ storageKey: 'gp.overview.right', initial: 340, min: 190, reserve: 360, edge: 'start' })
+  // Stacked only reads it here (hooks run unconditionally); the wide layout
+  // ignores the value. The split is shared across the three stacked surfaces.
+  const split = useStackedSplit()
 
   const setRef = (ref: string | null): void => setFilter((prev) => ({ ...prev, ref }))
 
@@ -417,6 +429,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     t,
   }
 
+  // The modal header path doubles as its copy control (the changes toolbar
+  // works the same way): click writes the relative path, the label confirms.
+  const pathCopy = useCopyFeedback(detail.fileDiff === null ? null : detail.fileDiff.path)
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     visible: queryVisible,
     data: detail.fileDiffData,
@@ -426,6 +441,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     expanded: detail.fileDiffExpanded,
     onExpand: (expand) => { if (detail.fileDiff !== null) detail.openFileDiff(detail.fileDiff.path, detail.fileDiff.hash, detail.fileDiff.shortHash, expand) },
     onClose: detail.closeFileDiff,
+    pathFeedback: pathCopy.feedback,
+    onCopyPath: pathCopy.copy,
     remote,
     sessionId,
     compact,
@@ -586,6 +603,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
   })
   const secondaryFilters: JSX.Element[] = [authorMenu, sinceMenu, fetchButton]
+  // Compact hides the secondary filters behind the more chevron so the first
+  // row fits the branch trigger + search; wide and stacked show everything —
+  // stacked wraps it into two clean rows (search full width over the filters)
+  // via its toolbar class rather than hiding anything.
   const toolbarChildren: JSX.Element[] = compact
     ? [
       h('button', {
@@ -602,7 +623,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     : [searchInputEl, ...secondaryFilters]
 
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
-    h('div', { key: 'tb', className: 'gp-toolbar', ref: setSearchEl }, toolbarChildren),
+    h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}`, ref: setSearchEl }, toolbarChildren),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
       commits.length === 0
         ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
@@ -610,7 +631,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
           selected: selected?.hash === row.commit.hash,
           // snapshot.head is Git's unique abbreviation; history uses full hashes.
           current: !snapshot.unborn && snapshot.head !== null && snapshot.head !== '' && row.commit.hash.startsWith(snapshot.head),
-          gridTpl, laneCount, now, compact, rowH,
+          gridTpl, laneCount, now, compact, stacked, rowH,
           onSelect: () => selectCommit(row.commit),
           onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
           t,
@@ -681,6 +702,37 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         detail.detail !== null && detail.detail.body !== '' ? h('pre', { key: 'body', className: 'gp-detail__body' }, detail.detail.body) : h('div', { key: 'nb', className: 'gp-empty' }, t('overview.noMessage')),
       ]),
     ]
+
+  // Stacked: a tall narrow sidebar spends its height instead of drilling. The
+  // top band keeps the wide layout's first two columns — the complete branch
+  // list (filter + switch + browse) beside the history — and the commit detail
+  // spans the full width below. Selecting a row updates the detail in place.
+  if (stacked) {
+    return h('div', { className: 'gp-overview gp-overview--stacked' }, [
+      fileDiffModal,
+      ...opModals,
+      h('div', { key: 'top', className: 'gp-overview__top', style: { flex: `0 0 ${split.pct}%` } }, [
+        h('div', { key: 'left', className: 'gp-col gp-col--left' }, [
+          h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+            onFilter: (ref) => setRef(ref),
+            switchOptions,
+            onSwitch: openSwitch,
+            onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+            onRetry: reloadTree,
+            t,
+          }, branchTrees)),
+          renderStatusBar(snapshot, statusCbs),
+        ]),
+        historyCol,
+      ]),
+      h('div', {
+        key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
+        'aria-orientation': 'horizontal',
+        ...split.dividerProps,
+      }),
+      h('div', { key: 'detail', className: 'gp-col gp-col--mid gp-detail' }, detailBody),
+    ])
+  }
 
   // Compact: a single column that drills from the history list into the commit
   // detail; the branch filter is a bottom sheet. No hover card (tap drills in).
@@ -916,6 +968,9 @@ interface RowCbs {
   laneCount: number
   now: number
   compact: boolean
+  /** Two-line rows without compact's touch padding; hover stays decorative (no
+   * message card — the stacked layout shows the detail below the list). */
+  stacked: boolean
   rowH: number
   onSelect: () => void
   onHoverEnter: (commit: GraphCommit, x: number, y: number) => void
@@ -932,10 +987,12 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
   const graphCell = h('div', { key: 'g', className: 'gp-graph-cell' }, h(CommitGraph, { row, laneCount: cb.laneCount, rowH: cb.rowH, current: cb.current }))
   // Compact: two stacked lines (subject / hash·author·time) beside the graph,
   // taller rows for touch, and no hover handlers (tap drills into the detail).
-  if (cb.compact) {
+  // Stacked reuses the two-line shape at pointer density with a CSS hover tint:
+  // the message lives in the detail pane right below, so no card and no fetch.
+  if (cb.compact || cb.stacked) {
     return h('div', {
       key: c.hash,
-      className: `gp-commit-row gp-commit-row--compact${cb.selected ? ' gp-commit-row--active' : ''}`,
+      className: `gp-commit-row gp-commit-row--compact${cb.stacked ? ' gp-commit-row--stacked' : ''}${cb.selected ? ' gp-commit-row--active' : ''}`,
       style: { gridTemplateColumns: cb.gridTpl, height: `${cb.rowH}px` },
       onClick: cb.onSelect,
     }, [
@@ -1029,21 +1086,25 @@ interface FileDiffModalCbs {
   expanded: boolean
   onExpand: (expand: boolean) => void
   onClose: () => void
+  /** Click-to-copy state of the header path: idle until the user copies. */
+  pathFeedback: CopyFeedback
+  /** Writes the given text (the relative path) to the clipboard. */
+  onCopyPath: (text: string) => void
   remote: GitPanelRemote
   sessionId: string
   compact: boolean
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-/** Centered dialog showing a file's diff within the selected commit. Portaled
- * to document.body so it floats above the whole panel; Esc / backdrop click /
- * the close button dismiss it (Esc is wired by the caller). */
+/** Centered dialog showing a commit's file diff. Portaled to document.body so
+ * it floats above the whole panel; Esc / backdrop click / the close button
+ * dismiss it (Esc is wired by the caller). */
 function renderFileDiffModal(
   fileDiff: { path: string; hash: string; shortHash: string } | null,
   cb: FileDiffModalCbs,
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
-  const { visible, data, error, mode, onMode, expanded, onExpand, onClose, remote, sessionId, compact, t } = cb
+  const { visible, data, error, mode, onMode, expanded, onExpand, onClose, pathFeedback, onCopyPath, remote, sessionId, compact, t } = cb
   // Compact drops the side-by-side mode (no room on a phone) and renders split
   // as unified instead; the preference itself is left untouched.
   const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
@@ -1059,9 +1120,33 @@ function renderFileDiffModal(
   const segEl = h('div', { key: 'seg', className: 'gp-seg' },
     segButtons<DiffMode>(modes, effMode, onMode, (m) => t(`diff.${m}` as GitKey)))
   const closeEl = h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 }))
+  // The header path doubles as its copy control (the changes toolbar works
+  // the same way): clicking writes the relative path. The path NEVER swaps
+  // out for the confirmation — a bare text node wraps when the bar squeezes
+  // the button below the phrase's width — on success the directory slot
+  // trades places with a check mark, on failure only the color changes; the
+  // phrase rides `aria-label`, `title` (feedback period only) and a
+  // visually-hidden live region. `--copy` carries the button affordance
+  // because the bare `.gp-modal__path` class is shared with plain titles.
+  const copyKey = pathFeedback === 'copied' ? 'files.pathCopied' : 'files.pathCopyFailed'
+  const pathParts = renderPathParts(fileDiff.path)
+  const pathEl = h('button', {
+    key: 'path',
+    type: 'button',
+    className: `gp-modal__path gp-modal__path--copy${pathFeedback === 'copied' ? ' gp-modal__path--copied' : pathFeedback === 'error' ? ' gp-modal__path--error' : ''}`,
+    title: pathFeedback === 'idle' ? fileDiff.path : `${t(copyKey)} ${fileDiff.path}`,
+    'aria-label': `${t(pathFeedback === 'idle' ? 'files.copyPath' : copyKey)} ${fileDiff.path}`,
+    onClick: () => onCopyPath(fileDiff.path),
+  }, [
+    pathFeedback === 'copied'
+      ? h(CheckIcon, { key: 'ok', size: 12 })
+      : pathParts.slice(0, Math.max(0, pathParts.length - 1)),
+    pathParts[pathParts.length - 1],
+    h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, pathFeedback === 'idle' ? '' : t(copyKey)),
+  ])
   const barHead = [
     h('span', { key: 'fileicon', className: 'gp-modal__fileicon' }, h(FileIcon, { size: 15 })),
-    h('span', { key: 'path', className: 'gp-modal__path', title: fileDiff.path }, renderPathParts(fileDiff.path)),
+    pathEl,
     h('span', { key: 'hash', className: 'gp-modal__hash' }, fileDiff.shortHash),
     sumEl,
     expandEl,

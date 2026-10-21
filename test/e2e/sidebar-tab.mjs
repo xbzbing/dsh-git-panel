@@ -365,6 +365,47 @@ try {
     assert.equal(body.host, 'sidebar', 'the panel knows it is mounted in the sidebar')
     assert.equal(body.overlay, false, 'the conversation overlay mode is not opted into')
     assert.equal(body.padding, '0px', 'the composer height is not reserved')
+
+    // The stacked split divider: full-width hairline at rest, and — the
+    // cascade trap the vertical divider's rules pose — still full-width on
+    // hover, never collapsing to a corner stub.
+    const readDivider = () => page.evaluate(() => {
+      const el = document.querySelector('.gp-resizer--row')
+      if (el === null) return null
+      const s = getComputedStyle(el, '::before')
+      return { width: s.width, height: s.height, left: s.left, top: s.top }
+    })
+    const idle = await readDivider()
+    assert.ok(idle !== null, 'the stacked divider renders')
+    assert.equal(idle.width, '420px', 'the divider hairline spans the panel at rest')
+    assert.equal(idle.height, '1px', 'the resting hairline is one pixel')
+    await page.hover('.gp-resizer--row')
+    await page.waitForTimeout(120)
+    const hovered = await readDivider()
+    assert.equal(hovered.width, '420px', 'hover keeps the line full width — no corner stub')
+    assert.equal(hovered.height, '3px', 'hover thickens the line')
+    assert.equal(hovered.left, '0px', 'hover keeps the line anchored at the left edge')
+
+    // Minimum-width sidebar: the tab bar drops to the phone's treatment —
+    // short labels and no font stepper — and recovers when widened back.
+    // (This mock's locale.bind returns the key itself, so labels read as keys.)
+    const tabState = () => page.evaluate(() => ({
+      labels: [...document.querySelectorAll('.gp-tabbar [role="tab"]')].map((el) => (el.textContent || '').trim()),
+      font: document.querySelector('.gp-font') !== null,
+    }))
+    const comfortable = await tabState()
+    assert.deepEqual(comfortable.labels, ['tab.overview', 'tab.changes', 'tab.files'], 'a comfortable sidebar keeps the full labels')
+    assert.equal(comfortable.font, true, 'a comfortable sidebar keeps the font stepper')
+    await page.evaluate(() => { document.getElementById('panel').style.width = '320px' })
+    await page.waitForTimeout(200)
+    const tight = await tabState()
+    assert.deepEqual(tight.labels, ['tab.overviewShort', 'tab.changesShort', 'tab.filesShort'], 'the minimum width switches to short labels')
+    assert.equal(tight.font, false, 'the minimum width hides the font stepper')
+    await page.evaluate(() => { document.getElementById('panel').style.width = '420px' })
+    await page.waitForTimeout(200)
+    const recovered = await tabState()
+    assert.deepEqual(recovered.labels, ['tab.overview', 'tab.changes', 'tab.files'], 'widening back restores the full labels')
+    assert.equal(recovered.font, true, 'widening back restores the font stepper')
     await page.close()
   }
 

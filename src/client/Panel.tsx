@@ -14,7 +14,7 @@ import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
 import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
-import { isCramped } from './panel-fit.js'
+import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { useHoverTip } from './tip.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
 import type { FontDelta, GitAction, GitVersionInfo } from './types.js'
@@ -55,7 +55,18 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // three-column tabs collapse to single-column drill-in. Width-driven, so it
   // recovers the full layout as soon as the panel widens.
   const layout = usePanelLayout(rootEl)
-  const compact = layout.compact
+  // The mode folds the width/height facts with the mount point: a tall narrow
+  // right sidebar stacks its panes (PC height, no drilling), while phones and
+  // squeezed conversation columns drill exactly as before (panel-fit.ts).
+  const mode = panelMode(layout, host)
+  const compact = mode === 'compact'
+  const stacked = mode === 'stacked'
+  // A sidebar dragged to its minimum cannot host the full tab labels plus the
+  // font stepper; it drops to the phone's treatment instead (short labels,
+  // stepper hidden). Below the threshold the row reads crushed, not merely
+  // clipped — flex absorbs the width without any overflow to detect.
+  const stackedTight = stacked && layout.width > 0 && layout.width <= STACKED_TIGHT_BP
+  const shortLabels = compact || stackedTight
   // Narrow AND short is the only case that trades content away for room (the
   // commit editor's fold, the change timestamps): a big screen whose column a
   // sidebar narrowed keeps them, because it has the height to spare.
@@ -178,17 +189,18 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     void writePanelConfigField(ctx, 'fontDelta', legacy)
   }, [ctx, view, snapFont])
 
-  // Wide keeps the long labels; compact (phone / squeezed) shows a short pair
-  // so the three cells still read as words next to the trailing controls.
+  // Wide keeps the long labels; compact (phone / squeezed) and a minimum-width
+  // stacked sidebar show the short pair so the three cells still read as words
+  // next to the trailing controls.
   const tabLabelKeys: Record<SubTab, { full: GitKey; short: GitKey }> = {
     overview: { full: 'tab.overview', short: 'tab.overviewShort' },
     changes: { full: 'tab.changes', short: 'tab.changesShort' },
     files: { full: 'tab.files', short: 'tab.filesShort' },
   }
   const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = [
-    { key: 'overview', label: t(compact ? tabLabelKeys.overview.short : tabLabelKeys.overview.full), icon: h(CommitIcon, { size: 14 }) },
-    { key: 'changes', label: t(compact ? tabLabelKeys.changes.short : tabLabelKeys.changes.full), icon: h(DiffIcon, { size: 14 }) },
-    { key: 'files', label: t(compact ? tabLabelKeys.files.short : tabLabelKeys.files.full), icon: h(FilesIcon, { size: 14 }) },
+    { key: 'overview', label: t(shortLabels ? tabLabelKeys.overview.short : tabLabelKeys.overview.full), icon: h(CommitIcon, { size: 14 }) },
+    { key: 'changes', label: t(shortLabels ? tabLabelKeys.changes.short : tabLabelKeys.changes.full), icon: h(DiffIcon, { size: 14 }) },
+    { key: 'files', label: t(shortLabels ? tabLabelKeys.files.short : tabLabelKeys.files.full), icon: h(FilesIcon, { size: 14 }) },
   ]
   // A non-git directory exposes only the Files tab.
   const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
@@ -229,23 +241,23 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (!hasSession(sessionId)) return null
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot: null, t }) : null
+      return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, stacked, worktreeGen, snapshot: null, t }) : null
     }
     if (view.state !== 'ready') return null
     const snapshot = view.snapshot
     if (key === 'overview') {
       return visited.current.tabs.has('overview')
-        ? h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })
+        ? h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, stacked, t })
         : null
     }
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, cramped, t })
+        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list
     // until the user opens it), then stays mounted to retain its tree state.
-    return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot, t }) : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, stacked, worktreeGen, snapshot, t }) : null
   }
 
   const panes = tabs.map((tb) => h('div', {
@@ -269,7 +281,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // it the view grows with content and the whole conversation scrolls. The
   // sidebar has no composer under it, so it opts out.
   const overlay = host === 'conversation' ? { 'data-conversation-composer-overlay': '' } : {}
-  return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': compact ? 'compact' : 'wide' }, [
+  return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': mode }, [
     h('div', { key: 'tabs', className: 'gp-tabbar' }, [
       h(SegmentedTabs, {
         key: 'switcher',
@@ -292,14 +304,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       // The stepper also requires the settings form (configForms) to write
       // back; without it the control would silently no-op.
       h('div', { key: 'trailing', className: 'gp-tabbar__trailing' }, [
-        compact || !fontWritable
+        compact || stackedTight || !fontWritable
           ? null
           : h('div', { key: 'font', className: 'gp-font', role: 'group', 'aria-label': t('panel.fontSize') }, [
             h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', 'aria-pressed': fontDelta === -1, onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
             h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', 'aria-pressed': fontDelta === 0, onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
             h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', 'aria-pressed': fontDelta === 1, onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
           ]),
-        compact ? null : h(VersionBar, { key: 'ver', remote, t }),
+        // The version cluster needs the wide bar's horizontal room; a sidebar
+        // column cannot host it without crowding the tabs.
+        compact || stacked ? null : h(VersionBar, { key: 'ver', remote, t }),
       ]),
     ]),
     h('div', { key: 'body', className: 'gp-body' }, body),

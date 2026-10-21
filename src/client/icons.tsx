@@ -49,6 +49,12 @@ export function CloseIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 4l8 8M12 4l-8 8' })], size)
 }
 
+/** Success mark for the copy confirmation — decorative: the wrapper button
+ * carries the label. */
+export function CheckIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M3 8.4l3.3 3.3L13 4.8' })], size, true)
+}
+
 /** Expand-to-fullscreen glyph: four corner brackets. */
 export function FullscreenIcon({ size }: IconProps): JSX.Element {
   return svg([
@@ -66,6 +72,14 @@ export function ExitFullscreenIcon({ size }: IconProps): JSX.Element {
     h('path', { key: 'b', d: 'M14 6h-4V2' }),
     h('path', { key: 'c', d: 'M10 14v-4h4' }),
     h('path', { key: 'd', d: 'M2 10h4v4' }),
+  ], size)
+}
+
+/** Unfold-all glyph: chevrons opening up and down — expand the diff context. */
+export function ExpandAllIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'u', d: 'M4.5 6.5L8 3l3.5 3.5' }),
+    h('path', { key: 'd', d: 'M4.5 9.5L8 13l3.5-3.5' }),
   ], size)
 }
 

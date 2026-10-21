@@ -23,6 +23,10 @@ export interface PanelLayout {
   readonly compact: boolean
   /** The panel is at or below SHORT_BP tall. */
   readonly short: boolean
+  /** Raw measured width in px (0 until the first measurement). The sidebar's
+   * stacked→wide switch sits ABOVE COMPACT_BP and needs the number itself —
+   * see `SIDEBAR_WIDE_BP`. */
+  readonly width: number
 }
 
 /**
@@ -33,4 +37,56 @@ export interface PanelLayout {
  */
 export function isCramped(layout: PanelLayout): boolean {
   return layout.compact && layout.short
+}
+
+/**
+ * Sidebar width (px) strictly above which the right sidebar abandons the
+ * stacked layout for the full three-column one. COMPACT_BP (620) only marks
+ * where three columns become *possible*; at 621–760 they are possible but
+ * cramped — the left branch column (~200) plus the detail column (~340) would
+ * leave the history a token width. Conversation panels are unaffected: they
+ * flip at COMPACT_BP as always.
+ */
+export const SIDEBAR_WIDE_BP = 760
+
+/**
+ * Stacked sidebar width (px) at or below which the tab bar drops to the
+ * phone's treatment — short tab labels and no font stepper. The full zh
+ * labels (Git 总览 / 变更记录 / 文件浏览) plus the stepper need ~360px of
+ * row before the cells read as words; flex compresses below that without any
+ * overflow signal (the row looks crushed, not clipped). 380 sits above the
+ * sidebar's minimum (a ~300–340px column must land inside) and below the
+ * common 420 default, which keeps the full bar.
+ */
+export const STACKED_TIGHT_BP = 380
+
+/** How the panel arranges its panes: see `panelMode`. */
+export type PanelMode = 'wide' | 'stacked' | 'compact'
+
+/**
+ * The three layout modes and the gate that separates them.
+ *
+ * - `wide`: room above COMPACT_BP — the full three-column layout. On a sidebar
+ *   that bar is raised to SIDEBAR_WIDE_BP: below it a tall sidebar stays
+ *   stacked, because three columns only become comfortable wider than that.
+ * - `stacked`: mounted in the right sidebar and narrow — panes keep their
+ *   side-by-side order in a top band and stack the third pane below,
+ *   spending the sidebar's PC height instead of drilling.
+ * - `compact`: narrow and otherwise — the single-column drill-in. Phones stay
+ *   here even when tall (a portrait phone panel is not short): the stacked
+ *   arrangement is a PC-pointer interaction, while drill-in gives a touch
+ *   device the whole width per step.
+ *
+ * The host gate keeps every conversation-mounted panel on today's behavior
+ * (a split squeezed below COMPACT_BP drills exactly as before), and a sidebar
+ * dragged down to SHORT_BP height falls back to drill-in rather than stacking
+ * two cramped panes. Width 0 (not yet measured) reads as stacked on a sidebar,
+ * so the first paint never flashes the three-column layout.
+ */
+export function panelMode(layout: PanelLayout, host: 'conversation' | 'sidebar'): PanelMode {
+  if (host === 'sidebar') {
+    if (layout.compact) return layout.short ? 'compact' : 'stacked'
+    return layout.width > SIDEBAR_WIDE_BP ? 'wide' : 'stacked'
+  }
+  return layout.compact ? 'compact' : 'wide'
 }

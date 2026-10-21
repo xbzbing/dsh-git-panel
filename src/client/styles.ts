@@ -193,8 +193,15 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * split the column in half, each scrolling on its own. Equal halves keep the
  * comment visible instead of the file tree pushing it below the fold. */
 .gp-detail{display:flex;flex-direction:column;min-height:0;height:100%}
-.gp-detail__files{flex:1 1 50%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:6px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.gp-detail__summary{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--dsw-alias-label-tertiary);padding:0 10px 7px;margin-bottom:6px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-detail__files{flex:1 1 50%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 0 6px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+/* The summary pins to the top of the scrolling file tree beneath it: scrolling
+ * a 20-file commit must not carry the "N files +A −B" bar out of view. Sticky
+ * pins the MARGIN box, so the bar carries NO negative top margin — its border
+ * box sits flush at the scrollport top (no 6px leak strip of rows above it)
+ * both at rest and while stuck, i.e. tight against the split edge. The 6px
+ * breathing room is the bar's own padding-top (text inset, box flush); the
+ * background is opaque so rows pass behind it, not through it. */
+.gp-detail__summary{position:sticky;top:0;z-index:1;display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--dsw-alias-label-tertiary);padding:6px 10px 7px;margin:0 0 6px;background:var(--dsw-alias-bg-base);border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-detail__summary-sep{color:var(--dsw-alias-label-tertiary);opacity:.6}
 .gp-detail__msg{flex:1 1 50%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:10px}
 .gp-detail__subject{font-weight:600;margin-bottom:6px}
@@ -461,9 +468,44 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * "变更前 / 变更后" into two lines. Buttons stay equal-width while they fit. */
 .gp-diff__toolbar-row--controls .gp-seg{flex:1 1 auto;min-width:max-content}
 .gp-diff__toolbar-row--controls .gp-seg .gp-seg__btn{flex:1 1 0;min-width:max-content}
-.gp-diff__path{font-size:12px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gp-diff__expand{border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
+/* The filename stays whole: the directory part shrinks first (flex-shrink
+ * only applies to it), eliding from its LEFT — a right-to-left run keeps the
+ * tail ("…client/OverviewTab.tsx") — and the full relative path rides on the
+ * title tooltip. Mirrors what the file-diff modal shows. */
+/* The header path IS the copy control: a bare button (reset) whose click
+ * writes the relative path to the clipboard. The confirmation never replaces
+ * the visible text (a bare text node wraps when the toolbar squeezes the
+ * button below the phrase's width): success swaps the directory slot for a
+ * check mark and tints the name, failure only tints it. The hover underline
+ * is the affordance. Font shorthand first so font-size can re-pin after. */
+.gp-diff__path{position:relative;display:flex;align-items:baseline;min-width:0;overflow:hidden;background:none;border:0;padding:0;margin:0;font:inherit;font-size:12px;color:inherit;text-align:left;cursor:pointer;border-radius:4px}
+.gp-diff__path:hover .gp-diff__path-name{text-decoration:underline}
+.gp-diff__path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-diff__path--copied{color:var(--dsw-alias-state-success-primary)}
+.gp-diff__path--copied svg{margin-right:2px}
+.gp-diff__path--copied .gp-diff__path-name{color:var(--dsw-alias-state-success-primary)}
+.gp-diff__path--error{color:var(--dsw-alias-state-error-primary)}
+.gp-diff__path--error .gp-diff__path-name{color:var(--dsw-alias-state-error-primary)}
+/* Visually-hidden live region: the copy confirmation is announced to screen
+ * readers without entering the toolbar's layout at all. */
+.gp-copy-live{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.gp-diff__path-dir{direction:rtl;unicode-bidi:isolate;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
+.gp-diff__path-sep{flex:none;color:var(--dsw-alias-label-tertiary)}
+.gp-diff__path-name{flex:none;color:var(--dsw-alias-label-primary);font-weight:600}
+/* Bordered pill only in the segmented context (the overview modal's text
+ * button); the toolbar's icon-ified expand is a plain gp-icon-btn like its
+ * neighbours, so the two toolbar icons stay visually identical. */
+.gp-seg__btn.gp-diff__expand{border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
 .gp-diff__expand:disabled{opacity:.45;cursor:not-allowed}
+/* The diff enlarged IN PLACE: the same inline .gp-diff node restyled into the
+ * card (the fullscreen reader's trick — ADR-0016), so the DiffView never
+ * remounts: no second highlight/image pass, no state loss. Geometry mirrors
+ * .gp-modal; the backdrop sits at 999, the card at 1000, both portaled-free
+ * (fixed positioning escapes the pane — no transform ancestor in the panel). */
+.gp-diff--card{position:fixed;inset:0;margin:auto;z-index:1000;width:min(920px,86vw);height:min(680px,82vh);min-width:0;max-height:100vh;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:14px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 12px rgba(0,0,0,.18);animation:gp-modal-in .18s cubic-bezier(.16,1,.3,1)}
+/* The card's toolbar reads as a modal bar (same padding + surface). */
+.gp-diff--card .gp-diff__toolbar{padding:11px 12px 11px 14px;background:var(--dsw-alias-bg-layer-2)}
+.gp-diff-backdrop{position:fixed;inset:0;z-index:999;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 62%,transparent);animation:gp-fade-in .12s ease}
 .gp-seg{display:inline-flex;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
 .gp-seg__btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;white-space:nowrap;padding:5px 10px;cursor:pointer;transition:background .12s ease,color .12s ease}
 .gp-seg__btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -542,6 +584,17 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-modal__bar{display:flex;align-items:center;gap:10px;padding:11px 12px 11px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);flex:none}
 .gp-modal__fileicon{display:inline-flex;align-items:center;color:var(--dsw-alias-label-tertiary);flex:none}
 .gp-modal__path{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+/* Copy-enabled variant of the header path (file-diff modal): button reset +
+ * affordance + inline confirmation tint. Kept in a modifier so plain modal
+ * titles sharing .gp-modal__path never pick up a pointer cursor. */
+.gp-modal__path--copy{position:relative;background:none;border:0;padding:0;margin:0;font:inherit;font-size:13px;color:inherit;text-align:left;cursor:pointer;border-radius:4px}
+.gp-modal__path--copy:hover .gp-modal__name{text-decoration:underline}
+.gp-modal__path--copy:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-modal__path--copied{color:var(--dsw-alias-state-success-primary);text-overflow:clip}
+.gp-modal__path--copied svg{margin-right:2px}
+.gp-modal__path--copied .gp-modal__name{color:var(--dsw-alias-state-success-primary)}
+.gp-modal__path--error{color:var(--dsw-alias-state-error-primary);text-overflow:clip}
+.gp-modal__path--error .gp-modal__name{color:var(--dsw-alias-state-error-primary)}
 .gp-modal__dir{color:var(--dsw-alias-label-tertiary)}
 .gp-modal__name{color:var(--dsw-alias-label-primary);font-weight:600}
 .gp-modal__hash{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary);padding:2px 7px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-1));flex:none}
@@ -875,6 +928,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
   .gp-modal{width:96vw;height:min(90dvh,calc(100dvh - 48px));border-radius:12px}
   .gp-modal--sm{height:auto}
   .gp-modal__bar{flex-wrap:wrap;row-gap:6px}
+  .gp-diff--card{width:96vw;height:min(90dvh,calc(100dvh - 48px));border-radius:12px}
 }
 
 /* Image zoom: relative wrapper + native-scroll viewport (the viewport class
@@ -908,8 +962,79 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-zl-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-zl-close:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:3px}
 @media (prefers-reduced-motion:reduce){
-  .gp-sheet,.gp-sheet-backdrop,.gp-modal,.gp-modal-backdrop,.gp-zl-mask,.gp-files__html-mask,.gp-files__fs-backdrop,.gp-files__preview--full{animation:none;transition:none}
+  .gp-sheet,.gp-sheet-backdrop,.gp-modal,.gp-modal-backdrop,.gp-zl-mask,.gp-files__html-mask,.gp-files__fs-backdrop,.gp-files__preview--full,.gp-diff--card,.gp-diff-backdrop{animation:none;transition:none}
 }
+
+/* ===================================================================
+ * Stacked (tall narrow right-sidebar) layout
+ * The panel root carries data-layout="stacked" when mounted in the right
+ * sidebar and the box is narrow (panel-fit.ts: compact below COMPACT_BP,
+ * or up to SIDEBAR_WIDE_BP where three columns would still be cramped)
+ * and not SHORT. The top band keeps the wide layout's first two columns
+ * (branch list | history); the third pane spans the width below it, so
+ * nothing drills. All three stacked surfaces share one drag-adjustable
+ * top/bottom ratio (useStackedSplit, default 55%). Controls are all
+ * visible at pointer density — this is a PC surface, not a touch one.
+ * Portaled surfaces (modal, sheet) are unchanged and stay keyed off
+ * their own classes.
+ * =================================================================== */
+
+/* Tab bar: stacked is narrow like compact, so it shares the tightened
+ * track rules (the primitive's indicator is a DIRECT span child with an
+ * inline calc width — same platform DOM contract as compact above).
+ * The trailing font stepper stays; the version cluster has no room
+ * (Panel.tsx drops it). */
+.gp-panel[data-layout="stacked"] .gp-tabbar__tabs{flex:1 1 auto;padding:2px;border-radius:8px}
+.gp-panel[data-layout="stacked"] .gp-tabbar__tabs--single{flex:0 0 auto}
+.gp-panel[data-layout="stacked"] .gp-tabbar__tabs>span[aria-hidden="true"]{inset:2px auto 2px 2px;width:calc((100% - 4px) / 3) !important}
+.gp-panel[data-layout="stacked"] .gp-tabbar__tabs--single>span[aria-hidden="true"]{width:calc(100% - 4px) !important}
+.gp-panel[data-layout="stacked"] .gp-tabbar__tabs>[role="tab"]{height:30px;padding:0 8px;font-size:12px}
+.gp-panel[data-layout="stacked"] .gp-tabbar__trailing{display:flex;flex:none;align-items:center;margin-left:auto}
+
+/* The shared top/bottom drag divider. The inline flex basis from
+ * useStackedSplit overrides the 55% CSS defaults below; 55% here is the
+ * pre-first-drag fallback and matches the hook's initial value. */
+.gp-resizer--row{flex:0 0 5px;position:relative;cursor:row-resize;touch-action:none;user-select:none}
+/* Every state declares the WHOLE box: the vertical divider's rules are more
+ * specific in hover (left:1px;width:3px) and would otherwise collapse this
+ * line to a stub at one end — same cascade trap as width:auto above. */
+.gp-resizer--row::before{content:"";position:absolute;left:0;right:0;width:auto;top:2px;bottom:auto;height:1px;background:var(--dsw-alias-border-l2)}
+.gp-resizer--row:hover::before,.gp-resizer--row:active::before{left:0;right:0;width:auto;bottom:auto;top:1px;height:3px;background:var(--dsw-alias-state-business-primary)}
+/* Icon-only diff toolbar buttons carry state through aria-pressed (the
+ * expand-all toggle); tint it like the zoom bar's pressed buttons. */
+.gp-diff__toolbar .gp-icon-btn[aria-pressed="true"]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary)}
+
+/* Overview: top band (branch list | history) over the full-width detail.
+ * The band's flex bases are HEIGHT here (the band is a column child of the
+ * stacked root); the left column's clamp inside the band is WIDTH. */
+.gp-overview--stacked{flex-direction:column}
+.gp-overview__top{display:flex;flex:0 0 55%;min-height:0}
+.gp-overview--stacked .gp-col--left{flex:0 0 clamp(120px,38%,180px);min-width:0;border-right:1px solid var(--dsw-alias-border-l2)}
+.gp-overview--stacked>.gp-detail{height:auto;flex:1 1 45%;min-height:0}
+
+/* Stacked history toolbar: search takes the first row; the author / since
+ * dropdowns and the refresh button share the second, all visible (no more
+ * chevron). */
+.gp-toolbar--stacked{gap:6px}
+.gp-toolbar--stacked .gp-search{flex:1 1 100%}
+.gp-toolbar--stacked .gp-select-trigger{flex:1 1 0;min-width:0}
+.gp-toolbar--stacked .gp-icon-btn{flex:none}
+
+/* Changes: commit editor + change-list band over the diff pane. Two rows
+ * for the commit message — stacked already spends less of the band on the
+ * editor, and the list wants the room. */
+.gp-changes--stacked{flex-direction:column}
+.gp-changes--stacked .gp-changes__left{flex:0 0 55%;min-height:0;min-width:0;width:100%}
+.gp-changes--stacked .gp-changes__right{flex:1 1 0;min-height:0;min-width:0;width:100%}
+.gp-panel[data-layout="stacked"] .gp-commitbox__msg{min-height:48px}
+
+/* Files: tree band over the preview pane. The :not() is load-bearing: the
+ * fullscreen reader is the SAME element with an extra --full class, and this
+ * rule is later in the sheet — without the guard its width:100% would beat
+ * the reader's fixed min(920px,86vw) card and blow it up to fill the box. */
+.gp-files--stacked{flex-direction:column}
+.gp-files--stacked .gp-files__tree-wrap{flex:0 0 55%;min-height:120px;min-width:0;width:100%}
+.gp-files--stacked .gp-files__preview:not(.gp-files__preview--full){flex:1 1 0;min-height:0;min-width:0;width:100%}
 `
 
 let injected = false

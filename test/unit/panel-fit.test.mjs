@@ -1,5 +1,6 @@
 /**
- * isCramped: the combined width+height gate for height-saving UI.
+ * isCramped: the combined width+height gate for height-saving UI, and
+ * panelMode: which of the three pane arrangements the box gets.
  *
  * The panel trades content away (the commit editor folds, the change timestamps
  * are dropped) only when both axes are scarce. Width alone decides the layout
@@ -9,9 +10,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isCramped, COMPACT_BP, SHORT_BP } from '../../lib/testkit.mjs'
+import { isCramped, panelMode, COMPACT_BP, SHORT_BP, SIDEBAR_WIDE_BP, STACKED_TIGHT_BP } from '../../lib/testkit.mjs'
 
-const layout = (compact, short) => ({ compact, short })
+const layout = (compact, short, width = 900) => ({ compact, short, width })
 
 test('cramped only when the panel is narrow and short at the same time', () => {
   assert.equal(isCramped(layout(true, true)), true)
@@ -45,4 +46,40 @@ test('the breakpoints keep the documented relationship', () => {
   assert.ok(COMPACT_BP > 0 && SHORT_BP > 0)
   assert.equal(COMPACT_BP, 620)
   assert.equal(SHORT_BP, 520)
+  assert.equal(SIDEBAR_WIDE_BP, 760)
+  assert.ok(SIDEBAR_WIDE_BP > COMPACT_BP, 'the stacked→wide flip sits above the compact bar')
+  assert.equal(STACKED_TIGHT_BP, 380)
+  assert.ok(STACKED_TIGHT_BP < 420, 'the default sidebar width keeps the full tab bar')
+  assert.ok(STACKED_TIGHT_BP > 320, 'a minimum-width (~320px) sidebar lands inside the tight mode')
+})
+
+test('panelMode: wide whenever the conversation panel has width', () => {
+  assert.equal(panelMode(layout(false, false, 900), 'conversation'), 'wide')
+  assert.equal(panelMode(layout(false, true, 900), 'conversation'), 'wide')
+  assert.equal(panelMode(layout(false, false, 700), 'conversation'), 'wide', 'the sidebar threshold does not apply to conversations')
+  assert.equal(panelMode(layout(true, false, 400), 'conversation'), 'compact')
+  assert.equal(panelMode(layout(true, true, 400), 'conversation'), 'compact')
+})
+
+test('panelMode: a tall narrow sidebar stacks instead of drilling', () => {
+  assert.equal(panelMode(layout(true, false, 420), 'sidebar'), 'stacked')
+})
+
+test('panelMode: narrow and short sidebar falls back to drill-in', () => {
+  assert.equal(panelMode(layout(true, true, 420), 'sidebar'), 'compact')
+})
+
+test('panelMode: a sidebar stays stacked until it clears SIDEBAR_WIDE_BP', () => {
+  // The three-column layout only becomes comfortable above the raised bar;
+  // at COMPACT_BP..SIDEBAR_WIDE_BP a sidebar keeps the stacked arrangement.
+  assert.equal(panelMode(layout(false, false, 700), 'sidebar'), 'stacked')
+  assert.equal(panelMode(layout(false, false, SIDEBAR_WIDE_BP), 'sidebar'), 'stacked', 'the threshold is exclusive')
+  assert.equal(panelMode(layout(false, false, SIDEBAR_WIDE_BP + 1), 'sidebar'), 'wide')
+  assert.equal(panelMode(layout(false, true, 900), 'sidebar'), 'wide', 'width, not height, decides above the bar')
+})
+
+test('panelMode: an unmeasured sidebar starts stacked, never flashes wide', () => {
+  // width 0 = the first render before useLayoutEffect measures: the
+  // three-column layout must not paint for a frame.
+  assert.equal(panelMode(layout(false, false, 0), 'sidebar'), 'stacked')
 })

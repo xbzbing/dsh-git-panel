@@ -12,7 +12,7 @@ import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
-import { useResizableColumn } from './resizable.js'
+import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, languageForPath, MarkdownText, SegmentedControl, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
 import { ZoomableImage } from './ImageZoom.js'
@@ -36,6 +36,9 @@ interface FilesTabProps {
   readonly sessionId: string
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
+  /** Stacked layout: a tall narrow right sidebar — tree above, preview below,
+   * selection updates the preview in place (no drilling). */
+  readonly stacked: boolean
   /** Work-tree generation (see Panel): a bump means a branch switch replaced the
    * files under the root, so the preserved browser state and the per-directory
    * cache are stale and must be dropped. */
@@ -146,7 +149,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -370,6 +373,9 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   }, [])
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
+  // Stacked only reads it here (hooks run unconditionally); the shared split
+  // keeps this tab's bands aligned with the overview and changes tabs.
+  const split = useStackedSplit()
 
   // Listing of one directory. `force` re-reads a directory that is already
   // listed, keeping its current entries mounted until the new listing lands;
@@ -573,7 +579,9 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
 
   const treeBlock = h('div', {
     key: 'left', className: 'gp-files__tree-wrap',
-    style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` },
+    // Stacked takes the shared top/bottom split; only the wide row layout
+    // needs the drag-resized horizontal basis.
+    style: stacked ? { flex: `0 0 ${split.pct}%` } : compact ? undefined : { flex: `0 0 ${leftCol.width}px` },
     ...inertAttr(fsActive),
   }, [
     // The control leads in DOM order so keyboard users reach it before walking
@@ -756,6 +764,22 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const fsBackdrop = fsActive
     ? h('div', { key: 'fs-desk', className: 'gp-files__fs-backdrop', 'aria-hidden': 'true', onClick: closeFullscreen })
     : null
+
+  // Stacked: a tall narrow sidebar shows the tree above and the preview below;
+  // picking a file updates the preview in place (the wide semantics — there is
+  // no drill state to enter, so no back bar).
+  if (stacked) {
+    return h('div', { className: 'gp-files gp-files--stacked' }, [
+      treeBlock,
+      h('div', {
+        key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
+        'aria-orientation': 'horizontal',
+        ...split.dividerProps,
+      }),
+      previewBlock,
+      fsBackdrop,
+    ])
+  }
 
   // Compact: a single column drilling from the tree into the file preview.
   if (compact) {

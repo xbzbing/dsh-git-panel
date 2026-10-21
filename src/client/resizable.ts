@@ -95,3 +95,82 @@ export function useResizableColumn(opts: ResizableOptions): { width: number; div
   })
   return { width, divider }
 }
+
+/** The stacked layout's default top-band share (% of the panel height). */
+const SPLIT_INITIAL = 55
+/** Stored ratio bounds: neither band may collapse below a usable pane. */
+const SPLIT_MIN = 30
+const SPLIT_MAX = 75
+const SPLIT_KEY = 'gp.stacked.split'
+
+// One stored ratio shared by all three stacked surfaces — dragging any of
+// them moves every mounted one, which is what keeps the bands visually
+// aligned (a per-tab key would let them drift apart again).
+let splitPct = -1
+const splitListeners = new Set<(pct: number) => void>()
+
+function splitValue(): number {
+  if (splitPct !== -1) return splitPct
+  try {
+    const v = typeof localStorage !== 'undefined' ? localStorage.getItem(SPLIT_KEY) : null
+    const n = v === null ? NaN : Number(v)
+    splitPct = Number.isFinite(n) ? clamp(n, SPLIT_MIN, SPLIT_MAX) : SPLIT_INITIAL
+  } catch {
+    splitPct = SPLIT_INITIAL
+  }
+  return splitPct
+}
+
+function setSplitValue(next: number): void {
+  splitPct = clamp(next, SPLIT_MIN, SPLIT_MAX)
+  for (const listener of splitListeners) listener(splitPct)
+}
+
+/**
+ * The stacked mode's shared top/bottom split: the current top-band percentage
+ * plus a pointer-down handler for a horizontal divider placed between the two
+ * bands. Each stacked surface renders its own divider node from the same
+ * props (they are plain descriptors), and a drag in one updates every mounted
+ * surface through the shared store. The ratio persists across remounts.
+ */
+export function useStackedSplit(): { pct: number; dividerProps: { onPointerDown: (e: { clientY: number; preventDefault: () => void; currentTarget: EventTarget | null }) => void } } {
+  const [pct, setPct] = useState<number>(() => splitValue())
+  useEffect(() => {
+    const listener = (next: number): void => setPct(next)
+    splitListeners.add(listener)
+    return () => { splitListeners.delete(listener) }
+  }, [])
+
+  const onPointerDown = useCallback((e: { clientY: number; preventDefault: () => void; currentTarget: EventTarget | null }) => {
+    const container = (e.currentTarget as HTMLElement | null)?.parentElement
+    const ch = container?.clientHeight ?? 0
+    if (ch <= 0) return
+    const startY = e.clientY
+    const startPct = splitValue()
+    e.preventDefault()
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = 'row-resize'
+      document.body.style.userSelect = 'none'
+    }
+    const move = (ev: PointerEvent): void => {
+      setSplitValue(startPct + ((ev.clientY - startY) / ch) * 100)
+    }
+    const up = (): void => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      if (typeof document !== 'undefined') {
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.setItem(SPLIT_KEY, String(Math.round(splitValue())))
+      } catch {
+        /* storage unavailable — the ratio just won't persist */
+      }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }, [])
+
+  return { pct, dividerProps: { onPointerDown } }
+}

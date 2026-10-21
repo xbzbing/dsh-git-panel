@@ -6,7 +6,9 @@
  * Width drives the layout mode: at or below COMPACT_BP the three-column layout
  * collapses to the single-column, drill-in one used on phones and narrow
  * splits, and it recovers as soon as the panel widens (a phone turned
- * landscape, a sidebar closing).
+ * landscape, a sidebar closing). On a sidebar the flip back to three columns
+ * is delayed to SIDEBAR_WIDE_BP — the mode policy lives in `panel-fit.ts`;
+ * the raw width rides along because that threshold needs the number itself.
  *
  * Height drives nothing on its own — it only becomes interesting together with
  * width (see `isCramped`). A desktop panel squeezed by a sidebar, or a large
@@ -28,9 +30,9 @@
 import { useLayoutEffect, useState } from 'react'
 import { COMPACT_BP, SHORT_BP, type PanelLayout } from './panel-fit.js'
 
-const UNSQUEEZED: PanelLayout = { compact: false, short: false }
+const UNSQUEEZED: PanelLayout = { compact: false, short: false, width: 0 }
 
-/** Measure the panel box; both flags stay false until it is measured. */
+/** Measure the panel box; both flags stay false (and width 0) until measured. */
 export function usePanelLayout(el: HTMLElement | null): PanelLayout {
   const [layout, setLayout] = useState<PanelLayout>(UNSQUEEZED)
   useLayoutEffect(() => {
@@ -44,8 +46,9 @@ export function usePanelLayout(el: HTMLElement | null): PanelLayout {
       const next: PanelLayout = {
         compact: width > 0 && width <= COMPACT_BP,
         short: height > 0 && height <= SHORT_BP,
+        width,
       }
-      return prev.compact === next.compact && prev.short === next.short ? prev : next
+      return prev.compact === next.compact && prev.short === next.short && prev.width === next.width ? prev : next
     })
     measure()
     const ro = new ResizeObserver(measure)
