@@ -386,6 +386,77 @@ try {
     assert.equal(hovered.height, '3px', 'hover thickens the line')
     assert.equal(hovered.left, '0px', 'hover keeps the line anchored at the left edge')
 
+    // Dragging the row divider: the top band follows the pointer, the ratio is
+    // clamped and persisted, the body cursor is restored, and another stacked
+    // surface reads the same value (one stored ratio serves all three tabs —
+    // a per-tab key would let the bands drift apart).
+    const readSplit = () => page.evaluate(() => {
+      // Visited tabs stay mounted, so several dividers can exist; read the one
+      // on screen (the hidden panes measure 0).
+      const el = [...document.querySelectorAll('.gp-resizer--row')].find((n) => n.getBoundingClientRect().height > 0) ?? null
+      if (el === null) return null
+      const root = el.parentElement
+      const line = el.getBoundingClientRect()
+      const box = root.getBoundingClientRect()
+      return {
+        ratio: (line.top - box.top) / box.height,
+        stored: localStorage.getItem('gp.stacked.split'),
+        cursor: document.body.style.cursor,
+        userSelect: document.body.style.userSelect,
+      }
+    })
+    const before = await readSplit()
+    assert.ok(Math.abs(before.ratio - 0.55) < 0.02, `the bands start at 55% (got ${before.ratio.toFixed(3)})`)
+    assert.equal(before.stored, null, 'nothing is written before the first drag')
+
+    const grip = await page.locator('.gp-resizer--row').boundingBox()
+    const gripX = grip.x + grip.width / 2
+    const gripY = grip.y + grip.height / 2
+    await page.mouse.move(gripX, gripY)
+    await page.mouse.down()
+    await page.mouse.move(gripX, gripY + 60, { steps: 5 })
+    assert.equal((await readSplit()).cursor, 'row-resize', 'dragging advertises the row-resize cursor while held')
+    await page.mouse.up()
+    await page.waitForTimeout(120)
+    const dragged = await readSplit()
+    assert.ok(dragged.ratio > before.ratio + 0.05, `dragging down grows the top band (${before.ratio.toFixed(3)} → ${dragged.ratio.toFixed(3)})`)
+    assert.ok(dragged.ratio < 0.75, 'a 60px drag stays inside the clamp')
+    assert.equal(dragged.stored, String(Math.round(dragged.ratio * 100)), 'the ratio is persisted on release')
+    assert.equal(dragged.cursor, '', 'the row-resize cursor is cleared on release')
+    assert.equal(dragged.userSelect, '', 'text selection is re-enabled on release')
+
+    // Clamp: a drag well past the bottom stops at 75%. The divider moved with
+    // the first drag, so re-read its box instead of reusing the old grip.
+    const grip2 = await page.locator('.gp-resizer--row').boundingBox()
+    const grip2Y = grip2.y + grip2.height / 2
+    await page.mouse.move(grip2.x + grip2.width / 2, grip2Y)
+    await page.mouse.down()
+    await page.mouse.move(grip2.x + grip2.width / 2, grip2Y + 300, { steps: 5 })
+    await page.mouse.up()
+    await page.waitForTimeout(120)
+    const clamped = await readSplit()
+    assert.ok(Math.abs(clamped.ratio - 0.75) < 0.01, `the drag clamps at 75% (got ${clamped.ratio.toFixed(3)})`)
+    assert.equal(clamped.stored, '75', 'the clamp is what gets stored')
+
+    // The ratio outlives this surface: the changes tab's stacked bands start
+    // from the same value instead of the 55% initial.
+    await page.evaluate(() => {
+      const tab = [...document.querySelectorAll('.gp-tabbar [role="tab"]')].find((el) => (el.textContent || '').includes('tab.changes'))
+      tab?.click()
+    })
+    await page.waitForTimeout(300)
+    const otherTab = await readSplit()
+    assert.ok(otherTab !== null, 'the changes tab renders its own stacked divider')
+    assert.ok(Math.abs(otherTab.ratio - 0.75) < 0.02, `the shared ratio carries to the other tab (got ${otherTab.ratio.toFixed(3)})`)
+
+    // Back to the tab bar assertions below (they read labels and the version
+    // cluster, not band geometry, so the 75% split is harmless here).
+    await page.evaluate(() => {
+      const tab = [...document.querySelectorAll('.gp-tabbar [role="tab"]')].find((el) => (el.textContent || '').includes('tab.overview'))
+      tab?.click()
+    })
+    await page.waitForTimeout(200)
+
     // The version cluster in stacked: an icon-only bar (check glyph with its
     // label on title/aria, plus the update dot when there is one) — the wide
     // bar's version tag and status text have no room in a sidebar column.

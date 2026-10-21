@@ -1090,8 +1090,8 @@ interface FileDiffModalCbs {
   onClose: () => void
   /** Click-to-copy state of the header path: idle until the user copies. */
   pathFeedback: CopyFeedback
-  /** Writes the given text (the relative path) to the clipboard. */
-  onCopyPath: (text: string) => void
+  /** Writes the open diff's relative path (`copy()` defaults to it). */
+  onCopyPath: () => void
   remote: GitPanelRemote
   sessionId: string
   compact: boolean
@@ -1138,7 +1138,7 @@ function renderFileDiffModal(
     className: `gp-modal__path gp-modal__path--copy${pathFeedback === 'copied' ? ' gp-modal__path--copied' : pathFeedback === 'error' ? ' gp-modal__path--error' : ''}`,
     title: pathFeedback === 'idle' ? fileDiff.path : `${t(copyKey)} ${fileDiff.path}`,
     'aria-label': `${t(pathFeedback === 'idle' ? 'files.copyPath' : copyKey)} ${fileDiff.path}`,
-    onClick: () => onCopyPath(fileDiff.path),
+    onClick: () => onCopyPath(),
   }, [
     pathFeedback === 'copied'
       ? h(CheckIcon, { key: 'ok', size: 12 })

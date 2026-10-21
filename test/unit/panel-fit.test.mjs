@@ -83,3 +83,25 @@ test('panelMode: an unmeasured sidebar starts stacked, never flashes wide', () =
   // three-column layout must not paint for a frame.
   assert.equal(panelMode(layout(false, false, 0), 'sidebar'), 'stacked')
 })
+
+test('panelMode: the drill-in→stacked flip sits exactly at COMPACT_BP, and only height can still take it back', () => {
+  // The caller derives `compact` from the measured width, so spell that out:
+  // the boundary cases are the ones a refactor would get wrong.
+  const at = (width, short) => panelMode({ width, compact: width <= COMPACT_BP, short }, 'sidebar')
+  assert.equal(at(COMPACT_BP - 1, false), 'stacked', '619px, tall: merely narrow stacks')
+  assert.equal(at(COMPACT_BP - 1, true), 'compact', '619px and short: both axes scarce → drill in')
+  assert.equal(at(COMPACT_BP, false), 'stacked', '620px is still outside the wide bar')
+  assert.equal(at(COMPACT_BP, true), 'compact', '620px and short: the compact bar is inclusive')
+  assert.equal(at(COMPACT_BP + 1, false), 'stacked', '621px: past the bar but under 760 → stacked')
+  assert.equal(at(COMPACT_BP + 1, true), 'stacked', '621px and short still stacks — the two-band split absorbs a short window')
+})
+
+test('panelMode: 621–760 stacks for every height, short included', () => {
+  const at = (width, short) => panelMode({ width, compact: width <= COMPACT_BP, short }, 'sidebar')
+  for (const width of [COMPACT_BP + 1, 690, SIDEBAR_WIDE_BP - 1]) {
+    assert.equal(at(width, false), 'stacked', `${width}px tall stays stacked`)
+    assert.equal(at(width, true), 'stacked', `${width}px short stays stacked too — height never flips this band`)
+  }
+  assert.equal(at(SIDEBAR_WIDE_BP, true), 'stacked', '760px itself is still stacked — the bar is exclusive')
+  assert.equal(at(SIDEBAR_WIDE_BP + 1, true), 'wide', 'above the bar width alone decides, height is moot')
+})

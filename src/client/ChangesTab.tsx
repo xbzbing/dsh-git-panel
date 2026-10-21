@@ -747,7 +747,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
           className: `gp-diff__path${copyState === 'copied' ? ' gp-diff__path--copied' : copyState === 'error' ? ' gp-diff__path--error' : ''}`,
           title: copyState === 'idle' ? diffPath.path : `${t(copyKey)} ${diffPath.path}`,
           'aria-label': `${copyText} ${diffPath.path}`,
-          onClick: () => pathCopy.copy(diffPath.path),
+          onClick: () => pathCopy.copy(),
         }, [
           copyState === 'copied'
             ? h(CheckIcon, { key: 'ok', size: 11 })
