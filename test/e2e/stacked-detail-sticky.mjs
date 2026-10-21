@@ -184,13 +184,15 @@ assert.ok(out.rest.scrollable, 'the file list overflows its pane — sticky has 
 assert.equal(out.rest.gap, 0, `at rest the summary's top is flush with the pane (gap ${out.rest.gap}px)`)
 
 // Scroll: the bar must stay pinned flush, with no strip of rows above it.
+// Half of the pane's real scroll extent, not a fixed pixel — row metrics
+// differ per platform font, and a fixed target clamps below it on CI.
 await page.evaluate(() => {
   const files = document.querySelector('.gp-detail__files')
-  if (files !== null) files.scrollTop = 120
+  if (files !== null) files.scrollTop = Math.round((files.scrollHeight - files.clientHeight) / 2)
 })
 await page.waitForTimeout(150)
 out.scrolled = await probe()
-assert.equal(out.scrolled.scrollTop, 120, 'the list really scrolled')
+assert.ok(out.scrolled.scrollTop > 10, `the list really scrolled (${out.scrolled.scrollTop}px)`)
 assert.equal(out.scrolled.gap, 0, `while stuck the summary stays flush (gap ${out.scrolled.gap}px)`)
 assert.equal(out.scrolled.stripRows, 0, `no rows leak above the summary (saw ${out.scrolled.stripRows})`)
 
