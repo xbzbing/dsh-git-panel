@@ -25,7 +25,9 @@ export function useCopyFeedback(path: string | null): { feedback: CopyFeedback; 
   const keyRef = useRef(path)
   useEffect(() => {
     keyRef.current = path
-    if (state.key !== null) setState({ key: null, kind: 'idle' })
+    // Functional form: the guard reads the previous state, so the effect does
+    // not depend on it (depending on it would re-run the reset on every write).
+    setState((prev) => (prev.key === null ? prev : { key: null, kind: 'idle' }))
     if (timer.current !== undefined) {
       clearTimeout(timer.current)
       timer.current = undefined
