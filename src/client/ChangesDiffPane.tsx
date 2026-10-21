@@ -1,58 +1,58 @@
 /**
  * The changes tab's diff area: the toolbar (path copy, stats, expand, in-place
- * card toggle, view mode) over the DiffView. It also owns the enlarged card's
- * DOM contract — the dialog attributes on the card root, the focus lifecycle
- * and the backdrop — because they all describe this one element. The card is
- * the SAME inline .gp-diff restyled (the reader's in-place trick), never a
- * portal, so the DiffView cannot remount (ADR-0016 / ADR-0023).
+ * card toggle, view mode) over the DiffView. Whether the card is up, and the
+ * focus/backdrop contract that goes with it, come from `useDiffCard`; this
+ * component only paints them on the card root. The card is the SAME inline
+ * .gp-diff restyled — never a portal, so the DiffView cannot remount
+ * (ADR-0016 / ADR-0023).
  */
-import { createElement as h, type RefObject } from 'react'
+import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc.js'
 import type { GitKey } from './locales.js'
 import { DiffView, type DiffMode } from './DiffView.js'
 import { ArrowLeftIcon, CheckIcon, CloseIcon, ExpandAllIcon, ExitFullscreenIcon, FullscreenIcon } from './icons.js'
 import { segButtons } from './seg.js'
-import { useDialogFocus } from './dialog-focus.js'
 import type { CopyFeedback } from './copy-feedback.js'
+import { DiffCardFocus, type DiffCard } from './diff-card.js'
 
-export interface ChangesDiffPaneProps {
+/** The view-mode switch, grouped so its three parts travel together. */
+export interface DiffModeSwitch {
+  readonly options: readonly DiffMode[]
+  readonly current: DiffMode
+  readonly onChange: (mode: DiffMode) => void
+}
+
+/** Path-copy state and the write, as handed out by `useCopyFeedback`. */
+export interface PathCopyControl {
+  readonly feedback: CopyFeedback
+  readonly onCopy: () => void
+}
+
+interface ChangesDiffPaneProps {
   /** The open diff target, or null when no file is selected. */
   readonly diffPath: { readonly path: string; readonly base: 'worktree' | 'staged' } | null
   readonly diffData: { readonly text: string; readonly newLines: number; readonly truncated?: boolean } | null
   readonly summary: { readonly add: number; readonly del: number } | null
-  /** The enlarged card is up (the toolbar's toggle reports its pressed state). */
-  readonly cardOpen: boolean
+  readonly card: DiffCard
+  readonly mode: DiffModeSwitch
+  readonly copy: PathCopyControl
   readonly expanded: boolean
-  readonly modes: readonly DiffMode[]
-  readonly mode: DiffMode
-  readonly copyFeedback: CopyFeedback
   readonly compact: boolean
   /** Diff queries are gated by page visibility; the DiffView follows it. */
   readonly queryVisible: boolean
   readonly remote: GitPanelRemote
   readonly sessionId: string
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
-  readonly onMode: (mode: DiffMode) => void
   readonly onToggleExpand: () => void
-  readonly onCopyPath: () => void
-  readonly onToggleCard: () => void
-  readonly onCloseCard: () => void
   /** Compact only: drill back from the diff to the change list. */
   readonly onBackToList: () => void
-  readonly cardRef: RefObject<HTMLDivElement | null>
-  readonly triggerRef: RefObject<HTMLButtonElement | null>
-  readonly closeRef: RefObject<HTMLButtonElement | null>
 }
 
 /** The diff area. `keys` stay on the returned nodes so React reuses them. */
 export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
-  const {
-    diffPath, diffData, summary, cardOpen, expanded, modes, mode, copyFeedback,
-    compact, queryVisible, remote, sessionId, t,
-    onMode, onToggleExpand, onCopyPath, onToggleCard, onCloseCard, onBackToList,
-    cardRef, triggerRef, closeRef,
-  } = props
+  const { diffPath, diffData, summary, card, mode: modeSwitch, copy, expanded, compact, queryVisible, remote, sessionId, t, onToggleExpand, onBackToList } = props
+  const { visible: cardOpen, cardRef } = card
   return diffPath === null
     ? h('div', { className: 'gp-empty' }, t('changes.selectFile'))
     : h('div', {
@@ -62,6 +62,11 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
       // takes the dialog contract where it sits (the reader card's pattern).
       ...(cardOpen ? { role: 'dialog', 'aria-modal': true, 'aria-label': diffPath.path } : {}),
     }, [
+      // Renders null: it exists so the shared dialog hook mounts with the card
+      // and unmounts with it (wrapping the diff instead would remount DiffView).
+      cardOpen
+        ? h(DiffCardFocus, { key: 'focus', cardRef: card.cardRef, initialRef: card.closeRef, restoreRef: card.triggerRef, onClose: card.close })
+        : null,
       h('div', { key: 'tb', className: `gp-diff__toolbar${compact ? ' gp-diff__toolbar--compact' : ''}` }, (() => {
         const back = compact
           ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => onBackToList() }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('changes.backToList')])
@@ -77,7 +82,7 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
         // their nowrap/ellipsis either way. The phrase rides `aria-label`,
         // `title` (feedback period only) and a visually-hidden live region.
         const slash = diffPath.path.lastIndexOf('/')
-        const copyState = copyFeedback
+        const copyState = copy.feedback
         const copyKey = copyState === 'copied' ? 'files.pathCopied' : 'files.pathCopyFailed'
         const copyText = t(copyState === 'idle' ? 'files.copyPath' : copyKey)
         const path = h('button', {
@@ -86,7 +91,7 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
           className: `gp-diff__path${copyState === 'copied' ? ' gp-diff__path--copied' : copyState === 'error' ? ' gp-diff__path--error' : ''}`,
           title: copyState === 'idle' ? diffPath.path : `${t(copyKey)} ${diffPath.path}`,
           'aria-label': `${copyText} ${diffPath.path}`,
-          onClick: () => onCopyPath(),
+          onClick: () => copy.onCopy(),
         }, [
           copyState === 'copied'
             ? h(CheckIcon, { key: 'ok', size: 11 })
@@ -112,7 +117,7 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
           key: 'expand', type: 'button',
           className: 'gp-icon-btn gp-diff__expand',
           style: summary || compact ? {} : { marginLeft: 'auto' },
-          disabled: mode !== 'split' && mode !== 'unified',
+          disabled: modeSwitch.current !== 'split' && modeSwitch.current !== 'unified',
           'aria-pressed': expanded,
           title: expandLabel,
           'aria-label': expandLabel,
@@ -123,23 +128,23 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
         // into a card (gp-diff--card, the reader's in-place trick), so the
         // DiffView never remounts; pressed state marks the card being up.
         const modalBtn = h('button', {
-          key: 'modal', ref: triggerRef, type: 'button',
+          key: 'modal', ref: card.triggerRef, type: 'button',
           className: 'gp-icon-btn gp-diff__modal-btn',
           title: t('diff.openModal'),
           'aria-label': t('diff.openModal'),
           'aria-pressed': cardOpen,
-          onClick: () => onToggleCard(),
+          onClick: () => card.toggle(),
         }, h(cardOpen ? ExitFullscreenIcon : FullscreenIcon, { size: 14 }))
         const cardClose = cardOpen
           ? h('button', {
-            key: 'cardclose', ref: closeRef, type: 'button',
+            key: 'cardclose', ref: card.closeRef, type: 'button',
             className: 'gp-icon-btn gp-diff__card-close',
             title: t('common.close'), 'aria-label': t('common.close'),
-            onClick: () => onCloseCard(),
+            onClick: () => card.close(),
           }, h(CloseIcon, { size: 15 }))
           : null
         const seg = h('div', { key: 'seg', className: 'gp-seg' },
-          segButtons<DiffMode>(modes, mode, onMode, (m) => t(`diff.${m}` as GitKey)))
+          segButtons<DiffMode>(modeSwitch.options, modeSwitch.current, modeSwitch.onChange, (m) => t(`diff.${m}` as GitKey)))
         // One row cannot fit back + path + stats + expand + mode seg at phone
         // widths (the seg buttons squeezed into stacked wrapping); compact
         // splits the controls onto a dedicated second row instead.
@@ -153,31 +158,6 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
       })()),
       diffData === null
         ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
-        : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: mode, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
+        : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: modeSwitch.current, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
     ])
-}
-
-/**
- * Focus lifecycle of the enlarged diff card. A component of its own so the
- * shared dialog contract only runs while the card is open — wrapping the diff
- * in a conditional component instead would remount the DiffView.
- */
-export function DiffCardFocus(props: {
-  cardRef: RefObject<HTMLDivElement | null>
-  initialRef: RefObject<HTMLButtonElement | null>
-  restoreRef: RefObject<HTMLButtonElement | null>
-  onClose: () => void
-}): null {
-  useDialogFocus(props.cardRef, props.onClose, props.initialRef, props.restoreRef)
-  return null
-}
-
-/** Backdrop of the in-place card: a click target, hidden from assistive tech. */
-export function DiffCardBackdrop(props: { onClose: () => void }): JSX.Element {
-  return h('div', {
-    key: 'diff-backdrop', className: 'gp-diff-backdrop', 'aria-hidden': 'true',
-    onClick: (e: { target: unknown; currentTarget: unknown }) => {
-      if (e.target === e.currentTarget) props.onClose()
-    },
-  })
 }
