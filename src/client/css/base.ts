@@ -1,8 +1,9 @@
 /**
  * 骨架 / tabbar / body / 版本条 / 字号步进 / 通用按钮 / 空态 / tip 包裹。
  *
- * 拆自 styles.ts 的连续片段：顺序即层叠顺序，拼接后与拆分前逐字节相同
- * （颜色一律走 --dsw-alias-* 变量，深浅色主题才一致）。
+ * 层叠顺序即本文件的挂载顺序（见 styles.ts 的 CSS_PARTS）：写在后面的模块
+ * 覆盖前面的，同一模块内越靠后的规则越优先。要让新规则赢过某条既有规则，
+ * 就写在它所在的模块之后。颜色一律走 --dsw-alias-* 变量，深浅色主题才一致。
  */
 export const CSS = `
 .gp-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px;position:relative;
