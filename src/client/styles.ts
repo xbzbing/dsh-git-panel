@@ -36,6 +36,11 @@ const CSS = `
 /* star link: hollow by default, fills to a gold star on hover */
 .gp-verbar__gh--starred:hover{color:var(--dsw-alias-state-warn-primary,#e3b341)}
 .gp-verbar__gh--starred:hover svg{fill:currentColor}
+/* Icon-only variant (stacked): the check glyph in a pill circle plus the
+ * update dot; text rides title/aria instead of a visible row. */
+.gp-verbar--icon{gap:6px}
+.gp-verbar__btn--icon{width:24px;padding:0;justify-content:center}
+.gp-verbar__dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--dsw-alias-state-business-primary)}
 /* The sub-tab switcher is the platform SegmentedTabs primitive (official track,
  * pill and sliding indicator). We only place the tab list in our flex bar and
  * supply the icon/label spans inside each tab's label. */

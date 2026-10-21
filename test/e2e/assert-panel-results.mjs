@@ -175,6 +175,7 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.summaryHasFileCount, true, 'summary carries the file-count label')
   assert.equal(out.summaryAdd, '+12', 'summary shows added lines')
   assert.equal(out.summaryDel, '\u22124', 'summary shows deleted lines')
+  assert.equal(out.summaryStickyWide, true, 'the change summary stays sticky in the wide layout')
   assert.equal(out.treeDirRowShown, true, 'changed-file tree shows a folder row')
   assert.equal(out.treeChildVisibleDefault, true, 'folder is expanded by default')
   assert.equal(out.treeDirExpandedDefault, true, 'folder row reports aria-expanded=true by default')

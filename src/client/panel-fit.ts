@@ -78,10 +78,13 @@ export type PanelMode = 'wide' | 'stacked' | 'compact'
  *   device the whole width per step.
  *
  * The host gate keeps every conversation-mounted panel on today's behavior
- * (a split squeezed below COMPACT_BP drills exactly as before), and a sidebar
- * dragged down to SHORT_BP height falls back to drill-in rather than stacking
- * two cramped panes. Width 0 (not yet measured) reads as stacked on a sidebar,
- * so the first paint never flashes the three-column layout.
+ * (a split squeezed below COMPACT_BP drills exactly as before). On a sidebar,
+ * drill-in is the both-axes case only (≤ COMPACT_BP × ≤ SHORT_BP): merely
+ * narrow stacks, and 621–760 stacks even when short — past COMPACT_BP the
+ * sidebar is no longer the narrow column drill-in is for, and the two-band
+ * split absorbs a short window (the bands share the height). Width 0 (not yet
+ * measured) reads as stacked on a sidebar, so the first paint never flashes
+ * the three-column layout.
  */
 export function panelMode(layout: PanelLayout, host: 'conversation' | 'sidebar'): PanelMode {
   if (host === 'sidebar') {

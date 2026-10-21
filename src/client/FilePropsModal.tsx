@@ -9,14 +9,15 @@
  * already on screen (file-content stat fields + the panel snapshot), so
  * opening never issues a request.
  */
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { renderModalShell, type OpT } from './ops-modals.js'
 import { formatBytes } from './bytes.js'
 import { langLabel } from './lang-label.js'
 import { absoluteDateTime, timeAgo } from './time.js'
 import { isUntrackedPath, statusClass } from './status.js'
-import { FileTypeIcon, languageForPath, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FileTypeIcon, languageForPath } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useCopyFeedback } from './copy-feedback.js'
 import { imageMimeFor, type GitChange, type GitSnapshot } from './types.js'
 
 export interface FilePropsInput {
@@ -125,21 +126,11 @@ export function FilePropsModal({ input, snapshot, onClose, t }: {
   }, [input.kind, input.dataUrl])
 
   // Click-to-copy feedback for both path rows, shown in the footer status bar
-  // (always rendered at a fixed height so the dialog never resizes); cleared
-  // by timer or file switch.
-  const [copyFeedback, setCopyFeedback] = useState<'copied' | 'error' | null>(null)
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  useEffect(() => { setCopyFeedback(null) }, [input.path])
-  useEffect(() => () => { if (copyTimer.current !== undefined) clearTimeout(copyTimer.current) }, [])
-  const copyPath = (text: string): void => {
-    // Async Clipboard path is unavailable on a remote plain-HTTP origin; the
-    // platform helper falls back to execCommand there (same as the toolbar).
-    void writeClipboard(text).then((ok) => {
-      setCopyFeedback(ok ? 'copied' : 'error')
-      if (copyTimer.current !== undefined) clearTimeout(copyTimer.current)
-      copyTimer.current = setTimeout(() => setCopyFeedback(null), 1600)
-    })
-  }
+  // (always rendered at a fixed height so the dialog never resizes). The
+  // shared hook owns the 1.6 s timer, the reset on file switch and the
+  // late-write guard; its platform helper falls back to execCommand where the
+  // async Clipboard API is unavailable (remote plain-HTTP origin).
+  const { feedback: copyFeedback, copy: copyPath } = useCopyFeedback(input.path)
 
   const slash = input.path.lastIndexOf('/')
   const name = slash < 0 ? input.path : input.path.slice(slash + 1)
@@ -203,7 +194,7 @@ export function FilePropsModal({ input, snapshot, onClose, t }: {
     key: 'status', className: 'gp-modal__footer gp-props__statusbar', 'aria-live': 'polite',
   }, [
     gitChips.length > 0 ? h('span', { key: 'chips', className: 'gp-props__footer-chips' }, gitChips) : null,
-    copyFeedback !== null
+    copyFeedback !== 'idle'
       ? h('span', { key: 'fb', className: `gp-props__copied${copyFeedback === 'error' ? ' gp-props__copied--err' : ''}` },
         t(copyFeedback === 'copied' ? 'files.pathCopied' : 'files.pathCopyFailed'))
       : null,

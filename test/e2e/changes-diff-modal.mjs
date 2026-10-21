@@ -223,6 +223,32 @@ assert.equal(out.open.iconStylesMatch, true, 'the two toolbar icons share one st
 out.rowsOpen = await rows()
 assert.equal(out.rowsOpen, out.rowsBefore, 'the diff did not render a second time')
 
+// The card carries the dialog contract: role/aria-modal on the card itself,
+// the backdrop hidden from AT, the sibling change list inert (focus cannot
+// wander out), and initial focus inside the card (its close button).
+out.a11y = await page.evaluate(() => {
+  const diff = document.querySelector('.gp-diff')
+  const backdrop = document.querySelector('.gp-diff-backdrop')
+  const left = document.querySelector('.gp-changes__left')
+  const active = document.activeElement
+  return {
+    role: diff?.getAttribute('role') ?? null,
+    modal: diff?.getAttribute('aria-modal') ?? null,
+    label: diff?.getAttribute('aria-label') ?? null,
+    backdropHidden: backdrop?.getAttribute('aria-hidden') ?? null,
+    leftInert: left !== null && left.hasAttribute('inert'),
+    focusInCard: diff !== null && active !== null && diff.contains(active),
+    focusIsClose: active?.classList.contains('gp-diff__card-close') ?? false,
+  }
+})
+assert.equal(out.a11y.role, 'dialog', 'the card advertises role=dialog')
+assert.equal(out.a11y.modal, 'true', 'the card is aria-modal while open')
+assert.equal(out.a11y.label, 'src/client/testkit.ts', 'the card is labelled with the file path')
+assert.equal(out.a11y.backdropHidden, 'true', 'the backdrop is hidden from assistive tech')
+assert.equal(out.a11y.leftInert, true, 'the sibling change list goes inert behind the card')
+assert.equal(out.a11y.focusInCard, true, 'initial focus moves inside the card')
+assert.equal(out.a11y.focusIsClose, true, 'the close button takes the initial focus')
+
 // Esc closes; the node survives for the next open.
 await page.keyboard.press('Escape')
 await page.waitForTimeout(250)

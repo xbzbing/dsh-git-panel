@@ -386,26 +386,52 @@ try {
     assert.equal(hovered.height, '3px', 'hover thickens the line')
     assert.equal(hovered.left, '0px', 'hover keeps the line anchored at the left edge')
 
+    // The version cluster in stacked: an icon-only bar (check glyph with its
+    // label on title/aria, plus the update dot when there is one) — the wide
+    // bar's version tag and status text have no room in a sidebar column.
+    const verbar = await page.evaluate(() => {
+      const bar = document.querySelector('.gp-verbar')
+      if (bar === null) return null
+      const btn = bar.querySelector('.gp-verbar__btn')
+      return {
+        icon: bar.classList.contains('gp-verbar--icon'),
+        tag: bar.querySelector('.gp-verbar__tag') !== null,
+        status: bar.querySelector('.gp-verbar__status') !== null,
+        btnAria: btn?.getAttribute('aria-label') ?? null,
+        btnText: (btn?.textContent ?? '').trim(),
+      }
+    })
+    assert.ok(verbar !== null, 'the stacked tab bar keeps the version cluster')
+    assert.equal(verbar.icon, true, 'stacked renders the icon-only form')
+    assert.equal(verbar.tag, false, 'the version tag text is dropped in stacked')
+    assert.equal(verbar.status, false, 'the status text is dropped in stacked')
+    assert.equal(verbar.btnAria, 'version.check', 'the check button carries its label on aria')
+    assert.equal(verbar.btnText, '', 'the check button shows only its glyph')
+
     // Minimum-width sidebar: the tab bar drops to the phone's treatment —
     // short labels and no font stepper — and recovers when widened back.
     // (This mock's locale.bind returns the key itself, so labels read as keys.)
     const tabState = () => page.evaluate(() => ({
       labels: [...document.querySelectorAll('.gp-tabbar [role="tab"]')].map((el) => (el.textContent || '').trim()),
       font: document.querySelector('.gp-font') !== null,
+      version: document.querySelector('.gp-verbar') !== null,
     }))
     const comfortable = await tabState()
     assert.deepEqual(comfortable.labels, ['tab.overview', 'tab.changes', 'tab.files'], 'a comfortable sidebar keeps the full labels')
     assert.equal(comfortable.font, true, 'a comfortable sidebar keeps the font stepper')
+    assert.equal(comfortable.version, true, 'a comfortable sidebar keeps the version cluster')
     await page.evaluate(() => { document.getElementById('panel').style.width = '320px' })
     await page.waitForTimeout(200)
     const tight = await tabState()
     assert.deepEqual(tight.labels, ['tab.overviewShort', 'tab.changesShort', 'tab.filesShort'], 'the minimum width switches to short labels')
     assert.equal(tight.font, false, 'the minimum width hides the font stepper')
+    assert.equal(tight.version, false, 'the minimum width drops the version cluster — phone parity')
     await page.evaluate(() => { document.getElementById('panel').style.width = '420px' })
     await page.waitForTimeout(200)
     const recovered = await tabState()
     assert.deepEqual(recovered.labels, ['tab.overview', 'tab.changes', 'tab.files'], 'widening back restores the full labels')
     assert.equal(recovered.font, true, 'widening back restores the font stepper')
+    assert.equal(recovered.version, true, 'widening back restores the version cluster')
     await page.close()
   }
 

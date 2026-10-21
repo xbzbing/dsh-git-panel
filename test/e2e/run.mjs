@@ -755,6 +755,10 @@ const out = await page.evaluate(async (snap) => {
   result.summaryHasFileCount = summary !== null && (summary.textContent || '').includes('overview.changeSummary')
   result.summaryAdd = summary ? (summary.querySelector('.gp-stats__add')?.textContent || '') : ''
   result.summaryDel = summary ? (summary.querySelector('.gp-stats__del')?.textContent || '') : ''
+  // The summary pins while the file list scrolls — wide as well as stacked:
+  // the sticky declaration is layout-independent (stacked's flush gap=0
+  // contract is pinned separately by stacked-detail-sticky).
+  result.summaryStickyWide = summary !== null && getComputedStyle(summary).position === 'sticky'
   // Collapsible changed-file tree: the folder row toggles its children (bug fix
   // — the chevron used to be inert). Default fully expanded; click to collapse.
   const childVisible = () => [...document.querySelectorAll('.gp-detail__files .gp-tree-row')].some((r) => (r.textContent || '').includes('app.ts'))

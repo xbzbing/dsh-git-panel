@@ -311,9 +311,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
             h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', 'aria-pressed': fontDelta === 0, onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
             h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', 'aria-pressed': fontDelta === 1, onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
           ]),
-        // The version cluster needs the wide bar's horizontal room; a sidebar
-        // column cannot host it without crowding the tabs.
-        compact || stacked ? null : h(VersionBar, { key: 'ver', remote, t }),
+        // The full cluster needs the wide bar's horizontal room. Stacked keeps
+        // an icon-only form (the update check plus its release dot) so an
+        // update notice still reaches a sidebar-mounted panel; the text row
+        // would crowd the tabs. Compact — and stacked-tight, which already
+        // drops to the phone's tab treatment — drops it entirely.
+        compact || stackedTight ? null : h(VersionBar, { key: 'ver', remote, t, iconOnly: stacked }),
       ]),
     ]),
     h('div', { key: 'body', className: 'gp-body' }, body),
@@ -323,14 +326,19 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
 interface VersionBarProps {
   readonly remote: GitPanelRemote
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
+  /** Icon-only form for the stacked layout: the check button plus the update
+   * dot, no version/status text (a sidebar column has room for glyphs only). */
+  readonly iconOnly?: boolean
 }
 
 type VerState =
   | { kind: 'idle'; info?: GitVersionInfo }
   | { kind: 'checking'; info?: GitVersionInfo }
 
-/** Trailing tab-bar cluster: current version + a user-triggered update check. */
-function VersionBar({ remote, t }: VersionBarProps): JSX.Element {
+/** Trailing tab-bar cluster: current version + a user-triggered update check.
+ * In icon-only mode (stacked) it keeps the check glyph and the update dot —
+ * the dot links to the release page, both carry their text on title/aria. */
+function VersionBar({ remote, t, iconOnly = false }: VersionBarProps): JSX.Element {
   const [state, setState] = useState<VerState>({ kind: 'idle' })
   // Snappy tooltip for the star link, dropped below it (it sits at the panel top).
   const { tipProps, tipNode } = useHoverTip({ placement: 'below', maxWidth: 300 })
@@ -351,6 +359,26 @@ function VersionBar({ remote, t }: VersionBarProps): JSX.Element {
   }
 
   const info = state.info
+  if (iconOnly) {
+    const updateTitle = info !== undefined && info.updateAvailable && info.latest !== undefined
+      ? t('version.updateAvailable', { latest: info.latest, current: info.current })
+      : null
+    const dot = updateTitle === null
+      ? null
+      : info?.releaseUrl !== undefined
+        ? h('a', { key: 'dot', className: 'gp-verbar__dot', href: info.releaseUrl, target: '_blank', rel: 'noreferrer', title: updateTitle, 'aria-label': updateTitle })
+        : h('span', { key: 'dot', className: 'gp-verbar__dot', role: 'img', title: updateTitle, 'aria-label': updateTitle })
+    return h('div', { className: 'gp-verbar gp-verbar--icon' }, [
+      h('button', {
+        key: 'btn', type: 'button', className: 'gp-verbar__btn gp-verbar__btn--icon',
+        disabled: state.kind === 'checking',
+        title: info?.error !== undefined ? info.error : t('version.check'),
+        'aria-label': t('version.check'),
+        onClick: () => void check(),
+      }, h('span', { key: 'i', className: 'gp-tab__icon' }, h(RefreshIcon, { size: 12 }))),
+      dot,
+    ])
+  }
   const status = ((): JSX.Element | null => {
     if (state.kind === 'checking') return h('span', { className: 'gp-verbar__status' }, t('version.checking'))
     if (info === undefined || !info.checkedRemote) return null

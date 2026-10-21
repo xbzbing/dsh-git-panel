@@ -430,7 +430,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   }
 
   // The modal header path doubles as its copy control (the changes toolbar
-  // works the same way): click writes the relative path, the label confirms.
+  // works the same way): click writes the relative path; the confirmation
+  // shows in place as a check mark + tint — the visible text never swaps to
+  // the phrase, it rides aria-label / feedback-period title / live region.
   const pathCopy = useCopyFeedback(detail.fileDiff === null ? null : detail.fileDiff.path)
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     visible: queryVisible,
@@ -992,7 +994,7 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
   if (cb.compact || cb.stacked) {
     return h('div', {
       key: c.hash,
-      className: `gp-commit-row gp-commit-row--compact${cb.stacked ? ' gp-commit-row--stacked' : ''}${cb.selected ? ' gp-commit-row--active' : ''}`,
+      className: `gp-commit-row gp-commit-row--compact${cb.selected ? ' gp-commit-row--active' : ''}`,
       style: { gridTemplateColumns: cb.gridTpl, height: `${cb.rowH}px` },
       onClick: cb.onSelect,
     }, [
