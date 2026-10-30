@@ -159,6 +159,10 @@ export interface GitSnapshot {
   /** Whether picking a repository folds the repository list (user preference);
    * absent on older hosts → off, the list stays open. */
   readonly collapseReposOnPick?: boolean
+  /** Whether allow-listed files may be edited in the file browser (user
+   * preference). Absent on older hosts, which have no write endpoint either:
+   * the client then offers no edit button (`file-content.edit` is absent too). */
+  readonly allowFileEdit?: boolean
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
   readonly stateFingerprint?: string
@@ -354,6 +358,19 @@ export type GitErrorCode =
   | 'llm-error'
   | 'llm-output'
   | 'suggest-disabled'
+  // File-browser edit endpoint. `file-changed`: the bytes on disk no longer
+  // match the version the edit started from (someone else wrote the file), so
+  // nothing was written. `not-editable`: the file fails the edit rules (type
+  // outside the allow-list, not a regular file, or a `FileEditBlock` carried
+  // as `reason`). `edit-disabled`: the user turned editing off in the plugin
+  // config. `write-denied`: the OS refused the write (EACCES / EPERM /
+  // EROFS). `write-failed`: any other write error; `message` is the errno
+  // code only, never a path.
+  | 'file-changed'
+  | 'not-editable'
+  | 'edit-disabled'
+  | 'write-denied'
+  | 'write-failed'
 
 export type GitActionResult =
   | { readonly ok: true; readonly snapshot: GitSnapshot; readonly output?: string }
@@ -695,7 +712,61 @@ export type GitQueryResult =
     readonly size?: number
     /** Modification time (epoch ms) from the same stat (all variants). */
     readonly mtimeMs?: number
+    /** sha256 (hex) of the exact bytes read: the base version a save compares
+     * against. Present with `edit` whenever the bytes were read (not on a
+     * `tooLarge` result). */
+    readonly sha256?: string
+    /** Present only for allow-listed types (request path and realpath) while
+     * editing is enabled: whether this file can be edited, and the encoding
+     * facts a save reproduces. Absent = this file has no edit feature. */
+    readonly edit?: FileEditInfo
   }
+
+/**
+ * Whether one allow-listed file can be edited. `eol` and `bom` describe the
+ * bytes on disk; the editor works on LF text without a BOM and the host puts
+ * both back when it saves.
+ */
+export type FileEditInfo =
+  | { readonly ok: true; readonly eol: 'lf' | 'crlf'; readonly bom: boolean }
+  | { readonly ok: false; readonly reason: FileEditBlock }
+
+/** Why an allow-listed file cannot be edited: over EDIT_MAX_BYTES, bytes that
+ * are not text (a NUL byte, or no clean UTF-8 decode/encode round trip), a mix
+ * of line endings (or a lone CR) that LF-normalized editing cannot restore, or
+ * a file this process may not write (the save's `rename` would replace it
+ * anyway, since that only needs the directory to be writable). */
+export type FileEditBlock = 'too-large' | 'encoding' | 'mixed-eol' | 'read-only'
+
+/** Byte ceiling for an editable file, enforced on read and on write. */
+export const EDIT_MAX_BYTES = 2 * 1024 * 1024
+
+/** Extensions (lower case, no dot) of the config and document files the file
+ * browser may edit. */
+export const EDITABLE_EXTENSIONS: readonly string[] = [
+  'json', 'yaml', 'yml', 'xml', 'properties', 'md', 'markdown', 'txt', 'toml', 'conf', 'ini', 'cfg',
+]
+
+/** Whole file names (lower case) that are editable in any directory. */
+export const EDITABLE_FILENAMES: readonly string[] = ['.gitignore', '.gitattributes', '.editorconfig', '.env']
+
+/**
+ * Whether a path's file name is on the edit allow-list (case-insensitive).
+ * `.env` matches only as the whole name: every `.env.*` variant is refused
+ * before the extension check, because `.env.json` / `.env.yaml` would
+ * otherwise pass on their extension.
+ */
+export function isEditablePath(path: string): boolean {
+  const name = (path.split(/[\\/]/).pop() ?? '').toLowerCase()
+  if (name === '') return false
+  if (EDITABLE_FILENAMES.includes(name)) return true
+  if (name.startsWith('.env.')) return false
+  const dot = name.lastIndexOf('.')
+  // A leading dot alone is a hidden name, not an extension (`.json` is not a
+  // JSON file named "").
+  if (dot <= 0) return false
+  return EDITABLE_EXTENSIONS.includes(name.slice(dot + 1))
+}
 
 /**
  * Byte envelope of the file browser's "copy file content" action: a text
@@ -827,6 +898,39 @@ export interface GitOpenFileRequest {
 export type GitOpenFileResult =
   | { readonly ok: true; readonly absolutePath: string }
   | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }
+
+// ── write one allow-listed file (file-browser edit) ──────────────────────
+
+/**
+ * Save the editor buffer over one existing allow-listed file. The write is a
+ * compare-and-swap: it only happens when the bytes on disk still hash to
+ * `baseSha256`.
+ */
+export interface GitWriteFileRequest {
+  readonly sessionId: string
+  /** Repository whose browse root contains the file (same tag as file-content). */
+  readonly repo?: string
+  /** Browse-root-relative path (untrusted). */
+  readonly path: string
+  /** LF-normalized text without a BOM; the host restores the file's own
+   * line endings and BOM. */
+  readonly content: string
+  /** sha256 of the disk bytes the edit started from (file-content.sha256). */
+  readonly baseSha256: string
+}
+
+export type GitWriteFileResult =
+  | { readonly ok: true; readonly value: Extract<GitQueryResult, { kind: 'file-content' }> }
+  | { readonly ok: false; readonly error: {
+      readonly code: GitErrorCode
+      readonly message?: string
+      /** `file-changed` only: fingerprint of the bytes now on disk, so an
+       * explicit "overwrite" is still a compare-and-swap against them. */
+      readonly currentSha256?: string
+      /** `not-editable` only, when an edit rule on the bytes or the file
+       * blocked the save. */
+      readonly reason?: FileEditBlock
+    } }
 
 // ── version (update check) ────────────────────────────────────────────────
 

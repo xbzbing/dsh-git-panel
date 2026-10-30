@@ -39,6 +39,7 @@
 | [ADR-0021](0021-release-notes-record-stable-only.md) | 发布正文归档只收正式版（rc 页面照写但不归档） | 分发 |
 | [ADR-0022](0022-panel-placement-and-sidebar.md) | Git 面板的入口位置配置与右侧边栏接入 | UI |
 | [ADR-0023](0023-sidebar-three-mode-layout.md) | 侧边栏三模式布局（wide / stacked / compact） | UI |
+| [ADR-0024](0024-workspace-file-edit-boundary.md) | 工作区文件编辑的边界：白名单、2 MiB、比对写与原子替换 | 安全 |
 
 ## 有效期
 

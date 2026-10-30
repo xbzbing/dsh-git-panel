@@ -30,6 +30,8 @@ export interface GitPanelConfig {
   /** Picking a repository folds the repository list; off → the list stays open
    * until its head line is clicked. */
   readonly collapseReposOnPick: boolean
+  /** The file browser may edit allow-listed config / document files. */
+  readonly allowFileEdit: boolean
   /** Whether the input-bar git marker pill is shown. */
   readonly showInputPill: boolean
   /** Where the panel is mounted: the view tab, the right sidebar, or both. */
@@ -66,6 +68,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   detectCheckouts: true,
   filesFollowRepo: false,
   collapseReposOnPick: false,
+  allowFileEdit: true,
   showInputPill: true,
   placement: 'all',
   defaultDiffView: 'unified',
@@ -118,6 +121,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     detectCheckouts: readBool(c.detectCheckouts, DEFAULT_CONFIG.detectCheckouts),
     filesFollowRepo: readBool(c.filesFollowRepo, DEFAULT_CONFIG.filesFollowRepo),
     collapseReposOnPick: readBool(c.collapseReposOnPick, DEFAULT_CONFIG.collapseReposOnPick),
+    allowFileEdit: readBool(c.allowFileEdit, DEFAULT_CONFIG.allowFileEdit),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     placement: readPlacement(c.placement, DEFAULT_CONFIG.placement),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
@@ -197,7 +201,7 @@ export interface SnapshotDeps {
   readonly fs: {
     realpath(path: string): Promise<string>
     /** `isDirectory` reports the *resolved* type (symlinks are followed). */
-    stat(path: string): Promise<{ mtimeMs: number; size: number; isDirectory(): boolean }>
+    stat(path: string): Promise<{ mtimeMs: number; size: number; mode: number; isDirectory(): boolean; isFile(): boolean }>
     /** Raw bytes (no encoding) — image sides for the image-diff query. */
     readFile(path: string): Promise<Buffer>
     /**
@@ -210,6 +214,18 @@ export interface SnapshotDeps {
     readdir(path: string): Promise<ReadonlyArray<{ name: string; isDirectory: boolean }>>
     /** Recursive remove (force) — untracked discards pass whole directories; temp-blob cleanup passes files. */
     remove(path: string): Promise<void>
+    /** Create `path` exclusively (`wx`: fails when anything, including a
+     * symlink, already sits there), write `data`, and set the permission bits
+     * to exactly `mode` (no umask). The file-edit temp file. */
+    writeExclusive(path: string, data: Buffer, mode: number): Promise<void>
+    /** Atomically replace `to` with `from` (same directory). */
+    rename(from: string, to: string): Promise<void>
+    /** Remove one file (not a directory). The file-edit temp-file cleanup. */
+    unlink(path: string): Promise<void>
+    /** Whether this process may write `path` itself (`access(W_OK)`); false
+     * on any error. A `rename` only needs the directory to be writable, so the
+     * file-edit path asks this first to honour a read-only file. */
+    writable(path: string): Promise<boolean>
   }
   readonly sessions: {
     liveCwd(sessionId: string): string | undefined
@@ -775,6 +791,7 @@ export async function snapshotForSession(
     detectCheckouts: config.detectCheckouts,
     filesFollowRepo: config.filesFollowRepo,
     collapseReposOnPick: config.collapseReposOnPick,
+    allowFileEdit: config.allowFileEdit,
     checkedAt: Date.now(),
   }
   return { ok: true, value: { ...snapshot, stateFingerprint: snapshotFingerprint(snapshot) } }

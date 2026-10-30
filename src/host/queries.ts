@@ -9,7 +9,9 @@ import { isSafePath, isSafeRev } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
-import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, SVG_MIME } from './types.js'
+import { imageMimeFor, isEditablePath, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, EDIT_MAX_BYTES, FILE_COPY_MAX_BYTES, SVG_MIME } from './types.js'
+import type { FileEditInfo } from './types.js'
+import { editInfo, sha256Hex } from './edit-info.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -297,7 +299,7 @@ async function countNewSideLines(
 /** Number of lines in `content` under the same convention as splitLines (one
  * trailing newline does not start a new line). Counting without splitting keeps
  * the poll-path read from allocating one string per line just to read `.length`. */
-function countLines(content: string): number {
+export function countLines(content: string): number {
   if (content === '') return 0
   let lines = 1
   for (let at = content.indexOf('\n'); at !== -1; at = content.indexOf('\n', at + 1)) lines++
@@ -651,15 +653,18 @@ async function queryFileContent(
   // on every variant (incl. tooLarge) — the properties dialog needs them and
   // the stat has already run.
   const statFields = { size: info.size, mtimeMs: Math.round(info.mtimeMs) }
-  const tooLarge: GitQueryResponse = { ok: true, value: { kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true, ...statFields } }
-  if (info.size > cap) return tooLarge
+  const tooLargeOf = async (): Promise<GitQueryResponse> => ({ ok: true, value: {
+    kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true, ...statFields,
+    ...(mime === null ? await editFieldsFor(deps, config, file, q.path, null) : {}),
+  } })
+  if (info.size > cap) return tooLargeOf()
   let buf: Buffer
   try {
     buf = await deps.fs.readFile(file)
   } catch (error) {
     return { ok: false, error: { code: isMissingPath(error) ? 'file-not-found' : 'git-error', message: error instanceof Error ? error.message : 'read failed' } }
   }
-  if (buf.length > cap) return tooLarge
+  if (buf.length > cap) return tooLargeOf()
   if (mime !== null) {
     // An SVG is a picture and also markup, so this one read answers both faces
     // of its preview; bytes that are not text leave it image-only.
@@ -668,7 +673,7 @@ async function queryFileContent(
     // response — but an SVG's markup is still readable and copyable, so it
     // degrades to the source face instead of failing the preview outright.
     if (isSvg && buf.length > config.maxBytes) {
-      if (source === undefined) return tooLarge
+      if (source === undefined) return tooLargeOf()
       return { ok: true, value: {
         kind: 'file-content', path: q.path, variant: 'text',
         content: source, lines: countLines(source), absolutePath: file,
@@ -688,11 +693,36 @@ async function queryFileContent(
   // `absolutePath` feeds the client's Markdown image resolver: relative image
   // destinations join beside the document, so the document's own absolute
   // path is the one fact the browser cannot derive from the relative tree.
-  return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines, absolutePath: file, ...statFields } }
+  const editFields = await editFieldsFor(deps, config, file, q.path, buf)
+  return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines, absolutePath: file, ...statFields, ...editFields } }
+}
+
+/**
+ * Edit facts for one text read: present only while editing is enabled and both
+ * the requested name and the realpath's name are on the allow-list (a link
+ * `notes.md -> run.sh` must not open a script for editing). `buf` null = the
+ * file was over the read cap and never read.
+ */
+export async function editFieldsFor(
+  deps: SnapshotDeps,
+  config: GitPanelConfig,
+  file: string,
+  rel: string,
+  buf: Buffer | null,
+): Promise<{ sha256?: string; edit?: FileEditInfo }> {
+  if (!config.allowFileEdit || !isEditablePath(rel)) return {}
+  let real: string
+  try { real = await deps.fs.realpath(file) } catch { return {} }
+  if (!isEditablePath(real)) return {}
+  if (buf === null || buf.length > EDIT_MAX_BYTES) return { edit: { ok: false, reason: 'too-large' } }
+  const sha256 = sha256Hex(buf)
+  const edit = editInfo(buf)
+  if (edit.ok && !(await deps.fs.writable(real))) return { sha256, edit: { ok: false, reason: 'read-only' } }
+  return { sha256, edit }
 }
 
 /** Do not expose Git metadata even through an explicit RPC path. */
-function hasGitSegment(path: string): boolean {
+export function hasGitSegment(path: string): boolean {
   return path.split(/[\\/]/).includes('.git')
 }
 
@@ -709,13 +739,21 @@ function isMissingPath(error: unknown): boolean {
  * containment check shared by every endpoint that touches a browsable file.
  */
 export async function isInsideRoot(deps: SnapshotDeps, root: string, path: string, hideGit = false): Promise<PathState> {
+  return (await resolveInsideRoot(deps, root, path, hideGit)).state
+}
+
+/** `isInsideRoot` plus the realpath it checked (set only when `inside`), so a
+ * caller that goes on to touch the file uses exactly the path that passed. */
+export async function resolveInsideRoot(
+  deps: SnapshotDeps, root: string, path: string, hideGit = false,
+): Promise<{ state: 'inside'; real: string } | { state: 'outside' | 'missing' }> {
   try {
     const real = await deps.fs.realpath(path)
     const rootReal = await deps.fs.realpath(root)
-    if (real !== rootReal && !real.startsWith(rootReal + sep)) return 'outside'
-    return !hideGit || !hasGitSegment(real.slice(rootReal.length + 1)) ? 'inside' : 'outside'
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) return { state: 'outside' }
+    return !hideGit || !hasGitSegment(real.slice(rootReal.length + 1)) ? { state: 'inside', real } : { state: 'outside' }
   } catch (error) {
-    return isMissingPath(error) ? 'missing' : 'outside'
+    return { state: isMissingPath(error) ? 'missing' : 'outside' }
   }
 }
 

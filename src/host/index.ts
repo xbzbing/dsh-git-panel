@@ -1,8 +1,8 @@
 /**
  * dsh-git-panel host half: Cordis + typert Remote service.
  *
- * `GitPanelService` binds the `gitPanel` namespace and exposes three @Remote
- * endpoints (snapshot / run / query) that delegate to the framework-neutral
+ * `GitPanelService` binds the `gitPanel` namespace and exposes its @Remote
+ * endpoints (snapshot / run / query / suggest / version / openFile / writeFile) that delegate to the framework-neutral
  * command layer. Host services (subprocess / sessions / sessionPersistence)
  * are adapted into a structural `SnapshotDeps` face.
  */
@@ -13,13 +13,15 @@ import { createGitRunner, type SubprocessLike } from './git.js'
 import { createFsDeps } from './fs-deps.js'
 import { normalizeConfig, resolveBrowseRoot, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps } from './core.js'
 import { canOpenWithSystem, openWithSystem } from './open-file.js'
+import { writeWorkspaceFile } from './write-file.js'
 import { runAction } from './actions.js'
 import { runQuery } from './queries.js'
 import { runSuggest } from './suggest.js'
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
 import { sessionModelReader } from './session-model.js'
 import { checkLatestVersion, readVersionInfo } from './version.js'
-import type { GitActionRequest, GitActionResult, GitOpenFileRequest, GitOpenFileResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.js'
+import type { GitActionRequest, GitActionResult, GitOpenFileRequest, GitOpenFileResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest, GitWriteFileRequest, GitWriteFileResult } from './types.js'
+import { EDITABLE_EXTENSIONS, EDITABLE_FILENAMES } from './types.js'
 
 export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
@@ -28,6 +30,7 @@ export type {
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode, GitPanelPlacement,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
   GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList,
+  GitWriteFileRequest, GitWriteFileResult, FileEditInfo, FileEditBlock,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from './types.js'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, listSessionRepos, parsePrimaryRemote, readSuggestLanguage, readPlacement } from './core.js'
@@ -36,6 +39,8 @@ export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashL
 export { parseRemote, classifyHost } from './remote.js'
 export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.js'
 export { openerArgv, canOpenWithSystem, openWithSystem } from './open-file.js'
+export { writeWorkspaceFile } from './write-file.js'
+export { editInfo, encodeEdit, eolStyle, sha256Hex } from './edit-info.js'
 export { runQuery } from './queries.js'
 export { runSuggest, resolveSuggestLanguage, parseStyleHistory, isCjkText, compactLongLines, LONG_LINE_MAX_CHARS } from './suggest.js'
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.js'
@@ -82,7 +87,7 @@ export class GitPanelService extends TypertRemoteService {
   /**
    * Config schema surfaced on the plugin detail page. `showInputPill`,
    * `defaultDiffView`, `graphStyle`, `detectCheckouts`, `filesFollowRepo`,
-   * `collapseReposOnPick` and the suggest fields are `.volatile()`, so the settings host renders them as
+   * `collapseReposOnPick`, `allowFileEdit` and the suggest fields are `.volatile()`, so the settings host renders them as
    * live-editable controls; the operational limits stay profile-only and out
    * of the UI form.
    */
@@ -109,6 +114,7 @@ export class GitPanelService extends TypertRemoteService {
     detectCheckouts: Schema.boolean().default(true).volatile().description('探测 worktree 和子仓库（关闭后存储库列表只保留工作区主仓库；当前目录不是仓库时列表为空）'),
     filesFollowRepo: Schema.boolean().default(false).volatile().description('文件浏览跟随 Git 仓库切换（关闭时文件浏览停在项目根目录）'),
     collapseReposOnPick: Schema.boolean().default(false).volatile().description('切换存储库后立即收起存储库列表（关闭时列表保持展开，只由标题行收起）'),
+    allowFileEdit: Schema.boolean().default(true).volatile().description(`允许在文件浏览中编辑配置与文档文件（${EDITABLE_EXTENSIONS.join(' / ')}、${EDITABLE_FILENAMES.join(' / ')}，2 MiB 以内）`),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
     suggestLanguage: Schema.union([
       Schema.const('auto').description('自动跟随仓库历史提交的语言'),
@@ -234,6 +240,19 @@ export class GitPanelService extends TypertRemoteService {
     if (!browse.ok) return { ok: false, error: browse.error }
     try {
       return await openWithSystem(this.deps, browse.root, request.path, this.spawnOpener)
+    } catch (error) {
+      return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
+    }
+  }
+
+  @Remote('writeFile')
+  async writeFile(request: GitWriteFileRequest): Promise<GitWriteFileResult> {
+    const config = this.liveConfig()
+    if (!config.allowFileEdit) return { ok: false, error: { code: 'edit-disabled' } }
+    const browse = await resolveBrowseRoot(this.withSignal(undefined), request.sessionId, request.repo)
+    if (!browse.ok) return { ok: false, error: browse.error }
+    try {
+      return await writeWorkspaceFile(this.deps, config, browse.root, request)
     } catch (error) {
       return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
     }

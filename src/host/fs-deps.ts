@@ -3,7 +3,8 @@
  * the unit-test harness consume the same wiring: a mirrored copy can silently
  * drift from production, and a drifted harness then asserts the wrong behavior.
  */
-import { lstat, readdir, readFile, readlink, realpath, rm, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, lstat, open, readdir, readFile, readlink, realpath, rename, rm, stat, unlink } from 'node:fs/promises'
 import type { SnapshotDeps } from './core.js'
 
 export function createFsDeps(): SnapshotDeps['fs'] {
@@ -19,5 +20,20 @@ export function createFsDeps(): SnapshotDeps['fs'] {
     // into one entry) and a plain `rm` fails EISDIR on them; the caller
     // realpath-contains every target inside the repo root before removing.
     remove: async (p) => { await rm(p, { recursive: true, force: true }) },
+    writeExclusive: async (p, data, mode) => {
+      const handle = await open(p, 'wx', mode)
+      try {
+        await handle.writeFile(data)
+        // `open`'s mode is masked by the process umask; chmod sets it exactly.
+        await handle.chmod(mode)
+      } finally {
+        await handle.close()
+      }
+    },
+    rename,
+    unlink,
+    writable: async (p) => {
+      try { await access(p, constants.W_OK); return true } catch { return false }
+    },
   }
 }
