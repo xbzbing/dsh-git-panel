@@ -2,6 +2,7 @@
 
 - 状态：Accepted（2026-10-18，迁移自现有实现）
 - 相关：`src/host/actions.ts`、`src/host/queries.ts`、issue #46
+- 后续：ADR-0024 加了第二项写盘动作（编辑白名单内的已有文件）
 
 ## Context
 
