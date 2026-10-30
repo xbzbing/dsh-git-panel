@@ -12,6 +12,8 @@
  *    `lib/client.js` wrapped in the `window.__ModuleLoader__.load({id,factory})`
  *    closure the web shell materializes. Platform modules (react, @deepseek-ai/*)
  *    stay external and resolve through the loader-provided `require`.
+ * 3. Lazy chunks: `lib/client.mermaid.js` (mermaid) and `lib/client.editor.js`
+ *    (CodeMirror + yaml), each loaded on first use through `require.async`.
  */
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
@@ -112,6 +114,29 @@ await esbuild.build({
   },
 })
 
+// ── Editor chunk: lazy package-local bundle ───────────────────────────────
+// CodeMirror 6 plus the `yaml` parser, loaded only when the user first presses
+// "edit" in the file browser (`require.async('./client.editor.js')`). Same
+// wrapper as the mermaid chunk; nothing of it enters lib/client.js.
+await esbuild.build({
+  entryPoints: [resolve(ROOT, 'src/client/editor-chunk.ts')],
+  bundle: true,
+  format: 'cjs',
+  platform: 'browser',
+  target: 'es2022',
+  minify: true,
+  sourcemap: false,
+  logOverride: { 'commonjs-variable-in-esm': 'silent' },
+  outfile: resolve(ROOT, 'lib/client.editor.js'),
+  logLevel: 'info',
+  banner: {
+    js: 'window.__ModuleLoader__.load({ id: "@xbzbing/dsh-git-panel", chunk: "client.editor.js", factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;',
+  },
+  footer: {
+    js: 'return module.exports;\n} });',
+  },
+})
+
 // ── Test kit: pure algorithms as a plain ESM bundle for `node --test` ─────
 await esbuild.build({
   entryPoints: [resolve(ROOT, 'src/client/testkit.ts')],
@@ -123,6 +148,9 @@ await esbuild.build({
   sourcemap: false,
   outfile: resolve(ROOT, 'lib/testkit.mjs'),
   logLevel: 'info',
+  // A bundled CommonJS dependency (yaml's node build) calls `require` for Node
+  // built-ins; an ESM bundle has none, so give it one.
+  banner: { js: "import { createRequire as __gpCreateRequire } from 'node:module'; const require = __gpCreateRequire(import.meta.url);" },
 })
 
 // ── Hook kit: data hooks with React external for the unit-test hook harness.

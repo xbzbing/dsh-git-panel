@@ -2,6 +2,7 @@
 
 - 状态：Accepted（2026-10-18，迁移自现有实现）
 - 相关：`build.mjs`、`tsconfig.build.json`、`src/client/mermaid-chunk.ts`
+- 后续：ADR-0025 按同一形态加了第二个懒加载 chunk（编辑器 `lib/client.editor.js`）
 
 ## Context
 

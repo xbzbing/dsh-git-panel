@@ -15,6 +15,9 @@
  *    still makes one module the hub every consumer must import).
  *  - the pure algorithms stay pure: no React, no RPC, no platform imports, so
  *    `node --test` can exercise them from the ESM bundle.
+ *  - lazy-chunk libraries (mermaid, CodeMirror, yaml) are imported by their
+ *    chunk entry alone, and no main-bundle module value-imports a chunk entry:
+ *    either edge would pull the library into lib/client.js.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -161,7 +164,7 @@ const HOST_IMPORT_ALLOWED = new Set(['client/types.ts', 'client/testkit.ts'])
 /** Pure algorithms: no React, no RPC, no platform — importable from `node --test`. */
 const PURE_ALGORITHMS = [
   'branch-options.ts', 'branch-tree.ts', 'bytes.ts', 'code-spans.ts', 'copy-content.ts', 'diff.ts',
-  'file-tree.ts', 'filtered-graph.ts', 'git-graph.ts', 'lang-label.ts', 'mermaid-blocks.ts',
+  'edit-buffer.ts', 'file-tree.ts', 'filtered-graph.ts', 'git-graph.ts', 'lang-label.ts', 'mermaid-blocks.ts',
   'model-route.ts', 'panel-fit.ts', 'path-images.ts', 'push-policy.ts', 'selection-keys.ts', 'status.ts', 'time.ts',
   'virtual-list.ts', 'wrap-cap.ts', 'zoom.ts',
 ]
@@ -254,4 +257,34 @@ test('the relative import graph has no cycles', () => {
   }
   for (const module of MODULES) if (state.get(module.id) === undefined) visit(module.id)
   assert.deepEqual(cycles, [], 'a cycle makes one module the hub every consumer must import')
+})
+
+/** Lazy chunks: the modules that make up each one, and the bare specifiers
+ * only those modules may import. `testkit.ts` is the test-only barrel and may
+ * reach chunk modules that carry no browser-only code. */
+const LAZY_CHUNKS = [
+  { modules: ['client/mermaid-chunk.ts'], owns: (specifier) => specifier === 'mermaid' || specifier.startsWith('mermaid/') },
+  {
+    modules: ['client/editor-chunk.ts', 'client/yaml-check.ts'],
+    owns: (specifier) => specifier.startsWith('@codemirror/') || specifier.startsWith('@lezer/') || specifier === 'yaml' || specifier.startsWith('yaml/'),
+  },
+]
+
+test('lazy-chunk libraries stay inside their chunk modules', () => {
+  const violations = []
+  for (const module of MODULES) {
+    for (const chunk of LAZY_CHUNKS) {
+      if (chunk.modules.includes(module.id)) continue
+      for (const specifier of module.values) {
+        if (chunk.owns(specifier)) violations.push(`${module.id} -> ${specifier} (belongs to ${chunk.modules[0]})`)
+      }
+      if (module.id === 'client/testkit.ts') continue
+      for (const { specifier, target } of module.relative) {
+        if (target !== undefined && chunk.modules.includes(idOf(target)) && module.values.includes(specifier)) {
+          violations.push(`${module.id} value-imports ${idOf(target)}`)
+        }
+      }
+    }
+  }
+  assert.deepEqual(violations, [], 'a chunk library imported elsewhere lands in the main bundle')
 })

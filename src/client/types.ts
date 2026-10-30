@@ -9,11 +9,12 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, FontDelta, DirEntry, ResetMode, GitPanelPlacement,
   GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList,
+  GitWriteFileRequest, GitWriteFileResult, FileEditInfo, FileEditBlock,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, TruncationReason,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from '../host/types.js'
 
-export { imageMimeFor, isHistoryFiltered, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
+export { imageMimeFor, isEditablePath, EDIT_MAX_BYTES, EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, isHistoryFiltered, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
 import type { GitQueryResult } from '../host/types.js'
 
 /**
