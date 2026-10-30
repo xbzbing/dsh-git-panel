@@ -146,6 +146,11 @@ export function UnstageAllIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'stack', d: 'M2 3h8M2 6h6M2 9h4' }), h('path', { key: 'minus', d: 'M8 11h6' })], size, true)
 }
 
+/** A pencil: enter edit mode in the file browser. */
+export function EditIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M10.6 2.6l2.8 2.8-7.6 7.6-3.4.6.6-3.4z' }), h('path', { key: 'b', d: 'M9.2 4l2.8 2.8' })], size)
+}
+
 export function RefreshIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M13 8a5 5 0 1 1-1.5-3.5' }), h('path', { key: 'b', d: 'M13 2v3h-3' })], size)
 }

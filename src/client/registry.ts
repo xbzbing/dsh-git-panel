@@ -78,7 +78,7 @@ export function disposeAll(): void {
  * mode with a false notice. */
 function failingRemote(): GitPanelRemote {
   const fail = async () => ({ ok: false as const, error: { code: 'transport' as const } })
-  return { snapshot: fail as never, run: fail as never, query: fail as never, suggest: fail as never, version: fail as never, openFile: fail as never }
+  return { snapshot: fail as never, run: fail as never, query: fail as never, suggest: fail as never, version: fail as never, openFile: fail as never, writeFile: fail as never }
 }
 
 /** Query ticks rerender only visible leaf surfaces, never the Panel or pill. */

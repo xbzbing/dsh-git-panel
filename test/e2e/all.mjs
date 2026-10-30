@@ -21,6 +21,9 @@ const RUNNERS = [
   'run', 'run2', 'run3', 'run4', 'run5',
   'branch-tree-review', 'filtered-graph', 'graph-filter-transition',
   'branch-status-review', 'files-tree-review', 'files-refresh',
+  // Edit mode against the real CodeMirror chunk: save / conflict / guards /
+  // reader keys / chunk retry.
+  'files-edit',
   // The HTML preview's async lifecycle: a file-content route the runner can
   // park, so a stale or in-flight pack is a real race rather than a sleep.
   'html-preview-lifecycle',

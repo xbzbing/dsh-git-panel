@@ -248,6 +248,27 @@
     },
   };
   var LOADED = null;
+  // Real package-local chunks loaded by <script> (the editor chunk is the
+  // shipped CodeMirror bundle, not a stand-in): chunk name -> exports, and the
+  // pending loads waiting for a chunk's script to register.
+  var CHUNKS = {};
+  var CHUNK_WAITERS = {};
+  function loadRealChunk(name) {
+    if (CHUNKS[name]) return Promise.resolve(CHUNKS[name]);
+    // A test can make the next chunk loads fail, the way a dropped network
+    // request would, to exercise the retry path.
+    if (window.__chunkFailures && window.__chunkFailures[name] > 0) {
+      window.__chunkFailures[name]--;
+      return Promise.reject(new Error('chunk load failed: ' + name));
+    }
+    return new Promise(function (resolve, reject) {
+      (CHUNK_WAITERS[name] = CHUNK_WAITERS[name] || []).push(resolve);
+      var script = document.createElement('script');
+      script.src = './' + name;
+      script.onerror = function () { reject(new Error('chunk load failed: ' + name)); };
+      document.head.appendChild(script);
+    });
+  }
   window.__ModuleLoader__ = {
     load: function (entry) {
       var requireFn = function (id) {
@@ -258,8 +279,15 @@
       // mirroring the production client-modules import path.
       requireFn.async = function (spec) {
         if (spec === './client.mermaid.js') return Promise.resolve(MOD['@xbzbing/dsh-git-panel/client.mermaid']);
+        if (spec === './client.editor.js') return loadRealChunk('client.editor.js');
         return Promise.reject(new Error('unknown chunk ' + spec));
       };
+      if (entry.chunk) {
+        CHUNKS[entry.chunk] = entry.factory(requireFn);
+        (CHUNK_WAITERS[entry.chunk] || []).forEach(function (resolve) { resolve(CHUNKS[entry.chunk]); });
+        CHUNK_WAITERS[entry.chunk] = [];
+        return;
+      }
       LOADED = entry.factory(requireFn);
     },
   };
