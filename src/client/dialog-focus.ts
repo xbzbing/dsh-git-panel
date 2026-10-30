@@ -11,6 +11,14 @@
  * opener itself is unmounted while the dialog is open; the ref is read after
  * the commit, so it points at the control that has just been re-rendered.
  *
+ * Keys inside a `KEYS_OWNER_ATTR` subtree (the file editor) are offered to
+ * that subtree first: the capture listener lets Tab / Escape through, and a
+ * bubble listener applies the dialog's handling only when the subtree left
+ * the event un-`preventDefault`ed. That is how Tab indents inside the editor
+ * and Escape closes its search panel without closing the reader, while an
+ * unhandled key (Escape with no panel, Tab after the editor's Escape escape
+ * hatch) still reaches the dialog.
+ *
  * `escape` turns the Escape half off for an overlay that is not the topmost
  * layer of its own right (the branch drawer yields it to whatever dialog is
  * open above it: this listener is a capture one, so it would otherwise close
@@ -19,7 +27,15 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE = 'button, [href], input, select, textarea, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
+
+/** Marks a subtree that handles its own Tab / Escape before the dialog does. */
+export const KEYS_OWNER_ATTR = 'data-gp-keys-owner'
+
+function inKeysOwner(event: KeyboardEvent): boolean {
+  const target = event.target
+  return target instanceof Element && target.closest(`[${KEYS_OWNER_ATTR}]`) !== null
+}
 
 /**
  * Marks the root of a mounted overlay that owns Escape. `useDialogFocus` sets
@@ -56,7 +72,7 @@ export function useDialogFocus(
       return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)]
         .filter((el) => !el.hasAttribute('disabled') && el.getClientRects().length > 0)
     }
-    const onKeyDown = (event: KeyboardEvent): void => {
+    const handle = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         if (!escape) return
         event.stopPropagation()
@@ -75,9 +91,31 @@ export function useDialogFocus(
         : (idx + delta + items.length) % items.length
       items[next]?.focus()
     }
-    window.addEventListener('keydown', onKeyDown, true)
+    // A key typed inside another overlay belongs to that overlay: cycling
+    // focus back here would pull it out of the dialog the user is answering.
+    // The nearest marked ancestor decides, so a confirmation portaled above
+    // this dialog and one rendered inside it (the browser-fullscreen reader
+    // card hosts its own confirmations) both count as another overlay.
+    const inOtherOverlay = (event: KeyboardEvent): boolean => {
+      const target = event.target
+      if (!(target instanceof Element)) return false
+      const nearest = target.closest(`[${OVERLAY_ATTR}]`)
+      return nearest !== null && nearest !== containerRef.current
+    }
+    const onCapture = (event: KeyboardEvent): void => {
+      if (inOtherOverlay(event)) return
+      if ((event.key === 'Escape' || event.key === 'Tab') && inKeysOwner(event)) return
+      handle(event)
+    }
+    const onBubble = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || !inKeysOwner(event)) return
+      handle(event)
+    }
+    window.addEventListener('keydown', onCapture, true)
+    window.addEventListener('keydown', onBubble)
     return () => {
-      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('keydown', onCapture, true)
+      window.removeEventListener('keydown', onBubble)
       if (escape) root?.removeAttribute(OVERLAY_ATTR)
       // Reading the ref here is the point: the named control is re-rendered by
       // the same commit that closes the dialog, so its node only exists now.

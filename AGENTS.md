@@ -23,7 +23,7 @@ Client 半 (React bundle, lib/client.js)
         ▼
 Host 半 (Cordis + typert, lib/host)
   - GitPanelService（命名空间 gitPanel）
-        - snapshot / run / query / suggest / version 五个 @Remote 端点
+        - snapshot / run / query / suggest / version / openFile / writeFile 七个 @Remote 端点
         │ subprocess 服务（argv 数组、无 shell、cwd 锁仓库根、超时+输出上限）
         │ suggest 端点另经宿主 llm 服务一次性生成提交信息
         ▼
@@ -43,6 +43,7 @@ Host 半 (Cordis + typert, lib/host)
 - `queries.ts`：`query` 端点的各类按需查询（history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / stash-list / authors / pull-preview / push-preview / model-catalog 等）。
 - `history-topology.ts`：筛选后的历史页追加一次有界无过滤父链（10000 节点 / 2 MiB），失败只退化祖先数据，不丢列表。
 - `validate.ts`：信任边界输入校验。
+- `write-file.ts` / `edit-info.ts`：文件浏览的编辑保存（`writeFile` 端点）与可编辑判定（白名单 + 2 MiB + UTF-8 往返 + 单一换行），规则见 ADR-0024。
 - `suggest.ts` / `llm-face.ts`：AI 生成提交信息；`llm-face.ts` 用 `@deepseek-ai/dsh-llm` type-only 类型钉住 wire 契约。
 - `remote.ts` / `parser.ts` / `version.ts`：远程 URL → 浏览链接、git 输出解析、版本与更新检查。
 
@@ -53,14 +54,15 @@ Host 半 (Cordis + typert, lib/host)
 - 页面：`Panel.tsx`（子 tab 路由、字号、版本条）+ `OverviewTab`（分支树所在那一面顶部内嵌 `ReposSection` 仓库列表）/ `ChangesTab` / `FilesTab`（含目录树列顶部的浏览根状态栏）三个页签及其 `*-hooks`、工具栏与弹窗伴星文件——单个文件的职责看目录与文件头注释即可。
 - 纯算法（有单测，新增纯逻辑放这里、别塞进组件）：`repo-select`（每会话记住所选仓库与文件浏览根选择器 + 给仓库相关请求打 `repo` 标签）/ `repo-list`（仓库列表的行模型与标签规则、浏览根下拉行模型）/ `branch-tree` / `git-graph` / `filtered-graph` / `file-tree` / `diff` / `code-spans` / `virtual-list` / `zoom` / `selection-keys` / `branch-options` / `push-policy` / `panel-fit`（三档判据，测量与策略分离才可单测）/ `path-images` / `mermaid-blocks`（kbd 只能在送入 MarkdownText **之前**文本替换，围栏与行内代码内不替换）/ `html-pack`（HTML 预览文档变换，ADR-0020）。
 - 样式表：`styles.ts` 只是装配入口（`ensureStyles` + `CSS_PARTS` 拼接），规则在 `css/` 下按功能域十个模块（base / overview / changes / diff / modal / actions / config / layout / repos / stacked）。**`CSS_PARTS` 的数组顺序即层叠顺序**，写在后面的模块覆盖前面的——所以「写进对应功能域模块」还不够：要让一条新规则赢过某条既有规则，它必须落在**那条规则所在模块之后**（同模块内则在其后），否则会被静默覆盖；跨档覆盖（compact、触摸媒体查询）进 `layout.ts`，侧栏 stacked 覆盖进 `stacked.ts`。不要重排既有模块或改动 `CSS_PARTS` 的顺序，`test/unit/stylesheet.test.mjs` 会拦。
-- 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`、`notice.tsx`、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`、`MermaidFigure.tsx`（懒加载 mermaid chunk 的唯一引用点，见「依赖策略」）。
+- 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`、`notice.tsx`、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`、`MermaidFigure.tsx`（懒加载 mermaid chunk 的唯一引用点，见「依赖策略」）、`FileEditor.tsx`（懒加载编辑器 chunk 的唯一引用点）。编辑态（比对写、冲突条、离开守卫）在 `use-file-edit.ts`，草稿的跨实例状态（按挂载实例记未保存、暂存、放弃、`beforeunload`）只在 `edit-store.ts`，提示条在 `edit-notice.tsx`，工具栏控件在 `files-edit-ui.ts`，纯逻辑（语言 / 缩进推断、JSON / XML 检查）在 `edit-buffer.ts`。
 - 测试入口：`testkit.ts` / `hookkit.ts`（见「构建」）。
 
 ## 安全与信任边界
 
 - git 命令一律用 argv 数组经 subprocess 执行，禁止拼接 shell 字符串；cwd 锁仓库根，带超时与输出上限。
 - 经 RPC 到来的 path / ref / 分支名 / 标签名 / remote 名是唯一不可信的 argv 素材，必须先过 `validate.ts`（`isSafePath` / `isSafeRev` / `isSafeBranchName` / `isSafeRemoteName`）；子命令支持时再用 `--end-of-options` 殿后。`checkout` / `reset` 不认该选项（旧 git 会直接失败），只靠校验兜底。贮藏 index 在 `actions.ts` 校验为非负整数。
-- `dir-list` / `file-content` / 未跟踪文件删除是插件唯一直接触碰未跟踪文件的入口：`isSafePath` + realpath 包含检查，软链指向仓库外一律拒，`.git` 不可浏览。
+- `dir-list` / `file-content` / `writeFile` / 未跟踪文件删除是插件唯一直接触碰工作区文件内容的入口：`isSafePath` + realpath 包含检查，软链指向仓库外一律拒，`.git` 不可浏览。
+- 编辑写盘（ADR-0024）：白名单只在 `types.ts`（`EDITABLE_EXTENSIONS` / `EDITABLE_FILENAMES` / `isEditablePath`）单源，**`.env.` 前缀必须在查扩展名之前排除**（否则 `.env.json` 借扩展名通过）；请求路径与 realpath 的文件名都要命中；保存一律是 `baseSha256` 比对写，「仍然覆盖」也只是换成冲突响应里的 `currentSha256` 再比对一次，**不存在无条件写入**；写入走同目录 `wx` 临时文件 + `rename`，失败必须删掉临时文件（`EEXIST` 除外：那个条目不是自己的）；`rename` 只要求目录可写，所以读写两侧都要先查文件本身可写（`read-only`）；写盘错误只回 errno 码，系统原文含绝对路径。
 - 远程链接（`remote.ts`）必须剥除 URL 内嵌凭据，避免 token 泄进 href。
 - 写操作不越权：push 绝不 `--force` 且仅在严格领先时提供；pull 只走 `--ff-only`；分叉时 push / pull 都不提供；绝不直接检出远程引用（落为同名跟踪分支，避免游离 HEAD）；publish 的 `HEAD`、pull-preview 的 `@{upstream}` 为固定字面量。
 - 放弃未跟踪条目由 host 直接删盘（`git restore` 摸不到）：任何删除失败都汇总成错误返回，绝不静默；条目本身是仓库（嵌套仓库 / 子模块 / bare 布局）时整批拒绝（`nested-repo`），删除循环内逐条复检（竞态命中报 `nested-repo-partial`）；只「包含」仓库的普通目录仍整体删除——这条边界是刻意的（issue #46），单测同时锁住两者。
@@ -113,16 +115,17 @@ MIT 协议下优先复用 dsh 官方能力，不为相同功能重复打包依�
 - 优先用 `@deepseek-ai/dsh-client-ui-primitives` 的现成组件：代码高亮 `languageForPath` / `useCodeHighlighter`（语法色走宿主 `--shiki-*` 变量）、`MarkdownText`、`Menu`（`onSelect` 需自行关闭）、`SegmentedControl`、`SegmentedTabs`、`FileTypeIcon` 等。不额外引入 marked / dompurify 之类的同类库。
 - 新用到的平台组件必须同步加进 e2e 平台桩 `test/e2e/harness.html`，否则面板在 e2e 中直接崩溃。
 - 只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行等）才自研。
-- 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。`mermaid` 是目前唯一的非平台运行时依赖：pin 在 devDependencies，构建期打进懒加载 chunk `lib/client.mermaid.js`，**绝不进主 bundle**——主 bundle 里只允许 `require.async('./client.mermaid.js')` 这一个引用点（`MermaidFigure.tsx`）。
+- 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。非平台运行时依赖只有两组，各自一个懒加载 chunk，**都绝不进主 bundle**：`mermaid` → `lib/client.mermaid.js`（主 bundle 唯一引用点 `MermaidFigure.tsx` 的 `require.async('./client.mermaid.js')`）；CodeMirror 6（`@codemirror/*`、`@lezer/highlight`）与 `yaml` → `lib/client.editor.js`（唯一引用点 `FileEditor.tsx`，只能被 `editor-chunk.ts` / `yaml-check.ts` 导入，ADR-0025）。两组都 pin 在 devDependencies，`architecture.test.mjs` 与 `scripts/assert-pack.mjs` 把守。
 - `@deepseek-ai/dsh` 标为 **optional peer**（`peerDependenciesMeta`）：`src/` 不 import 它，宿主运行时提供；其余 5 个 peer 保持必需（`src/` 要用它们的类型）。标 optional 不削弱兼容门禁：`evaluatePluginCompatibility` 只读 `peerDependencies`。
 
 ## 构建
 
-`build.mjs` 用 esbuild 出产物 + tsc 出类型声明，三个产物：
+`build.mjs` 用 esbuild 出产物 + tsc 出类型声明，四个产物：
 
 1. `tsc -p tsconfig.build.json` 仅出 `lib/host/*.d.ts`；esbuild 把 `src/host/*.ts` **逐文件**转译（`bundle: false`，`@deepseek-ai/*` 不打包）。host **绝不压缩**：typert 靠方法参数名反射校验参数，重命名会破坏 wire 契约。
 2. `src/client/index.ts` → `lib/client.js`（cjs，包成 `window.__ModuleLoader__.load({id,factory})`，平台 external，可 minify）。
 3. `src/client/mermaid-chunk.ts` → `lib/client.mermaid.js`（同款包装但注册 `chunk: "client.mermaid.js"`，文件名必须匹配平台 `client.<name>.js` 规则，由 `/plugins` 按需下发；e2e 里由 harness 桩的 `require.async` 代替）。
+4. `src/client/editor-chunk.ts` → `lib/client.editor.js`（同款包装，注册 `chunk: "client.editor.js"`；e2e 的 harness 以 `<script>` 装入**真实** chunk，`test/e2e/setup.mjs` 负责拷贝）。
 
 `lib/testkit.mjs` / `lib/hookkit.mjs` 是测试专用 bundle（随整个 `lib/` 一并 gitignore，`npm run test:unit` 会重建）。集成测试中的 controller 与 hooks 必须从同一个 bundle（hookkit）导入，否则 `pageVisibility` 单例会分裂。
 

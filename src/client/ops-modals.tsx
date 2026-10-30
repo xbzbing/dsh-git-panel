@@ -4,12 +4,13 @@
  * `.gp-modal*` styles; every footer carries the "use the dsh AI" hint so a user
  * always sees the lower-conflict alternative to operating git from the panel.
  */
-import { createElement as h, useEffect } from 'react'
+import { createElement as h, useEffect, useRef } from 'react'
+import type { RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon } from './icons.js'
-import { OVERLAY_ATTR } from './dialog-focus.js'
+import { OVERLAY_ATTR, useDialogFocus } from './dialog-focus.js'
 import type { GitKey } from './locales.js'
 
 export type OpT = (key: GitKey, params?: Record<string, string | number>) => string
@@ -57,6 +58,12 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // A rejected path came from the panel's own selection: it is outside the
     // repository (or a `.git` entry), so there is no detail worth showing.
     case 'invalid-path': return t('error.invalidPath')
+    // File-browser saves. A save the host refused on an edit rule carries a
+    // `reason` the editor maps itself; this is the fallback for the rest
+    // (type or file kind). Write errors carry only the errno code.
+    case 'not-editable': return t('error.notEditable')
+    case 'write-denied': return t('error.writeDenied', { reason: message ?? '' })
+    case 'write-failed': return t('error.writeFailed', { reason: message ?? '' })
     // Transport-level outcomes carry no message of their own.
     case 'timeout': return t('error.timeout')
     case 'cancelled': return t('error.cancelled')
@@ -106,6 +113,13 @@ export interface ModalShellProps {
   overlay?: JSX.Element | null
   /** Stable React portal key, unique per dialog kind. */
   portalKey: string
+  /** Portal target; document.body when absent. A dialog raised from inside
+   * another dialog that is in browser fullscreen must render inside that
+   * element, or it is not displayed at all. */
+  container?: Element | null
+  /** Take focus on open, keep Tab inside, restore it on close
+   * (`useDialogFocus`): for a dialog raised over another focus-trapping one. */
+  trapFocus?: boolean
   t: OpT
 }
 
@@ -119,32 +133,46 @@ export function renderModalShell(props: ModalShellProps): JSX.Element | null {
   return h(ModalShell, props)
 }
 
-function ModalShell({ onClose, title, icon, hash, body, footer, overlay, portalKey, t }: ModalShellProps): JSX.Element {
+function ModalShell({ onClose, title, icon, hash, body, footer, overlay, portalKey, container, trapFocus, t }: ModalShellProps): JSX.Element {
   const busy = overlay !== undefined && overlay !== null
+  const frameRef = useRef<HTMLDivElement | null>(null)
+  const closeRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
+    // A focus-trapping shell gets Escape from `useDialogFocus` instead.
+    if (trapFocus === true) return undefined
     // While an op runs, swallow Escape so the dialog can't be dismissed mid-flight.
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !busy) onClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose, busy])
+  }, [onClose, busy, trapFocus])
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     // Declares this dialog as an overlay above the page, so a lower layer's
     // Escape handler (the branch drawer) can yield the keystroke to it.
     [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (!busy && e.target === e.currentTarget) onClose() },
-  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
+  }, h('div', { ref: frameRef, className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
+    trapFocus === true ? h(ShellFocus, { key: 'focus', frameRef, closeRef, onClose: () => { if (!busy) onClose() } }) : null,
     h('div', { key: 'bar', className: 'gp-modal__bar' }, [
       icon !== undefined ? h('span', { key: 'ic', className: 'gp-modal__fileicon' }, icon) : null,
       h('span', { key: 'title', className: 'gp-modal__path' }, title),
       hash !== undefined ? h('span', { key: 'hash', className: 'gp-modal__hash' }, hash) : null,
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), disabled: busy, onClick: onClose }, h(CloseIcon, { size: 15 })),
+      h('button', { key: 'close', ref: closeRef, type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), disabled: busy, onClick: onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'body', className: 'gp-modal__form' }, body),
     footer,
     overlay ?? null,
   ]))
-  return createPortal(modal, document.body, portalKey)
+  return createPortal(modal, container ?? document.body, portalKey)
+}
+
+function ShellFocus({ frameRef, closeRef, onClose }: {
+  frameRef: RefObject<HTMLDivElement | null>
+  closeRef: RefObject<HTMLButtonElement | null>
+  onClose: () => void
+}): null {
+  useDialogFocus(frameRef, onClose, closeRef)
+  return null
 }
 
 /**
@@ -174,6 +202,9 @@ export interface ConfirmCbs {
   busyLabel?: string
   onConfirm: () => void
   onClose: () => void
+  /** See `ModalShellProps.container` / `trapFocus`. */
+  container?: Element | null
+  trapFocus?: boolean
   t: OpT
 }
 
@@ -185,6 +216,8 @@ export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
     onClose: cb.onClose,
     title: cb.title,
     portalKey: 'confirm-modal',
+    ...(cb.container !== undefined ? { container: cb.container } : {}),
+    ...(cb.trapFocus !== undefined ? { trapFocus: cb.trapFocus } : {}),
     t: cb.t,
     body: [
       h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, cb.body),

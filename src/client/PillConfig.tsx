@@ -19,7 +19,7 @@ import { selectTrigger } from './select-trigger.js'
 import { gitPanelRemoteOf, queryAs } from './rpc.js'
 import type { ClientCtx, ConfigFormsFace } from './rpc.js'
 import type { FontDelta, GitPanelPlacement, GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
-import { SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
+import { EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
 import type { GitKey } from './locales.js'
 
 interface PillConfigProps {
@@ -89,6 +89,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pendingDetect, setPendingDetect] = useState<boolean | null>(null)
   const [pendingFollow, setPendingFollow] = useState<boolean | null>(null)
   const [pendingFold, setPendingFold] = useState<boolean | null>(null)
+  const [pendingEdit, setPendingEdit] = useState<boolean | null>(null)
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({ basic: true, view: false, suggest: false, repos: false })
   const [pendingLang, setPendingLang] = useState<SuggestLanguage | null>(null)
   // Numeric drafts are local edit state: onChange only updates the draft so
@@ -146,6 +147,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const detectCheckouts = pendingDetect ?? (typeof snap?.value?.detectCheckouts === 'boolean' ? (snap.value.detectCheckouts as boolean) : true)
   const filesFollowRepo = pendingFollow ?? (typeof snap?.value?.filesFollowRepo === 'boolean' ? (snap.value.filesFollowRepo as boolean) : false)
   const collapseReposOnPick = pendingFold ?? (typeof snap?.value?.collapseReposOnPick === 'boolean' ? (snap.value.collapseReposOnPick as boolean) : false)
+  const allowFileEdit = pendingEdit ?? (typeof snap?.value?.allowFileEdit === 'boolean' ? (snap.value.allowFileEdit as boolean) : true)
   const rawLang = snap?.value?.suggestLanguage
   const suggestLanguage: SuggestLanguage = pendingLang
     ?? (typeof rawLang === 'string' && (SUGGEST_LANGUAGES as readonly string[]).includes(rawLang) ? rawLang as SuggestLanguage : SUGGEST_LANGUAGE_DEFAULT)
@@ -272,6 +274,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const toggleFoldOnPick = (next: boolean): Promise<void> => {
     setPendingFold(next)
     return commitField('collapseReposOnPick', next, () => setPendingFold(null))
+  }
+
+  const toggleFileEdit = (next: boolean): Promise<void> => {
+    setPendingEdit(next)
+    return commitField('allowFileEdit', next, () => setPendingEdit(null))
   }
 
   const setLanguage = (next: SuggestLanguage): Promise<void> => {
@@ -497,6 +504,18 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.toggle')),
       ]),
       h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.hint')),
+    ]),
+    field('edit', [
+      h('h3', { key: 'edittitle', className: 'gp-cfg__title' }, t('cfg.fileEditTitle')),
+      h('label', { key: 'editrow', className: 'gp-cfg__row' }, [
+        h('input', {
+          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+          checked: allowFileEdit, disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleFileEdit(e.currentTarget.checked) },
+        }),
+        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.fileEditToggle')),
+      ]),
+      h('p', { key: 'edithint', className: 'gp-cfg__hint' }, t('cfg.fileEditHint', { exts: EDITABLE_EXTENSIONS.join(', '), names: EDITABLE_FILENAMES.join(', ') })),
     ]),
   ]
   const viewBody = [

@@ -31,11 +31,16 @@ import { useRowSlider } from './row-slider.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { useHtmlPreview } from './use-html-preview.js'
 import { MermaidFigure } from './MermaidFigure.js'
-import { CodePreview, renderPreview, type FileState } from './files-preview.js'
+import { CodePreview, fileStateOf, renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
 import { isSvgPath } from './diff.js'
 import { screenFailKeyOf, SCREEN_TIMEOUT_MS } from './screen-full.js'
 import type { FilesRootMenu } from './repo-list.js'
+import type { GitQueryResult } from './types.js'
+import { useFileEdit } from './use-file-edit.js'
+import { hasStashedUnsavedEdit, stashDraft } from './edit-store.js'
+import { renderEditControls, useEditPreview } from './files-edit-ui.js'
+import { controllerFor } from './registry.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -57,6 +62,11 @@ interface FilesTabProps {
    * until the list (or the error's cwd) names it — the bar then shows only
    * the refresh control. */
   readonly browseRoot: string | null
+  /** The browser's root selector (repo-select.ts); an edit draft is bound to
+   * the one it was read under. */
+  readonly rootKey: string
+  /** The host's file-edit switch, from the latest sample (true when unknown). */
+  readonly allowEdit: boolean
   /** Candidate roots for the address dropdown; null = not following (or no
    * second root) and the address keeps its click-to-copy behaviour. */
   readonly rootMenu?: FilesRootMenu | null
@@ -109,18 +119,20 @@ function stashFilesState(sessionId: string, state: FilesState): void {
   filesEvict.set(sessionId, setTimeout(() => {
     filesEvict.delete(sessionId)
     const entry = filesCache.get(sessionId)
-    if (entry !== undefined && Date.now() - entry.leftAt >= FILES_STICKY_MS) filesCache.delete(sessionId)
+    // The browser state an unsaved draft sits in is never dropped by the
+    // clock: only a save, a confirmed discard or a page reload ends it.
+    if (entry !== undefined && !hasStashedUnsavedEdit(sessionId) && Date.now() - entry.leftAt >= FILES_STICKY_MS) filesCache.delete(sessionId)
   }, FILES_STICKY_MS + 1_000))
 }
 
 function restoreFilesState(sessionId: string): FilesState | null {
   const entry = filesCache.get(sessionId)
   if (entry === undefined) return null
-  if (Date.now() - entry.leftAt > FILES_STICKY_MS) { filesCache.delete(sessionId); return null }
+  if (!hasStashedUnsavedEdit(sessionId) && Date.now() - entry.leftAt > FILES_STICKY_MS) { filesCache.delete(sessionId); return null }
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -204,6 +216,34 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : { kind: 'markdown' as const, text: markdownKbdToCode(segment.text) })
   }, [file])
   const fileSeq = useRef(0)
+
+  // Edit mode for allow-listed files. A save hands back the bytes now on disk,
+  // which replace the preview without another read, and the shared snapshot is
+  // refreshed so the change list and the input marker pick the edit up.
+  const onSaved = useCallback((fc: Extract<GitQueryResult, { kind: 'file-content' }>) => {
+    fileSeq.current += 1
+    setFile(fileStateOf(fc.path, fc))
+  }, [])
+  const onWritten = useCallback(() => { void controllerFor(sessionId).refresh() }, [sessionId])
+  // The selection under a detached draft belongs to the root the browser
+  // left: once the draft ends (saved or discarded), it goes too.
+  const onDetachedEnd = useCallback(() => {
+    fileSeq.current += 1
+    setSelected(null)
+    setFile({ kind: 'idle' })
+    setPane('tree')
+  }, [])
+  const fileEdit = useFileEdit({
+    remote, sessionId, file, rootKey, rootPath: browseRoot, allowEdit,
+    restoreSelected: init?.selected ?? null, onSaved, onWritten, onDetachedEnd, t,
+  })
+  // Edit mode follows the draft, not the latest read: a refresh that finds the
+  // file gone keeps the draft on screen (its save then reports the loss).
+  const editing = fileEdit.draft !== null && fileEdit.draft.path === selected
+  const editPreview = useEditPreview(editing)
+  const { guard: guardEdit, drop: dropEdit, detached: editDetached } = fileEdit
+  const editDirtyRef = useRef(fileEdit.dirty)
+  editDirtyRef.current = fileEdit.dirty
 
   // The rendered HTML preview: packing, the blob: URL, the heavy-document
   // question, the stopped render and the static hint all live in the hook.
@@ -328,15 +368,19 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     genRef.current = worktreeGen
     dirGen.current += 1
     dirSeq.current.clear()
-    fileSeq.current += 1
     filesCache.delete(sessionId)
     setDirs(new Map())
     setOpen(new Set(['']))
+    void loadDir('')
+    // An unsaved draft outlives the tree: it stays on screen bound to the root
+    // it was read from, and its save still compares against that version.
+    if (editDirtyRef.current) return
+    dropEdit()
+    fileSeq.current += 1
     setSelected(null)
     setFile({ kind: 'idle' })
     setPane('tree')
-    void loadDir('')
-  }, [worktreeGen, sessionId, loadDir])
+  }, [worktreeGen, sessionId, loadDir, dropEdit])
 
   const toggleDir = useCallback((path: string) => {
     setOpen((prev) => {
@@ -360,25 +404,11 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       // Carry the wire code into the error state so the preview can name the
       // real cause (a file deleted after the listing is `file-not-found`).
       if (fc === null) { setFile({ kind: 'error', path, ...(res.ok ? {} : { code: res.error.code }) }); return }
-      const stat = { ...(fc.size !== undefined ? { size: fc.size } : {}), ...(fc.mtimeMs !== undefined ? { mtimeMs: fc.mtimeMs } : {}) }
-      if (fc.tooLarge === true) { setFile({ kind: 'tooLarge', path, ...stat }); return }
-      if (fc.variant === 'image' && fc.dataUrl !== undefined) {
-        // An SVG arrives with its markup beside the picture: one read feeds
-        // both faces of the preview.
-        setFile({
-          kind: 'image', path, dataUrl: fc.dataUrl,
-          ...(fc.content !== undefined ? { content: fc.content } : {}),
-          ...(fc.lines !== undefined ? { lines: fc.lines } : {}),
-          ...stat,
-        })
-        return
-      }
-      if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0, ...stat, ...(fc.absolutePath !== undefined ? { absolutePath: fc.absolutePath } : {}) }); return }
-      setFile({ kind: 'binary', path, ...stat })
+      setFile(fileStateOf(path, fc))
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
   }, [remote, sessionId])
 
-  const selectFile = useCallback((path: string) => {
+  const openFile = useCallback((path: string) => {
     setSelected(path)
     if (compact) setPane('preview')
     // Rendered view is the default for Markdown; HTML defaults to source so a
@@ -391,6 +421,13 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     resetHtmlPreview()
     void loadFile(path, true)
   }, [compact, loadFile, resetHtmlPreview])
+  // Picking another file leaves the draft only once that is safe (a confirm
+  // when it is unsaved); picking the file being edited again just shows it.
+  const editingPath = fileEdit.draft?.path ?? null
+  const selectFile = useCallback((path: string) => {
+    if (path === editingPath) { if (compact) setPane('preview'); return }
+    guardEdit(() => openFile(path))
+  }, [editingPath, compact, guardEdit, openFile])
 
   // Manual refresh (the tree's top-right button): re-list every expanded
   // directory and re-read the selected file, so an edit made outside the panel
@@ -404,20 +441,26 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     const openDirs = open
     setDirs((prev) => new Map([...prev].filter(([path]) => openDirs.has(path))))
     const pending: Array<Promise<void>> = [...openDirs].map((path) => loadDir(path, true))
-    if (selected !== null) pending.push(loadFile(selected, false))
+    // A detached draft's file lives under the root the browser left: reading
+    // the same path here would load another file under it.
+    if (selected !== null && !editDetached) pending.push(loadFile(selected, false))
     const settle = (): void => {
       refreshFlight.current = false
       setRefreshing(false)
     }
     void Promise.all(pending).then(settle, settle)
-  }, [open, selected, loadDir, loadFile])
+  }, [open, selected, editDetached, loadDir, loadFile])
 
   // Persist the browsing state when the panel unmounts (view-tab switch or
   // session change) so a quick return restores it; a ref carries the latest
   // values into the unmount-only cleanup.
   const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown, wrap, pane })
   liveRef.current = { dirs, open, selected, file, renderMarkdown, wrap, pane }
-  useEffect(() => () => { stashFilesState(sessionId, liveRef.current) }, [sessionId])
+  const editSnapshot = fileEdit.snapshot
+  useEffect(() => () => {
+    stashDraft(sessionId, editSnapshot())
+    stashFilesState(sessionId, liveRef.current)
+  }, [sessionId, editSnapshot])
 
   // A restored selection whose preview was still loading at unmount comes back
   // as idle; refetch it once on mount so the preview isn't left blank.
@@ -425,8 +468,8 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   useEffect(() => {
     if (rehydrated.current) return
     rehydrated.current = true
-    if (init !== null && init.selected !== null && file.kind === 'idle') selectFile(init.selected)
-  }, [init, file.kind, selectFile])
+    if (init !== null && init.selected !== null && file.kind === 'idle') openFile(init.selected)
+  }, [init, file.kind, openFile])
 
   const treeRows = useMemo(() => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t }), [dirs, open, selected, toggleDir, selectFile, t])
 
@@ -513,7 +556,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       h('button', {
         key: 'follow', type: 'button', role: 'option', 'aria-selected': rootMenu.followActive,
         className: `gp-files__rootmenu__item${rootMenu.followActive ? ' gp-files__rootmenu__item--active' : ''}`,
-        onClick: () => { hideTip(); setRootMenuOpen(false); onPickRoot?.(null) },
+        onClick: () => { hideTip(); setRootMenuOpen(false); guardEdit(() => onPickRoot?.(null)) },
       }, [
         h('span', { key: 'i', className: 'gp-files__rootmenu__icon' }, h(SyncIcon, { size: 13 })),
         h('span', { key: 'n', className: 'gp-files__rootmenu__name' }, t('files.rootFollowGit')),
@@ -527,7 +570,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
           if (row.disabled !== undefined) return
           hideTip()
           setRootMenuOpen(false)
-          onPickRoot?.(row.selector)
+          guardEdit(() => onPickRoot?.(row.selector))
         },
       }, [
         h('span', { key: 'i', className: 'gp-files__rootmenu__icon' }, row.kind === 'project' ? h(FolderIcon, { size: 13 }) : h(RepoIcon, { size: 13 })),
@@ -612,7 +655,14 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const modeSwitchable = richPreview || svgSource
   // One definition per toolbar control; the compact and wide bars compose the
   // same nodes so a new mode / action cannot land on only one layout.
-  const modeSeg = modeSwitchable
+  const isMarkdownEdit = editing && fileEdit.draft !== null && isMarkdownPath(fileEdit.draft.path)
+  const { editButton, editActions, editWrapButton, editModeSeg } = renderEditControls({
+    fileEdit, editing, markdown: isMarkdownEdit, preview: editPreview,
+    wrap, toggleWrap: () => setWrap((w) => !w), tipProps, hideTip, modeId, t,
+  })
+  const modeSeg = editing
+    ? editModeSeg
+    : modeSwitchable
     ? h(SegmentedControl, {
       key: 'mode',
       className: 'gp-files__mode-seg',
@@ -710,35 +760,56 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // wide-only.
   const compactBar = compact
     ? h('div', { key: 'bar', className: 'gp-files__bar gp-files__bar--compact' }, [
-      h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('tree') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('files.backToTree')]),
+      h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => guardEdit(() => setPane('tree')) }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('files.backToTree')]),
       modeSeg,
       // Trailing icons keep their own right-aligned group: without the mode
       // switcher (plain files) they sit next to the back button otherwise.
-      h('div', { key: 'end', className: 'gp-files__bar-end' }, [scriptToggle, wrapButton, fullscreenButton, copyContentButton, propsButton]),
+      editing
+        ? h('div', { key: 'end', className: 'gp-files__bar-end' }, [editWrapButton, fullscreenButton, editActions])
+        : h('div', { key: 'end', className: 'gp-files__bar-end' }, [editButton, scriptToggle, wrapButton, fullscreenButton, copyContentButton, propsButton]),
     ])
     : null
 
   const wideBar = compact
     ? null
-    : h('div', { key: 'bar', className: 'gp-files__bar' }, [
-      pathButton,
-      modeSeg,
-      // Hidden (not disabled) for binary/image/too-large/error previews and for
-      // documents at/above the copy envelope — no dead control to click.
-      copyContentButton,
-      scriptToggle,
-      wrapButton,
-      fullscreenButton,
-      propsButton,
-    ])
+    : editing
+      ? h('div', { key: 'bar', className: 'gp-files__bar' }, [pathButton, modeSeg, editWrapButton, fullscreenButton, editActions])
+      : h('div', { key: 'bar', className: 'gp-files__bar' }, [
+        pathButton,
+        modeSeg,
+        editButton,
+        // Hidden (not disabled) for binary/image/too-large/error previews and for
+        // documents at/above the copy envelope — no dead control to click.
+        copyContentButton,
+        scriptToggle,
+        wrapButton,
+        fullscreenButton,
+        propsButton,
+      ])
 
   // The switcher that owns these tabs is hidden in the reader, so the panel
   // role (and its now-dangling label reference) goes with it; the nodes and
   // their keys stay, so the preview body is not remounted.
-  const tabPanel = (mode: 'source' | 'render'): Record<string, string> => (fsActive
+  const tabPanel = (mode: 'source' | 'render' | 'edit' | 'preview'): Record<string, string> => (fsActive
     ? { id: `${modeId}-${mode}-panel` }
     : { id: `${modeId}-${mode}-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-${mode}` })
-  const previewContent = modeSwitchable
+  const draftFile: FileState | null = editing && editPreview.text !== null && file.kind === 'text' ? { ...file, content: editPreview.text } : null
+  const previewContent = isMarkdownEdit
+    ? [
+      // The editor stays mounted under the draft preview, so undo history and
+      // the cursor survive a look at the rendered draft.
+      h('div', {
+        key: 'ed', ...tabPanel('edit'),
+        style: editPreview.text === null ? { display: 'contents' } : { display: 'none' },
+      }, fileEdit.editorNode(wrap, editPreview.text !== null)),
+      h('div', {
+        key: 'pv', ...tabPanel('preview'),
+        style: editPreview.text === null ? { display: 'none' } : { display: 'contents' },
+      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, t)),
+    ]
+    : editing
+    ? fileEdit.editorNode(wrap, false)
+    : modeSwitchable
     ? [
       h('div', {
         key: 'src', ...tabPanel('source'),
@@ -779,6 +850,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     fsActive
       ? h('div', { key: 'fsbar', className: 'gp-modal__bar gp-files__fsbar' }, [
         h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
+        editing ? editActions : editButton,
         h('button', {
           key: 'screen', type: 'button',
           // Labelled: the card is opened by the icon-only fullscreen button
@@ -801,6 +873,11 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       ? h(FullscreenFocus, { key: 'fsfocus', cardRef: fsCardRef, initialRef: fsCloseRef, restoreRef: fsTriggerRef, onClose: closeFullscreen })
       : null,
     selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
+    fileEdit.noticeNode,
+    // In the reader the card is a focus-trapping dialog (and, in browser
+    // fullscreen, the only element on screen): the confirmation renders
+    // inside it.
+    fileEdit.confirmNode(fsActive ? fsCardRef.current : null),
     heavyNotice,
     // The browser-fullscreen toggle sits in this same card, so a failure is
     // reported where the user just clicked, naming its reason (the live
@@ -846,7 +923,11 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
 
   // Compact: a single column drilling from the tree into the file preview.
   if (compact) {
-    return h('div', { className: 'gp-files gp-files--compact' }, [pane === 'preview' ? previewBlock : treeBlock, fsBackdrop])
+    // An open draft keeps the preview in front: entering compact from a
+    // wider tier must not unmount the editor (its undo history and the
+    // unsaved marker live there), and the back button asks before leaving.
+    const shown = pane === 'preview' || fileEdit.draft !== null ? previewBlock : treeBlock
+    return h('div', { className: 'gp-files gp-files--compact' }, [shown, fsBackdrop])
   }
 
   return h('div', { className: 'gp-files' }, [

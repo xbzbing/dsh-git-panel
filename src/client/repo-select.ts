@@ -160,5 +160,6 @@ export function withRepo(remote: GitPanelRemote, repo: string): GitPanelRemote {
     // Version lookup is host-scoped, never repository-scoped.
     version: (request, signal) => remote.version(request, signal),
     openFile: (request, signal) => remote.openFile(tag(request), signal),
+    writeFile: (request, signal) => remote.writeFile(tag(request), signal),
   }
 }

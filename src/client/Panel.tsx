@@ -29,7 +29,8 @@ import { useHoverTip } from './tip.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
 import type { FontDelta, GitAction, GitRepoEntry, GitVersionInfo } from './types.js'
 import type { GitKey } from './locales.js'
-import { opErrorText } from './ops-modals.js'
+import { opErrorText, renderConfirmModal } from './ops-modals.js'
+import { discardUnsavedEdit, hasUnsavedEdit } from './edit-store.js'
 import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, syncFilesFollowConfig, withRepo } from './repo-select.js'
@@ -180,6 +181,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // Manual file-root picks live in the module store (repo-select.ts); this
   // state exists only to re-render the panes when one changes.
   const [, setFilesRootBump] = useState(0)
+  // A repository switch that would move the file browser away from an unsaved
+  // edit waits here for the user's answer.
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null)
 
   // Repository selection: '' follows the repository the session cwd belongs to
   // (walk-up), anything else follows a nested repository below that cwd. The
@@ -347,6 +351,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     setWorktreeGen((n) => n + 1)
   }, [filesSelector])
   const filesRemote = useMemo(() => withRepo(remote, filesSelector), [remote, filesSelector])
+  // The edit switch is host-wide config riding the sample, sticky at the last
+  // ready answer like the follow switch; an older host omits it → on (the
+  // host still decides per read whether a file is editable).
+  const allowEditRef = useRef(true)
+  if (view.state === 'ready') allowEditRef.current = view.snapshot.allowFileEdit ?? true
+  const allowFileEdit = allowEditRef.current
   // A root pick is a directory switch, and Git follows every directory switch:
   // a root that is a checkout moves the overview and changes with it (the
   // browser stays in front). The reverse is the follow setting's call.
@@ -614,11 +624,39 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // column both dock it, so collapse state and the choice wiring stay in sync
   // across the panes. Compact docks it in the overview's branch filter only:
   // the single-column changes page keeps its height for the change list.
+  // A pick moves the file browser too when it follows the Git selection; an
+  // unsaved edit there is confirmed away first (the browser's own root menu
+  // asks the same question in the files tab).
+  const chooseRepoGuarded = (next: string): void => {
+    if (hasSession(sessionId) && next !== repo && filesRootPick(sessionId, filesFollow) === null && hasUnsavedEdit(sessionId)) {
+      setPendingLeave(() => () => chooseRepo(next))
+      return
+    }
+    chooseRepo(next)
+  }
+  const leaveEditModal = pendingLeave === null || !hasSession(sessionId)
+    ? null
+    : renderConfirmModal({
+      title: t('files.editDiscardTitle'),
+      body: t('files.editDiscardBody'),
+      confirmLabel: t('files.editDiscard'),
+      danger: true,
+      error: null,
+      onClose: () => setPendingLeave(null),
+      onConfirm: () => {
+        const proceed = pendingLeave
+        setPendingLeave(null)
+        discardUnsavedEdit(sessionId)
+        proceed()
+      },
+      t,
+    })
+
   const repositories = hasSession(sessionId)
     ? {
       choices: repoList,
       current: repo,
-      onChoose: chooseRepo,
+      onChoose: chooseRepoGuarded,
       collapsed: reposCollapsed,
       onToggleCollapse: () => setReposCollapsed((v) => !v),
     }
@@ -665,7 +703,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
       return filesVisited
-        ? h(FilesTab, { key: sessionId, remote: filesRemote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootMenu, onPickRoot: applyFilesRootPick, t })
+        ? h(FilesTab, { key: sessionId, remote: filesRemote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t })
         : null
     }
     if (view.state !== 'ready') return null
@@ -680,7 +718,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // The sample describes the browser's files only when both sides sit on the
     // same checkout and it is not the previous one's mid-switch.
     const filesSnapshot = filesSelector === repo && !repoSwitching ? snapshot : null
-    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
   }
 
   // One panel per tab, so every tab's aria-controls resolves.
@@ -711,6 +749,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // data-tab-count reports how many cells the bar carries (three, or the
     // browser alone); no rule reads it — tests and diagnostics do.
     // browser alone for a cwd without a checkout).
+    leaveEditModal,
     h('div', { key: 'tabs', className: 'gp-tabbar', 'data-tab-count': tabs.length }, [
       h(SegmentedTabs, {
         key: 'switcher',

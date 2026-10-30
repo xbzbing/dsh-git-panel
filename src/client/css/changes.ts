@@ -293,4 +293,26 @@ export const CSS = `
 .gp-panel[data-layout="compact"] .gp-commitbox__fold:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-commitbox__fold:disabled{opacity:.5;cursor:default}
 .gp-commitbox__actions{margin-left:auto;display:flex;flex-wrap:nowrap;gap:6px}
+/* File editor (edit mode of the files preview). The CodeMirror host fills the
+ * preview body; its own theme paints the inside from the same alias variables.
+ * The status line sits under it in small type. */
+.gp-files__editor{flex:1;min-height:0;display:flex;flex-direction:column}
+.gp-files__editor-host{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.gp-files__editor-host>.cm-editor{flex:1;min-height:0}
+.gp-files__editor-status{flex:none;display:flex;align-items:center;gap:12px;padding:3px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}
+.gp-files__editor-facts{flex:none;white-space:nowrap}
+.gp-files__editor-hint{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+/* Save / cancel group at the trailing end of the edit toolbar. */
+.gp-files__edit-actions{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px}
+.gp-files__edit-dirty{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dsw-alias-state-warn-primary);white-space:nowrap}
+.gp-files__edit-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.gp-files__edit-actions .gp-btn{height:26px;padding:0 12px;font-size:12px}
+.gp-files__edit[aria-disabled="true"]{opacity:.5;cursor:default}
+/* Notice for a failed save, a syntax problem or a conflict: text, then the
+ * actions, then the close glyph; wraps to a second row on a narrow pane. */
+.gp-files__edit-notice{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__edit-notice .gp-notice__text{flex:1 1 220px;color:var(--dsw-alias-label-primary)}
+.gp-files__edit-notice-actions{display:flex;flex-wrap:wrap;gap:6px}
+.gp-files__edit-notice-btn{height:24px;padding:0 10px;font-size:12px}
+.gp-files__fsbar .gp-files__edit-actions{margin-left:0}
 `
