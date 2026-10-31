@@ -162,6 +162,33 @@ await page.evaluate(async () => { await window.__expand('assets'); await window.
 report.nonEmptyDir = await treeRows()
 assert.equal(report.nonEmptyDir.hints.length, 0, `a directory with entries shows no empty hint (got ${JSON.stringify(report.nonEmptyDir.hints)})`)
 
+// Wide two-column layout: the source view's line-number gutter starts flush
+// against the column splitter's line, while the splitter keeps its full 5px
+// grab area (the strip lent to the preview still hits the splitter).
+await page.evaluate((w) => { window.__panelHost.style.width = w + 'px' }, 880)
+await page.waitForTimeout(250)
+await page.evaluate(async () => {
+  ;[...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').trim() === 'a.txt')?.click()
+  await new Promise((r) => setTimeout(r, 400))
+})
+report.splitter = await page.evaluate(() => {
+  const split = document.querySelector('.gp-files > .gp-resizer')
+  const gutter = document.querySelector('.gp-files__code .gp-diff-no')
+  if (split === null || gutter === null) return null
+  const s = split.getBoundingClientRect()
+  const line = parseFloat(getComputedStyle(split, '::before').left) + parseFloat(getComputedStyle(split, '::before').width)
+  return {
+    lineRight: s.left + line,
+    gutterLeft: gutter.getBoundingClientRect().left,
+    grab: s.width,
+    rightEdgeHit: document.elementFromPoint(s.right - 0.5, s.top + s.height / 2) === split,
+  }
+})
+assert.notEqual(report.splitter, null, 'the wide layout renders the column splitter and a numbered source view')
+assert.equal(report.splitter.gutterLeft, report.splitter.lineRight, `the gutter starts right at the splitter line (${JSON.stringify(report.splitter)})`)
+assert.equal(report.splitter.grab, 5, 'the splitter keeps its 5px grab area')
+assert.equal(report.splitter.rightEdgeHit, true, 'the strip over the preview still grabs the splitter')
+
 console.log('e2e files-tree-review.mjs: PASS', JSON.stringify(report))
 if (errors.length) console.log('CONSOLE ERRORS:', errors)
 await browser.close()

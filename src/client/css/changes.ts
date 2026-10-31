@@ -14,6 +14,11 @@ export const CSS = `
 .gp-changes__right{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 /* files browser: resizable tree column + preview pane */
 .gp-files{display:flex;width:100%;height:100%;min-height:0}
+/* The column splitter keeps its 5px grab area but lends the 2px right of its
+ * line to the preview, so the line-number gutter starts flush against the
+ * line. Stacked above the preview so the lent strip still grabs and the
+ * widened hover line is not painted over by the gutter. */
+.gp-files>.gp-resizer:not(.gp-resizer--row){margin-right:-2px;z-index:1}
 /* The tree column keeps the entries in a scrolling child, so long listings
  * stay inside the column instead of growing the pane. */
 .gp-files__tree-wrap{flex:0 0 300px;min-width:180px;display:flex;flex-direction:column;min-height:0}
