@@ -44,6 +44,14 @@
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
+    "docs/details/DETAIL.zh.md",
+    "docs/details/DETAIL.en.md",
+    "docs/details/DETAIL.ja.md",
+    "docs/details/DETAIL.es.md",
+    "docs/details/DETAIL.fr.md",
+    "docs/details/DETAIL.de.md",
+    "docs/details/DETAIL.ru.md",
+    "docs/details/DETAIL.pt.md",
     "LICENSE"
   ],
   "scripts": {

@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Git-Panel",
-    "description": "Ein Git-Panel im IDE-Stil für die Web-Oberfläche: Übersicht über Branches und Commit-Verlauf, Commit und Amend offener Änderungen, Diff-Statistiken und eine Branch-Markierung im zsh-Stil im Eingabefeld."
+    "description": "Ein Git-Panel im IDE-Stil für die Web-Oberfläche: Übersicht über Branches und Commit-Verlauf, Commit und Amend offener Änderungen, Diff-Statistiken und eine Branch-Markierung im zsh-Stil im Eingabefeld.",
+    "detail": "docs/details/DETAIL.de.md"
   }
 }

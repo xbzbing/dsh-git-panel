@@ -2,6 +2,6 @@
   "meta": {
     "title": "Git Panel",
     "description": "An IDE-style Git panel in the Web GUI: branch and commit-history overview, uncommitted changes with commit and amend, diff stats, and a zsh-style branch marker in the input bar.",
-    "detail": "README.en.md"
+    "detail": "docs/details/DETAIL.en.md"
   }
 }

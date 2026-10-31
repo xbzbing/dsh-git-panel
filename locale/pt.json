@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Painel do Git",
-    "description": "Um painel do Git no estilo de uma IDE na interface web: visão geral de branches e do histórico de commits, commit e amend das alterações pendentes, estatísticas de diferenças e um marcador de branch no estilo zsh na caixa de entrada."
+    "description": "Um painel do Git no estilo de uma IDE na interface web: visão geral de branches e do histórico de commits, commit e amend das alterações pendentes, estatísticas de diferenças e um marcador de branch no estilo zsh na caixa de entrada.",
+    "detail": "docs/details/DETAIL.pt.md"
   }
 }

@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Panel de Git",
-    "description": "Un panel de Git al estilo de un IDE en la interfaz web: resumen de ramas e historial de confirmaciones, confirmación y amend de los cambios pendientes, estadísticas de diferencias y un indicador de rama al estilo zsh en el cuadro de entrada."
+    "description": "Un panel de Git al estilo de un IDE en la interfaz web: resumen de ramas e historial de confirmaciones, confirmación y amend de los cambios pendientes, estadísticas de diferencias y un indicador de rama al estilo zsh en el cuadro de entrada.",
+    "detail": "docs/details/DETAIL.es.md"
   }
 }

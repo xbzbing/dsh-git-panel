@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Panneau Git",
-    "description": "Un panneau Git façon IDE dans l’interface web : vue d’ensemble des branches et de l’historique des commits, validation et amend des modifications en attente, statistiques de différences et indicateur de branche façon zsh dans la zone de saisie."
+    "description": "Un panneau Git façon IDE dans l’interface web : vue d’ensemble des branches et de l’historique des commits, validation et amend des modifications en attente, statistiques de différences et indicateur de branche façon zsh dans la zone de saisie.",
+    "detail": "docs/details/DETAIL.fr.md"
   }
 }

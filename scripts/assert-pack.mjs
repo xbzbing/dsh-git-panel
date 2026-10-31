@@ -68,6 +68,16 @@ if (existsSync(hostSrc)) {
   }
 }
 
+// The plugin page fails the detail read when a locale's meta.detail names a
+// file the package does not carry, and npm pack skips a missing `files` entry
+// without an error.
+for (const name of existsSync(join(root, 'locale')) ? readdirSync(join(root, 'locale')).filter((f) => f.endsWith('.json')) : []) {
+  const detail = JSON.parse(readFileSync(join(root, 'locale', name), 'utf8')).meta?.detail
+  if (typeof detail === 'string' && !existsSync(join(root, detail))) {
+    problems.push(`locale/${name} meta.detail names a file the package does not carry: ${detail}`)
+  }
+}
+
 // The manifest itself must stay free of install-time hooks; the working-tree
 // copy is asserted by plugin-contract.test.mjs, and this is the same check
 // applied to what is actually published.

@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Git パネル",
-    "description": "Web GUI に IDE スタイルの Git パネルを追加します。ブランチとコミット履歴の概要、未コミットの変更のコミットと amend、差分の統計、入力欄の zsh 風ブランチ表示を備えています。"
+    "description": "Web GUI に IDE スタイルの Git パネルを追加します。ブランチとコミット履歴の概要、未コミットの変更のコミットと amend、差分の統計、入力欄の zsh 風ブランチ表示を備えています。",
+    "detail": "docs/details/DETAIL.ja.md"
   }
 }

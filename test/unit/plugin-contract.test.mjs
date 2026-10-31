@@ -11,7 +11,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import * as host from '../../lib/host/index.js'
 
@@ -166,22 +166,26 @@ test('package metadata ships every UI language and names its detail document', a
     // must ship in the tarball and be a package-relative Markdown path.
     assert.match(meta.detail, /^[^/\\:][^\\:]*\.md$/, `${id}: detail is a package-relative Markdown path`)
     assert.ok(files.has(meta.detail), `${id}: ${meta.detail} ships in package.json files`)
+    assert.ok(existsSync(new URL(`../../${meta.detail}`, import.meta.url)), `${id}: ${meta.detail} exists`)
   }
   // DSH resolves every locale file through the package exports map; one that
   // is not exported fails the whole metadata read on the plugin page.
   const shipped = readdirSync(new URL('../../locale/', import.meta.url)).filter((f) => f.endsWith('.json'))
   for (const f of shipped) assert.equal(pkg.exports[`./locale/${f}`], `./locale/${f}`, `locale/${f} is exported`)
   assert.deepEqual(shipped.map((f) => f.slice(0, -5)).sort(), Object.keys(DICTIONARIES).sort(), 'one locale file per UI language')
-  // Languages without their own detail fall back to English along the chain.
-  const en = JSON.parse(readFileSync(new URL('../../locale/en.json', import.meta.url), 'utf8')).meta
-  assert.equal(en.detail, 'README.en.md', 'English names the English README')
+  // Every UI language names its own detail document.
+  for (const id of Object.keys(DICTIONARIES)) {
+    const meta = JSON.parse(readFileSync(new URL(`../../locale/${id}.json`, import.meta.url), 'utf8')).meta
+    assert.equal(meta.detail, `docs/details/DETAIL.${id}.md`, `${id} names its own detail document`)
+  }
 })
 
 test('the detail documents load their images from absolute URLs', () => {
   // The plugin page renders README images from inside the package or from an
-  // http(s) URL only; docs/ does not ship, so a relative image never loads.
+  // http(s) URL only; docs/ assets do not ship, so a relative image never loads.
   const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
-  for (const doc of ['README.md', 'README.en.md']) {
+  const details = readdirSync(new URL('../../docs/details/', import.meta.url)).filter((f) => f.endsWith('.md'))
+  for (const doc of ['README.md', 'README.en.md', ...details.map((f) => `docs/details/${f}`)]) {
     const text = readFileSync(new URL(`../../${doc}`, import.meta.url), 'utf8')
     const images = [...text.matchAll(/!\[[^\]]*\]\(([^)\s]+)/g)].map((m) => m[1])
     assert.ok(images.length > 0, `${doc} has images`)
