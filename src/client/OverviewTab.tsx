@@ -5,13 +5,13 @@
  *  middle = commit history graph + search (message / hash / author / date)
  *  right  = selected commit's changed files + message (comment)
  */
-import { createElement as h, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createElement as h, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { selectTrigger } from './select-trigger.js'
-import { OVERLAY_ATTR, hasOverlay } from './dialog-focus.js'
+import { OVERLAY_ATTR, hasOverlay, overlayDepth } from './dialog-focus.js'
 import { renderBranchDrawer } from './overview-drawer.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
@@ -202,10 +202,12 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // A phone's compact overview takes the branch filter as the same left drawer
   // the tight stacked sidebar uses; a squeezed desktop column keeps the sheet.
   const branchDrawer = compact && phone === true
-  // Escape dismisses the sheet, matching the file-diff modal's dialog contract.
+  // Escape dismisses the sheet, matching the file-diff modal's dialog contract —
+  // unless a dialog opened from inside it is on top (the sheet declares its own
+  // overlay identity, so a second layer means "not mine").
   useEffect(() => {
     if (!sheetOpen) return
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setSheetOpen(false) }
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && overlayDepth() <= 1) setSheetOpen(false) }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [sheetOpen])
@@ -294,6 +296,43 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
   )
 
+  // A confirmation names the work tree it will act on (reset moves HEAD, revert
+  // commits against it, switch changes the branch). Another actor — usually the
+  // dsh AI sharing the checkout — can move HEAD while the dialog is open, and
+  // the copy would then describe a commit on the *previous* branch. Rather than
+  // re-target silently, the dialog closes: the user re-opens it on current state.
+  // Push/Publish already scope themselves this way.
+  const opScope = `${snapshot.root}\u0000${snapshot.branch ?? ''}\u0000${snapshot.head ?? ''}`
+  const opScopeRef = useRef<string | null>(null)
+  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || pullConfirm
+  useEffect(() => {
+    if (!opDialogOpen) { opScopeRef.current = null; return }
+    if (opScopeRef.current === null) { opScopeRef.current = opScope; return }
+    if (opScopeRef.current === opScope) return
+    opScopeRef.current = null
+    setResetTarget(null)
+    setRevertTarget(null)
+    setSwitchTarget(null)
+    setPullConfirm(false)
+    setOpError(null)
+  }, [opScope, opDialogOpen])
+
+  // Switching repositories keeps the page (the panes are not rebuilt), but a
+  // branch filter belongs to the checkout it was picked in: in an unrelated
+  // nested repository that name usually does not exist, so the history would
+  // ask for a ref the branch list cannot even offer to clear. Carry the filter
+  // over only when the new tree still has that branch; the selection goes with
+  // it, since it was a row of the filtered page.
+  useEffect(() => {
+    if (tree === null || filter.ref === null) return
+    const names = new Set([...tree.local, ...tree.remote].map((b) => b.name))
+    if (names.has(filter.ref)) return
+    setFilter((prev) => ({ ...prev, ref: null }))
+    detail.clearSelection()
+    // `detail.clearSelection` is stable for the life of the hook.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree, filter.ref])
+
   // Search debounce → filter change (which reloads history from page 0).
   useEffect(() => {
     const timer = setTimeout(() => setFilter((prev) => (prev.search === searchInput ? prev : { ...prev, search: searchInput })), 300)
@@ -321,10 +360,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) loadMore()
   }
 
-  const selectCommit = (commit: GraphCommit): void => {
+  // Stable identity: it is handed to memoized rows as their click handler.
+  const selectCommit = useCallback((commit: GraphCommit): void => {
     void detail.select(commit)
     if (compact) setPane('detail')
-  }
+    // `detail.select` is a stable useCallback; depending on `detail` itself would
+    // recreate this on every detail update and defeat the row memo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.select, compact])
 
   // Relative-time baseline: `commits` (a fresh array per history query) and
   // `querySignal.sampledAt` are deliberate triggers — neither is read in the
@@ -555,7 +598,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       dirty: snapshot.dirty,
       lostFiles: lostTracked,
       lostTotal: lostTracked.length,
-      lostTruncated: snapshot.truncated,
+      lostTruncated: snapshot.truncated || snapshot.stats.partial === true,
+      // Counts stay complete when the list is clipped, so they — not the list —
+      // decide whether the acknowledgement warns about losing work.
+      lostAny: snapshot.stats.staged + snapshot.stats.modified > 0,
       busy: opBusy,
       error: opError,
       onReset: runReset,
@@ -730,12 +776,16 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       commitSlider.slider,
       commits.length === 0
         ? h('div', { key: 'empty', className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
-        : rows.map((row) => renderCommitRow(row, {
+        : rows.map((row) => h(CommitRow, {
+          key: row.commit.hash,
+          row,
           selected: selected?.hash === row.commit.hash,
           // snapshot.head is Git's unique abbreviation; history uses full hashes.
           current: !snapshot.unborn && snapshot.head !== null && snapshot.head !== '' && row.commit.hash.startsWith(snapshot.head),
           gridTpl, laneCount, now, compact, stacked, rowH,
-          onSelect: () => selectCommit(row.commit),
+          // Keyed by hash, not closed over the row: a fresh closure per row would
+          // defeat the memo and rebuild every row's graph on any hover.
+          onSelect: selectCommit,
           onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
           t,
         })),
@@ -1137,6 +1187,10 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
   if (typeof document === 'undefined') return null
   const sheet = h('div', {
     className: 'gp-sheet-backdrop',
+    // Declares its stacking identity like every other overlay, so a dialog
+    // opened from inside the sheet (confirm / tag form) is the layer Escape
+    // closes instead of both at once.
+    [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) cb.onClose() },
   }, h('div', { className: 'gp-sheet', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-sheet__bar' }, [
@@ -1151,7 +1205,8 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
   return createPortal(sheet, document.body, 'branch-filter-sheet')
 }
 
-interface RowCbs {
+interface RowProps {
+  row: GraphRow
   selected: boolean
   current: boolean
   gridTpl: string
@@ -1162,13 +1217,15 @@ interface RowCbs {
    * message card — the stacked layout shows the detail below the list). */
   stacked: boolean
   rowH: number
-  onSelect: () => void
+  /** Takes the row's commit rather than closing over it, so this props object
+   * keeps a stable identity across renders and `memo` can skip the row. */
+  onSelect: (commit: GraphCommit) => void
   onHoverEnter: (commit: GraphCommit, x: number, y: number) => void
   onHoverLeave: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
+const CommitRow = memo(function CommitRow({ row, ...cb }: RowProps): JSX.Element {
   const c = row.commit
   const refChips = c.refs.map((r) => h('span', {
     key: r.name,
@@ -1184,7 +1241,7 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
       key: c.hash,
       className: `gp-commit-row gp-commit-row--compact${cb.selected ? ' gp-commit-row--active' : ''}`,
       style: { gridTemplateColumns: cb.gridTpl, height: `${cb.rowH}px` },
-      onClick: cb.onSelect,
+      onClick: () => cb.onSelect(c),
     }, [
       graphCell,
       h('div', { key: 'tx', className: 'gp-commit-lines' }, [
@@ -1201,9 +1258,14 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
     key: c.hash,
     className: `gp-commit-row${cb.selected ? ' gp-commit-row--active' : ''}`,
     style: { gridTemplateColumns: cb.gridTpl },
-    onClick: cb.onSelect,
-    onMouseEnter: (e: { clientX: number; clientY: number }) => cb.onHoverEnter(c, e.clientX, e.clientY),
-    onMouseLeave: cb.onHoverLeave,
+    onClick: () => cb.onSelect(c),
+    // Hover only for a real pointer: a tap synthesizes mouseenter and never
+    // sends mouseleave, so on a touch screen the card would stay up until the
+    // next row was tapped (the same rule `tip.tsx` applies).
+    onPointerEnter: (e: { pointerType: string; clientX: number; clientY: number }) => {
+      if (e.pointerType === 'mouse') cb.onHoverEnter(c, e.clientX, e.clientY)
+    },
+    onPointerLeave: (e: { pointerType: string }) => { if (e.pointerType === 'mouse') cb.onHoverLeave() },
   }, [
     graphCell,
     h('div', { key: 's', className: 'gp-commit-subject' }, [...refChips, c.subject]),
@@ -1211,7 +1273,7 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
     h('div', { key: 'a', className: 'gp-commit-author' }, c.author),
     h('div', { key: 'd', className: 'gp-commit-date', title: absoluteTime(c.dateIso) }, timeAgo(c.dateIso, cb.now, cb.t)),
   ])
-}
+})
 
 interface FileTreeCbs {
   activePath: string | null

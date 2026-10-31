@@ -4,12 +4,12 @@
  * `.gp-modal*` styles; every footer carries the "use the dsh AI" hint so a user
  * always sees the lower-conflict alternative to operating git from the panel.
  */
-import { createElement as h, useEffect } from 'react'
+import { createElement as h, useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon } from './icons.js'
-import { OVERLAY_ATTR } from './dialog-focus.js'
+import { OVERLAY_ATTR, useDialogFocus } from './dialog-focus.js'
 import type { GitKey } from './locales.js'
 
 export type OpT = (key: GitKey, params?: Record<string, string | number>) => string
@@ -102,6 +102,10 @@ export interface ModalShellProps {
   body: (JSX.Element | null)[]
   /** Footer node, usually `renderModalFooter(...)` (null renders no footer). */
   footer: JSX.Element | null
+  /** A dialog-wide busy state: Escape, the backdrop and the close button are
+   * all suppressed while it is set, so an in-flight write can't be dismissed
+   * out from under its own error line. */
+  busy?: boolean
   /** Optional busy overlay covering the dialog while an op runs. */
   overlay?: JSX.Element | null
   /** Stable React portal key, unique per dialog kind. */
@@ -119,8 +123,24 @@ export function renderModalShell(props: ModalShellProps): JSX.Element | null {
   return h(ModalShell, props)
 }
 
-function ModalShell({ onClose, title, icon, hash, body, footer, overlay, portalKey, t }: ModalShellProps): JSX.Element {
-  const busy = overlay !== undefined && overlay !== null
+function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, overlay, portalKey, t }: ModalShellProps): JSX.Element {
+  // Busy is declared, never inferred: an overlay only exists for dialogs that
+  // also pass a label, and inferring from it left reset/revert/tag-delete
+  // dismissible mid-flight (their error line then had no dialog to render in).
+  const busy = busyProp === true
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  // Escape stays with this shell (it knows about `busy`); the shared hook is
+  // only for the Tab cycle and focus restore, so it must not claim the key.
+  useDialogFocus(cardRef, onClose, undefined, undefined, false)
+  useLayoutEffect(() => {
+    // A dialog that opens with focus still on the page leaves a keyboard user
+    // tabbing through the content behind it (and screen readers announce nothing
+    // new). Forms start in their input, confirmations on the safe button.
+    const root = cardRef.current
+    const target = root?.querySelector<HTMLElement>('input:not([type="hidden"]), textarea, select')
+      ?? root?.querySelector<HTMLElement>('.gp-modal__footer .gp-btn')
+    target?.focus()
+  }, [])
   useEffect(() => {
     // While an op runs, swallow Escape so the dialog can't be dismissed mid-flight.
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !busy) onClose() }
@@ -133,7 +153,7 @@ function ModalShell({ onClose, title, icon, hash, body, footer, overlay, portalK
     // Escape handler (the branch drawer) can yield the keystroke to it.
     [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (!busy && e.target === e.currentTarget) onClose() },
-  }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
+  }, h('div', { ref: cardRef, className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, [
       icon !== undefined ? h('span', { key: 'ic', className: 'gp-modal__fileicon' }, icon) : null,
       h('span', { key: 'title', className: 'gp-modal__path' }, title),
@@ -193,6 +213,7 @@ export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
       cb.error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, cb.error) : null,
     ],
     footer: renderModalFooter({ onClose: cb.onClose, onConfirm: cb.onConfirm, confirmLabel: cb.confirmLabel, confirmDisabled: cb.confirmBusy === true, danger: cb.danger, t: cb.t }),
+    ...(cb.confirmBusy === true ? { busy: true } : {}),
     ...(showOverlay ? { overlay: renderBusyOverlay(cb.busyLabel!) } : {}),
   })
 }

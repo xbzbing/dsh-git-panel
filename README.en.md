@@ -27,7 +27,7 @@ After a first install the **Git** panel appears in the workspace tab bar with no
 ## Features
 
 - **Overview** — branch / tag list, a searchable commit history graph, and commit details; click a file to see its diff in that commit.
-- **Changes** — stage and discard per file or in batches, commit and **Amend**, stash, and added·deleted statistics.
+- **Changes** — stage and discard per file or in batches, commit and **Amend**, stash, and added·deleted statistics. A pick carries the side it was made on: selecting only the staged row commits what the index already holds (no re-`git add` of unstaged hunks, so a partial `git add -p` survives), while selecting the working-tree row commits the whole file.
 - **Common Git actions** — switch branches, create and delete tags, revert / reset commits; destructive actions ask for confirmation, and nothing leaves the local repository or gets pushed automatically.
 - **AI commit-message suggestion** — follows the style of the repository's existing commits; the model follows the current session by default and can be pinned on the detail page. **Generation sends your diff content to the provider of the model you picked.**
 - **Input-bar Git marker** — a zsh-style `<repo> (<branch>)`, green when in sync and orange with uncommitted changes; a click jumps to the panel.

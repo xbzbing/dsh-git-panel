@@ -30,7 +30,14 @@ export const OVERLAY_ATTR = 'data-gp-overlay'
 
 /** Whether any overlay above the page is mounted right now. */
 export function hasOverlay(): boolean {
-  return typeof document !== 'undefined' && document.querySelector(`[${OVERLAY_ATTR}]`) !== null
+  return overlayDepth() > 0
+}
+
+/** How many overlays are mounted, bottom to top. A layer that owns Escape uses
+ * this to tell "I am the top" from "a dialog opened above me": with one layer
+ * the key is mine, with two it belongs to the one that opened last. */
+export function overlayDepth(): number {
+  return typeof document === 'undefined' ? 0 : document.querySelectorAll(`[${OVERLAY_ATTR}]`).length
 }
 
 export function useDialogFocus(
@@ -59,6 +66,11 @@ export function useDialogFocus(
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         if (!escape) return
+        // The find bar inside the dialog owns Escape while the caret is in it:
+        // closing the whole dialog on the same keystroke would throw away the
+        // reader's place. Not stopping propagation lets the bar's own handler
+        // (React, bubble phase) receive the key.
+        if (event.target instanceof Element && event.target.closest('.gp-find') !== null) return
         event.stopPropagation()
         closeRef.current()
         return

@@ -24,7 +24,7 @@ import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { useRowSlider } from './row-slider.js'
-import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, pickStageTargets, toggleGroupKeys } from './selection-keys.js'
+import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, pickStageTargets, sideOf, toggleGroupKeys } from './selection-keys.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
@@ -73,6 +73,11 @@ const VOVERSCAN = 8
 // Assumed viewport height before the first layout measurement, so the initial
 // paint mounts a bounded window instead of the whole list.
 const VIEWPORT_FALLBACK = 600
+// How long a row's discard button stays armed. The confirmation is a second
+// deliberate click, not a mode: a checkout that never changes never fires the
+// snapshot effect that would disarm it, so without a deadline an armed button
+// would wait indefinitely for a stray click.
+const DISCARD_ARM_MS = 4000
 
 type ListItem =
   | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean }; readonly items: readonly GitChange[] }
@@ -285,8 +290,16 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   }, [cramped, commitOpen])
 
   // Disarm a pending discard confirmation when the snapshot changes (the row
-  // may be gone) so the destructive "click again" state can't linger.
+  // may be gone) so the destructive "click again" state can't linger. The
+  // timeout covers the other half: a snapshot that keeps its fingerprint (an
+  // idle checkout) never fires the effect above, and an armed button left for
+  // hours must not execute on a stray click.
   useEffect(() => { setArmedDiscard(null) }, [snapshot])
+  useEffect(() => {
+    if (armedDiscard === null) return
+    const timer = setTimeout(() => setArmedDiscard(null), DISCARD_ARM_MS)
+    return () => clearTimeout(timer)
+  }, [armedDiscard])
   // Same for the suggest-overwrite confirmation: a fresh snapshot means the
   // message-in-box context may have moved on.
   useEffect(() => { setArmedSuggest(false) }, [snapshot])
@@ -341,9 +354,28 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const commit = async (): Promise<void> => {
     const text = message.trim()
     if (text === '' && !amend) { setError(t('error.emptyMessage')); return }
-    // Selection keys carry a :s/:w side suffix; commit works on bare paths.
-    const paths = selected.size > 0 ? [...new Set([...selected].map((k) => pathOfKey(k)))] : undefined
-    const ok = await run({ kind: 'commit', message: text, ...(paths ? { paths } : {}), ...(amend ? { amend: true } : {}) })
+    // Selection keys carry a :s/:w side suffix; commit works on bare paths. A
+    // path picked only on its staged side means "commit what is staged": staging
+    // it again would fold the unstaged hunks into the commit and undo a partial
+    // `git add -p`, so those paths are handed to the host as indexOnly. A
+    // working-tree pick (or both sides) covers the whole file either way.
+    const sides = new Map<string, { staged: boolean; worktree: boolean }>()
+    for (const key of selected) {
+      const path = pathOfKey(key)
+      const entry = sides.get(path) ?? { staged: false, worktree: false }
+      if (sideOf(key) === 's') entry.staged = true
+      else entry.worktree = true
+      sides.set(path, entry)
+    }
+    const paths = sides.size > 0 ? [...sides.keys()] : undefined
+    const indexOnly = [...sides].filter(([, s]) => s.staged && !s.worktree).map(([path]) => path)
+    const ok = await run({
+      kind: 'commit',
+      message: text,
+      ...(paths ? { paths } : {}),
+      ...(indexOnly.length > 0 ? { indexOnly } : {}),
+      ...(amend ? { amend: true } : {}),
+    })
     if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false); foldEditor() }
   }
 
@@ -699,9 +731,19 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
               onToggle: () => toggle(rowKey),
               onOpen: () => openDiff(c.path, base),
               onStage: () => void run(c.staged ? { kind: 'unstage', paths: [c.path] } : { kind: 'stage', paths: [c.path] }),
-              onDiscard: () => {
-                if (armedDiscard === rowKey) { void run({ kind: 'discard', paths: [c.path] }); setArmedDiscard(null) }
-                else setArmedDiscard(rowKey)
+              // Two presses confirm. A double click delivers its second press
+              // with `detail > 1` inside one gesture, and that press must not
+              // count as the confirmation — for an untracked path it deletes the
+              // file. A deliberate second click always reports detail 1.
+              onDiscard: (detail: number) => {
+                if (detail > 1) return false
+                if (armedDiscard === rowKey) {
+                  void run({ kind: 'discard', paths: [c.path] })
+                  setArmedDiscard(null)
+                  return false
+                }
+                setArmedDiscard(rowKey)
+                return true
               },
               tipProps,
               hideTip,
@@ -729,7 +771,12 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
             disabled: busy,
             onClick: () => {
               const next = !listExpanded
-              void (next ? expandList() : collapseList()).then(() => setListExpanded(next))
+              // The flag follows the promise, not the click: a failed expand
+              // must not leave the bar claiming the whole list is loaded (and
+              // the rejection must not surface as an unhandled one).
+              void (next ? expandList() : collapseList())
+                .then(() => setListExpanded(next))
+                .catch(() => setError(t('error.generic')))
             },
           }, t(listExpanded ? 'changes.collapseList' : 'changes.expandAll')),
       ])
@@ -781,6 +828,10 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       confirmLabel: t('stash.drop'),
       danger: true,
       error,
+      // A drop is unrecoverable: the dialog must stay (and keep its error line)
+      // until the write settles.
+      confirmBusy: busy,
+      busyLabel: t('stash.dropping'),
       onConfirm: () => void stashDropConfirmed(stashDrop.index, stashDrop.sha),
       onClose: () => setStashDrop(null),
       t,
@@ -876,19 +927,28 @@ interface StashPushCbs {
  * renderModalShell owns the SSR/portal guard, so this is a single component. */
 function StashPushModal({ onClose, onStash, error, t }: StashPushCbs): JSX.Element | null {
   const [message, setMessage] = useState('')
+  // The write settles only when the caller closes this dialog; until then a
+  // second Enter or a click on Save would push the same stash twice.
+  const [saving, setSaving] = useState(false)
+  const save = (): void => {
+    if (saving) return
+    setSaving(true)
+    void onStash(message)
+  }
   return renderModalShell({
     onClose, title: t('stash.title'), icon: h(StashIcon, { size: 15 }),
     portalKey: 'stash-push-modal', t,
+    ...(saving ? { busy: true } : {}),
     body: [
       h('input', {
         key: 'msg', className: 'gp-input', placeholder: t('stash.messagePlaceholder'), value: message, autoFocus: true,
         onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
-        onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') void onStash(message) },
+        onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') save() },
       }),
       renderAiHint(t),
       error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     ],
-    footer: renderModalFooter({ onClose, onConfirm: () => void onStash(message), confirmLabel: t('stash.save'), confirmDisabled: false, danger: false, t }),
+    footer: renderModalFooter({ onClose, onConfirm: save, confirmLabel: t('stash.save'), confirmDisabled: saving, danger: false, t }),
   })
 }
 
@@ -929,7 +989,9 @@ interface RowActions {
   onToggle: () => void
   onOpen: () => void
   onStage: () => void
-  onDiscard: () => void
+  /** Returns whether the press armed the confirmation (so the caller only
+   * raises the hint when it did). */
+  onDiscard: (detail: number) => boolean
   /** Hover explanation for the icon-only row buttons (see `tip.tsx`). */
   tipProps: (text: string) => Record<string, unknown>
   hideTip: () => void
@@ -971,9 +1033,11 @@ function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
         // instead of waiting for another hover; the second press executes.
         onClick: (e: Event) => {
           e.stopPropagation()
-          if (a.armed) { a.hideTip(); a.onDiscard(); return }
-          a.onDiscard()
-          a.showTipNow(e.currentTarget as HTMLElement, a.t('changes.discardTipArmed'))
+          const detail = (e as MouseEvent).detail ?? 1
+          if (a.armed) a.hideTip()
+          // The handler decides whether this press armed or executed; a
+          // double-click's second press is ignored there.
+          if (a.onDiscard(detail)) a.showTipNow(e.currentTarget as HTMLElement, a.t('changes.discardTipArmed'))
         },
       }, h('span', { 'aria-hidden': true }, h(TrashIcon, { size: 14 })))),
     ]),

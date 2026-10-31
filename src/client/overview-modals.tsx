@@ -62,6 +62,9 @@ interface ResetCbs {
   lostFiles: readonly string[]
   lostTotal: number
   lostTruncated: boolean
+  /** Whether any *tracked* change exists at all (from the snapshot's counts,
+   * which stay complete when the change list was truncated). */
+  lostAny: boolean
   busy: boolean
   error: string | null
   onReset: (mode: ResetMode) => void | Promise<void>
@@ -77,11 +80,15 @@ export function renderResetModal(target: { hash: string; shortHash: string; subj
   return h(ResetModal, { target, ...cb })
 }
 
-function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, busy, error, onReset, onClose, t }: ResetCbs & { target: { hash: string; shortHash: string; subject: string } }): JSX.Element | null {
+function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, lostAny, busy, error, onReset, onClose, t }: ResetCbs & { target: { hash: string; shortHash: string; subject: string } }): JSX.Element | null {
   const [mode, setMode] = useState<ResetMode>('mixed')
   const [ack, setAck] = useState(false)
   // Switching away from hard clears a stale acknowledgement.
   useEffect(() => { if (mode !== 'hard') setAck(false) }, [mode])
+  // So does a growing loss list: the acknowledgement was given for the set on
+  // screen, and another process (the dsh AI) may dirty more files while the
+  // dialog is open.
+  useEffect(() => { setAck(false) }, [lostTotal, lostFiles.length])
   const modes: Array<{ value: ResetMode; label: GitKey; hint: GitKey }> = [
     { value: 'mixed', label: 'reset.modeMixed', hint: 'reset.mixedHint' },
     { value: 'soft', label: 'reset.modeSoft', hint: 'reset.softHint' },
@@ -107,7 +114,10 @@ function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, 
       // Always state the orphaned-commit effect; list the uncommitted losses
       // only when there are any.
       mode === 'hard' ? h('div', { key: 'orphan', className: 'gp-reset__dirtywarn' }, t('reset.hardOrphan')) : null,
-      mode === 'hard' && lostTotal > 0 ? h('div', { key: 'lost', className: 'gp-reset__lost' }, [
+      // Shown when anything is lost OR the list itself was clipped: a truncated
+      // snapshot can keep only untracked entries (they sort first in the clipped
+      // tail), leaving lostTotal 0 while tracked changes are still at risk.
+      mode === 'hard' && (lostTotal > 0 || lostTruncated) ? h('div', { key: 'lost', className: 'gp-reset__lost' }, [
         h('div', { key: 'w', className: 'gp-reset__warn' }, t('reset.hardWarn')),
         h('ul', { key: 'ul', className: 'gp-reset__lostlist' }, [
           ...lostFiles.map((p) => h('li', { key: p, title: p }, p)),
@@ -117,12 +127,15 @@ function ResetModal({ target, from, dirty, lostFiles, lostTotal, lostTruncated, 
       // Ack wording tracks whether uncommitted work is actually at risk.
       mode === 'hard' ? h('label', { key: 'ack', className: 'gp-modal__check gp-reset__ack' }, [
         h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: ack, onChange: () => setAck((v) => !v) }),
-        t(lostTotal > 0 ? 'reset.hardAck' : 'reset.hardAckClean'),
+        t(lostAny ? 'reset.hardAck' : 'reset.hardAckClean'),
       ]) : null,
       dirty ? h('div', { key: 'dirty', className: 'gp-reset__dirtywarn' }, t('ops.dirtyWarn')) : null,
       renderAiHint(t),
       error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     ],
     footer: renderModalFooter({ onClose, onConfirm: () => void onReset(mode), confirmLabel: t('reset.confirm'), confirmDisabled, danger: mode === 'hard', t }),
+    // Mid-flight the dialog stays put: its error line only renders here, so
+    // dismissing it would swallow the reason the reset failed.
+    ...(busy ? { busy: true } : {}),
   })
 }
