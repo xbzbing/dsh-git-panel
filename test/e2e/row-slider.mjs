@@ -179,9 +179,17 @@ async function run(fontDelta) {
       refold = measure('.gp-col-left__scroll', '.gp-branch-row--active')
     }
 
-    // 2. The history list: picking a commit moves the fill.
+    // 2. The history list: picking a commit moves the fill. The list mounts only
+    // the rows near the viewport, so scroll to the intended depth first — which
+    // is also the case the fill has to survive (an anchor row that was off-screen
+    // before the scroll).
     const commitRows = () => [...document.querySelectorAll('.gp-panel .gp-history__list .gp-commit-row')]
-    commitRows()[picked].click()
+    const historyList = document.querySelector('.gp-panel .gp-history__list')
+    historyList.scrollTop = picked * 30
+    await wait(250)
+    const visible = commitRows()
+    if (visible.length === 0) throw new Error('the scrolled history window mounted no rows')
+    visible[Math.min(visible.length - 1, Math.floor(visible.length / 2))].click()
     await waitFor(() => document.querySelector('.gp-panel .gp-history__list .gp-commit-row--active'), 'the active commit')
     await wait(250)
     const history = measure('.gp-history__list', '.gp-commit-row--active')

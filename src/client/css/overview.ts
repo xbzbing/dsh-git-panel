@@ -75,6 +75,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* overscroll-behavior:contain keeps a wheel gesture that reaches the top/bottom
  * of the commit list from bubbling out and scrolling the whole conversation. */
 .gp-history__list{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.gp-history__vlist{position:relative;width:100%}
+.gp-history__vrow{position:absolute;left:0;right:0;box-sizing:border-box}
+.gp-history__vrow>.gp-commit-row{height:100%;box-sizing:border-box}
 .gp-commit-row{display:grid;align-items:center;gap:8px;height:30px;padding:0 10px;cursor:pointer;box-sizing:border-box}
 .gp-commit-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-commit-row--active,.gp-commit-row--active:hover{background:transparent}

@@ -3,14 +3,14 @@
  * compact bottom sheet. Split out of OverviewTab so the tree rendering and the
  * sheet's overlay contract sit in one place.
  */
-import { createElement as h } from 'react'
+import { createElement as h, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GitBranch } from './types.js'
 import type { GitKey } from './locales.js'
 import { BranchCurrentIcon, BranchIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, FolderIcon, TagIcon } from './icons.js'
 import type { BranchTreeNode } from './branch-tree.js'
-import { OVERLAY_ATTR } from './dialog-focus.js'
+import { OVERLAY_ATTR, useDialogFocus } from './dialog-focus.js'
 import { useRowSlider } from './row-slider.js'
 import type { BranchOption } from './branch-options.js'
 import type { BranchTree } from './overview-hooks.js'
@@ -172,6 +172,24 @@ export interface BranchSheetCbs extends BranchCbs {
  * button dismiss it. */
 export function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchSheetCbs, trees: BranchTrees, lead: JSX.Element | null): JSX.Element | null {
   if (typeof document === 'undefined') return null
+  return h(BranchSheet, { tree, treeError, activeRef, closed, cb, trees, lead })
+}
+
+/** The sheet body: a dialog component so the shared focus contract (initial
+ * focus, Tab confined to the sheet, focus restored on close) applies to it like
+ * every other overlay. Escape is the caller's (it knows whether a dialog opened
+ * on top). */
+function BranchSheet({ tree, treeError, activeRef, closed, cb, trees, lead }: {
+  tree: BranchTree | null
+  treeError: boolean
+  activeRef: string | null
+  closed: ReadonlySet<string>
+  cb: BranchSheetCbs
+  trees: BranchTrees
+  lead: JSX.Element | null
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useDialogFocus(ref, cb.onClose, undefined, undefined, false)
   const sheet = h('div', {
     className: 'gp-sheet-backdrop',
     // Declares its stacking identity like every other overlay, so a dialog
@@ -179,7 +197,7 @@ export function renderBranchSheet(tree: BranchTree | null, treeError: boolean, a
     // closes instead of both at once.
     [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) cb.onClose() },
-  }, h('div', { className: 'gp-sheet', role: 'dialog', 'aria-modal': true }, [
+  }, h('div', { ref, className: 'gp-sheet', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-sheet__bar' }, [
       h('span', { key: 'title', className: 'gp-sheet__title' }, cb.t('overview.filterBranch')),
       h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-sheet__close', title: cb.t('common.close'), 'aria-label': cb.t('common.close'), onClick: cb.onClose }, h(CloseIcon, { size: 15 })),

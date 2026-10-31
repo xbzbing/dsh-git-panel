@@ -152,7 +152,9 @@ export function useHistory(
   loading: boolean
   listError: boolean
   hasMore: boolean
-  listRef: React.RefObject<HTMLDivElement>
+  /** Mutable: the caller attaches the list node through a composing callback ref
+   * (the viewport tracker needs the same node), so the ref must be assignable. */
+  listRef: React.MutableRefObject<HTMLDivElement | null>
   loadMore: () => void
 } {
   // The layout policy travels with its data, so a pending toolbar filter cannot

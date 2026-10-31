@@ -35,6 +35,8 @@ import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 import { useRowSlider } from './row-slider.js'
+import { buildTops, windowRange } from './virtual-list.js'
+import { useViewportTracker } from './use-viewport.js'
 import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
@@ -752,9 +754,28 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
 
   // The history list shares its scroller with paging, so the fill borrows the
   // ref the list already owns instead of nesting another node (see row-slider.tsx).
+  // Only the rows near the viewport mount: the history grows by a page per
+  // scroll, and each row carries a commit-graph SVG, so a long session would
+  // otherwise hold every lane path of every commit in the DOM. The paging
+  // handler still reads the scroll box itself, and the row-slider fill measures
+  // against the same node.
+  const { setEl: trackList, viewport } = useViewportTracker()
+  const attachList = useCallback((el: HTMLDivElement | null): void => {
+    listRef.current = el
+    trackList(el)
+  }, [listRef, trackList])
+  const { tops, totalH } = useMemo(() => {
+    const heights = rows.map(() => rowH)
+    const all = buildTops(heights)
+    return { tops: all, totalH: all[rows.length]! }
+  }, [rows, rowH])
+  const historyWindow = windowRange(tops, viewport.top, viewport.height > 0 ? viewport.height : 600, rowH * 6)
+
   const commitSlider = useRowSlider({
     activeSelector: '.gp-commit-row--active',
-    deps: [selected?.hash ?? null, commits, compact, stacked],
+    // The mounted window is part of the inputs: the fill's anchor row can enter
+    // or leave the DOM as the window slides, and its offset must be re-measured.
+    deps: [selected?.hash ?? null, commits, compact, stacked, historyWindow.first, historyWindow.last],
     host: listRef,
   })
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
@@ -763,23 +784,27 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     // it; the tier that moves the column behind the drawer needs this line.
     stacked && tight ? h(RepoBar, { key: 'repobar', snapshot, t }) : null,
     h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),
-    h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll }, [
+    h('div', { key: 'list', className: 'gp-history__list', ref: attachList, onScroll }, [
       commitSlider.slider,
       commits.length === 0
         ? h('div', { key: 'empty', className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
-        : rows.map((row) => h(CommitRow, {
-          key: row.commit.hash,
-          row,
-          selected: selected?.hash === row.commit.hash,
-          // snapshot.head is Git's unique abbreviation; history uses full hashes.
-          current: !snapshot.unborn && snapshot.head !== null && snapshot.head !== '' && row.commit.hash.startsWith(snapshot.head),
-          gridTpl, laneCount, now, compact, stacked, rowH,
-          // Keyed by hash, not closed over the row: a fresh closure per row would
-          // defeat the memo and rebuild every row's graph on any hover.
-          onSelect: selectCommit,
-          onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
-          t,
-        })),
+        : h('div', { key: 'vlist', className: 'gp-history__vlist', style: { height: totalH } },
+          rows.slice(historyWindow.first, historyWindow.last).map((row, k) => h('div', {
+            key: row.commit.hash,
+            className: 'gp-history__vrow',
+            style: { top: tops[historyWindow.first + k], height: rowH },
+          }, h(CommitRow, {
+            row,
+            selected: selected?.hash === row.commit.hash,
+            // snapshot.head is Git's unique abbreviation; history uses full hashes.
+            current: !snapshot.unborn && snapshot.head !== null && snapshot.head !== '' && row.commit.hash.startsWith(snapshot.head),
+            gridTpl, laneCount, now, compact, stacked, rowH,
+            // Keyed by hash, not closed over the row: a fresh closure per row would
+            // defeat the memo and rebuild every row's graph on any hover.
+            onSelect: selectCommit,
+            onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
+            t,
+          })))),
     ]),
   ])
 
