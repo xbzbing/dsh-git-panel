@@ -70,3 +70,28 @@ jobs:
 
       - name: E2E tests
         run: npm run test:e2e
+
+  # Unit tests only: the e2e runners and the lint / typecheck gates do not
+  # depend on the host OS. The runner's token may create symlinks, so the
+  # unprivileged-Windows skip path is exercised locally, not here.
+  unit-windows:
+    name: unit (windows, node 24.x)
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      # Keep LF in the checkout: fixtures and goldens compare bytes.
+      - name: Git line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm run test:unit
