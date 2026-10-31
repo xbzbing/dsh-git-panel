@@ -70,8 +70,14 @@ test('the body of the shipped version pins that exact version on npm', () => {
   const { version } = JSON.parse(readFileSync(fileURLToPath(new URL('package.json', ROOT)), 'utf8'))
   const body = new URL(`docs/releases/v${version}.md`, ROOT)
   // A pre-release has no body: its page is the notice, and its install is the
-  // asset alone. Only a stable version ships notes that must match `package.json`.
-  if (!existsSync(body)) return
+  // asset alone. A *stable* version without one would silently pass this check
+  // (and only the release workflow would notice, after the gate), so the file is
+  // required for it.
+  if (/-/.test(version)) {
+    assert.equal(existsSync(body), false, `docs/releases/v${version}.md must not exist for a prerelease`)
+    return
+  }
+  assert.equal(existsSync(body), true, `docs/releases/v${version}.md is missing for the stable version ${version}`)
   const text = readFileSync(body, 'utf8')
   assert.ok(
     text.includes(`@xbzbing/dsh-git-panel@${version}`),

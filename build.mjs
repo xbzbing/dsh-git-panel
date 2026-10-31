@@ -1,6 +1,8 @@
 /**
- * dsh-git-panel build script (self-contained; run by hand before release, not
- * as an install-time lifecycle hook — the committed lib/ is the shipped tree).
+ * dsh-git-panel build script (self-contained; run by hand while developing and
+ * by the release workflow before packing — never as an install-time lifecycle
+ * hook. `lib/` is not committed: the artifacts this writes are what `npm pack`
+ * ships (docs/adr/0018).
  *
  * 1. Host half: tsc emits the `lib/host/*.d.ts` declarations (emitDeclarationOnly)
  *    and esbuild transpiles `src/host/*.ts` one file per module into
@@ -91,8 +93,8 @@ await esbuild.build({
 // ── Mermaid chunk: lazy package-local bundle ──────────────────────────────
 // Loaded only when a rendered Markdown document actually contains a mermaid
 // fence (`require.async('./client.mermaid.js')` → /plugins route serves this
-// file). Keeps ~1–2MB of mermaid out of the main client bundle; the chunk
-// registration mirrors the official document preview's lazy chunks.
+// file). Keeps mermaid (about 5 MB unpacked) out of the main client bundle; the
+// chunk registration mirrors the official document preview's lazy chunks.
 await esbuild.build({
   entryPoints: [resolve(ROOT, 'src/client/mermaid-chunk.ts')],
   bundle: true,

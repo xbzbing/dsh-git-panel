@@ -18,15 +18,23 @@ name: release
 # sits after the tag and before the stable Release — it is the only irreversible
 # step, and the version bar's "update available" prompt reads releases/latest,
 # which GitHub already excludes prereleases from server-side.
+#
+# Two jobs, on purpose. The gate installs devDependencies and runs their code
+# (`npm ci` scripts, eslint, the test suite), so it must not hold a token that
+# can push a tag or mint an OIDC identity: a compromised dependency there could
+# otherwise publish a version of this package with valid provenance. `gate` is
+# read-only and hands the built tarball to `release` as an artifact; `release`
+# executes no dependency code at all — it only tags, publishes that tarball and
+# writes the Release.
 on:
   push:
     branches: [main]
     paths: [package.json]
   workflow_dispatch:
 
+# Default for the whole workflow; `release` widens it for itself only.
 permissions:
-  contents: write   # push the release tag, create / edit the Release
-  id-token: write   # npm provenance / Trusted Publishing
+  contents: read
 
 # One release at a time; never cancel one halfway (npm publish is not
 # transactional with the tag or Release that follows it).
@@ -35,13 +43,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  gate:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # A manual run from a branch must not publish: the tag and the Release have
+    # to describe the commit that is on main.
+    if: github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v7
+      # No persisted credential: this job never pushes, and the token would
+      # otherwise sit in .git/config while dependency code runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24.x'
           cache: npm
@@ -57,12 +72,39 @@ jobs:
         run: |
           set -euo pipefail
           V=$(node -p "require('./package.json').version")
+          # The value reaches later steps through `env`, never pasted into a
+          # script: it decides a tag name and an npm package name.
+          if ! printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::package.json version '$V' is not a release version"
+            exit 1
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           case "$V" in
-            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
-            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+            *-*) PRE=true ;;
+            *)   PRE=false ;;
           esac
-          git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null 2>&1 && echo "tag=done" >> "$GITHUB_OUTPUT" || true
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          # Carried to the release job as an artifact: that job runs no checkout
+          # and must not have to guess the version back out of a file name.
+          printf 'V=%s\nPRERELEASE=%s\n' "$V" "$PRE" > release-state.env
+          # Authenticated even though the repository is public: the same script
+          # has to work for a private mirror, and a tag may be annotated (its ref
+          # then names a tag object, so the peeled `^{}` line is the commit).
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --tags "$REMOTE" "refs/tags/v$V" >/dev/null 2>&1; then
+            echo "tag=done" >> "$GITHUB_OUTPUT"
+            # The tag may be old (or moved): it has to name the commit being
+            # released, which is what the Release and the npm entry claim.
+            TAG_SHA=$(git ls-remote --tags "$REMOTE" "refs/tags/v$V^{}" "refs/tags/v$V" \
+              | grep -F "refs/tags/v$V" | grep -F '^{}' | cut -f1 | head -1)
+            if [ -z "$TAG_SHA" ]; then
+              TAG_SHA=$(git ls-remote --tags "$REMOTE" "refs/tags/v$V" | cut -f1 | head -1)
+            fi
+            if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+              echo "::error::tag v$V points at $TAG_SHA, not at the release commit $GITHUB_SHA"
+              exit 1
+            fi
+          fi
           gh release view "v$V" >/dev/null 2>&1 && echo "gh=done" >> "$GITHUB_OUTPUT" || true
           # npm only participates in formal releases; prereleases never
           # publish, so a stray npm hit would only confuse the skip logic.
@@ -79,13 +121,16 @@ jobs:
       # previous stable tag, so the rc period is covered exactly once.
       - id: notes
         name: Release notes
+        env:
+          V: ${{ steps.state.outputs.version }}
+          PRERELEASE: ${{ steps.state.outputs.prerelease }}
         run: |
           set -euo pipefail
-          V="${{ steps.state.outputs.version }}"
-          if [ "${{ steps.state.outputs.prerelease }}" = "true" ]; then
-            FILE="$RUNNER_TEMP/prerelease-notes.md"
+          # Both inputs live in the checkout; the artifact step below can only
+          # carry files from the workspace, so the body is staged there.
+          if [ "$PRERELEASE" = "true" ]; then
             # Drop the authoring comments: the body is published verbatim.
-            sed -e '/^<!--/,/-->/d' -e "s|<TAG>|v$V|g" -e "s|<VERSION>|$V|g" .github/PRERELEASE_BODY.md > "$FILE"
+            sed -e '/^<!--/,/-->/d' -e "s|<TAG>|v$V|g" -e "s|<VERSION>|$V|g" .github/PRERELEASE_BODY.md > release-notes.md
           else
             FILE="docs/releases/v$V.md"
             # The body ships with the release commit; a missing file must fail
@@ -94,14 +139,16 @@ jobs:
               echo "::error::$FILE is missing — write it from .github/RELEASE_TEMPLATE.md and commit it with the version bump"
               exit 1
             fi
+            cp "$FILE" release-notes.md
           fi
-          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          echo "file=release-notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Gate
         if: steps.state.outputs.npm != 'done' || steps.state.outputs.tag != 'done' || steps.state.outputs.gh != 'done'
+        env:
+          V: ${{ steps.state.outputs.version }}
         run: |
           set -euo pipefail
-          V="${{ steps.state.outputs.version }}"
           npm ci
           npx --no-install playwright-core install --with-deps chromium
           npm run check
@@ -109,15 +156,80 @@ jobs:
           mkdir -p pkg && tar -xzf "xbzbing-dsh-git-panel-$V.tgz" -C pkg
           node scripts/assert-pack.mjs pkg/package
 
-      - name: Tag
-        if: steps.state.outputs.tag != 'done'
+      # The tarball crosses the job boundary as an artifact: the publishing job
+      # then needs no checkout of the sources and no dependency install.
+      # Always uploaded: an idempotent rerun skips the gate, and the release job
+      # still needs the version and the body to decide there is nothing to do.
+      - name: Hand the tarball to the release job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-tarball
+          path: |
+            release-state.env
+            release-notes.md
+            xbzbing-dsh-git-panel-*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/main'
+    # The two capabilities the publish path needs, declared here and nowhere
+    # else: no dependency code runs in this job.
+    permissions:
+      contents: write   # push the release tag, create / edit the Release
+      id-token: write   # npm provenance / Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release-tarball
+
+      # Facts the gate already established, re-derived here so this job needs
+      # no checkout: which version, whether it is a prerelease, and what is
+      # still pending.
+      - id: state
+        name: Release state
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          V="${{ steps.state.outputs.version }}"
+          # shellcheck disable=SC1091
+          . ./release-state.env
+          if ! printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::release state carries no release version ('$V')"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          # The anchor is what the tag must name; the gate verified this before
+          # the artifact was built, and GITHUB_SHA is the same commit here.
+          if git ls-remote --exit-code --tags "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/v$V" >/dev/null 2>&1; then
+            echo "tag=done" >> "$GITHUB_OUTPUT"
+          fi
+          gh release view "v$V" >/dev/null 2>&1 && echo "gh=done" >> "$GITHUB_OUTPUT" || true
+          if [ "${V#*-}" = "$V" ]; then
+            npm view "@xbzbing/dsh-git-panel@$V" version >/dev/null 2>&1 && echo "npm=done" >> "$GITHUB_OUTPUT" || true
+          else
+            echo "npm=skipped" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tag
+        if: steps.state.outputs.tag != 'done'
+        env:
+          V: ${{ steps.state.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init --quiet tagname
+          cd tagname
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v$V" -m "v$V"
-          git push origin "refs/tags/v$V"
+          git fetch --quiet --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${GITHUB_SHA}"
+          git tag -a "v$V" -m "v$V" FETCH_HEAD
+          # The token rides in this one push's URL; nothing is persisted.
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/v$V"
 
       # Trusted Publishing (OIDC) is preferred; drop the secret and register
       # this workflow as a trusted publisher on npmjs.com. With the secret
@@ -127,33 +239,34 @@ jobs:
         if: steps.state.outputs.prerelease != 'true' && steps.state.outputs.npm != 'done'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          V: ${{ steps.state.outputs.version }}
         run: |
           set -euo pipefail
-          V="${{ steps.state.outputs.version }}"
           npm publish "xbzbing-dsh-git-panel-$V.tgz" --provenance --access public
 
       - name: GitHub Release
         if: steps.state.outputs.gh != 'done'
         env:
           GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.state.outputs.version }}
+          PRERELEASE: ${{ steps.state.outputs.prerelease }}
         run: |
           set -euo pipefail
-          V="${{ steps.state.outputs.version }}"
-          if [ "${{ steps.state.outputs.prerelease }}" = "true" ]; then
+          if [ "$PRERELEASE" = "true" ]; then
             CHANNEL=(--prerelease)
           else
             CHANNEL=(--latest)
           fi
           if gh release view "v$V" >/dev/null 2>&1; then
-            if [ "${{ steps.state.outputs.prerelease }}" = "true" ]; then
+            if [ "$PRERELEASE" = "true" ]; then
               # A pre-release body is authored by hand once the page exists
               # (docs/releases/ archives stable versions only), so a rerun must
               # not clobber it with the placeholder.
               gh release edit "v$V" --title "v$V" --prerelease
             else
-              gh release edit "v$V" --title "v$V" --notes-file "${{ steps.notes.outputs.file }}" --latest
+              gh release edit "v$V" --title "v$V" --notes-file release-notes.md --latest
             fi
           else
             gh release create "v$V" "xbzbing-dsh-git-panel-$V.tgz" \
-              --title "v$V" --notes-file "${{ steps.notes.outputs.file }}" --verify-tag "${CHANNEL[@]}"
+              --title "v$V" --notes-file release-notes.md --verify-tag "${CHANNEL[@]}"
           fi

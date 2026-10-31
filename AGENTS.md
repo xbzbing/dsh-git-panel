@@ -23,7 +23,7 @@ Client 半 (React bundle, lib/client.js)
         ▼
 Host 半 (Cordis + typert, lib/host)
   - GitPanelService（命名空间 gitPanel）
-        - snapshot / run / query / suggest / version 五个 @Remote 端点
+        - snapshot / run / query / suggest / version / openFile 六个 @Remote 端点
         │ subprocess 服务（argv 数组、无 shell、cwd 锁仓库根、超时+输出上限）
         │ suggest 端点另经宿主 llm 服务一次性生成提交信息
         ▼
@@ -146,7 +146,7 @@ npm run typecheck     # 类型检查
 
 ## 发布
 
-发布由 `.github/workflows/release.yml` 在「version bump 合入 main」时自动执行：完整门禁 → 打 tag →（仅正式版）发 npm → 建 GitHub Release 并附 `npm pack` 产物；**不要手工打 tag 或 publish**。操作细节不在此复制，看三个来源：
+发布由 `.github/workflows/release.yml` 在「version bump 合入 main」时自动执行：完整门禁 → 打 tag →（仅正式版）发 npm → 建 GitHub Release 并附 `npm pack` 产物；**不要手工打 tag 或 publish**。workflow 分成两个 job：`gate` 只读，跑 `npm ci` / 门禁 / `npm pack` / assert-pack 并把 tarball 作为 artifact 传出；`release` 拿 `contents: write` + `id-token: write`，只下载 artifact 后打 tag、publish、建 Release——**它不执行任何依赖代码**，否则一个被投毒的 devDependency 就能用合法 provenance 发出恶意版本。两个 job 都要求 `github.ref == 'refs/heads/main'`，tag 已存在时还要核对它指向当前发布提交；第三方 action 一律 pin 到 commit SHA。操作细节不在此复制，看三个来源：
 
 - **正文格式与流程命令**：`.github/RELEASE_TEMPLATE.md`（唯一格式来源，照它写，不要翻历史 release 反推）；预发布页面用 `.github/PRERELEASE_BODY.md` 固定说明。
 - **决策背景**：ADR-0018（分发渠道）、ADR-0019（发布流程）、ADR-0021（正文归档范围）。

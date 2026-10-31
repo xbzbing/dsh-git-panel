@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 /**
  * Asserts an unpacked `npm pack` tree carries everything the plugin needs to
- * load, and nothing that would run during install.
+ * load, nothing more than the manifest's `files` allows, and nothing that would
+ * run during install.
  *
  * The unit and e2e suites exercise `lib/` from the working tree, and both
  * rebuild before running — so neither can notice a `files` entry that dropped a
- * runtime artifact, or a lifecycle script that only exists to build one. This
- * script checks the artifact that actually ships (the same tree the `dist`
- * branch and the npm tarball receive), so such a mistake fails the release
- * instead of the user.
+ * runtime artifact, a wildcard that swept local build output into the package,
+ * or a lifecycle script that only exists to build one. This script checks the
+ * artifact that actually ships (the tree the release workflow packs and the npm
+ * tarball receives), so such a mistake fails the release instead of the user.
  *
  * Usage: node scripts/assert-pack.mjs <unpacked-package-dir>
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /** Lifecycle hooks that must never be present: DSH STORE and this project
  * refuse install-time scripts (see docs/adr/0003). */
@@ -42,6 +44,9 @@ const REQUIRED = [
   'LICENSE',
 ]
 
+/** Files npm always ships, whatever `files` says. */
+const ALWAYS = [/^package\.json$/, /^npm-shrinkwrap\.json$/, /^README(\..*)?$/i, /^LICEN[CS]E(\..*)?$/i, /^CHANGELOG(\..*)?$/i]
+
 const root = resolve(process.argv[2] ?? '')
 if (root === '' || !existsSync(root)) {
   console.error(`assert-pack: package directory not found: ${process.argv[2] ?? '(missing argument)'}`)
@@ -58,7 +63,9 @@ for (const file of REQUIRED) {
 // Every host source module must ship as a .js sibling. The build is one-file-per-
 // module (docs/adr/0004), so a missing sibling is a real import failure, not a
 // cosmetic gap.
-const hostSrc = resolve('src/host')
+// Resolved against this script, not the caller's cwd: a release step running
+// from another directory must not silently skip the module check.
+const hostSrc = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'host')
 if (existsSync(hostSrc)) {
   for (const name of readdirSync(hostSrc).filter((f) => f.endsWith('.ts'))) {
     const shipped = name.replace(/\.ts$/, '.js')
@@ -86,6 +93,34 @@ for (const hook of INSTALL_HOOKS) {
   if (manifest.scripts?.[hook] !== undefined) {
     problems.push(`install-time lifecycle script declared: scripts.${hook} — see docs/adr/0003`)
   }
+}
+
+// Nothing outside the manifest's `files` may ship. A `files` entry that widens
+// (or a stale one pointing at a directory that now holds build output) would
+// otherwise be packed silently: `npm pack` never complains about extra paths.
+const allowed = []
+for (const entry of manifest.files ?? []) {
+  const clean = String(entry).replace(/^\.\//, '').replace(/\/+$/, '')
+  if (clean === '') continue
+  // Only `*` inside one segment: enough for this manifest's shapes, and it
+  // cannot be tricked into matching across directories.
+  const pattern = new RegExp(`^${clean.split('*').map((part) => part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('[^/]*')}$`)
+  allowed.push({ dir: clean, pattern })
+}
+const extra = []
+const walk = (dir) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) { walk(full); continue }
+    const rel = relative(root, full).split('\\').join('/')
+    if (ALWAYS.some((re) => re.test(rel))) continue
+    const covered = allowed.some((a) => a.pattern.test(rel) || rel.startsWith(`${a.dir}/`))
+    if (!covered) extra.push(rel)
+  }
+}
+walk(root)
+if (extra.length > 0) {
+  problems.push(`packed paths the manifest's files does not allow: ${extra.slice(0, 12).join(', ')}${extra.length > 12 ? ` (+${extra.length - 12} more)` : ''}`)
 }
 
 if (problems.length > 0) {
