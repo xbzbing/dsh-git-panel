@@ -41,6 +41,10 @@ const RUNNERS = [
   // under its 34% cap, and inside the tight drawer — which must stay open
   // across a switch made from within it.
   'stacked-repos',
+  // The travelling fill behind an active row: every list that hosts it must
+  // position it against its own scroller — a missing `position: relative`
+  // walks the fill up to the panel — so each host is driven and measured here.
+  'row-slider',
   // Served over http://127.0.0.1 so the loopback (local instance) branch of the
   // heavy-preview dialog is exercised; the file:// runners only see the remote one.
   'local-open',

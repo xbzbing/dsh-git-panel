@@ -101,7 +101,8 @@ async function mount(repos, action, options = {}) {
     : SNAP
   // A non-zero poll makes fresh snapshots arrive on their own — the way the
   // config form's resync delivers a flipped switch to the panel.
-  const snapUsed = options.pollMs === undefined ? snap : { ...snap, refreshIntervalMs: options.pollMs }
+  const polled = options.pollMs === undefined ? snap : { ...snap, refreshIntervalMs: options.pollMs }
+  const snapUsed = options.foldOnPick === true ? { ...polled, collapseReposOnPick: true } : polled
   const scene = options.scene || 'scene'
   const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn }) => {
     const React = window.React
@@ -257,7 +258,7 @@ async function mount(repos, action, options = {}) {
     }
     // A collapsed list is not on screen: every pick expands the block first.
     const expandRepos = async () => {
-      const btn = document.querySelector('.gp-panel .gp-repolist__collapse')
+      const btn = document.querySelector('.gp-panel .gp-repolist__head')
       if (btn !== null && btn.getAttribute('aria-expanded') === 'false') {
         btn.click()
         await wait(250)
@@ -266,7 +267,7 @@ async function mount(repos, action, options = {}) {
     // The head line: toggle state and, while collapsed, the checkout it names.
     const headInfo = () => {
       const list = visibleList() ?? document.querySelector('.gp-panel .gp-repolist')
-      const btn = list === null ? null : list.querySelector('.gp-repolist__collapse')
+      const btn = list === null ? null : list.querySelector('.gp-repolist__head')
       const chip = list === null ? null : list.querySelector('.gp-repolist__selected')
       return {
         present: btn !== null,
@@ -394,7 +395,7 @@ async function mount(repos, action, options = {}) {
       await wait(250)
     }
     const expandSheetRepos = async () => {
-      const btn = document.querySelector('.gp-sheet .gp-repolist__collapse')
+      const btn = document.querySelector('.gp-sheet .gp-repolist__head')
       if (btn !== null && btn.getAttribute('aria-expanded') === 'false') {
         btn.click()
         await wait(250)
@@ -415,7 +416,7 @@ async function mount(repos, action, options = {}) {
         ? null
         : { width: indicator.getBoundingClientRect().width, track: track.getBoundingClientRect().width }
       await openSheet()
-      const head = sheetList()?.querySelector('.gp-repolist__collapse') ?? null
+      const head = sheetList()?.querySelector('.gp-repolist__head') ?? null
       observed.sheet = {
         open: document.querySelector('.gp-sheet') !== null,
         listPresent: sheetList() !== null,
@@ -432,7 +433,7 @@ async function mount(repos, action, options = {}) {
       observed.afterPick = {
         activeTab: activeTabLabel(),
         sheetOpen: document.querySelector('.gp-sheet') !== null,
-        collapsed: document.querySelector('.gp-sheet .gp-repolist__collapse')?.getAttribute('aria-expanded') === 'false',
+        collapsed: document.querySelector('.gp-sheet .gp-repolist__head')?.getAttribute('aria-expanded') === 'false',
         selected: textOf(document.querySelector('.gp-sheet .gp-repolist') ?? document.body, '.gp-repolist__selected'),
         calls: calls.slice(mark),
       }
@@ -588,6 +589,24 @@ async function mount(repos, action, options = {}) {
       observed.statusPathCopiedClass = document.querySelector('.gp-panel .gp-files__status-path')?.classList.contains('gp-files__status-path--copied') ?? false
       return { observed, calls }
     }
+    if (action === 'fold-on-pick') {
+      // collapseReposOnPick is on: a pick folds the block, a repeat pick of
+      // the checkout in use is no switch and leaves it open.
+      if (activeTabLabel() !== 'tab.overview') {
+        clickTab('tab.overview')
+        await wait(300)
+      }
+      await expandRepos()
+      observed.opened = headInfo()
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      observed.afterPick = { head: headInfo(), rows: listRows() }
+      await expandRepos()
+      pickRow('.gp-repolist__item', 'site')
+      await wait(300)
+      observed.afterRepeat = headInfo()
+      return { observed, calls }
+    }
     if (action === 'probe') {
       // The switch flips mid-run: the next polled snapshot carries the flag and
       // the list re-answers itself — no page switch, no reload.
@@ -642,7 +661,7 @@ async function mount(repos, action, options = {}) {
       }
       // A pick from this column must not navigate away: the same list lives
       // here, so the switch happens in place on the changes page.
-      const collapse = visibleList()?.querySelector('.gp-repolist__collapse')
+      const collapse = visibleList()?.querySelector('.gp-repolist__head')
       if (collapse !== null && collapse !== undefined && collapse.getAttribute('aria-expanded') === 'true') {
         collapse.click()
         await wait(200)
@@ -920,8 +939,22 @@ async function mount(repos, action, options = {}) {
     // A cwd without a checkout of its own lists no workspace row to return to;
     // the pick is the last step there.
     if (listRows().some((row) => row.name === 'fixture-repo')) {
+      // The workspace was read moments ago, so the way back replays its sample:
+      // no dimming while the calibrating read is parked, and no sub-query until
+      // that read lands.
       mark = calls.length
+      fixture.holdSnapshot = true
+      // Any frame of dimming counts, not only the state 250 ms later.
+      let dimmed = false
+      const panelNode = document.querySelector('.gp-panel')
+      const watch = new MutationObserver(() => { if (switchingNow()) dimmed = true })
+      watch.observe(panelNode, { attributes: true, attributeFilter: ['data-repo-switching'] })
       pickRow('.gp-repolist__item', 'fixture-repo')
+      await wait(250)
+      watch.disconnect()
+      observed.backDuring = { switching: dimmed || switchingNow(), rows: listRows(), calls: calls.slice(mark) }
+      if (typeof fixture.releaseSnapshot === 'function') fixture.releaseSnapshot()
+      fixture.holdSnapshot = false
       await wait(600)
       observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
     }
@@ -1045,13 +1078,16 @@ const failures = []
     assert.equal(seen.afterNested.inLeftColumn, true, 'the list stays on screen while the panes reload')
     assert.equal(seen.afterNested.switching, false, 'the badge clears once the new sample lands')
     assert.deepEqual(seen.afterNested.rows.map((row) => row.active), [false, true, false], 'the list marks the checkout the panes act on')
-    assert.equal(seen.afterNested.head.expanded, false, 'the pick retires the block: the column goes back to the tree')
+    assert.equal(seen.afterNested.head.expanded, true, 'the pick leaves the block open: the next switch stays one click away')
     assert.ok(nestedCalls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the switch refetched a snapshot')
     // The scan answers "which repositories does this cwd offer", not "which one
     // is picked": a switch must not walk the tree again for an answer that has
     // already arrived.
     assert.equal(nestedCalls.filter((call) => call.kind === 'repo-list').length, 0, 'a switch does not re-scan the workspace')
     assert.ok(scoped(nestedCalls).every((call) => call.repo === 'site'), 'every repository-scoped request carries the picked checkout: ' + JSON.stringify(nestedCalls))
+    assert.equal(seen.backDuring.switching, false, 'a checkout read moments ago turns the page without dimming')
+    assert.equal(seen.backDuring.rows[0].active, true, 'the replayed sample checks the workspace row at once')
+    assert.deepEqual(scoped(seen.backDuring.calls).map((call) => call.endpoint), ['gitPanel/snapshot'], 'the replay starts no sub-query before the calibrating sample lands: ' + JSON.stringify(seen.backDuring.calls))
     assert.equal(seen.afterBack.activeTab, 'tab.overview', 'switching back stays on the overview')
     assert.deepEqual(seen.afterBack.rows.map((row) => row.active), [true, false, false], 'and marks the workspace checkout again')
     assert.ok(scoped(seen.afterBack.calls).some((call) => call.endpoint === 'gitPanel/snapshot'), 'the way back samples the workspace again: ' + JSON.stringify(seen.afterBack.calls))
@@ -1165,8 +1201,8 @@ const failures = []
     assert.deepEqual(seen.sheet.rows.map((row) => row.active), [true, false], 'the workspace checkout starts checked')
     assert.equal(seen.afterPick.activeTab, 'tab.overviewShort', 'a pick stays on the overview')
     assert.equal(seen.afterPick.sheetOpen, true, 'and leaves the sheet open, like the stacked drawer')
-    assert.equal(seen.afterPick.collapsed, true, 'the pick retires the block to its head line')
-    assert.equal(seen.afterPick.selected, 'site', 'which names the picked checkout')
+    assert.equal(seen.afterPick.collapsed, false, 'the pick leaves the block open for the next switch')
+    assert.equal(seen.afterPick.selected, '', 'an open block names the pick by the checked row, not by a collapsed chip')
     assert.deepEqual(seen.afterPick.rows.map((row) => row.active), [false, true], 'and marks it')
     // `repo-list` is the one query that spans the whole workspace, so it stays
     // untagged; everything else has to follow the pick.
@@ -1330,6 +1366,25 @@ const failures = []
   }
 }
 
+// 9b. The collapseReposOnPick setting folds the block on a pick, handing the
+// column back to the branch tree; the default (scene 3) leaves it open.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'fold-on-pick', { foldOnPick: true, scene: 'S9b' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.opened.expanded, true, 'the toggle expands the block')
+    assert.deepEqual(seen.afterPick.rows.map((row) => row.active), [false, true], 'the pick switched checkouts')
+    assert.equal(seen.afterPick.head.expanded, false, 'the setting folds the block after a pick')
+    assert.equal(seen.afterPick.head.selected, 'site', 'the folded head names the picked checkout')
+    assert.equal(seen.afterRepeat.expanded, true, 'picking the checkout in use is no switch and leaves the block open')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('fold-on-pick observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
 // 10. The changes column docks the same repository list as the overview: one
 // block, one collapse state, the same rows, and a pick from it switches in
 // place without navigating to the overview (the compact copy is asserted in
@@ -1355,7 +1410,7 @@ const failures = []
     assert.equal(seen.changesBar.afterPick.activeTab, 'tab.changes', 'a pick from the changes column stays on the changes page')
     assert.equal(seen.changesBar.afterPick.switching, false, 'and the switch completes there')
     assert.ok(seen.changesBar.afterPick.scoped.some((call) => call.repo === 'site'), 'the pick reached the wire tagged with the new checkout')
-    assert.equal(seen.changesBar.afterPick.expanded, false, 'and the pick collapses the block it came from')
+    assert.equal(seen.changesBar.afterPick.expanded, true, 'and the pick leaves the block it came from open')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('changes-bar observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))

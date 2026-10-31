@@ -231,7 +231,7 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.dirRowAriaExpanded, true, 'the expanded directory row reports aria-expanded (the hint row itself carries no state)')
   assert.equal(out.filesCodeShown, true, 'selecting a text file shows the code preview')
   assert.equal(out.txtRowSelected, true, 'the selected file row carries the active class')
-  assert.equal(out.selectionStyled, true, 'the active file row has a distinct primary-tinted highlight')
+  assert.equal(out.selectionStyled, true, 'the travelling fill carries the primary-tinted highlight (shared --gp-select-* token)')
   assert.equal(out.officialCodeHighlight, true, 'code preview renders syntax spans from the DSH highlighter')
   assert.equal(out.codeIconPath, 'src/index.ts', 'code file glyph receives its relative path for official type classification')
   assert.equal(out.filesRefreshShown, true, 'a refresh control sits in the status bar above the file tree')

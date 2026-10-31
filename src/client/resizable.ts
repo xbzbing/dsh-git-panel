@@ -40,6 +40,8 @@ interface ResizableOptions {
   /** Which edge of the resized column the divider sits on: 'end' = right edge
    * (drag right grows it), 'start' = left edge (drag right shrinks it). */
   readonly edge: 'start' | 'end'
+  /** Hover hint spelling out the double-click reset. */
+  readonly resetTitle?: string
 }
 
 /** Returns the current column width and the divider element to render. */
@@ -85,13 +87,22 @@ export function useResizableColumn(opts: ResizableOptions): { width: number; div
     }
   }, [edge, min, storageKey])
 
+  // Double-click restores the default width — the divider is a 5px hairline, so
+  // the gesture has to be discoverable: the title spells it out on hover.
+  const onDoubleClick = useCallback(() => {
+    setWidth(initial)
+    write(storageKey, initial)
+  }, [initial, storageKey])
+
   const divider = h('div', {
     key: `rz-${storageKey}`,
     ref,
     className: 'gp-resizer',
     role: 'separator',
     'aria-orientation': 'vertical',
+    title: opts.resetTitle,
     onPointerDown,
+    onDoubleClick,
   })
   return { width, divider }
 }
@@ -133,7 +144,14 @@ function setSplitValue(next: number): void {
  * props (they are plain descriptors), and a drag in one updates every mounted
  * surface through the shared store. The ratio persists across remounts.
  */
-export function useStackedSplit(): { pct: number; dividerProps: { onPointerDown: (e: { clientY: number; preventDefault: () => void; currentTarget: EventTarget | null }) => void } } {
+export function useStackedSplit(splitResetTitle?: string): {
+  pct: number
+  dividerProps: {
+    onPointerDown: (e: { clientY: number; preventDefault: () => void; currentTarget: EventTarget | null }) => void
+    onDoubleClick: () => void
+    title?: string
+  }
+} {
   const [pct, setPct] = useState<number>(() => splitValue())
   useEffect(() => {
     const listener = (next: number): void => setPct(next)
@@ -172,5 +190,16 @@ export function useStackedSplit(): { pct: number; dividerProps: { onPointerDown:
     window.addEventListener('pointerup', up)
   }, [])
 
-  return { pct, dividerProps: { onPointerDown } }
+  // Double-click restores the default band split, the same gesture (and the
+  // same wording, supplied by the caller) as the column dividers.
+  const onDoubleClick = useCallback(() => {
+    setSplitValue(SPLIT_INITIAL)
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(SPLIT_KEY, String(SPLIT_INITIAL))
+    } catch {
+      /* storage unavailable — the ratio just won't persist */
+    }
+  }, [])
+
+  return { pct, dividerProps: { onPointerDown, onDoubleClick, ...(splitResetTitle === undefined ? {} : { title: splitResetTitle }) } }
 }

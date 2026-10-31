@@ -27,28 +27,31 @@ export function ChangeStats({ stats, compact = false, showTimes = true, t }: Sta
   const { tipProps, tipNode } = useHoverTip({ placement: 'below', maxWidth: 280 })
 
   const items: JSX.Element[] = [
-    h('span', { key: 'files', className: 'gp-stats__item' }, t('stats.files', { n: stats.fileCount })),
-    h('span', { key: 'lines', className: 'gp-stats__item' }, [
+    h('span', { key: 'files', className: 'gp-stats__item gp-stats__chip' }, t('stats.files', { n: stats.fileCount })),
+    h('span', { key: 'lines', className: 'gp-stats__item gp-stats__chip' }, [
       h('span', { key: 'a', className: 'gp-stats__add' }, `+${stats.insertions}`),
       ' ',
       h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${stats.deletions}`),
     ]),
   ]
-  if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item' }, t('stats.staged', { n: stats.staged })))
-  if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item' }, t('stats.modified', { n: stats.modified })))
-  if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item' }, t('stats.untracked', { n: stats.untracked })))
+  // Each state count is a chip tinted with that state's colour, so the bar
+  // reads at a glance instead of parsing labels.
+  if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item gp-stats__chip gp-stats__item--staged' }, t('stats.staged', { n: stats.staged })))
+  if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item gp-stats__chip gp-stats__item--modified' }, t('stats.modified', { n: stats.modified })))
+  if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item gp-stats__chip gp-stats__item--untracked' }, t('stats.untracked', { n: stats.untracked })))
   // On a very large change set the host skips the per-file line/mtime fan-outs
   // (issue #16); flag that the "+/-" count omits untracked lines so it isn't
   // read as exact. The hint rides the shared fast tip, not a native title.
   if (stats.partial) items.push(h('span', {
-    key: 'partial', className: 'gp-stats__item gp-stats__partial',
+    key: 'partial', className: 'gp-stats__item gp-stats__chip gp-stats__chip--quiet gp-stats__partial',
     'aria-label': t('stats.partial'),
     ...tipProps(t('stats.partialHint')),
   }, t('stats.partial')))
 
   // The two timestamps live in one wrap-together group so they always share a
-  // line instead of the last-commit time dropping to its own row. Absolute
-  // times are secondary detail on hover — the native title delay is fine here.
+  // line instead of the last-commit time dropping to its own row. They stay
+  // plain text, apart from the count chips. Absolute times are secondary detail
+  // on hover — the native title delay is fine here.
   const times: JSX.Element[] = []
   if (stats.lastChangeAt !== null) {
     times.push(h('span', { key: 'lc', className: 'gp-stats__item', title: absoluteTime(stats.lastChangeAt) }, t('stats.lastChange', { time: timeAgo(stats.lastChangeAt, now, t) })))

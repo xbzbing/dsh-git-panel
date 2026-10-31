@@ -72,3 +72,15 @@ test('inner business failure is returned as-is', async () => {
   assert.equal(res.ok, false)
   assert.equal(res.error.code, 'invalid-name')
 })
+
+test('an aborted call → cancelled, not git-unavailable', async () => {
+  const remote = gitPanelRemoteOf(ctxWith(async (_channel, _endpoint, _payload, signal) => {
+    await new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))))
+  }))
+  const abort = new AbortController()
+  const pending = remote.snapshot({ sessionId: 's' }, abort.signal)
+  abort.abort()
+  const res = await pending
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'cancelled')
+})

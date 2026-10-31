@@ -23,6 +23,7 @@ import { inertAttr } from './inert.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
+import { useRowSlider } from './row-slider.js'
 import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, pickStageTargets, toggleGroupKeys } from './selection-keys.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { TipWrapper, useHoverTip } from './tip.js'
@@ -205,6 +206,15 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // slides, or a snapshot refresh replaces the list — so drop the bubble with
   // whichever of those moved.
   useEffect(() => { hideTip() }, [first, last, snapshot, hideTip])
+
+  // The fill travels between files (see row-slider.tsx). The list is
+  // virtualized, so the mounted window is part of what can move the row.
+  const { attach: attachSlider, slider: rowSliderNode } = useRowSlider({ activeSelector: '.gp-file-row--active', deps: [diffPath, items, first, last] })
+  // Two owners need the scroller: the paging observer and the fill's measuring.
+  const listNode = useCallback((node: HTMLDivElement | null) => {
+    attachSlider(node)
+    setListEl(node)
+  }, [attachSlider, setListEl])
 
   // Prune selection to living paths (avoid a stale path aborting a commit).
   // Selection keys are `path:s`/`path:w`; a key survives only if a change with
@@ -445,10 +455,10 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
 
   // The left change-list column is drag-resizable; the right diff column takes
   // the rest. Width persists across mounts.
-  const leftCol = useResizableColumn({ storageKey: 'gp.changes.left', initial: 380, min: 220, reserve: 200, edge: 'end' })
+  const leftCol = useResizableColumn({ storageKey: 'gp.changes.left', initial: 380, min: 220, reserve: 200, edge: 'end', resetTitle: t('resizer.resetWidth') })
   // Stacked only reads it here (hooks run unconditionally); the shared split
   // keeps this tab's bands aligned with the overview and files tabs.
-  const split = useStackedSplit()
+  const split = useStackedSplit(t('resizer.resetHeight'))
 
   // Open a file's diff; in compact drill into the diff pane.
   const openDiff = (path: string, base: 'worktree' | 'staged'): void => {
@@ -620,7 +630,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     snapshot.truncated && !dismissedNotices.isDismissed(truncatedNotice)
       ? h(NoticeBar, { key: 'truncated', status: true, text: truncatedNotice, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(truncatedNotice) })
       : null,
-    h('div', { key: 'list', className: 'gp-changes__list', ref: setListEl },
+    h('div', { key: 'list', className: 'gp-changes__list', ref: listNode }, [
+      rowSliderNode,
       snapshot.changes.length === 0
         ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
         : h('div', { className: 'gp-changes__vlist', style: { height: totalH } },
@@ -697,7 +708,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
               showTipNow,
               t,
             }))
-          }))),
+          })),
+    ]),
     // Truncation control: expand lifts the host list cap (fullChanges mode,
     // kept for the controller's lifetime so the next poll does not re-truncate
     // and prune the selection); collapse returns to the capped poll. While

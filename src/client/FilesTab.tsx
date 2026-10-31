@@ -27,6 +27,7 @@ import { formatBytes } from './bytes.js'
 import { renderModalShell } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
 import { inertAttr } from './inert.js'
+import { useRowSlider } from './row-slider.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { useHtmlPreview } from './use-html-preview.js'
 import { MermaidFigure } from './MermaidFigure.js'
@@ -277,10 +278,10 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     }
   }, [])
 
-  const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
+  const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end', resetTitle: t('resizer.resetWidth') })
   // Stacked only reads it here (hooks run unconditionally); the shared split
   // keeps this tab's bands aligned with the overview and changes tabs.
-  const split = useStackedSplit()
+  const split = useStackedSplit(t('resizer.resetHeight'))
 
   // Listing of one directory. `force` re-reads a directory that is already
   // listed, keeping its current entries mounted until the new listing lands;
@@ -588,6 +589,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     refreshButton,
   ])
 
+  // The entry rows share the panel's travelling fill (see row-slider.tsx); the
+  // tree is rebuilt on every fold and every directory load, hence the deps.
+  const treeSlider = useRowSlider({ activeSelector: '.gp-files__entry.gp-tree-row--active', deps: [selected, treeRows] })
   const treeBlock = h('div', {
     key: 'left', className: 'gp-files__tree-wrap',
     // Stacked takes the shared top/bottom split; only the wide row layout
@@ -598,7 +602,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     // The header leads in DOM order (keyboard users reach it before the entry
     // rows) and sits outside the scrolling child, so it stays put.
     statusBar,
-    h('div', { key: 'tree', className: 'gp-files__tree' }, treeRows),
+    h('div', { key: 'tree', className: 'gp-files__tree', ref: treeSlider.ref }, [treeSlider.slider, treeRows]),
   ])
 
   const richPreview = file.kind === 'text' && isRichPath(file.path)

@@ -25,6 +25,8 @@ import type { RepoChoice, RepoGroup } from './repo-list.js'
 import { repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from './repo-list.js'
 import { repoTipContent } from './repo-tip.js'
 import { useCopyFeedback } from './copy-feedback.js'
+import { useRowSlider } from './row-slider.js'
+import { inertAttr } from './inert.js'
 import { useHoverTip } from './tip.js'
 import { rtlPathText } from './rtl-path.js'
 import type { GitSnapshot } from './types.js'
@@ -62,6 +64,17 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // One checkout is not a choice: a single row would only repeat the pill, and
   // the branch tree below already names it.
   const listId = useId()
+  // The checked row's fill is one block that travels from the old row to the
+  // new one instead of two rows swapping colours in a single frame: the block
+  // is measured from the checked row after every render that can move it, and
+  // the rows keep no fill of their own (see css/repos.ts). The first paint is
+  // placed without a transition — arriving at a pane must not animate from a
+  // stale position.
+  const { ref: listBox, slider } = useRowSlider({
+    activeSelector: '.gp-repolist__item--active',
+    deps: [current, choices, collapsed],
+    collapsed,
+  })
   // The block's path line: the absolute root of the checkout the panes act on,
   // click-to-copy with the shared 1.6 s feedback.
   const currentChoice = choices.find((choice) => choice.path === current)
@@ -142,8 +155,8 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
 
   // One group keeps today's flat markup: the header would only restate the
   // block's own title. Two groups buy the separator, each with its count.
-  const list = grouped
-    ? h('div', { key: 'list', id: listId, className: 'gp-repolist__list', hidden: collapsed || undefined }, groups.map((group) =>
+  const rowGroups = grouped
+    ? h('div', { key: 'groups', className: 'gp-repolist__groups' }, groups.map((group) =>
       h('div', { key: group.key, className: 'gp-repolist__group', role: 'group', 'aria-label': groupTitle(group) }, [
         h('div', { key: 'hd', className: 'gp-repolist__grouphd' }, [
           h('span', { key: 'title', className: 'gp-repolist__grouptitle' }, groupTitle(group)),
@@ -156,7 +169,12 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
         ]),
         h('ul', { key: 'rows', className: 'gp-repolist__rows', role: 'list', 'aria-label': groupTitle(group) }, group.items.map(row)),
       ])))
-    : h('ul', { key: 'list', id: listId, className: 'gp-repolist__list', role: 'list', 'aria-label': t('tab.repos'), hidden: collapsed || undefined }, choices.map(row))
+    : h('ul', { key: 'rows', className: 'gp-repolist__rows', role: 'list', 'aria-label': t('tab.repos') }, choices.map(row))
+
+  // The scroll container also anchors the travelling fill: the slider is its
+  // first child, absolutely placed, so it scrolls with the rows and its
+  // bounds always sit in the scrolled content.
+  const list = h('div', { key: 'list', id: listId, className: 'gp-repolist__list', ref: listBox }, [slider, rowGroups])
 
   // While collapsed the head names the checkout the panes act on: its label
   // shrinks to a repository icon so the selected chip keeps the width, with
@@ -164,43 +182,64 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   const selectedLabel = currentChoice === undefined ? null : repoLabel(currentChoice)
   const selectedTitle = currentChoice === undefined || currentChoice.root === '' ? selectedLabel : currentChoice.root
 
-  return h('div', { className: 'gp-repolist' }, [
-    h('div', { key: 'head', className: 'gp-repolist__head' }, [
-      h('span', {
-        key: 'label',
-        className: collapsed ? 'gp-repolist__label gp-repolist__label--ic' : 'gp-repolist__label',
-        ...(collapsed ? { role: 'img', 'aria-label': t('tab.repos') } : {}),
-      }, collapsed ? h(RepoIcon, { size: 14 }) : t('tab.repos')),
-      h('span', {
-        key: 'n',
-        className: 'gp-repolist__badge',
-        ...(disabledCount > 0 ? { role: 'img', 'aria-label': t('repos.countAria', { n: choices.length - disabledCount, m: choices.length }) } : {}),
-      }, disabledCount > 0 ? `${choices.length - disabledCount}/${choices.length}` : String(choices.length)),
-      collapsed && selectedLabel !== null && selectedLabel !== ''
-        ? h('span', { key: 'sel', className: 'gp-repolist__selected', ...tip.tipProps(selectedTitle ?? '') }, selectedLabel)
-        : null,
-      // The block collapses to its head line: a permanent worktree family
-      // would otherwise hold a third of the left column forever.
-      onToggleCollapse !== undefined
-        ? h('button', {
-          key: 'collapse',
-          type: 'button',
-          className: 'gp-repolist__collapse',
-          'aria-expanded': collapsed ? 'false' : 'true',
-          'aria-controls': listId,
-          'aria-label': collapsed ? t('repos.expand') : t('repos.collapse'),
-          title: collapsed ? t('repos.expand') : t('repos.collapse'),
-          onClick: onToggleCollapse,
-        }, h(ChevronIcon, { size: 14, open: !collapsed }))
-        : null,
-    ]),
-    // The current checkout's absolute path, click-to-copy with ✓ for 1.6 s.
-    // Hidden while collapsed. The body elides from the left (direction:rtl
-    // keeps the tail); an invisible LRM anchors the leading '/' so the
-    // ellipsis swallows it together with the head instead of pinning it.
-    rootPath === null
+  // The whole head line is the toggle: an 18px chevron is a poor hit target on
+  // a touch panel, and the line already belongs to this block. The chevron is
+  // an indicator now. Collapsing stays explicit — a pick never folds the list
+  // the user is switching in.
+  const toggleLabel = collapsed ? t('repos.expand') : t('repos.collapse')
+  // A label that only names the action hides the block's own words (its name,
+  // the count, and the collapsed checkout chip) from a screen reader. Composed
+  // from keys that are already translated instead of a new string that would
+  // need all eight locales for one sentence.
+  const countLabel = disabledCount > 0
+    ? t('repos.countAria', { n: choices.length - disabledCount, m: choices.length })
+    : String(choices.length)
+  const headLabel = selectedLabel === null || selectedLabel === ''
+    ? `${toggleLabel}: ${t('tab.repos')} (${countLabel})`
+    : `${toggleLabel}: ${t('tab.repos')} (${countLabel}) ${selectedLabel}`
+  // While collapsed the head carries the checkout's absolute path as its hint;
+  // expanded, the path line below states it outright and needs no tip.
+  const headTip = collapsed && selectedTitle !== null ? tip.tipProps(selectedTitle) : undefined
+  const headChildren: (JSX.Element | null)[] = [
+    h('span', {
+      key: 'label',
+      className: collapsed ? 'gp-repolist__label gp-repolist__label--ic' : 'gp-repolist__label',
+      ...(collapsed ? { role: 'img', 'aria-label': t('tab.repos') } : {}),
+    }, collapsed ? h(RepoIcon, { size: 14 }) : t('tab.repos')),
+    h('span', {
+      key: 'n',
+      className: 'gp-repolist__badge',
+      ...(disabledCount > 0 ? { role: 'img', 'aria-label': t('repos.countAria', { n: choices.length - disabledCount, m: choices.length }) } : {}),
+    }, disabledCount > 0 ? `${choices.length - disabledCount}/${choices.length}` : String(choices.length)),
+    collapsed && selectedLabel !== null && selectedLabel !== ''
+      ? h('span', { key: 'sel', className: 'gp-repolist__selected' }, selectedLabel)
+      : null,
+    // The block collapses to its head line: a permanent worktree family would
+    // otherwise hold a third of the left column forever.
+    onToggleCollapse === undefined
       ? null
-      : h('button', {
+      : h('span', { key: 'chevron', className: 'gp-repolist__collapse' }, h(ChevronIcon, { size: 14, open: !collapsed })),
+  ]
+  const head = onToggleCollapse === undefined
+    ? h('div', { key: 'head', className: 'gp-repolist__head gp-repolist__head--static', ...headTip }, headChildren)
+    : h('button', {
+      key: 'head',
+      type: 'button',
+      className: 'gp-repolist__head',
+      'aria-expanded': collapsed ? 'false' : 'true',
+      'aria-controls': listId,
+      'aria-label': headLabel,
+      ...headTip,
+      onClick: onToggleCollapse,
+    }, headChildren)
+
+  // The current checkout's absolute path, click-to-copy with ✓ for 1.6 s.
+  // Hidden while collapsed. The body elides from the left (direction:rtl
+  // keeps the tail); an invisible LRM anchors the leading '/' so the
+  // ellipsis swallows it together with the head instead of pinning it.
+  const rootLine = rootPath === null
+    ? null
+    : h('button', {
         key: 'root', type: 'button',
         className: `gp-repolist__root${rootCopy.feedback === 'copied' ? ' gp-repolist__root--copied' : ''}`,
         'aria-label': rootCopy.feedback === 'copied' ? t('repos.rootCopied') : t('repos.copyRoot'),
@@ -215,8 +254,22 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
           : h(CopyIcon, { key: 'i', size: 12 }),
         h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
           rootCopy.feedback === 'copied' ? t('repos.rootCopied') : ''),
-      ]),
-    list,
+      ])
+
+  // The path line and the rows share one folding track: animating the track's
+  // size unfolds downwards and folds upwards, where toggling [hidden] snapped
+  // the block in a single frame. The rows stay mounted while folded — the
+  // transition needs their real height — so the folded body also leaves the
+  // tab order and the accessibility tree.
+  const fold = h('div', { key: 'fold', className: 'gp-repolist__fold' }, [rootLine, list])
+  return h('div', { className: 'gp-repolist' }, [
+    head,
+    h('div', {
+      key: 'body',
+      className: 'gp-repolist__body',
+      'data-collapsed': collapsed ? 'true' : 'false',
+      ...inertAttr(collapsed),
+    }, fold),
     tip.tipNode,
   ])
 }

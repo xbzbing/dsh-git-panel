@@ -81,8 +81,8 @@ export class GitPanelService extends TypertRemoteService {
 
   /**
    * Config schema surfaced on the plugin detail page. `showInputPill`,
-   * `defaultDiffView`, `graphStyle`, `detectCheckouts`, `filesFollowRepo` and
-   * the suggest fields are `.volatile()`, so the settings host renders them as
+   * `defaultDiffView`, `graphStyle`, `detectCheckouts`, `filesFollowRepo`,
+   * `collapseReposOnPick` and the suggest fields are `.volatile()`, so the settings host renders them as
    * live-editable controls; the operational limits stay profile-only and out
    * of the UI form.
    */
@@ -108,6 +108,7 @@ export class GitPanelService extends TypertRemoteService {
     ]).default(0).volatile().description('面板字号'),
     detectCheckouts: Schema.boolean().default(true).volatile().description('探测 worktree 和子仓库（关闭后存储库列表只保留工作区主仓库；当前目录不是仓库时列表为空）'),
     filesFollowRepo: Schema.boolean().default(false).volatile().description('文件浏览跟随 Git 仓库切换（关闭时文件浏览停在项目根目录）'),
+    collapseReposOnPick: Schema.boolean().default(false).volatile().description('切换存储库后立即收起存储库列表（关闭时列表保持展开，只由标题行收起）'),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
     suggestLanguage: Schema.union([
       Schema.const('auto').description('自动跟随仓库历史提交的语言'),

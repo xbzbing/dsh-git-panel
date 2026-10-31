@@ -156,6 +156,9 @@ export interface GitSnapshot {
   /** Whether the file browser follows repository switches (user preference);
    * absent on older hosts → off, the browser stays at the project root. */
   readonly filesFollowRepo?: boolean
+  /** Whether picking a repository folds the repository list (user preference);
+   * absent on older hosts → off, the list stays open. */
+  readonly collapseReposOnPick?: boolean
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
   readonly stateFingerprint?: string

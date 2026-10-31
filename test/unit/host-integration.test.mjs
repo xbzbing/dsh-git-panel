@@ -174,6 +174,18 @@ test('filesFollowRepo config flows into the snapshot and normalizes volatile ref
   assert.notEqual(on.value.stateFingerprint, base.value.stateFingerprint)
 })
 
+test('collapseReposOnPick config flows into the snapshot and normalizes volatile refs', async () => {
+  // Default off; explicit on honored; a schemastery volatile ref is unwrapped.
+  assert.equal(normalizeConfig({}).collapseReposOnPick, false)
+  assert.equal(normalizeConfig({ collapseReposOnPick: true }).collapseReposOnPick, true)
+  assert.equal(normalizeConfig({ collapseReposOnPick: { get: () => true } }).collapseReposOnPick, true)
+  const base = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
+  assert.equal(base.ok, true)
+  assert.equal(base.value.collapseReposOnPick, false)
+  const on = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, collapseReposOnPick: true }, SID)
+  assert.equal(on.value.collapseReposOnPick, true)
+})
+
 test('placement config normalizes and unwraps volatile refs', () => {
   // Default all; each known value honored; unknown falls back; volatile ref
   // unwrapped. It is deliberately NOT carried in the snapshot (it is a mount

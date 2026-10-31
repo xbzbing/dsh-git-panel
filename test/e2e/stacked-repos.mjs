@@ -162,7 +162,7 @@ const probe = () => page.evaluate(() => {
   const drawer = document.querySelector('.gp-drawer')
   const branchTree = document.querySelector('.gp-col--left .gp-branch-tree, .gp-drawer .gp-branch-tree, .gp-branch-row')
   const scroll = list === null ? null : list.querySelector('.gp-repolist__list')
-  const collapse = list === null ? null : list.querySelector('.gp-repolist__collapse')
+  const collapse = list === null ? null : list.querySelector('.gp-repolist__head')
   const rows = (list === null ? [] : [...list.querySelectorAll('.gp-repolist__item')]).map((node) => ({
     name: (node.querySelector('.gp-repolist__name') || node).textContent.trim(),
     branch: (node.querySelector('.gp-repolist__branch') || { textContent: '' }).textContent.trim(),
@@ -242,7 +242,7 @@ assert.equal(booted.collapse.expanded, false, 'the list block boots collapsed')
 assert.equal(booted.collapse.selected, 'fixture-repo', 'the collapsed head names the checkout in use')
 const collapsedBlockHeight = booted.list.height
 assert.equal(booted.repoBar, null, 'the band tier drops the checkout bar: the left column already names the checkout')
-await page.click('.gp-repolist__collapse')
+await page.click('.gp-repolist__head')
 await page.waitForTimeout(300)
 const inline = await probe()
 assert.equal(inline.collapse.expanded, true, 'the toggle expands the block')
@@ -267,11 +267,9 @@ assert.equal(picked.list.inTop, true, 'and the list stayed in the band')
 const scoped = picked.calls.slice(mark).filter((call) => !(call.endpoint === 'gitPanel/query' && call.kind === 'repo-list'))
 assert.ok(scoped.length > 0, 'the pick produced requests: ' + JSON.stringify(picked.calls.slice(mark)))
 assert.ok(scoped.every((call) => call.repo === '.agents/worktrees/feat/sidebar'), 'every repository-scoped request carries the worktree: ' + JSON.stringify(picked.calls.slice(mark)))
-// The pick retired the block (click → collapse, 拍板 2026-10-28). Reopen it:
-// the cross-band read below exercises the shared state, and the drawer pick
-// further down needs its rows on screen.
-await page.click('.gp-repolist__collapse')
-await page.waitForTimeout(300)
+// A pick leaves the block open (both docked copies share that state), so the
+// cross-band read below finds its rows on screen without reopening anything.
+assert.equal(picked.collapse.expanded, true, 'a pick leaves the block open for the next switch')
 
 // ── the changes band docks the same list: one block, one collapse state,
 // the same rows with the pick still marked (read against the changes pane —
@@ -282,7 +280,7 @@ await page.waitForTimeout(300)
 const inChanges = await page.evaluate(() => {
   const host = document.querySelector('.gp-changes--stacked')
   const list = host === null ? null : host.querySelector('.gp-repolist')
-  const collapse = list === null ? null : list.querySelector('.gp-repolist__collapse')
+  const collapse = list === null ? null : list.querySelector('.gp-repolist__head')
   return {
     present: list !== null,
     firstChild: list !== null && list.previousElementSibling === null,

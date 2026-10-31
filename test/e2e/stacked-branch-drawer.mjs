@@ -548,7 +548,7 @@ const phoneOpen = await phonePage.evaluate(() => {
       const bar = drawer?.querySelector('.gp-drawer__bar')
       return list != null && bar != null && bar.nextElementSibling === list
     })(),
-    reposCollapsed: drawer?.querySelector('.gp-repolist__collapse')?.getAttribute('aria-expanded') === 'false',
+    reposCollapsed: drawer?.querySelector('.gp-repolist__head')?.getAttribute('aria-expanded') === 'false',
   }
 })
 assert.equal(phoneOpen.open, 'true', 'the filter pill opens the phone drawer')

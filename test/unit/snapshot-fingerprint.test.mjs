@@ -154,7 +154,7 @@ test('maxChanges truncation affects the digest while full counts remain accurate
 test('root and each wire configuration preference affect the final snapshot digest', async () => {
   const { snapshot } = await fixture()
   assert.notEqual((await fixture({ root: '/another-root' })).snapshot.stateFingerprint, snapshot.stateFingerprint)
-  const preferences = { refreshIntervalMs: 1000, showInputPill: false, defaultDiffView: 'split', graphStyle: 'compact', suggestEnabled: false, detectCheckouts: false, filesFollowRepo: true }
+  const preferences = { refreshIntervalMs: 1000, showInputPill: false, defaultDiffView: 'split', graphStyle: 'compact', suggestEnabled: false, detectCheckouts: false, filesFollowRepo: true, collapseReposOnPick: true }
   for (const [key, value] of Object.entries(preferences)) {
     const changed = await fixture({ config: { [key]: value } })
     assert.equal(changed.snapshot[key], value)

@@ -941,15 +941,15 @@ const out = await page.evaluate(async (snap) => {
   if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
   result.txtRowSelected = txtRow?.classList.contains('gp-tree-row--active') === true
-  // Selection styling is shared across the three list panes via --gp-select-*:
-  // the active row rule references the vars, and the panel defines them from
-  // business-primary. Assert both halves so the shared token can't silently
-  // drift from the primary accent.
+  // Selection styling is shared across the list panes via --gp-select-*: the
+  // travelling fill (row-slider.tsx) paints both halves, the active row leaves
+  // the fill to it, and the panel defines the token from business-primary.
+  // Assert all three so the shared token can't silently drift from the accent.
   result.selectionStyled = (() => {
     const rules = [...document.styleSheets].flatMap((sheet) => {
       try { return [...sheet.cssRules] } catch { return [] }
     })
-    const rowUsesVar = rules.some((rule) => (rule.selectorText || '').includes('gp-tree-row--active')
+    const rowUsesVar = rules.some((rule) => (rule.selectorText || '').includes('gp-rowslider')
       && /var\(--gp-select-bar\)/.test(rule.style.cssText) && /var\(--gp-select-bg\)/.test(rule.style.cssText))
     const panelDefinesToken = rules.some((rule) => (rule.selectorText || '').includes('.gp-panel')
       && /--gp-select-bar:[^;]*business-primary/.test(rule.style.cssText))

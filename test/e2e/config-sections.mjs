@@ -139,7 +139,7 @@ try {
   const titled = m.filter((s) => s.fieldTitle !== null)
   assert.ok(titled.length >= 2)
   for (const s of titled) assert.deepEqual(s.fieldTitle, { size: 14, weight: 500 }, 'field titles are 14px/500, below the section title')
-  assert.deepEqual(m.map((s) => s.fieldCount), [2, 3, 6, 2], 'field groups per section')
+  assert.deepEqual(m.map((s) => s.fieldCount), [2, 3, 6, 3], 'field groups per section')
   assert.equal(new Set(m.map((s) => s.ruleColor)).size, 4, `each section tints its rule: ${m.map((s) => s.ruleColor).join(' | ')}`)
 
   // Collapse again: the body hides and the rule goes with it.

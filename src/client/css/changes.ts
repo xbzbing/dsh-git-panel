@@ -17,7 +17,7 @@ export const CSS = `
 /* The tree column keeps the entries in a scrolling child, so long listings
  * stay inside the column instead of growing the pane. */
 .gp-files__tree-wrap{flex:0 0 300px;min-width:180px;display:flex;flex-direction:column;min-height:0}
-.gp-files__tree{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
+.gp-files__tree{position:relative;flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 /* The tree column's header row: the absolute browse root (left, elided from
  * the left) and the refresh control (right), above the scrolling entries — it
  * belongs to the tree column (not a full-width row on top of the page) and
@@ -190,7 +190,7 @@ export const CSS = `
 .gp-files__code--wrap .gp-files__row .gp-diff-cell{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
 .gp-files__image{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:flex-start;padding:16px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-files__image img{max-width:100%;max-height:100%;object-fit:contain}
-.gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
+.gp-changes__list{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 /* Virtualized change list: a fixed-height relative spacer owns the scrollbar;
  * each mounted row/head is absolutely positioned at its offset and pinned to
  * the fixed height the window math assumes (VROW_H / VHEAD_H). */
@@ -216,7 +216,7 @@ export const CSS = `
 /* Selected change row: identical accent to the Git overview commit list
  * (business-primary 16% tint + a 3px inset left bar), for one selection
  * language across panes. */
-.gp-file-row--active,.gp-file-row--active:hover{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
+.gp-file-row--active,.gp-file-row--active:hover{background:transparent}
 /* Actions occupy a fixed lane at all times (visibility toggle, not display)
  * so hovering never changes the row's width — no wobble. */
 .gp-file-row__actions{margin-left:auto;display:flex;gap:4px;flex:none;visibility:hidden}
@@ -226,8 +226,11 @@ export const CSS = `
 .gp-file-row__actions .gp-icon-btn>span{display:inline-flex;align-items:center;justify-content:center}
 
 /* stats bar */
-.gp-stats{display:flex;align-items:center;gap:14px;padding:8px 12px;min-height:33px;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
+.gp-stats{display:flex;align-items:center;gap:6px;padding:8px 12px;min-height:33px;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
 .gp-stats__item{display:inline-flex;align-items:center;gap:5px}
+.gp-stats__item--staged{color:var(--dsw-alias-state-business-primary)}
+.gp-stats__item--modified{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
+.gp-stats__item--untracked{color:var(--dsw-alias-label-secondary)}
 /* The two timestamps wrap as one unit and never split across lines. */
 .gp-stats__times{display:inline-flex;align-items:center;gap:14px;flex-wrap:nowrap}
 .gp-stats__add{color:var(--dsw-alias-state-success-primary)}
@@ -239,12 +242,22 @@ export const CSS = `
  * a second row above the change list; a narrow-but-tall panel keeps them and
  * spends that row, since it has the height to spare. */
 .gp-stats--compact{padding:6px 8px 6px 12px;gap:4px 8px;align-items:center}
-.gp-stats--compact .gp-stats__main{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:14px;overflow:hidden;white-space:nowrap}
+.gp-stats--compact .gp-stats__main{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap}
 .gp-stats--compact .gp-stats__main>.gp-stats__item{flex:none}
 /* Timed compact: the timestamps take a full row of their own under the counts. */
 .gp-stats--timed{flex-wrap:wrap}
 .gp-stats--timed>.gp-stats__main{flex:1 1 100%}
 .gp-stats--timed>.gp-stats__times{flex:1 1 100%;padding-top:2px}
+/* Chips: every count is its own pill, so the bar reads as discrete facts instead
+ * of one run-on line. Staged and modified tint their background with their
+ * status colour; the plain ones (file count, lines, untracked) sit on the shared
+ * hover surface — untracked is the file tree's muted state, not an alert.
+ * color-mix() keeps one declaration per state, in both themes — the tint is the
+ * status colour, not a hard-coded hex. */
+.gp-stats__chip{padding:1px 8px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);line-height:18px;white-space:nowrap}
+.gp-stats__chip--quiet{background:transparent;padding-left:0}
+.gp-stats__item--staged.gp-stats__chip{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
+.gp-stats__item--modified.gp-stats__chip{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary)) 14%,transparent)}
 
 /* commit box */
 .gp-commitbox{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px;display:flex;flex-direction:column;gap:8px}
