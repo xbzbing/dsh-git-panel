@@ -11,9 +11,9 @@ import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc.js'
 import type { GitKey } from './locales.js'
 import { DiffView, type DiffMode } from './DiffView.js'
-import { ArrowLeftIcon, CloseIcon, ExpandAllIcon, ExitFullscreenIcon, FullscreenIcon } from './icons.js'
+import { renderDiffExpand, renderDiffModeSeg } from './diff-controls.js'
+import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon } from './icons.js'
 import { pathCopyButton } from './path-copy-button.js'
-import { segButtons } from './seg.js'
 import type { CopyFeedback } from './copy-feedback.js'
 import { DiffCardFocus, type DiffCard } from './diff-card.js'
 
@@ -91,17 +91,12 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
         ]) : null
         // Icon-only: the text label costs the path the room, and the toggle
         // state rides the pressed tint (aria-pressed) plus the title swap.
-        const expandLabel = t(expanded ? 'diff.collapse' : 'diff.expandAll')
-        const expand = h('button', {
-          key: 'expand', type: 'button',
-          className: 'gp-icon-btn gp-diff__expand',
-          style: summary || compact ? {} : { marginLeft: 'auto' },
-          disabled: modeSwitch.current !== 'split' && modeSwitch.current !== 'unified',
-          'aria-pressed': expanded,
-          title: expandLabel,
-          'aria-label': expandLabel,
-          onClick: () => onToggleExpand(),
-        }, h(ExpandAllIcon, { size: 14 }))
+        // Shared with the commit file-diff dialog: same glyph, same pressed
+        // contract, so the two toolbars cannot drift.
+        const expand = renderDiffExpand({
+          mode: modeSwitch.current, modes: modeSwitch.options, onMode: modeSwitch.onChange,
+          expanded, onToggleExpand: onToggleExpand, t,
+        })
         // The enlarged-diff toggle — same glyphs the files preview uses for
         // its fullscreen control. The "modal" is THIS inline .gp-diff restyled
         // into a card (gp-diff--card, the reader's in-place trick), so the
@@ -122,8 +117,10 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
             onClick: () => card.close(),
           }, h(CloseIcon, { size: 15 }))
           : null
-        const seg = h('div', { key: 'seg', className: 'gp-seg' },
-          segButtons<DiffMode>(modeSwitch.options, modeSwitch.current, modeSwitch.onChange, (m) => t(`diff.${m}` as GitKey)))
+        const seg = renderDiffModeSeg({
+          mode: modeSwitch.current, modes: modeSwitch.options, onMode: modeSwitch.onChange,
+          expanded, onToggleExpand: onToggleExpand, t,
+        })
         // One row cannot fit back + path + stats + expand + mode seg at phone
         // widths (the seg buttons squeezed into stacked wrapping); compact
         // splits the controls onto a dedicated second row instead.
