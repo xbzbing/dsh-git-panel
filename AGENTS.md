@@ -141,7 +141,7 @@ npm run typecheck     # 类型检查
 - 一键门禁 `npm run check`：lint + 类型检查 + 全部测试。提交前必须通过。
 - `test:unit` **刻意不传 `--test-force-exit`，别加回来**：并行文件下它会静默丢掉正在执行的用例及其后同文件用例，而报告仍是 `fail 0`——门禁绿着少跑测试（实测数据见 ADR-0017）。
 - CI（`.github/workflows/ci.yml`）：push 到 main / PR / 手动触发，node `22.x` 与 `24.x` 矩阵，门禁与本地 `npm run check` 等价；e2e 用 `file://` 夹具自带 chromium，不需要 GUI、不需要 dsh 实例。另有一个 Windows 任务（`windows-2025`、node `24.x`）只跑 `npm run test:unit`。
-- 单测要能在 Windows 和「临时目录位于某个仓库内」的沙箱里跑：建符号链接一律走 `host-integration.test.mjs` 的 `linkOrSkip`（无权限时跳过，指向已存在目录时在 Windows 上用 junction）；在临时目录下建 git 夹具的测试文件要导入 `test/unit/_tmp-ceiling.mjs`（设 `GIT_CEILING_DIRECTORIES`，git 找仓库不越过临时目录），否则「不是仓库」的夹具会被解析成外层仓库。
+- 单测要能在 Windows 和「临时目录位于某个仓库内」的沙箱里跑：建符号链接一律走 `host-integration.test.mjs` 的 `linkOrSkip`（无权限时跳过，指向已存在目录时在 Windows 上用 junction）；在临时目录下建 git 夹具的测试文件要导入 `test/unit/_tmp-ceiling.mjs`（设 `GIT_CEILING_DIRECTORIES`，git 找仓库不越过临时目录），否则「不是仓库」的夹具会被解析成外层仓库。断言里拿来和 host 返回值比较的路径用 `realpathSync.native`：host 走 `fs/promises` 的 `realpath`（原生实现，会展开 Windows 的 8.3 短名 `RUNNER~1`），JS 版 `realpathSync` 不展开，两边对不上。
 - `package-lock.json` 入库且必须与 `package.json` 同步，CI 的 `npm ci` 发现不一致会直接拒绝运行；发版用 `npm version <v> --no-git-tag-version`（同时更新两处），漂移由 `test/unit/lock-sync.test.mjs` 守住。
 
 ## 发布

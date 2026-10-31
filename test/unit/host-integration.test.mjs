@@ -690,7 +690,7 @@ test('file browser lists a non-git cwd and previews a file without exposing .git
     assert.equal(preview.value.content, '# hello\n')
     // The rendered-Markdown image resolver joins relative destinations beside
     // this path, so the text variant must carry the document's absolute path.
-    assert.equal(preview.value.absolutePath, join(realpathSync(dir), 'note.md'))
+    assert.equal(preview.value.absolutePath, join(realpathSync.native(dir), 'note.md'))
     for (const path of ['.git', 'git-alias']) {
       const blocked = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path } })
       assert.equal(blocked.ok, false)
@@ -845,7 +845,7 @@ test('file-content serves an SVG above the image cap as its source', async () =>
   assert.ok(res.value.content.startsWith('<svg xmlns="http://www.w3.org/2000/svg">'))
   assert.equal(res.value.lines, 3)
   assert.equal(res.value.size, Buffer.byteLength(res.value.content))
-  assert.equal(res.value.absolutePath, join(realpathSync(repoImg), 'logo.svg'))
+  assert.equal(res.value.absolutePath, join(realpathSync.native(repoImg), 'logo.svg'))
 })
 
 test('file-content keeps a non-text SVG too large past the image cap', async () => {
@@ -1450,7 +1450,7 @@ test('git-not-installed outside a repo → git-unavailable with isGitRepo false'
     // temp dir is in the work tree). Hide every `.git` above the fixture so the
     // case is "no repository anywhere up the chain" wherever the test runs.
     const base = depsNoGit(plainDir)
-    const inside = realpathSync(plainDir) + sep
+    const inside = realpathSync.native(plainDir) + sep
     const fs = { ...base.fs, stat: async (p) => {
       if (p.endsWith(sep + '.git') && !p.startsWith(inside)) throw Object.assign(new Error('ENOENT: ' + p), { code: 'ENOENT' })
       return base.fs.stat(p)

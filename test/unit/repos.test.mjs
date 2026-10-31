@@ -65,7 +65,7 @@ let outer
 let wtRepo
 
 before(async () => {
-  tmp = realpathSync(mkdtempSync(join(tmpdir(), 'gp-repos-')))
+  tmp = realpathSync.native(mkdtempSync(join(tmpdir(), 'gp-repos-')))
   ws = join(tmp, 'ws')
   // A plain workspace directory holding repositories instead of being one.
   for (const dir of ['site', 'api', 'group/deep', 'node_modules/pkg', 'a/b/c/d']) {
@@ -104,7 +104,7 @@ test('scanRepos lists repository roots below the cwd and skips dependency dirs',
   const found = await scanRepos(createFsDeps(), ws)
   assert.deepEqual(found.map((r) => r.path), ['api', 'group/deep', 'site'])
   assert.equal(found[0].name, 'api')
-  assert.equal(found[0].root, realpathSync(join(ws, 'api')))
+  assert.equal(found[0].root, realpathSync.native(join(ws, 'api')))
 })
 
 test('scanRepos stops at the depth ceiling', async () => {
@@ -123,7 +123,7 @@ test('scanRepos honors the result ceiling', async () => {
 
 test('repoDirFor accepts safe cwd-relative paths only', async () => {
   const fs = createFsDeps()
-  assert.deepEqual(await repoDirFor(fs, ws, 'site'), { ok: true, dir: realpathSync(join(ws, 'site')) })
+  assert.deepEqual(await repoDirFor(fs, ws, 'site'), { ok: true, dir: realpathSync.native(join(ws, 'site')) })
   for (const bad of ['', '.', '..', '../outside', 'site/.git', join(ws, 'site'), 'missing']) {
     assert.deepEqual(await repoDirFor(fs, ws, bad), { ok: false }, 'must reject ' + JSON.stringify(bad))
   }
@@ -132,7 +132,7 @@ test('repoDirFor accepts safe cwd-relative paths only', async () => {
 test('listSessionRepos reports the workspace repository plus nested ones', async () => {
   const listed = await listSessionRepos(depsAt(outer), SID, true)
   assert.equal(listed.ok, true)
-  assert.equal(listed.value.cwd, realpathSync(outer))
+  assert.equal(listed.value.cwd, realpathSync.native(outer))
   const entries = listed.value.repos.map((r) => [r.path, r.kind, r.name])
   assert.deepEqual(entries, [
     ['', 'workspace', 'outer'],
@@ -185,7 +185,7 @@ test('repo-list is served by the query endpoint', async () => {
 test('a snapshot samples the selected nested repository', async () => {
   const snap = await snapshotForSession(depsAt(outer), DEFAULT_CONFIG, SID, { repo: 'sub' })
   assert.equal(snap.ok, true)
-  assert.equal(snap.value.root, realpathSync(join(outer, 'sub')))
+  assert.equal(snap.value.root, realpathSync.native(join(outer, 'sub')))
 })
 
 test('an unknown or escaping selector fails as invalid-repo', async () => {
@@ -226,7 +226,7 @@ test('without git, file listings fall back to the cwd even with a selector', asy
   for (const repo of [undefined, 'sub']) {
     const browsed = await resolveBrowseRoot(deps, SID, repo)
     assert.equal(browsed.ok, true, 'must browse with repo ' + JSON.stringify(repo))
-    assert.equal(browsed.root, realpathSync(outer))
+    assert.equal(browsed.root, realpathSync.native(outer))
     assert.equal(browsed.isGitRepo, false)
   }
 })

@@ -10,4 +10,7 @@ import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter } from 'node:path'
 
-process.env.GIT_CEILING_DIRECTORIES = [...new Set([tmpdir(), realpathSync(tmpdir())])].join(delimiter)
+// Every spelling of the temp dir: on Windows TEMP can carry an 8.3 short name
+// (C:\Users\RUNNER~1) that only the native realpath expands.
+const temp = tmpdir()
+process.env.GIT_CEILING_DIRECTORIES = [...new Set([temp, realpathSync(temp), realpathSync.native(temp)])].join(delimiter)
