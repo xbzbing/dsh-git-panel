@@ -9,8 +9,9 @@
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import './_tmp-ceiling.mjs'
 import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
@@ -53,6 +54,25 @@ function runGit(cwd, args) {
     c.stderr.on('data', (d) => { err += d })
     c.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`git ${args.join(' ')}: ${err}`))))
   })
+}
+
+/**
+ * Create a symlink, or skip the calling test where the platform refuses one.
+ * Windows only lets privileged tokens (admin, Developer Mode) create symlinks;
+ * elsewhere the call fails with EPERM. `dir` (an existing directory) is made as
+ * a junction there, which needs no privilege and resolves the same way;
+ * `dangling-dir` (a directory link whose target is missing) stays a symlink.
+ */
+function linkOrSkip(t, target, path, kind = 'file') {
+  const type = kind === 'dangling-dir' ? 'dir' : kind === 'dir' && process.platform === 'win32' ? 'junction' : kind
+  try {
+    symlinkSync(target, path, type)
+    return true
+  } catch (error) {
+    if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error
+    t.skip('symlinks are unavailable here: ' + error.code)
+    return false
+  }
 }
 
 function depsAt(dir) {
@@ -534,11 +554,11 @@ test('file-lines numbers the worktree slice against the working file, not the in
   }
 })
 
-test('a retargeted symlink counts the link text git diffed, not the target file', async () => {
+test('a retargeted symlink counts the link text git diffed, not the target file', async (t) => {
   // git stores a symlink as a blob whose content is the target string (mode
   // 120000), so the diff's new side has one line. Following the link would
   // report (and reveal) the target file's lines, i.e. content git never diffed.
-  const { writeFileSync, symlinkSync, unlinkSync } = await import('node:fs')
+  const { writeFileSync, unlinkSync } = await import('node:fs')
   const dir = mkdtempSync(join(tmpdir(), 'gp-link-'))
   try {
     await runGit(dir, ['init', '-q'])
@@ -547,11 +567,11 @@ test('a retargeted symlink counts the link text git diffed, not the target file'
     const body = Array.from({ length: 40 }, (_, i) => `r${i + 1}`).join('\n') + '\n'
     writeFileSync(join(dir, 'real.txt'), body)
     writeFileSync(join(dir, 'other.txt'), body.replace(/^r/gm, 'o'))
-    symlinkSync('real.txt', join(dir, 'link.txt'))
+    if (!linkOrSkip(t, 'real.txt', join(dir, 'link.txt'))) return
     await runGit(dir, ['add', '-A'])
     await runGit(dir, ['commit', '-qm', 'link: v1'])
     unlinkSync(join(dir, 'link.txt'))
-    symlinkSync('other.txt', join(dir, 'link.txt')) // retargeted in the worktree
+    linkOrSkip(t, 'other.txt', join(dir, 'link.txt')) // retargeted in the worktree
 
     const d = depsAt(dir)
     const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'link.txt', base: 'worktree' } })
@@ -652,14 +672,14 @@ test('dir-list lists the root, dirs-first, skipping .git', async () => {
   assert.ok(typeof aTxt.size === 'number' && aTxt.size > 0, 'files carry a byte size')
 })
 
-test('file browser lists a non-git cwd and previews a file without exposing .git', async () => {
+test('file browser lists a non-git cwd and previews a file without exposing .git', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-nongit-'))
   try {
-    const { writeFileSync, mkdirSync, symlinkSync, realpathSync } = await import('node:fs')
+    const { writeFileSync, mkdirSync } = await import('node:fs')
     writeFileSync(join(dir, 'note.md'), '# hello\n')
     mkdirSync(join(dir, '.git'))
     writeFileSync(join(dir, '.git', 'config'), 'secret')
-    symlinkSync(join(dir, '.git'), join(dir, 'git-alias'))
+    if (!linkOrSkip(t, join(dir, '.git'), join(dir, 'git-alias'), 'dir')) return
     const d = depsAt(dir)
     const listed = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '' } })
     assert.equal(listed.ok, true)
@@ -1425,7 +1445,17 @@ test('git-not-installed inside a repo → git-unavailable with isGitRepo true', 
 test('git-not-installed outside a repo → git-unavailable with isGitRepo false', async () => {
   const plainDir = mkdtempSync(join(tmpdir(), 'gp-nogit-plain-'))
   try {
-    const res = await snapshotForSession(depsNoGit(plainDir), DEFAULT_CONFIG, SID)
+    // The repo probe walks up from the cwd looking for `.git`, and the temp
+    // directory may itself sit inside a checkout (a sandbox whose only writable
+    // temp dir is in the work tree). Hide every `.git` above the fixture so the
+    // case is "no repository anywhere up the chain" wherever the test runs.
+    const base = depsNoGit(plainDir)
+    const inside = realpathSync(plainDir) + sep
+    const fs = { ...base.fs, stat: async (p) => {
+      if (p.endsWith(sep + '.git') && !p.startsWith(inside)) throw Object.assign(new Error('ENOENT: ' + p), { code: 'ENOENT' })
+      return base.fs.stat(p)
+    } }
+    const res = await snapshotForSession({ ...base, fs }, DEFAULT_CONFIG, SID)
     assert.equal(res.ok, false)
     assert.equal(res.error.code, 'git-unavailable')
     assert.equal(res.error.isGitRepo, false)
@@ -1712,7 +1742,7 @@ test('a directory of three plain files named like bare markers is not mistaken f
   }
 })
 
-test('a bare repository whose objects/ is a symlink to a directory is still refused', async () => {
+test('a bare repository whose objects/ is a symlink to a directory is still refused', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-baresym-'))
   try {
     await runGit(dir, ['init', '-q'])
@@ -1720,12 +1750,12 @@ test('a bare repository whose objects/ is a symlink to a directory is still refu
     await runGit(dir, ['config', 'user.name', 'Tester'])
     await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
     await runGit(dir, ['init', '--bare', '-q', 'bare.git'])
-    const { mkdirSync, symlinkSync, existsSync } = await import('node:fs')
+    const { mkdirSync, existsSync } = await import('node:fs')
     // Shared-object layouts point objects/ at a sibling directory. The marker
     // typing must follow the symlink: refusing is the safe direction here.
     rmSync(join(dir, 'bare.git', 'objects'), { recursive: true, force: true })
     mkdirSync(join(dir, 'shared-objects'))
-    symlinkSync(join(dir, 'shared-objects'), join(dir, 'bare.git', 'objects'))
+    if (!linkOrSkip(t, join(dir, 'shared-objects'), join(dir, 'bare.git', 'objects'), 'dir')) return
     const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
     await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['bare.git'], true)
     const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['bare.git'] } })
@@ -1737,7 +1767,7 @@ test('a bare repository whose objects/ is a symlink to a directory is still refu
   }
 })
 
-test('a dangling objects symlink (shared store gone) is still refused as a repository', async () => {
+test('a dangling objects symlink (shared store gone) is still refused as a repository', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-baredangle-'))
   try {
     await runGit(dir, ['init', '-q'])
@@ -1745,12 +1775,12 @@ test('a dangling objects symlink (shared store gone) is still refused as a repos
     await runGit(dir, ['config', 'user.name', 'Tester'])
     await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
     await runGit(dir, ['init', '--bare', '-q', 'bare.git'])
-    const { symlinkSync, existsSync, rmSync: rm } = await import('node:fs')
+    const { existsSync, rmSync: rm } = await import('node:fs')
     // A shared-object layout whose target is not there right now (unmounted
     // volume, moved directory). refs/ and HEAD are still real data, so the
     // entry must count as a repository rather than be deleted as a stale dir.
     rm(join(dir, 'bare.git', 'objects'), { recursive: true, force: true })
-    symlinkSync(join(dir, 'nowhere-objects'), join(dir, 'bare.git', 'objects'))
+    if (!linkOrSkip(t, join(dir, 'nowhere-objects'), join(dir, 'bare.git', 'objects'), 'dangling-dir')) return
     const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
     await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['bare.git'], true)
     const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['bare.git'] } })
@@ -1762,19 +1792,19 @@ test('a dangling objects symlink (shared store gone) is still refused as a repos
   }
 })
 
-test('a bare repository whose refs/ or HEAD is a dangling symlink is refused too', async () => {
+test('a bare repository whose refs/ or HEAD is a dangling symlink is refused too', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-baredangle2-'))
   try {
     await runGit(dir, ['init', '-q'])
     await runGit(dir, ['config', 'user.email', 't@t.co'])
     await runGit(dir, ['config', 'user.name', 'Tester'])
     await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
-    const { writeFileSync, symlinkSync, existsSync, rmSync: rm } = await import('node:fs')
+    const { writeFileSync, existsSync, rmSync: rm } = await import('node:fs')
     // Same rule for the other two markers: an unreadable symlink is a store
     // that is not where it should be, not an ordinary untracked directory.
     await runGit(dir, ['init', '--bare', '-q', 'refs-link.git'])
     rm(join(dir, 'refs-link.git', 'refs'), { recursive: true, force: true })
-    symlinkSync(join(dir, 'nowhere-refs'), join(dir, 'refs-link.git', 'refs'))
+    if (!linkOrSkip(t, join(dir, 'nowhere-refs'), join(dir, 'refs-link.git', 'refs'), 'dangling-dir')) return
     const config = { ...DEFAULT_CONFIG, maxChanges: 2 }
     await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['refs-link.git'], true)
     const viaRefs = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['refs-link.git'] } })
@@ -1789,7 +1819,7 @@ test('a bare repository whose refs/ or HEAD is a dangling symlink is refused too
     mkdirSync(join(dir, 'head-link', 'refs'), { recursive: true })
     writeFileSync(join(dir, 'head-link', 'objects', 'x'), 'x\n')
     writeFileSync(join(dir, 'head-link', 'objects', 'y'), 'y\n')
-    symlinkSync(join(dir, 'nowhere-head'), join(dir, 'head-link', 'HEAD'))
+    if (!linkOrSkip(t, join(dir, 'nowhere-head'), join(dir, 'head-link', 'HEAD'))) return
     await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['head-link', 'refs-link.git'], true)
     const viaHead = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['head-link'] } })
     assert.equal(viaHead.ok, false, 'a dangling HEAD symlink stays a repository')
@@ -2184,7 +2214,7 @@ test('history keeps a detached HEAD chain visible (visible-refset rides HEAD)', 
   }
 })
 
-test('image-diff refuses a worktree symlink escaping the repo root (N6)', async () => {
+test('image-diff refuses a worktree symlink escaping the repo root (N6)', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-symlink-'))
   const secret = mkdtempSync(join(tmpdir(), 'gp-secret-'))
   try {
@@ -2192,10 +2222,10 @@ test('image-diff refuses a worktree symlink escaping the repo root (N6)', async 
     await runGit(dir, ['config', 'user.email', 't@t.co'])
     await runGit(dir, ['config', 'user.name', 'Tester'])
     await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
-    const { writeFileSync, symlinkSync } = await import('node:fs')
+    const { writeFileSync } = await import('node:fs')
     writeFileSync(join(secret, 'secret.png'), 'SECRET-BYTES-OUTSIDE-REPO')
     // A .png symlink in the worktree pointing outside the repo root.
-    symlinkSync(join(secret, 'secret.png'), join(dir, 'evil.png'))
+    if (!linkOrSkip(t, join(secret, 'secret.png'), join(dir, 'evil.png'))) return
     const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'image-diff', path: 'evil.png', base: 'worktree' } })
     assert.equal(res.ok, true)
     // The escaping side is refused → no bytes leak into the pane.
@@ -2206,14 +2236,14 @@ test('image-diff refuses a worktree symlink escaping the repo root (N6)', async 
   }
 })
 
-test('file-content refuses a worktree symlink escaping the repo root', async () => {
+test('file-content refuses a worktree symlink escaping the repo root', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-fc-esc-'))
   const secret = mkdtempSync(join(tmpdir(), 'gp-fc-secret-'))
   try {
     await runGit(dir, ['init', '-q'])
-    const { writeFileSync, symlinkSync } = await import('node:fs')
+    const { writeFileSync } = await import('node:fs')
     writeFileSync(join(secret, 'id_rsa'), 'PRIVATE-KEY-OUTSIDE-REPO')
-    symlinkSync(join(secret, 'id_rsa'), join(dir, 'leak.txt'))
+    if (!linkOrSkip(t, join(secret, 'id_rsa'), join(dir, 'leak.txt'))) return
     const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'leak.txt' } })
     assert.equal(res.ok, false, 'a symlink escaping the root is refused')
     assert.equal(res.error.code, 'invalid-path')

@@ -6,6 +6,7 @@
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import './_tmp-ceiling.mjs'
 import { spawn as nodeSpawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
