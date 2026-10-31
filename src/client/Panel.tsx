@@ -14,7 +14,7 @@ import { createElement as h, useEffect, useId, useLayoutEffect, useMemo, useRef,
 import { inertAttr } from './inert.js'
 import type { JSX } from 'react'
 import { SegmentedTabs, StateDot, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
-import { gitPanelRemoteOf, hasSession, queryAs, type ClientCtx, type GitPanelRemote } from './rpc.js'
+import { gitPanelRemoteOf, hasSession, queryAs, type ClientCtx } from './rpc.js'
 import { useGitView, controllerFor } from './registry.js'
 import type { GitView } from './controller.js'
 import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } from './jump.js'
@@ -22,15 +22,15 @@ import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
 import { filesRootRows, gitRepoForFilesRoot, repoChoices } from './repo-list.js'
-import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
+import { CommitIcon, DiffIcon, FilesIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
-import { useHoverTip } from './tip.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
-import type { FontDelta, GitAction, GitRepoEntry, GitVersionInfo } from './types.js'
+import type { FontDelta, GitAction, GitRepoEntry } from './types.js'
 import type { GitKey } from './locales.js'
 import { opErrorText } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
+import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
 
@@ -770,68 +770,5 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // checkout, but every request is tagged with the next one, so a stage or a
     // discard clicked on the old list would land on the new work tree.
     h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) }, body),
-  ])
-}
-
-interface VersionBarProps {
-  readonly remote: GitPanelRemote
-  readonly t: (key: GitKey, params?: Record<string, string | number>) => string
-}
-
-type VerState =
-  | { kind: 'idle'; info?: GitVersionInfo }
-  | { kind: 'checking'; info?: GitVersionInfo }
-
-/** Trailing tab-bar cluster: current version plus a user-triggered update
- * check. Wide layouts only — see the mount site for why narrow modes drop it. */
-function VersionBar({ remote, t }: VersionBarProps): JSX.Element {
-  const [state, setState] = useState<VerState>({ kind: 'idle' })
-  // Snappy tooltip for the star link, dropped below it (it sits at the panel top).
-  const { tipProps, tipNode } = useHoverTip({ placement: 'below', maxWidth: 300 })
-
-  // Fetch the local version once (no network); the remote check is manual.
-  useEffect(() => {
-    let alive = true
-    void remote.version({}).then((res) => {
-      if (alive && 'current' in res) setState((prev) => ({ ...prev, info: res }))
-    })
-    return () => { alive = false }
-  }, [remote])
-
-  const check = async (): Promise<void> => {
-    setState((prev) => ({ kind: 'checking', info: prev.info }))
-    const res = await remote.version({ check: true })
-    setState({ kind: 'idle', info: 'current' in res ? res : undefined })
-  }
-
-  const info = state.info
-  const status = ((): JSX.Element | null => {
-    if (state.kind === 'checking') return h('span', { className: 'gp-verbar__status' }, t('version.checking'))
-    if (info === undefined || !info.checkedRemote) return null
-    if (info.error !== undefined) {
-      return h('span', { className: 'gp-verbar__status gp-verbar__status--err', title: info.error }, info.error === 'repository is not configured' ? t('version.noRepo') : t('version.error'))
-    }
-    if (info.updateAvailable && info.latest !== undefined) {
-      return h('span', {}, [
-        h('span', { key: 's', className: 'gp-verbar__status gp-verbar__status--new' }, t('version.updateAvailable', { latest: info.latest, current: info.current })),
-        info.releaseUrl !== undefined ? h('a', { key: 'l', className: 'gp-verbar__link', href: info.releaseUrl, target: '_blank', rel: 'noreferrer', style: { marginLeft: 8 } }, t('version.viewRelease')) : null,
-      ])
-    }
-    return h('span', { className: 'gp-verbar__status gp-verbar__status--ok' }, t('version.upToDate', { current: info.current }))
-  })()
-
-  return h('div', { className: 'gp-verbar' }, [
-    info !== undefined ? h('span', { key: 'tag', className: 'gp-verbar__tag' }, `v${info.current}`) : null,
-    status,
-    h('button', {
-      key: 'btn', type: 'button', className: 'gp-verbar__btn',
-      disabled: state.kind === 'checking',
-      onClick: () => void check(),
-    }, [h('span', { key: 'i', className: 'gp-tab__icon' }, h(RefreshIcon, { size: 12 })), t('version.check')]),
-    info?.repositoryUrl !== undefined ? h('a', {
-      key: 'gh', className: 'gp-icon-btn gp-verbar__gh gp-verbar__gh--starred', href: info.repositoryUrl,
-      target: '_blank', rel: 'noreferrer', 'aria-label': t('version.openRepo'), ...tipProps(t('version.openRepo')),
-    }, h(StarIcon, { size: 15 })) : null,
-    tipNode,
   ])
 }
