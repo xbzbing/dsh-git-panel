@@ -160,7 +160,7 @@ npm run typecheck     # 类型检查
 - 数据模型改动从 `host/types.ts` 起，client 直接复用，不存在第二份需手工同步的定义；常量范围（如 `SUGGEST_LIMITS`）同样单源，UI 与 host 校验从同一处派生。
 - 新增 wire 字段保持向后兼容：旧 client 可忽略新字段，client 对旧 host 缺失字段要降级而非崩溃。
 - **注释只写代码行为**：描述这段代码现在做什么、约束是什么；除非有大坑（不写就会踩），否则不写演进过程、不写「曾经怎样 / 为何改过来」。演进与决策放 ADR / PR / 提交信息，不放注释。issue 号不必写进注释——PR 描述里关联即可。
-- 界面文案：`zh`（`src/client/locales.ts`）是键集权威源，新增 / 改动键必须同步 `en` 与 `src/client/locales/` 下 ja / es / fr / de / ru / pt 六份（`locale-dicts.ts` 汇总注册，`locales.test.mjs` 校验键集与 `{占位符}`）；其它语言由平台语言链落英文。包元信息 `locale/<lang>.json` 同样八份，**每份都必须进 `package.json` 的 `exports`**——dsh 经 exports 逐个解析目录里的 locale 文件，漏一份整包报「包元信息错误」、详情页打不开（`plugin-contract.test.mjs` 守住）。详情页正文是各语言的 `docs/details/DETAIL.<lang>.md`（由 `meta.detail` 指向，只放 banner、功能与仓库地址，功能改动时与 README「功能」段一起跟进），这八份必须逐个写进 `package.json` 的 `files`——`docs/` 其余内容不随包发布；README 与 DETAIL 的图片必须用绝对 https 地址（详情页加载不到 `docs/assets` 的相对路径）。
+- 界面文案：`zh`（`src/client/locales.ts`）是键集权威源，新增 / 改动键必须同步 `en` 与 `src/client/locales/` 下 ja / es / fr / de / ru / pt 六份（`locale-dicts.ts` 汇总注册，`locales.test.mjs` 校验键集与 `{占位符}`）；其它语言由平台语言链落英文。包元信息 `locale/<lang>.json` 同样八份，**每份都必须进 `package.json` 的 `exports`**——dsh 经 exports 逐个解析目录里的 locale 文件，漏一份整包报「包元信息错误」、详情页打不开（`plugin-contract.test.mjs` 守住）。详情页正文是各语言的 `docs/details/DETAIL.<lang>.md`（由 `meta.detail` 指向，只放简介、功能与仓库地址，不放图片，功能改动时与 README「功能」段一起跟进），这八份必须逐个写进 `package.json` 的 `files`——`docs/` 其余内容不随包发布；README 图片必须用绝对 https 地址（详情页加载不到 `docs/assets` 的相对路径）。
 - 安装身份三处必须一致且等于包名 `@xbzbing/dsh-git-panel`：`package.json.name`、`cordis.patch.yml` 的 row `name`、`build.mjs` 产出的 ModuleLoader 注册 `id`。任一不一致，面板会整个消失（`plugin-contract.test.mjs` 守住）。
 
 ## 目录与提交

@@ -1,7 +1,5 @@
 # dsh-git-panel
 
-![dsh-git-panel](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/banner.png)
-
 Ein Git-Panel im IDE-Stil für den Konversations-Arbeitsbereich: Branches und Commit-Verlauf, Stagen und Committen von Änderungen, Diffs und ein Dateibrowser in einem festen Tab, dazu eine Branch-Anzeige im zsh-Stil links neben dem Eingabefeld. Mitten im Gespräch müssen Sie nicht zu einem Terminal oder einer IDE wechseln.
 
 ## Funktionen

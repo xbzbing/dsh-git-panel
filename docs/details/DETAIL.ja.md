@@ -1,7 +1,5 @@
 # dsh-git-panel
 
-![dsh-git-panel](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/banner.png)
-
 会話ワークスペースに IDE スタイルの Git パネルを追加します。ブランチとコミット履歴、変更のステージとコミット、差分、ファイルブラウザーを常駐タブ 1 つにまとめ、入力欄の左には zsh 風のブランチ表示を置きます。会話の途中でターミナルや IDE に切り替える必要はありません。
 
 ## 機能

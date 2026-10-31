@@ -1,7 +1,5 @@
 # dsh-git-panel
 
-![dsh-git-panel](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/banner-zh.png)
-
 在对话工作区里提供 IDE 风格的 Git 面板：分支与提交历史、变更的暂存与提交、差异对照和文件浏览集中在一个常驻标签页，输入框左侧另有 zsh 风格的分支标记，对话过程中不必切到终端或 IDE。
 
 ## 功能

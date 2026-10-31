@@ -1,7 +1,5 @@
 # dsh-git-panel
 
-![dsh-git-panel](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/banner.png)
-
 An IDE-style Git panel in the conversation workspace: branches and commit history, staging and committing changes, diffs and a file browser in one resident tab, plus a zsh-style branch marker at the left of the input bar, so you never have to switch to a terminal or an IDE mid-conversation.
 
 ## Features
