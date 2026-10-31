@@ -117,45 +117,31 @@ export function withReadyPing(html: string): string {
 export const STATIC_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
 
 /**
- * Insert the static preview's CSP as the first thing in the document head, so
- * it applies before any authored resource. Falls back to creating a head when
- * the document has none, and to a leading policy when there is no `<html>`.
- * The insertion point never lands inside a comment or a script body, and an
- * opening doctype stays first: a document whose first token is not the doctype
- * is parsed in quirks mode.
+ * Insert the static preview's CSP directly after the document's prolog.
+ *
+ * Not after a `<head>` found by regex: that match can sit inside RCDATA or
+ * RAWTEXT (`<title>`, `<style>`, a textarea) or after body-level content that
+ * already closed the head implicitly, and a `<meta>` outside the head has no
+ * effect — the authored page would then load its external images, CSS and fonts
+ * as usual (sandbox="" still stops scripts, so the exposure is tracking pixels,
+ * the visitor's address and requests to internal hosts).
+ *
+ * The parser has no such ambiguity at the very start: in the "before html"
+ * insertion mode a `<meta>` creates the html/head elements and lands in the
+ * head, and any authored `<head>` later is ignored while its children still go
+ * there. A leading doctype must stay first (otherwise the page is parsed in
+ * quirks mode), so the meta goes right after it, allowing the comments and
+ * whitespace that may precede it.
  *
  * @param html Complete page text.
- * @returns The same page with the CSP meta first in its head.
+ * @returns The same page with the CSP meta at the first position the parser
+ *          puts into the head.
  */
 export function createStaticHtmlDocument(html: string): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${STATIC_CSP}">`
-  const head = /<head(?:\s[^>]*)?>/i.exec(html)
-  if (head !== null && !insideOpaqueText(html, head.index)) {
-    const at = head.index + head[0].length
-    return html.slice(0, at) + meta + html.slice(at)
-  }
-  const root = /<html(?:\s[^>]*)?>/i.exec(html)
-  if (root !== null && !insideOpaqueText(html, root.index)) {
-    const at = root.index + root[0].length
-    return html.slice(0, at) + `<head>${meta}</head>` + html.slice(at)
-  }
-  const doctype = /^\s*<!doctype[^>]*>/i.exec(html)
-  const at = doctype === null ? 0 : doctype[0].length
+  const prolog = /^(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(html)
+  const at = prolog === null ? 0 : prolog[0].length
   return html.slice(0, at) + meta + html.slice(at)
-}
-
-/**
- * Whether the offset falls inside a comment or a script body, where a tag
- * match is text rather than markup.
- */
-function insideOpaqueText(html: string, offset: number): boolean {
-  const before = html.slice(0, offset).toLowerCase()
-  if (before.lastIndexOf('<!--') > before.lastIndexOf('-->')) return true
-  // The last opening tag decides: an earlier, already closed script says
-  // nothing about whether this offset sits inside the one still open.
-  const open = before.lastIndexOf('<script')
-  if (open === -1) return false
-  return before.indexOf('</script', open) === -1
 }
 
 /**

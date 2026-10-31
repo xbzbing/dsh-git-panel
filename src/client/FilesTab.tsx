@@ -98,9 +98,15 @@ const filesEvict = new Map<string, ReturnType<typeof setTimeout>>()
 
 function stashFilesState(sessionId: string, state: FilesState): void {
   // A mid-flight load can't resume after remount; persist it as idle so the
-  // restore path re-selects and refetches the file.
+  // restore path re-selects and refetches the file. The same holds per
+  // directory: a `loading` entry has no request behind it after the remount,
+  // and the restore path only re-fetches the root, so the directory would show
+  // "loading" forever (folding and unfolding it would not help either — those
+  // only fetch a path that has no entry at all).
   const file: FileState = state.file.kind === 'loading' ? { kind: 'idle' } : state.file
-  filesCache.set(sessionId, { state: { ...state, file }, leftAt: Date.now() })
+  const dirs = new Map<string, Loaded>()
+  for (const [path, loaded] of state.dirs) if (loaded.status !== 'loading') dirs.set(path, loaded)
+  filesCache.set(sessionId, { state: { ...state, file, dirs }, leftAt: Date.now() })
   // A parked entry holds the loaded document text (up to the read cap), so it
   // is dropped when the restore window closes — not whenever some tab happens
   // to mount again and notice the expiry.
@@ -339,14 +345,18 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   }, [worktreeGen, sessionId, loadDir])
 
   const toggleDir = useCallback((path: string) => {
+    const willOpen = !open.has(path)
     setOpen((prev) => {
       const next = new Set(prev)
-      if (next.has(path)) { next.delete(path); return next }
-      next.add(path)
-      if (dirs.get(path) === undefined) void loadDir(path)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
       return next
     })
-  }, [dirs, loadDir])
+    // Fetch outside the updater: a state updater must stay pure (React may run
+    // it twice), and a directory without a *usable* listing — never loaded, or
+    // restored in its error state — needs a read either way.
+    if (willOpen && dirs.get(path)?.status !== 'ready') void loadDir(path)
+  }, [open, dirs, loadDir])
 
   // Read one file into the preview. A fresh selection blanks the pane to its
   // loading state; a refresh keeps the current content on screen until the

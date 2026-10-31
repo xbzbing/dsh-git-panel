@@ -261,6 +261,9 @@ function pairDeletionsWithAdditions(rows: SideRow[]): SideRow[] {
   return out
 }
 
+const isHighSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdbff
+const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff
+
 /**
  * Word-level change ranges between an old and new line: the changed middle
  * after stripping the common prefix and suffix. Returns null when the whole
@@ -274,6 +277,11 @@ export function intraLineDiff(a: string, b: string): { left: [number, number]; r
   while (p < min && a[p] === b[p]) p++
   let s = 0
   while (s < min - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++
+  // Never cut a surrogate pair in half: the two halves are separate UTF-16 code
+  // units, so an emoji that differs only in its low unit would otherwise be
+  // split across two spans and render as two replacement glyphs.
+  if (p > 0 && isHighSurrogate(a.charCodeAt(p - 1))) p -= 1
+  if (s > 0 && isLowSurrogate(a.charCodeAt(a.length - s))) s -= 1
   // No shared prefix and no shared suffix → the whole line changed.
   if (p === 0 && s === 0) return null
   return { left: [p, a.length - s], right: [p, b.length - s] }
@@ -348,21 +356,28 @@ export function spliceGap(
   const gap = rows[idx]!.gap!
   const revealed = contextRowsFromLines(gap.delta, revealedStart, lines)
   const replacement: SideRow[] = []
+  // Never spread the revealed lines into `push`: a function call takes them as
+  // arguments, and an "expand all" over a few hundred thousand lines exceeds the
+  // engine's argument limit, throwing where the caller has no boundary to catch
+  // it (the whole panel would go down). A loop has no such limit.
+  const append = (target: SideRow[], source: readonly SideRow[]): void => {
+    for (const row of source) target.push(row)
+  }
   // Every gap carries an exact count (the trailing gap's comes from the host's
   // new-side line count), so "the window came back whole" is the same test
   // everywhere and no branch has to probe for EOF.
   const total = gap.count
-  if (direction === 'all' || lines.length >= total) {
-    replacement.push(...revealed)
-  } else if (direction === 'down') {
-    // Revealed the top slice; a smaller gap remains below.
-    replacement.push(...revealed)
+  if (direction === 'all' || direction === 'down') {
+    append(replacement, revealed)
     // `eof` overrides the count when the file shrank since the diff was
-    // fetched: nothing lies below the file end, so it must not be offered.
-    if (!eof) {
+    // fetched: nothing lies below the file end, so it must not be offered. A
+    // bounded host reply ('all' larger than one request) keeps the remainder as
+    // a gap instead of dropping it.
+    const remaining = eof ? 0 : total - lines.length
+    if (remaining > 0) {
       replacement.push(gapRow({
         rightStart: gap.rightStart + lines.length,
-        count: total - lines.length, delta: gap.delta, atStart: false,
+        count: remaining, delta: gap.delta, atStart: false,
       }))
     }
   } else {
@@ -376,7 +391,7 @@ export function spliceGap(
       rightStart: gap.rightStart,
       count: remaining, delta: gap.delta, atStart: gap.atStart,
     }))
-    replacement.push(...revealed)
+    append(replacement, revealed)
   }
   return [...rows.slice(0, idx), ...replacement, ...rows.slice(idx + 1)]
 }

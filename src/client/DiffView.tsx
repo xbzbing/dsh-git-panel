@@ -17,7 +17,7 @@ import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, M
 import { ImageCompare } from './ImageCompare.js'
 import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
-import { DIFF_EXPAND_CONTEXT, type GitQuery } from './types.js'
+import { DIFF_EXPAND_CONTEXT, FILE_LINES_MAX_LINES, type GitQuery } from './types.js'
 import { useImageDiff } from './image-diff-hook.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import type { GitKey } from './locales.js'
@@ -487,25 +487,41 @@ function useGapExpander(
     const key = `${gap.rightStart}:${direction}`
     setBusy(key)
     const my = ++gen.current
-    // Which slice to request. 'up'/'down' reveal one GAP_STEP window; 'all'
-    // (and any bounded gap) reveal the whole hidden region.
-    const { start, end } = sliceRequest(gap, direction)
-    const query: GitQuery = base === 'commit' && commit !== undefined
+    const queryAt = (start: number, end: number): GitQuery => base === 'commit' && commit !== undefined
       ? { kind: 'file-lines', path, base: 'commit', commit, start, end }
       : base === 'staged'
         ? { kind: 'file-lines', path, base: 'staged', start, end }
         : { kind: 'file-lines', path, base: 'worktree', start, end }
-    void remote.query({ sessionId, query }).then((res) => {
-      if (my !== gen.current) return
-      const fl = queryAs(res, 'file-lines')
-      setBusy(null)
-      if (fl === null) return
-      setRows((prev) => spliceGap(prev, gap.rightStart, direction, fl.start, fl.lines, fl.eof))
-    }).catch(() => { if (my === gen.current) setBusy(null) })
+    // The host bounds one reply (FILE_LINES_MAX_LINES and the config byte cap),
+    // so "expand all" walks forward chunk by chunk until EOF. The walk is capped
+    // too: a few hundred thousand revealed lines in one gesture is not worth the
+    // frame time, and whatever is left stays a gap the reader can click again.
+    const first = sliceRequest(gap, direction)
+    const steps = direction === 'all' ? EXPAND_ALL_STEPS : 1
+    void (async () => {
+      let start = first.start
+      let end = first.end
+      for (let step = 0; step < steps; step += 1) {
+        const res = await remote.query({ sessionId, query: queryAt(start, end) })
+        if (my !== gen.current) return
+        const fl = queryAs(res, 'file-lines')
+        if (fl === null) break
+        setRows((prev) => spliceGap(prev, start, direction, fl.start, fl.lines, fl.eof))
+        if (fl.eof || fl.lines.length === 0 || direction !== 'all') break
+        start = fl.start + fl.lines.length
+        if (start > gap.rightStart + gap.count - 1) break
+        end = Math.min(start + FILE_LINES_MAX_LINES - 1, gap.rightStart + gap.count - 1)
+      }
+      if (my === gen.current) setBusy(null)
+    })().catch(() => { if (my === gen.current) setBusy(null) })
   }, [remote, sessionId, path, base, commit, setRows])
 
   return { busy, run }
 }
+
+/** Requests one "expand all" click may chain: ten host-sized replies, so a
+ * huge gap fills in one gesture while the frame budget stays bounded. */
+const EXPAND_ALL_STEPS = 10
 
 /** New-side line range to request for a gap expansion step. */
 function sliceRequest(gap: GapInfo, direction: 'all' | 'up' | 'down'): { start: number; end: number } {

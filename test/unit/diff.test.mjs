@@ -368,3 +368,17 @@ test('the line-number gutter is three digits wide until a side needs four', () =
   assert.equal(gutterWidth(-5), 'calc(3ch + 10px)', 'a negative count clamps to the floor')
   assert.equal(gutterWidth(Number.NaN), 'calc(3ch + 10px)', 'a unusable count clamps to the floor')
 })
+
+test('intraLineDiff never splits a surrogate pair', () => {
+  // 'x😀' → 'x😁' differs only in the low surrogate: without the guard the
+  // prefix ends between the halves and each span renders a broken glyph.
+  const r = intraLineDiff('x😀', 'x😁')
+  assert.ok(r !== null)
+  assert.equal(r.left[0], 1, 'the prefix stops before the emoji, not inside it')
+  assert.equal(r.right[0], 1)
+  // The suffix side must not start inside the pair either.
+  const tail = intraLineDiff('😀y', '😁y')
+  assert.ok(tail !== null)
+  assert.equal(tail.left[1], '😀y'.length - 1, 'the shared suffix is the "y" only')
+  assert.equal(tail.right[1], '😁y'.length - 1)
+})

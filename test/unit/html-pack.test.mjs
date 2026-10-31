@@ -98,27 +98,28 @@ test('encodeText is base64 of the UTF-8 bytes', () => {
   assert.equal(Buffer.from(encodeText('颜色 emoji 🎨'), 'base64').toString('utf8'), '颜色 emoji 🎨')
 })
 
-test('createStaticHtmlDocument puts the CSP first in the head', () => {
+test('createStaticHtmlDocument puts the CSP at the first position the parser puts into the head', () => {
+  const meta = '<meta http-equiv="Content-Security-Policy"'
   const doc = createStaticHtmlDocument('<!doctype html><html><head><title>t</title></head><body>x</body></html>')
-  assert.ok(doc.startsWith('<!doctype html><html><head><meta http-equiv="Content-Security-Policy"'), 'meta leads the head')
+  assert.ok(doc.startsWith(`<!doctype html>${meta}`), 'the meta follows the doctype')
   assert.ok(doc.includes("default-src 'none'"), 'network and scripts are denied')
-  assert.ok(doc.includes('</head><body>x</body>'), 'the rest of the document is untouched')
-  assert.ok(createStaticHtmlDocument('<html><body>x</body></html>').includes('<head><meta http-equiv="Content-Security-Policy"'))
-  assert.ok(createStaticHtmlDocument('<p>x</p>').startsWith('<meta http-equiv="Content-Security-Policy"'), 'no html root: policy leads the fragment')
-  // A document without <html> must keep its doctype first: anything ahead of
-  // it puts the parser in quirks mode and changes the layout.
-  assert.ok(createStaticHtmlDocument('<!doctype html><p>x</p>').startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"'), 'doctype stays first')
-  // A `<head` that is only text (inside a comment or a script body) must not
-  // receive the meta: the policy would be inert and the page could be cut.
-  const commented = createStaticHtmlDocument('<!doctype html><!-- <head> --><html><head></head><body>x</body></html>')
-  assert.ok(commented.startsWith('<!doctype html>'), 'the doctype still leads the document')
-  assert.ok(commented.includes('<html><head><meta http-equiv="Content-Security-Policy"'), 'the meta goes into the real head, not the comment')
-  const scripted = createStaticHtmlDocument('<!doctype html><script>var s = "<head>"</script><body>x</body>')
-  assert.ok(scripted.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"'), 'a head inside a script is not a head')
-  // An earlier, closed script must not hide the fact that this `<head` sits
-  // inside a later one.
-  const twoScripts = createStaticHtmlDocument('<!doctype html><script>var a=1</script><script>var s = "<head>"</script><body>x</body>')
-  assert.ok(twoScripts.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"'), 'the last script decides, not the first')
+  assert.ok(doc.includes('<html><head><title>t</title></head><body>x</body></html>'), 'the rest of the document is untouched')
+  assert.ok(createStaticHtmlDocument('<html><body>x</body></html>').startsWith(meta), 'no doctype: the policy leads')
+  assert.ok(createStaticHtmlDocument('<p>x</p>').startsWith(meta), 'a bare fragment gets the policy first')
+  // A doctype must stay the first token: anything ahead of it puts the parser in
+  // quirks mode and changes the layout.
+  assert.ok(createStaticHtmlDocument('<!doctype html><p>x</p>').startsWith(`<!doctype html>${meta}`), 'doctype stays first')
+  // Whitespace and comments may precede the doctype; the meta still goes after it.
+  const prologue = createStaticHtmlDocument('\n<!-- banner -->\n<!doctype html><html><head></head><body>x</body></html>')
+  assert.ok(prologue.startsWith(`\n<!-- banner -->\n<!doctype html>${meta}`), 'comments before the doctype keep their order')
+
+  // The insertion point is never a matched `<head>`: a `<head>` inside
+  // RCDATA/RAWTEXT or after body content would take the meta out of the head,
+  // where it has no effect. These documents all keep the policy first.
+  assert.ok(createStaticHtmlDocument(`<!doctype html><img src="x.png"><head></head>`).startsWith(`<!doctype html>${meta}`), 'body content before head')
+  assert.ok(createStaticHtmlDocument('<!doctype html><title>&lt;<head></title><img src=x>').startsWith(`<!doctype html>${meta}`), 'a head inside a title is not a head')
+  assert.ok(createStaticHtmlDocument('<!doctype html><style>/*<head>*/</style><img src=x>').startsWith(`<!doctype html>${meta}`), 'a head inside a style is not a head')
+  assert.ok(createStaticHtmlDocument('<!doctype html><script>var s = "<head>"</script><body>x</body>').startsWith(`<!doctype html>${meta}`), 'a head inside a script is not a head')
 })
 
 test('looksScriptRendered separates canvas pages from authored copy', () => {

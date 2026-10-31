@@ -19,11 +19,17 @@ import type { CodeHighlighter, HighlightSpan } from '@deepseek-ai/dsh-client-ui-
  * re-tokenizes what it needs). */
 export const HL_CACHE_MAX = 8000
 
+/** Fragments longer than this are highlighted without being kept: the count
+ * cap alone bounds the number of entries, not their size, and one minified line
+ * can be hundreds of KB. */
+export const HL_CACHE_MAX_CHARS = 5000
+
 export function memoizeHighlighter(hl: CodeHighlighter): CodeHighlighter {
   const cache = new Map<string, HighlightSpan[][] | undefined>()
   return (code: string): HighlightSpan[][] | undefined => {
     if (cache.has(code)) return cache.get(code)
     const value = hl(code)
+    if (code.length > HL_CACHE_MAX_CHARS) return value
     if (cache.size >= HL_CACHE_MAX) cache.clear()
     cache.set(code, value)
     return value
