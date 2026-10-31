@@ -45,6 +45,9 @@ const RUNNERS = [
   // position it against its own scroller — a missing `position: relative`
   // walks the fill up to the panel — so each host is driven and measured here.
   'row-slider',
+  // The real mermaid chunk (not the harness stub) under the shell's page
+  // geometry with real scrollbars: a draw must never overflow the document.
+  'mermaid-layout',
   // Served over http://127.0.0.1 so the loopback (local instance) branch of the
   // heavy-preview dialog is exercised; the file:// runners only see the remote one.
   'local-open',
