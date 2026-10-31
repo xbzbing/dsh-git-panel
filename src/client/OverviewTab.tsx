@@ -26,6 +26,7 @@ import { useBranchTree, useCommitDetail, useHistory, type HistoryFilter } from '
 import { useCopyFeedback } from './copy-feedback.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
+import { runRemoteAction, runSnapshotAction } from './op-runner.js'
 import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
 import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
@@ -416,49 +417,49 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
 
   // Tag write ops go straight through `run` (the work tree is untouched, so no
   // snapshot is needed); afterTagOp reloads the history graph + branch/tag list.
-  const runTagCreate = async (name: string, message: string): Promise<void> => {
-    if (tagForm === null || opBusy) return
-    setOpError(null)
-    setOpBusy(true)
-    try {
-      const res = await remote.run({ sessionId, action: { kind: 'tag-create', name, commit: tagForm.hash, ...(message.trim() !== '' ? { message } : {}) } })
-      if (res.ok) { setTagForm(null); afterTagOp() }
-      else setOpError(opErrorText(res.error.code, res.error.message, t))
-    } finally { setOpBusy(false) }
+  const runTagCreate = (name: string, message: string): Promise<void> => {
+    if (tagForm === null) return Promise.resolve()
+    return runRemoteAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      remote, sessionId,
+      { kind: 'tag-create', name, commit: tagForm.hash, ...(message.trim() !== '' ? { message } : {}) },
+      () => { setTagForm(null); afterTagOp() },
+      (code, msg) => opErrorText(code, msg, t),
+      t('error.generic'),
+    )
   }
-  const runTagDelete = async (name: string): Promise<void> => {
-    if (opBusy) return
-    setOpError(null)
-    setOpBusy(true)
-    try {
-      const res = await remote.run({ sessionId, action: { kind: 'tag-delete', name } })
-      if (res.ok) { setTagToDelete(null); afterTagOp() }
-      else setOpError(opErrorText(res.error.code, res.error.message, t))
-    } finally { setOpBusy(false) }
-  }
+  const runTagDelete = (name: string): Promise<void> =>
+    runRemoteAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      remote, sessionId,
+      { kind: 'tag-delete', name },
+      () => { setTagToDelete(null); afterTagOp() },
+      (code, msg) => opErrorText(code, msg, t),
+      t('error.generic'),
+    )
 
   // Revert / reset move HEAD or the work tree, so they go through `onAction`
   // (controller accepts the fresh snapshot → query signal advances → history
-  // reloads). The returned error is already localized by Panel's opErrorText.
-  const runRevert = async (): Promise<void> => {
-    if (revertTarget === null || opBusy) return
-    setOpError(null)
-    setOpBusy(true)
-    try {
-      const res = await onAction({ kind: 'revert', commit: revertTarget.hash })
-      if (res.ok) setRevertTarget(null)
-      else setOpError(res.error ?? t('error.generic'))
-    } finally { setOpBusy(false) }
+  // reloads).
+  const runRevert = (): Promise<void> => {
+    if (revertTarget === null) return Promise.resolve()
+    return runSnapshotAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      onAction,
+      { kind: 'revert', commit: revertTarget.hash },
+      () => setRevertTarget(null),
+      t('error.generic'),
+    )
   }
-  const runReset = async (mode: ResetMode): Promise<void> => {
-    if (resetTarget === null || opBusy) return
-    setOpError(null)
-    setOpBusy(true)
-    try {
-      const res = await onAction({ kind: 'reset', commit: resetTarget.hash, mode })
-      if (res.ok) setResetTarget(null)
-      else setOpError(res.error ?? t('error.generic'))
-    } finally { setOpBusy(false) }
+  const runReset = (mode: ResetMode): Promise<void> => {
+    if (resetTarget === null) return Promise.resolve()
+    return runSnapshotAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      onAction,
+      { kind: 'reset', commit: resetTarget.hash, mode },
+      () => setResetTarget(null),
+      t('error.generic'),
+    )
   }
 
   // Branch switch. It moves HEAD *and* the whole work tree, so it goes through
@@ -505,16 +506,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       if (!silent) setSyncError(e instanceof Error ? e.message : t('error.generic'))
     } finally { setSyncBusy(false) }
   }
-  const runPullFf = async (): Promise<void> => {
-    if (pullBusy) return
-    setOpError(null)
-    setPullBusy(true)
-    try {
-      const res = await onAction({ kind: 'pull-ff' })
-      if (res.ok) setPullConfirm(false)
-      else setOpError(res.error ?? t('error.generic'))
-    } finally { setPullBusy(false) }
-  }
+  const runPullFf = (): Promise<void> =>
+    runSnapshotAction(
+      { busy: pullBusy, setBusy: setPullBusy, setError: setOpError },
+      onAction,
+      { kind: 'pull-ff' },
+      () => setPullConfirm(false),
+      t('error.generic'),
+    )
   // One status-bar callback set, shared by the wide and compact placements.
   const statusCbs = {
     syncBusy, syncError, pullBusy, pushBusy, publishBusy,
