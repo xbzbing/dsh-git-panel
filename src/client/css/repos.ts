@@ -21,10 +21,10 @@ export const CSS = `
 /* A head that is not a toggle (the docked copy without a collapse control). */
 .gp-repolist__head--static{cursor:default}
 .gp-repolist__head--static:hover{background:transparent;color:var(--dsw-alias-label-tertiary)}
-.gp-repolist__label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Collapsed head: the label is a repository mark, not text — the selected
- * chip takes the width the words used to hold. */
-.gp-repolist__label--ic{display:flex;align-items:center}
+/* The label leads with a repository mark in both states; collapsed it is the
+ * mark alone so the selected chip takes the width the words used to hold. */
+.gp-repolist__label{display:flex;align-items:center;gap:4px;min-width:0}
+.gp-repolist__labeltext{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-repolist__badge{flex:none;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);font-size:10px;line-height:16px;text-align:center;box-sizing:border-box}
 /* The scroll container also anchors the travelling fill, so the slider scrolls
  * with the rows instead of floating over them. */

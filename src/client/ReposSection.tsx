@@ -177,8 +177,9 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   const list = h('div', { key: 'list', id: listId, className: 'gp-repolist__list', ref: listBox }, [slider, rowGroups])
 
   // While collapsed the head names the checkout the panes act on: its label
-  // shrinks to a repository icon so the selected chip keeps the width, with
-  // the absolute root as the hover hint. Expanding restores the text label.
+  // shrinks to the repository icon so the selected chip keeps the width, with
+  // the absolute root as the hover hint. Expanded, the icon stays and the text
+  // label follows it.
   const selectedLabel = currentChoice === undefined ? null : repoLabel(currentChoice)
   const selectedTitle = currentChoice === undefined || currentChoice.root === '' ? selectedLabel : currentChoice.root
 
@@ -203,9 +204,14 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   const headChildren: (JSX.Element | null)[] = [
     h('span', {
       key: 'label',
-      className: collapsed ? 'gp-repolist__label gp-repolist__label--ic' : 'gp-repolist__label',
+      className: 'gp-repolist__label',
       ...(collapsed ? { role: 'img', 'aria-label': t('tab.repos') } : {}),
-    }, collapsed ? h(RepoIcon, { size: 14 }) : t('tab.repos')),
+    }, collapsed
+      ? h(RepoIcon, { size: 14 })
+      : [
+          h(RepoIcon, { key: 'ic', size: 14 }),
+          h('span', { key: 'tx', className: 'gp-repolist__labeltext' }, t('tab.repos')),
+        ]),
     h('span', {
       key: 'n',
       className: 'gp-repolist__badge',
