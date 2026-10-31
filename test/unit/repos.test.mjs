@@ -7,8 +7,9 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import './_tmp-ceiling.mjs'
+import { linkOrSkip } from './_fs-helpers.mjs'
 import { spawn as nodeSpawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
@@ -238,12 +239,7 @@ test('a symlink escaping the workspace cannot become a repository', async (t) =>
   const outside = join(tmp, 'outside')
   mkdirSync(join(outside, '.git'), { recursive: true })
   const link = join(ws, 'escape')
-  try {
-    symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir')
-  } catch (error) {
-    t.skip('symlinks are unavailable here: ' + error.message)
-    return
-  }
+  if (!linkOrSkip(t, outside, link, 'dir')) return
   try {
     const fs = createFsDeps()
     // The scan cannot offer it: the entry is not a directory to descend into,

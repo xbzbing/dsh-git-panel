@@ -39,11 +39,29 @@ export const DIFF_CONTEXT_MAX = 100000
 export const DIFF_EXPAND_CONTEXT = 2000
 
 /**
+ * Lines one `file-lines` request may return. A collapsed gap asks for a range
+ * keyed by its own line count, and the count comes from the file: without a cap
+ * a single "expand all" read a whole 30 MB file into one RPC reply. The client
+ * asks again with the next start while `eof` is false, so the pane still fills.
+ */
+export const FILE_LINES_MAX_LINES = 5000
+
+/**
+ * Ceiling for the working-file read behind `file-lines` (the on-demand
+ * expansion). Expansion has to read the file to slice lines out of it, so this
+ * is deliberately above the count-read ceiling; a file past it reports no lines
+ * rather than pulling gigabytes through the host. The reply itself is bounded
+ * by `FILE_LINES_MAX_LINES` and the config byte cap.
+ */
+export const FILE_LINES_READ_MAX = 32 * 1024 * 1024
+
+/**
  * Ceiling for the working-file read taken only to count the diff's new-side
  * lines. That count decides whether hidden context follows the last hunk, so it
  * is read on every diff query — including the changes tab's poll while a diff is
- * open — while `file-lines` (the on-demand expansion) stays uncapped. Above this
- * size the count reports 0 (unknown) and no trailing control is offered.
+ * open — where a full read would be wasted work; `file-lines` reads up to
+ * FILE_LINES_READ_MAX instead. Above this size the count reports 0 (unknown)
+ * and no trailing control is offered.
  */
 export const DIFF_COUNT_READ_MAX = 8 * 1024 * 1024
 
@@ -233,6 +251,14 @@ export type GitAction =
     readonly message: string
     /** Commit only these paths; absent/empty commits everything staged. */
     readonly paths?: readonly string[]
+    /**
+     * A subset of `paths` committed from the index rather than the work tree.
+     * The changes list selects a side: only a `:s` pick means "what is staged",
+     * and re-staging the path would fold unstaged hunks in (undoing a partial
+     * `git add -p`). Absent → every path is staged from the work tree, which is
+     * the behaviour of older clients.
+     */
+    readonly indexOnly?: readonly string[]
     /** True → git commit --amend (replace the previous commit). */
     readonly amend?: boolean
   }
@@ -640,6 +666,13 @@ export type GitQueryResult =
      */
     readonly insertions: number
     readonly deletions: number
+    /**
+     * The diff output exceeded the runner's ceiling, so the file list and the
+     * +/- totals describe only part of the commit (or, when the file list was
+     * cut mid-record, nothing at all — `stats` is then empty). Absent means the
+     * numbers are complete.
+     */
+    readonly truncated?: true
   }
   | { readonly kind: 'branches'; readonly current: string | null; readonly defaultBranch: string | null; readonly local: readonly GitBranch[]; readonly remote: readonly GitBranch[] }
   | { readonly kind: 'tags'; readonly tags: readonly GitBranch[] }

@@ -1,7 +1,9 @@
 /**
  * GitAction → command sequence construction + execution.
  */
-import { join, sep } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { dirname, join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
 import { parseStatus } from './parser.js'
@@ -46,6 +48,11 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       // typed refusal so a future caller cannot plan it into a bare restore.
       return { error: 'invalid-path', message: 'discard-all must be resolved to paths before planning' }
     case 'commit': {
+      // A mixed selection needs a temporary index (runIndexOnlyCommit); refusing
+      // here keeps a future caller from silently staging every path instead.
+      if ((action.indexOnly?.length ?? 0) > 0) {
+        return { error: 'git-error', message: 'indexOnly commits are planned by runIndexOnlyCommit' }
+      }
       const message = action.message.trim()
       const amend = action.amend === true
       if (message === '' && !amend) return { error: 'empty-message' }
@@ -64,17 +71,19 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
     }
     case 'branch-checkout': {
       if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe branch name: ${action.name}` }
-      // No `--end-of-options`: `git checkout` supports it on no git version
-      // (older git reads it as a pathspec → "did not match any file(s) known
-      // to git" and the switch silently never happens). isSafeBranchName
-      // already forbids a leading dash, which is the entire injection surface.
-      let checkout = ['git', 'checkout', action.name]
+      // The trailing `--` disambiguates a name that is also a work-tree path:
+      // `git checkout f.txt` restores that file from the index and exits 0
+      // (`git checkout .` would revert the whole work tree), which the panel
+      // would report as a successful switch. As a trailing separator it is not
+      // `--end-of-options` — every git version accepts it; isSafeBranchName
+      // still rules out a leading dash, which is the option-position surface.
+      let checkout = ['git', 'checkout', action.name, '--']
       if (action.createFrom !== undefined) {
         // A remote row: create the local branch explicitly and set its upstream.
         // `-b <name> --track <ref>` is deterministic — `git checkout <remote>/<x>`
         // would detach HEAD instead, and DWIM name inference depends on config.
         if (!isSafeBranchName(action.createFrom)) return { error: 'invalid-name', message: `unsafe tracking ref: ${action.createFrom}` }
-        checkout = ['git', 'checkout', '-b', action.name, '--track', action.createFrom]
+        checkout = ['git', 'checkout', '-b', action.name, '--track', action.createFrom, '--']
       }
       const msg = action.stashMessage?.trim() ?? ''
       // Stash-then-switch (the dirty-work-tree path the dialog offers): the
@@ -123,7 +132,7 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
     case 'stash-apply':
     case 'stash-pop':
     case 'stash-drop': {
-      if (!Number.isInteger(action.index) || action.index < 0) {
+      if (!Number.isSafeInteger(action.index) || action.index < 0) {
         return { error: 'invalid-index', message: `invalid stash index: ${action.index}` }
       }
       const verb = action.kind === 'stash-apply' ? 'apply' : action.kind === 'stash-pop' ? 'pop' : 'drop'
@@ -144,7 +153,9 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       }
       // No `--end-of-options` either: older git rejects it outright ("must
       // come before non-option arguments"); isSafeRev rules out a leading dash.
-      return { argv: [['git', 'reset', `--${action.mode}`, action.commit]] }
+      // The trailing `--` keeps a commit-ish that is also a path (a file named
+      // like a branch) out of the pathspec position.
+      return { argv: [['git', 'reset', `--${action.mode}`, action.commit, '--']] }
     }
   }
 }
@@ -200,7 +211,9 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   // credential (`https://user:token@host/…`); strip it so a token never lands
   // in the RPC message or logs (matches remote.ts stripping it from hrefs).
   const err = scrubCredentials(stderr.trim())
-  if (/CONFLICT|Merge conflict|needs merge|could not restore untracked/i.test(combined)) {
+  // Anchored at line start: a staged file may be named `CONFLICT-notes.md`, and
+  // the "nothing added to commit" output lists it as ` M CONFLICT-notes.md`.
+  if (/^(?:CONFLICT \(|CONFLICT:|Merge conflict|needs merge|error: could not restore untracked)/m.test(combined)) {
     return { code: 'conflict', message: err || 'merge conflict' }
   }
   if (/index\.lock|Unable to create.*index|another git process/i.test(combined)) {
@@ -209,7 +222,7 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   if (/nothing to commit|nothing added to commit|no changes added/i.test(combined)) {
     return { code: 'nothing-to-commit', message: err }
   }
-  if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument|did not match any file\(s\) known to git/i.test(combined)) {
+  if (/No such ref|not a valid reference|invalid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument|did not match any file\(s\) known to git/i.test(combined)) {
     return { code: 'not-found', message: err || 'not found' }
   }
   // The branch exists but is checked out in another worktree of this repo:
@@ -220,7 +233,10 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   // A network git command (fetch/pull/push) that failed because no usable
   // credentials were available. GIT_TERMINAL_PROMPT=0 turns an interactive
   // prompt into "terminal prompts disabled", so these fail fast rather than hang.
-  if (/Authentication failed|could not read (Username|Password)|terminal prompts disabled|Permission denied \(publickey\)|Could not read from remote repository/i.test(combined)) {
+  // Only signals that name authentication itself: ssh prints "Could not read
+  // from remote repository" for every transport failure (unknown host,
+  // connection refused), so that line stays out and falls through to git-error.
+  if (/Authentication failed|could not read (Username|Password)|terminal prompts disabled|Permission denied \(publickey\)|Host key verification failed/i.test(combined)) {
     return { code: 'auth-failed', message: err || 'authentication failed' }
   }
   // `git push` rejected by the remote: the remote advanced, so the push is not a
@@ -244,6 +260,110 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
     return { code: 'revert-merge', message: err || 'cannot revert a merge commit from the panel' }
   }
   return { code: 'git-error', message: err || `git exited ${exitCode}` }
+}
+
+/**
+ * Commit a selection that mixes both sides of the changes list. The
+ * `indexOnly` paths are committed from the index exactly as staged — re-staging
+ * them would fold unstaged hunks into the commit and undo a partial
+ * `git add -p`; the remaining paths are staged from the work tree first, as a
+ * whole-file pick means. The commit is assembled in a temporary index seeded
+ * from HEAD, so paths staged outside the selection stay staged and never enter
+ * this commit.
+ */
+async function runIndexOnlyCommit(
+  deps: SnapshotDeps,
+  root: string,
+  action: Extract<GitAction, { kind: 'commit' }>,
+  unborn: boolean,
+  signal: AbortSignal | undefined,
+): Promise<{ ok: true; output: string } | { ok: false; error: Extract<GitActionResult, { ok: false }>['error'] }> {
+  const indexOnly = [...new Set(action.indexOnly ?? [])]
+  const paths = action.paths ?? []
+  for (const path of [...paths, ...indexOnly]) {
+    if (!isSafePath(path)) return { ok: false, error: { code: 'invalid-path', message: `unsafe path: ${path}` } }
+  }
+  if (indexOnly.length === 0) return { ok: false, error: { code: 'invalid-path', message: 'indexOnly needs at least one path' } }
+  const indexOnlySet = new Set(indexOnly)
+  const worktreePaths = paths.filter((path) => !indexOnlySet.has(path))
+  const indexFile = join(tmpdir(), `dsh-git-panel-${randomUUID()}.index`)
+  const env = { GIT_INDEX_FILE: indexFile }
+
+  /** Run one step of the commit and turn a broken run into a wire error. */
+  const step = async (
+    argv: readonly string[],
+    extra?: { readonly data?: string; readonly env?: boolean },
+  ): Promise<{ stdout: string } | { error: Extract<GitActionResult, { ok: false }>['error'] }> => {
+    const outcome = await runCommand(
+      deps.run, argv, root, 'commit-index', signal,
+      extra?.data === undefined && extra?.env !== true ? undefined : { ...(extra?.data !== undefined ? { data: extra.data } : {}), ...(extra?.env === true ? { env } : {}) },
+    )
+    if ('failure' in outcome) {
+      return { error: { code: 'git-unavailable', message: outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure) } }
+    }
+    if (outcome.run.cancelled) return { error: { code: 'cancelled' } }
+    if (outcome.run.timedOut) return { error: { code: 'timeout' } }
+    if (outcome.run.exitCode !== 0) {
+      const failure = classifyActionFailure(outcome.run.stdout, outcome.run.stderr, outcome.run.exitCode ?? -1)
+      return { error: { code: failure.code, message: failure.message } }
+    }
+    return { stdout: outcome.run.stdout }
+  }
+
+  try {
+    const base = await step(['git', 'read-tree', unborn ? '--empty' : 'HEAD'], { env: true })
+    if ('error' in base) return { ok: false, error: base.error }
+
+    // Whole-file side: stage from the work tree into the real index (the
+    // long-standing behaviour), then mirror those entries into the temp one.
+    if (worktreePaths.length > 0) {
+      const added = await step(['git', 'add', '--', ...worktreePaths])
+      if ('error' in added) return { ok: false, error: added.error }
+    }
+    const copy = [...worktreePaths, ...indexOnly]
+    const listed = await step(['git', 'ls-files', '-s', '-z', '--', ...copy])
+    if ('error' in listed) return { ok: false, error: listed.error }
+    const lines = listed.stdout.split('\0').filter((record) => record !== '')
+    if (lines.length > 0) {
+      const applied = await step(['git', 'update-index', '-z', '--index-info'], { data: listed.stdout, env: true })
+      if ('error' in applied) return { ok: false, error: applied.error }
+    }
+    const present = new Set(lines.map((record) => record.slice(record.indexOf('\t') + 1)))
+    // An index-side path with no entry is a staged deletion: the temp index was
+    // seeded from HEAD, so the entry has to be dropped explicitly.
+    const missing = indexOnly.filter((path) => !present.has(path))
+    if (missing.length > 0) {
+      const removed = await step(['git', 'update-index', '--force-remove', '--', ...missing], { env: true })
+      if ('error' in removed) return { ok: false, error: removed.error }
+    }
+    // A staged rename carries its deletion on the old path, which the path list
+    // may not mention (the list is keyed by the new path): drop it too, or the
+    // commit would keep both sides.
+    const renamed = await step(['git', 'diff', '--cached', '--name-status', '-z', '-M', '--', ...indexOnly])
+    if ('error' in renamed) return { ok: false, error: renamed.error }
+    const fields = renamed.stdout.split('\0').filter((field) => field !== '')
+    const oldPaths: string[] = []
+    for (let i = 0; i < fields.length; i += 1) {
+      if (!fields[i]!.startsWith('R')) continue
+      const from = fields[i + 1]
+      i += 2
+      if (from !== undefined && !indexOnlySet.has(from)) oldPaths.push(from)
+    }
+    if (oldPaths.length > 0) {
+      const dropped = await step(['git', 'update-index', '--force-remove', '--', ...oldPaths], { env: true })
+      if ('error' in dropped) return { ok: false, error: dropped.error }
+    }
+
+    const message = action.message.trim()
+    const amendFlag = action.amend === true ? ['--amend'] : []
+    // amend + empty message: reuse the previous message (no TTY for an editor).
+    const msgArgs = message === '' ? ['--no-edit'] : ['-m', message]
+    const committed = await step(['git', 'commit', ...amendFlag, ...msgArgs], { env: true })
+    if ('error' in committed) return { ok: false, error: committed.error }
+    return { ok: true, output: committed.stdout.trim() }
+  } finally {
+    await deps.fs.remove(indexFile).catch(() => undefined)
+  }
 }
 
 /** Execute a management action, returning the fresh snapshot on success. */
@@ -286,7 +406,7 @@ export async function runAction(
   // wrong (unrecoverable) stash. TOCTOU window is cut to this rev-parse.
   const act = request.action
   if (act.kind === 'stash-apply' || act.kind === 'stash-pop' || act.kind === 'stash-drop') {
-    if (!Number.isInteger(act.index) || act.index < 0) {
+    if (!Number.isSafeInteger(act.index) || act.index < 0) {
       return { ok: false, error: { code: 'invalid-index', message: `invalid stash index: ${act.index}` } }
     }
     const probe = await runCommand(deps.run, ['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', `stash@{${act.index}}`], root, 'stash-verify', deps.signal)
@@ -339,6 +459,17 @@ export async function runAction(
       }
       request = { ...request, action: { kind: 'discard', paths: removed.remainingTracked } }
     }
+  }
+
+  // A selection that mixes both sides commits from a temporary index (see
+  // runIndexOnlyCommit); it is not a fixed argv sequence, so it runs before the
+  // planner.
+  if (request.action.kind === 'commit' && (request.action.indexOnly?.length ?? 0) > 0) {
+    const committed = await runIndexOnlyCommit(deps, root, request.action, unborn, deps.signal)
+    if (!committed.ok) return committed
+    const snap = await snapshotForSession(deps, config, request.sessionId, { repo: request.repo })
+    if (!snap.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
+    return { ok: true, snapshot: snap.value, output: committed.output }
   }
 
   const plan = planAction(request.action, unborn)
@@ -469,6 +600,18 @@ async function pathKind(deps: SnapshotDeps, path: string): Promise<PathKind> {
   }
 }
 
+/** The path's own entry (never followed), or null when nothing is there. */
+async function lstatOrNull(
+  deps: SnapshotDeps,
+  path: string,
+): Promise<{ isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean } | null> {
+  try {
+    return await deps.fs.lstat(path)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Split a discard request into untracked paths (deleted from the work tree
  * directly, since `git restore` can't touch them) and tracked paths (left for
@@ -518,13 +661,21 @@ async function discardUntracked(
   for (const path of untracked) {
     if (!isSafePath(path)) return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `unsafe path: ${path}` } } }
     const target = join(root, path)
-    let targetReal: string
-    try {
-      targetReal = await deps.fs.realpath(target)
-    } catch {
-      continue // already gone — nothing to discard
+    const link = await lstatOrNull(deps, target)
+    if (link === null) {
+      // Nothing at that path: the entry is already gone (another process, or a
+      // refresh that raced). Continuing is truthful — there is nothing to undo.
+      continue
     }
-    if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
+    // A dangling symlink resolves to nothing, so `realpath` below cannot place
+    // it; contain the link's own directory instead. `fs.remove` deletes the
+    // link itself, never the target, so this is the same containment rule as a
+    // regular entry — without it the link would be silently left behind.
+    const targetReal = await deps.fs.realpath(target).catch(() => null)
+    const containReal = targetReal ?? (link.isSymbolicLink()
+      ? await deps.fs.realpath(dirname(target)).catch(() => null)
+      : null)
+    if (containReal === null || (containReal !== rootReal && !containReal.startsWith(rootReal + sep))) {
       return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `path escapes repository: ${path}` } } }
     }
     // Last-moment re-check: the pre-flight above can be raced by a repository

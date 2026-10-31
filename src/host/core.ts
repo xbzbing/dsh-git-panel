@@ -196,8 +196,11 @@ export interface SnapshotDeps {
   readonly run: GitRunner
   readonly fs: {
     realpath(path: string): Promise<string>
-    /** `isDirectory` reports the *resolved* type (symlinks are followed). */
-    stat(path: string): Promise<{ mtimeMs: number; size: number; isDirectory(): boolean }>
+    /** `isDirectory` / `isFile` report the *resolved* type (symlinks are followed). */
+    stat(path: string): Promise<{ mtimeMs: number; size: number; isDirectory(): boolean; isFile(): boolean }>
+    /** The link itself, never followed: a dangling symlink has no `stat`, so
+     * this is the only way to see one. Rejects when nothing exists there. */
+    lstat(path: string): Promise<{ isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }>
     /** Raw bytes (no encoding) — image sides for the image-diff query. */
     readFile(path: string): Promise<Buffer>
     /**
@@ -531,17 +534,26 @@ export async function listSessionRepos(
   return { ok: true, value: { cwd, repos } }
 }
 
-/** Run one git command; a spawn-level failure returns { failure }. */
+/** Run one git command; a spawn-level failure returns { failure }.
+ * `stdin` may carry data and/or extra child env entries (merged onto the runner's
+ * base env) — the temp-index commit needs both. */
 export async function runCommand(
   runner: GitRunner,
   argv: readonly string[],
   cwd: string,
   _label: string,
   signal?: AbortSignal,
-  stdinData?: string,
+  stdin?: string | { readonly data?: string; readonly env?: Readonly<Record<string, string | undefined>> },
 ): Promise<{ run: Awaited<ReturnType<GitRunner['run']>> } | { failure: unknown }> {
+  const data = typeof stdin === 'string' ? stdin : stdin?.data
+  const env = typeof stdin === 'string' ? undefined : stdin?.env
   try {
-    const run = await runner.run(argv, { cwd, ...(signal ? { signal } : {}), ...(stdinData !== undefined ? { stdinData } : {}) })
+    const run = await runner.run(argv, {
+      cwd,
+      ...(signal ? { signal } : {}),
+      ...(data !== undefined ? { stdinData: data } : {}),
+      ...(env !== undefined ? { env } : {}),
+    })
     return { run }
   } catch (error) {
     return { failure: error }
@@ -647,8 +659,8 @@ export async function snapshotForSession(
   let allChanges: GitChange[] = []
   let statusLossy = false
   if ('run' in statusRes && !statusRes.run.timedOut && statusRes.run.exitCode === 0) {
-    allChanges = parseStatus(statusRes.run.stdout)
     statusLossy = statusRes.run.stdoutLossy
+    allChanges = parseStatus(statusRes.run.stdout, { lossy: statusLossy })
   }
   // `--untracked-files=all` lifts untracked entries to file level, matching what
   // `git add` stages and what the changes list renders. An un-ignored build or
@@ -664,10 +676,10 @@ export async function snapshotForSession(
   if (statusLossy || (untrackedEntries.length > changeLimit && collapseCandidate)) {
     const collapsed = await runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], root, 'status-collapsed', deps.signal)
     if ('run' in collapsed && !collapsed.run.timedOut && collapsed.run.exitCode === 0) {
-      const list = parseStatus(collapsed.run.stdout)
+      statusLossy = collapsed.run.stdoutLossy
+      const list = parseStatus(collapsed.run.stdout, { lossy: statusLossy })
       untrackedCollapsed = list.some((c) => c.status === 'untracked' && c.isDirectory)
       allChanges = list
-      statusLossy = collapsed.run.stdoutLossy
     }
   }
   // Truncated either because the list exceeded the cap or because the status

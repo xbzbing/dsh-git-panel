@@ -58,7 +58,13 @@ export interface GitRunResult {
 }
 
 export interface GitRunner {
-  run(argv: readonly string[], opts: { readonly cwd: string; readonly signal?: AbortSignal; readonly stdinData?: string }): Promise<GitRunResult>
+  run(argv: readonly string[], opts: {
+    readonly cwd: string
+    readonly signal?: AbortSignal
+    readonly stdinData?: string
+    /** Extra child env entries, merged over the runner's own git env. */
+    readonly env?: Readonly<Record<string, string | undefined>>
+  }): Promise<GitRunResult>
 }
 
 /**
@@ -79,11 +85,27 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
         const handle = subprocess.spawn({
           argv,
           cwd: opts.cwd,
-          // Never let a network command (fetch/pull) block on an interactive
-          // credential or host-key prompt: with stdin ignored git would hang
-          // until the timeout. GIT_TERMINAL_PROMPT=0 makes it fail fast instead,
-          // and is harmless for the non-network commands that share this runner.
-          env: { GIT_TERMINAL_PROMPT: '0' },
+          env: {
+            // Never let a network command (fetch/pull) block on an interactive
+            // credential or host-key prompt: with stdin ignored git would hang
+            // until the timeout. GIT_TERMINAL_PROMPT=0 makes it fail fast instead,
+            // and is harmless for the non-network commands that share this runner.
+            GIT_TERMINAL_PROMPT: '0',
+            // Read-only commands (`status`, `diff`) refresh the stat cache and
+            // write `.git/index` behind an `index.lock`; a user or agent running
+            // `git add` at that moment then fails on the lock. Optional locks off
+            // keeps those refresh writes out of the index; commands that must
+            // write it (add/commit/restore) take their own lock as usual.
+            GIT_OPTIONAL_LOCKS: '0',
+            // Path arguments are work-tree paths from git's own output, never
+            // patterns: with pathspec expansion on, a name containing glob
+            // metacharacters (`app/[id].tsx`) or magic (`:/`) also matches other
+            // files, so a discard would rewrite them. Applied per command (see
+            // usesLiteralPathspecs): commands that consume pathspecs themselves
+            // (`check-ignore`, `stash -u`) reject or misread the literal flag.
+            ...(usesLiteralPathspecs(argv) ? { GIT_LITERAL_PATHSPECS: '1' } : {}),
+            ...opts.env,
+          },
           stdio: {
             stdin: opts.stdinData === undefined ? 'ignore' : { data: opts.stdinData },
             stdout: { collect: { maxBytes, spill: { maxBytes: spillMaxBytes } } },
@@ -121,6 +143,16 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
       }
     },
   }
+}
+
+/**
+ * Whether this command takes a work-tree path list after `--`. Those are the
+ * only commands where pathspec expansion must be off: everywhere else the
+ * arguments are options and revisions, and `git check-ignore` / `git stash push`
+ * expand pathspecs internally (they reject or misread the literal flag).
+ */
+function usesLiteralPathspecs(argv: readonly string[]): boolean {
+  return argv.includes('--')
 }
 
 /** Resolve stdout: the in-memory tail, or the spill file when the read was lossy. */

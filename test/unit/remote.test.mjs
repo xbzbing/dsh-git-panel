@@ -22,15 +22,25 @@ test('parseRemote collapses every URL shape to one https page link', () => {
     assert.equal(r.webUrl, webUrl, url)
     assert.equal(r.host, host, url)
     assert.equal(r.hostKind, hostKind, url)
+    // `url` is the same URL minus any embedded credential (see the test below);
+    // none of these carry one, so it round-trips.
     assert.equal(r.url, url)
     assert.equal(r.name, 'origin')
   }
 })
 
-test('parseRemote strips embedded credentials from the page link', () => {
+test('parseRemote strips embedded credentials from the page link and the URL', () => {
   const r = parseRemote('origin', 'https://user:ghp_secrettoken@github.com/owner/repo.git')
   assert.equal(r.webUrl, 'https://github.com/owner/repo')
   assert.ok(!r.webUrl.includes('ghp_secrettoken'), 'token must not leak into the href')
+  // The raw URL ships in every snapshot, so the token must not ride along either.
+  assert.equal(r.url, 'https://github.com/owner/repo.git')
+  assert.ok(!r.url.includes('ghp_secrettoken'), 'token must not leak into the snapshot')
+
+  // A user with no password is a token in the userinfo slot.
+  assert.equal(parseRemote('origin', 'https://ghp_secrettoken@git.example.com/t/r.git').url, 'https://git.example.com/t/r.git')
+  // ssh keeps its account name: that is identity, not a secret.
+  assert.equal(parseRemote('origin', 'ssh://git@github.com/o/r.git').url, 'ssh://git@github.com/o/r.git')
 })
 
 test('parseRemote returns a null webUrl for a bare local path', () => {

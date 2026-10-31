@@ -124,7 +124,11 @@ test('equal status stdout with lossy or failed delivery fingerprints the changed
   const regular = await fixture()
   const lossy = await fixture({ statusLossy: true })
   const failed = await fixture({ statusExitCode: 1 })
-  assert.deepEqual(lossy.snapshot.changes, regular.snapshot.changes)
+  // A clipped read keeps the stream's tail, so the first NUL field is a
+  // fragment: parsing it as XY would invent a change on a real path. The
+  // surviving whole records are kept.
+  assert.deepEqual(lossy.snapshot.changes.map((c) => c.path), ['b.txt'], 'the leading fragment record is dropped')
+  assert.deepEqual(regular.snapshot.changes.map((c) => c.path), ['a.txt', 'b.txt'])
   assert.equal(regular.snapshot.truncated, false)
   assert.equal(regular.snapshot.truncatedReason, undefined)
   assert.equal(lossy.snapshot.truncated, true)

@@ -50,6 +50,10 @@ export async function openWithSystem(
   platform: string = process.platform,
 ): Promise<GitOpenFileResult> {
   if (!isSafePath(path)) return { ok: false, error: { code: 'invalid-path', message: path } }
+  // The panel's only use for this is "open the HTML preview outside the GUI", so
+  // host-side allow-listing the extension keeps the endpoint from becoming a way
+  // to launch a repository's own `.command` / `.app` / `.exe` / `.desktop`.
+  if (!/\.html?$/i.test(path)) return { ok: false, error: { code: 'invalid-path', message: path } }
   const file = join(root, path)
   const inside = await isInsideRoot(deps, root, file, true)
   if (inside === 'missing') return { ok: false, error: { code: 'file-not-found', message: path } }

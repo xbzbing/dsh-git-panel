@@ -10,14 +10,15 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import './_tmp-ceiling.mjs'
+import { linkOrSkip } from './_fs-helpers.mjs'
 import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
-import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
-import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, MAX_BYTES_LIMITS } from '../../lib/host/types.js'
+import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, MAX_BYTES_LIMITS } from '../../lib/host/types.js'
 
 let repo
 let repoImg
@@ -26,7 +27,13 @@ const SID = 'test-session'
 /** child_process-backed subprocess service matching SubprocessLike. */
 const subprocess = {
   spawn(spec) {
-    const child = nodeSpawn(spec.argv[0], spec.argv.slice(1), { cwd: spec.cwd })
+    // The runner hands git its behaviour-carrying env here (prompts off,
+    // optional locks off, literal pathspecs). Dropping it would make every test
+    // in this file describe a configuration production never runs.
+    const child = nodeSpawn(spec.argv[0], spec.argv.slice(1), {
+      cwd: spec.cwd,
+      env: { ...process.env, ...(spec.env ?? {}) },
+    })
     if (typeof spec.stdio.stdin === 'object') child.stdin.end(spec.stdio.stdin.data)
     else child.stdin.end()
     let out = ''
@@ -54,25 +61,6 @@ function runGit(cwd, args) {
     c.stderr.on('data', (d) => { err += d })
     c.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`git ${args.join(' ')}: ${err}`))))
   })
-}
-
-/**
- * Create a symlink, or skip the calling test where the platform refuses one.
- * Windows only lets privileged tokens (admin, Developer Mode) create symlinks;
- * elsewhere the call fails with EPERM. `dir` (an existing directory) is made as
- * a junction there, which needs no privilege and resolves the same way;
- * `dangling-dir` (a directory link whose target is missing) stays a symlink.
- */
-function linkOrSkip(t, target, path, kind = 'file') {
-  const type = kind === 'dangling-dir' ? 'dir' : kind === 'dir' && process.platform === 'win32' ? 'junction' : kind
-  try {
-    symlinkSync(target, path, type)
-    return true
-  } catch (error) {
-    if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error
-    t.skip('symlinks are unavailable here: ' + error.code)
-    return false
-  }
 }
 
 function depsAt(dir) {
@@ -2767,6 +2755,231 @@ test('publish refuses a repository with no commits to send', async () => {
     const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'publish', remote: 'origin' } })
     assert.equal(res.ok, false)
     assert.equal(res.error.code, 'no-branch')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ── literals, ceilings and partial reads (review 2026-10-31) ───────────────
+
+/** A fresh repo with the given files committed; returns its path. */
+async function repoWith(files) {
+  const { writeFileSync, mkdirSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'gp-lit-'))
+  await runGit(dir, ['init', '-q'])
+  await runGit(dir, ['config', 'user.email', 't@t.co'])
+  await runGit(dir, ['config', 'user.name', 'Tester'])
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(dir, path, '..'), { recursive: true })
+    writeFileSync(join(dir, path), content)
+  }
+  await runGit(dir, ['add', '-A'])
+  await runGit(dir, ['commit', '-qm', 'fixture'])
+  return dir
+}
+
+test('discard matches paths literally: a [bracket] name never touches its siblings', async () => {
+  const { writeFileSync, readFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'app/[id].tsx': '1', 'app/i.tsx': '1' })
+  try {
+    writeFileSync(join(dir, 'app/[id].tsx'), 'edited')
+    writeFileSync(join(dir, 'app/i.tsx'), 'PRECIOUS')
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['app/[id].tsx'] } })
+    assert.equal(res.ok, true)
+    assert.equal(readFileSync(join(dir, 'app/[id].tsx'), 'utf8'), '1', 'the selected file is restored')
+    assert.equal(readFileSync(join(dir, 'app/i.tsx'), 'utf8'), 'PRECIOUS', 'the glob neighbour keeps its change')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard of pathspec magic does not reach other paths', async () => {
+  const { writeFileSync, readFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': '1' })
+  try {
+    writeFileSync(join(dir, 'a.txt'), 'changed')
+    // `:/` is pathspec magic for "the whole tree"; it must not select anything.
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: [':/'] } })
+    assert.equal(readFileSync(join(dir, 'a.txt'), 'utf8'), 'changed', 'a magic pathspec cannot stand in for the tree')
+    if (res.ok) assert.fail('discarding a path that is not in the change set must not report success')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('branch-checkout never falls back to restoring a path', async () => {
+  const { writeFileSync, readFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'f.txt': '1' })
+  try {
+    writeFileSync(join(dir, 'f.txt'), 'PRECIOUS')
+    // `git checkout f.txt` would restore the file from the index and exit 0.
+    const asPath = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-checkout', name: 'f.txt' } })
+    assert.equal(asPath.ok, false, 'a name that is also a path is not a switch')
+    assert.equal(readFileSync(join(dir, 'f.txt'), 'utf8'), 'PRECIOUS', 'the work tree is untouched')
+    // `.` would revert the whole work tree.
+    const dot = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-checkout', name: '.' } })
+    assert.equal(dot.ok, false)
+    assert.equal(dot.error.code, 'invalid-name')
+    assert.equal(readFileSync(join(dir, 'f.txt'), 'utf8'), 'PRECIOUS')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discarding a dangling symlink removes the link instead of silently keeping it', async (t) => {
+  const { existsSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': '1' })
+  try {
+    if (!linkOrSkip(t, join(dir, 'does-not-exist'), join(dir, 'dangling'))) return
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['dangling'] } })
+    assert.equal(res.ok, true, JSON.stringify(res.ok ? null : res.error))
+    assert.equal(existsSync(join(dir, 'dangling')), false, 'the link itself is gone')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the polling status does not rewrite the index', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': '1' })
+  try {
+    // A stat-dirty work tree is what makes `git status` refresh (and lock) the
+    // index; GIT_OPTIONAL_LOCKS=0 keeps that refresh out of .git/index.
+    writeFileSync(join(dir, 'a.txt'), '2')
+    const index = join(dir, '.git', 'index')
+    const before = (await stat(index)).mtimeMs
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const snap = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID, {})
+    assert.equal(snap.ok, true)
+    const after = (await stat(index)).mtimeMs
+    assert.equal(after, before, 'status must not take the index lock just to poll')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('file-lines refuses .git in any spelling and caps the reply', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': '1' })
+  try {
+    const configJson = join(dir, '.git', 'config')
+    const secret = 'https://user:{{PASSWORD_secret}}@example.com/r.git'
+    writeFileSync(configJson, `[remote "origin"]\n\turl = ${secret}\n`)
+    for (const path of ['.git/config', '.GIT/config', '.git/../.git/config']) {
+      const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path, base: 'worktree', start: 1, end: 3 } })
+      assert.equal(res.ok, false, `${path} must be refused`)
+    }
+    const image = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'image-diff', path: '.git/x.png', base: 'worktree' } })
+    assert.equal(image.ok, true)
+    assert.equal(image.value.old, undefined, 'no side of a .git file is ever read')
+    assert.equal(image.value.new, undefined)
+
+    writeFileSync(join(dir, 'long.txt'), Array.from({ length: FILE_LINES_MAX_LINES + 500 }, (_, i) => `l${i + 1}`).join('\n') + '\n')
+    await runGit(dir, ['add', 'long.txt'])
+    const first = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'long.txt', base: 'worktree', start: 1, end: 1e9 } })
+    assert.equal(first.ok, true)
+    assert.equal(first.value.lines.length, FILE_LINES_MAX_LINES, 'one request never returns more than the ceiling')
+    assert.equal(first.value.eof, false, 'the client asks again for the rest')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a clipped diff read is reported as truncated, not as the whole commit', async (t) => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': '1', 'b.txt': '1' })
+  try {
+    writeFileSync(join(dir, 'a.txt'), '2')
+    writeFileSync(join(dir, 'b.txt'), '2')
+    await runGit(dir, ['add', '-A'])
+    await runGit(dir, ['commit', '-qm', 'change both'])
+    const base = depsAt(dir)
+    // Only the name-status read is clipped: the file list then lost its head.
+    const lossy = { ...base, run: { run: async (argv, opts) => {
+      const res = await base.run.run(argv, opts)
+      return argv[1] === 'show' && argv.includes('--name-status') ? { ...res, stdoutLossy: true } : res
+    } } }
+    const res = await runQuery(lossy, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref: 'HEAD' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.truncated, true, 'the summary says the numbers are partial')
+    assert.deepEqual(res.value.stats, [], 'a half-read file list is not parsed')
+    assert.equal(res.value.insertions, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('history fails rather than serving a page that lost its newest commits', async (t) => {
+  const dir = await repoWith({ 'a.txt': '1' })
+  try {
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'second'])
+    const base = depsAt(dir)
+    const lossy = { ...base, run: { run: async (argv, opts) => {
+      const res = await base.run.run(argv, opts)
+      return argv[1] === 'log' && argv.includes('--topo-order') ? { ...res, stdoutLossy: true } : res
+    } } }
+    const res = await runQuery(lossy, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history' } })
+    assert.equal(res.ok, false, 'a clipped newest-first page is an error, not a shorter history')
+    assert.match(res.error.message, /output cap/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a mixed selection commits the index side as staged and leaves the rest staged', async () => {
+  const { writeFileSync, readFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': 'base', 'g.txt': 'base' })
+  try {
+    writeFileSync(join(dir, 'a.txt'), 'staged')
+    await runGit(dir, ['add', 'a.txt'])
+    writeFileSync(join(dir, 'a.txt'), 'WORKTREE')
+    writeFileSync(join(dir, 'g.txt'), 'staged-g')
+    await runGit(dir, ['add', 'g.txt'])
+
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, {
+      sessionId: SID,
+      action: { kind: 'commit', message: 'only a from the index', paths: ['a.txt'], indexOnly: ['a.txt'] },
+    })
+    assert.equal(res.ok, true, JSON.stringify(res.ok ? null : res.error))
+    assert.equal(execFileSync('git', ['show', 'HEAD:a.txt'], { cwd: dir }).toString(), 'staged', 'the staged content is committed verbatim')
+    assert.equal(execFileSync('git', ['show', 'HEAD:g.txt'], { cwd: dir }).toString(), 'base', 'an unselected staged path stays out')
+    assert.equal(readFileSync(join(dir, 'a.txt'), 'utf8'), 'WORKTREE', 'the unstaged hunks are still in the work tree')
+    const status = execFileSync('git', ['status', '--porcelain'], { cwd: dir }).toString()
+    assert.match(status, /^ M a\.txt$/m, 'the work tree change is still unstaged')
+    assert.match(status, /^M {2}g\.txt$/m, 'the unselected path is still staged')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('openFile only hands HTML previews to the OS', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'ok.html': '<p>hi</p>', 'run.command': 'echo pwned', 'x.exe': 'MZ' })
+  const spawned = []
+  const spawn = async (argv) => { spawned.push(argv); return 0 }
+  try {
+    const { openWithSystem } = await import('../../lib/host/open-file.js')
+    const deps = depsAt(dir)
+    const html = await openWithSystem(deps, dir, 'ok.html', spawn, 'darwin')
+    assert.equal(html.ok, true)
+    for (const path of ['run.command', 'x.exe']) {
+      const refused = await openWithSystem(deps, dir, path, spawn, 'darwin')
+      assert.equal(refused.ok, false, `${path} must not reach the system opener`)
+    }
+    assert.equal(spawned.length, 1, 'only the HTML preview was opened')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a remote URL never carries its credential into the snapshot', async () => {
+  const dir = await repoWith({ 'a.txt': '1' })
+  try {
+    await runGit(dir, ['remote', 'add', 'origin', 'https://user:{{PASSWORD_secret}}@github.com/owner/repo.git'])
+    const snap = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID, {})
+    assert.equal(snap.ok, true)
+    assert.equal(snap.value.remote.url, 'https://github.com/owner/repo.git')
+    assert.equal(snap.value.remote.webUrl, 'https://github.com/owner/repo')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

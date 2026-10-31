@@ -9,7 +9,7 @@ import { isSafePath, isSafeRev } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
-import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, SVG_MIME } from './types.js'
+import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, SVG_MIME } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -84,7 +84,7 @@ export async function runQuery(
     switch (q.kind) {
       case 'history': return await queryHistory(deps, root, q)
       case 'diff': return await queryDiff(deps, root, q)
-      case 'file-lines': return await queryFileLines(deps, root, q)
+      case 'file-lines': return await queryFileLines(deps, config, root, q)
       case 'image-diff': return await queryImageDiff(deps, config, root, q)
       case 'show': return await queryShow(deps, root, q.ref)
       case 'branches': return await queryBranches(deps, root)
@@ -185,6 +185,14 @@ async function queryHistory(
       return { ok: true, value: { kind: 'history', commits: [], total: 0, ...(filtered ? { topology: [] } : {}) } }
     }
     return { ok: false, error: { code: 'git-error', message: stderr || `git exited ${res.run.exitCode}` } }
+  }
+  // A lossy read keeps the stream's tail, and this stream is newest-first: the
+  // head of what was dropped is exactly the latest commits (HEAD included)
+  // while the count above stays complete. Serving the survivors would render a
+  // history that silently omits the present, so the page fails instead — the
+  // client keeps its previous list and offers a retry.
+  if (res.run.stdoutLossy) {
+    return { ok: false, error: { code: 'git-error', message: 'git log output exceeded the output cap' } }
   }
   const commits: GraphCommit[] = parseGraphLog(res.run.stdout)
   // Hash-jump ignores ref/author/since filters and starts the walk at the
@@ -322,17 +330,23 @@ function splitLines(content: string): string[] {
  */
 async function queryFileLines(
   deps: SnapshotDeps,
+  config: GitPanelConfig,
   root: string,
   q: Extract<GitQueryRequest['query'], { kind: 'file-lines' }>,
 ): Promise<GitQueryResponse> {
-  if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  if (!isSafePath(q.path) || hasGitSegment(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   const start = Number.isFinite(q.start) ? Math.max(1, Math.floor(q.start)) : 1
-  const end = Number.isFinite(q.end) ? Math.max(start, Math.floor(q.end)) : start
-  const side = await readNewSide(deps, root, q)
+  // `end` is client-supplied and used to be uncapped: one gap with a huge count
+  // asked for the whole file, and a worktree side was read with no byte limit.
+  // Both the range and the read are bounded now (the client splits a bigger
+  // gap into several requests).
+  const requested = Number.isFinite(q.end) ? Math.max(start, Math.floor(q.end)) : start
+  const end = Math.min(requested, start + FILE_LINES_MAX_LINES - 1)
+  const side = await readNewSide(deps, root, q, { worktreeMaxBytes: FILE_LINES_READ_MAX })
   if (!side.ok) return { ok: false, error: { code: side.code, message: side.message } }
   // A side that does not exist (deleted file, missing blob) has no lines: an
   // empty EOF slice is the truthful answer and lets the caller drop its gap.
-  return sliceLines(q.path, side.text ?? '', start, end)
+  return sliceLines(q.path, side.text ?? '', start, end, config.maxBytes)
 }
 
 /** New-side text of a diff, or null when that side has no content. */
@@ -394,24 +408,30 @@ async function readWorktreeSide(deps: SnapshotDeps, root: string, path: string, 
   const file = join(root, path)
   const link = await deps.fs.symlinkTarget(file)
   if (link !== null) return link
-  if (maxBytes !== undefined) {
-    const size = await deps.fs.stat(file).catch(() => null)
-    if (size === null || size.size > maxBytes) return null
-  }
-  const text = await readWorktreeText(deps, root, path)
+  const text = await readWorktreeText(deps, root, path, maxBytes)
   // core.autocrlf rewrites the working file on checkout, so the bytes on disk
   // can carry CRLF while the diff (and the blob it compares) is LF; revealing
   // the raw bytes would show a \r the diff never had. Line count is unaffected.
   return text === null ? null : text.replace(/\r\n/g, '\n')
 }
 
-/** Read a worktree file as text when it is inside the root (symlink-guarded). */
-async function readWorktreeText(deps: SnapshotDeps, root: string, path: string): Promise<string | null> {
+/** Read a worktree file as text when it is inside the root and browsable:
+ * symlink-contained, `.git` excluded (its config can carry a remote token), a
+ * regular file (a FIFO would hold the read — and a libuv thread — forever), and
+ * within `maxBytes` when a caller bounds it. */
+async function readWorktreeText(
+  deps: SnapshotDeps,
+  root: string,
+  path: string,
+  maxBytes?: number,
+): Promise<string | null> {
+  if (hasGitSegment(path)) return null
+  const file = join(root, path)
+  if ((await isInsideRoot(deps, root, file, true)) !== 'inside') return null
   try {
-    const file = join(root, path)
-    const real = await deps.fs.realpath(file)
-    const rootReal = await deps.fs.realpath(root)
-    if (real !== rootReal && !real.startsWith(rootReal + sep)) return null
+    const info = await deps.fs.stat(file)
+    if (!info.isFile()) return null
+    if (maxBytes !== undefined && info.size > maxBytes) return null
     const buf = await deps.fs.readFile(file)
     return buf.toString('utf8')
   } catch {
@@ -419,13 +439,22 @@ async function readWorktreeText(deps: SnapshotDeps, root: string, path: string):
   }
 }
 
-/** Slice `content` to 1-based lines start..end, flagging when end hit EOF. */
-function sliceLines(path: string, content: string, start: number, end: number): GitQueryResponse {
+/** Slice `content` to 1-based lines start..end, flagging when end hit EOF.
+ * `maxBytes` stops the slice early rather than shipping a reply the transport
+ * would choke on: the caller asks for the following range while `eof` is false. */
+function sliceLines(path: string, content: string, start: number, end: number, maxBytes?: number): GitQueryResponse {
   const all = splitLines(content)
   const from = Math.min(start, all.length + 1)
   const to = Math.min(end, all.length)
-  const lines = from <= to ? all.slice(from - 1, to) : []
-  const eof = to >= all.length
+  const lines: string[] = []
+  let bytes = 0
+  for (let i = from - 1; i < to; i += 1) {
+    const line = all[i]!
+    bytes += Buffer.byteLength(line, 'utf8') + 1
+    if (maxBytes !== undefined && lines.length > 0 && bytes > maxBytes) break
+    lines.push(line)
+  }
+  const eof = from - 1 + lines.length >= all.length
   return { ok: true, value: { kind: 'file-lines', path, start: from, lines, eof } }
 }
 
@@ -529,12 +558,12 @@ async function blobSide(deps: SnapshotDeps, gitDir: string, oid: string, cap: nu
  * escapes the repository root is refused, so an untrusted clone cannot point
  * `evil.png → ~/.ssh/id_rsa` and have its bytes base64'd into the image pane. */
 async function worktreeSide(deps: SnapshotDeps, root: string, path: string, cap: number): Promise<ImageSide> {
+  if (hasGitSegment(path)) return undefined
   try {
     const file = join(root, path)
-    const real = await deps.fs.realpath(file)
-    const rootReal = await deps.fs.realpath(root)
-    if (real !== rootReal && !real.startsWith(rootReal + sep)) return undefined
+    if ((await isInsideRoot(deps, root, file, true)) !== 'inside') return undefined
     const info = await deps.fs.stat(file)
+    if (!info.isFile()) return undefined
     if (info.size > cap) return { tooLarge: true }
     const buf = await deps.fs.readFile(file)
     if (buf.length > cap) return { tooLarge: true }
@@ -693,7 +722,10 @@ async function queryFileContent(
 
 /** Do not expose Git metadata even through an explicit RPC path. */
 function hasGitSegment(path: string): boolean {
-  return path.split(/[\\/]/).includes('.git')
+  // Case-insensitive: a case-insensitive file system serves `.git` for `.GIT`
+  // and realpath keeps the spelling it was given, so an exact compare would
+  // leave `.GIT/config` readable.
+  return path.split(/[\\/]/).some((segment) => segment.toLowerCase() === '.git')
 }
 
 /** Whether a path resolves inside the browse root, outside its .git tree, or
@@ -732,10 +764,13 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
   // split folds any stray 0x1f (crafted subject/metadata) back into the body,
   // keeping the five leading fields aligned.
   const metaFormat = '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%b'
+  // `^{commit}` peels an annotated tag to the commit it names; without it `-s`
+  // prints the tag header first and the hash field carries that text instead.
+  const spec = `${ref}^{commit}`
   const [metaRes, statRes, numstatRes] = await Promise.all([
-    runCommand(deps.run, ['git', 'show', '-s', metaFormat, '--end-of-options', ref], root, 'show-meta', deps.signal),
-    runCommand(deps.run, ['git', 'show', FIRST_PARENT_DIFF, '--name-status', '-z', '--format=', '--end-of-options', ref], root, 'show-stat', deps.signal),
-    runCommand(deps.run, ['git', 'show', FIRST_PARENT_DIFF, '--numstat', '--format=', '--end-of-options', ref], root, 'show-numstat', deps.signal),
+    runCommand(deps.run, ['git', 'show', '-s', metaFormat, '--end-of-options', spec], root, 'show-meta', deps.signal),
+    runCommand(deps.run, ['git', 'show', FIRST_PARENT_DIFF, '--name-status', '-z', '--format=', '--end-of-options', spec], root, 'show-stat', deps.signal),
+    runCommand(deps.run, ['git', 'show', FIRST_PARENT_DIFF, '--numstat', '--format=', '--end-of-options', spec], root, 'show-numstat', deps.signal),
   ])
   if (!('run' in metaRes)) return { ok: false, error: { code: 'git-unavailable' } }
   if (metaRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
@@ -746,17 +781,23 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
   const parts = metaRes.run.stdout.split('\x1f')
   const commit = commitFromFields(parts)
   const body = commit === null ? '' : parts.slice(5).join('\x1f').trim()
-  const stats: GitFileStat[] = 'run' in statRes && statRes.run.exitCode === 0
+  // A lossy read keeps the stream's tail: the file list lost its head (so the
+  // first record is a fragment) and the +/- totals lost whole rows. Report the
+  // numbers as partial instead of presenting either half as the commit's scope.
+  const statLossy = 'run' in statRes && statRes.run.stdoutLossy
+  const numstatLossy = 'run' in numstatRes && numstatRes.run.stdoutLossy
+  const truncated = statLossy || numstatLossy
+  const stats: GitFileStat[] = 'run' in statRes && statRes.run.exitCode === 0 && !statLossy
     ? parseNameStatus(statRes.run.stdout)
     : []
   // Line totals come from the same first-parent diff as the file list (the
   // flag above pins `--numstat`, which already defaulted to first-parent for
   // merges), so the summary can never pair one diff's file count with another
   // diff's +/-. Binary rows ("-") are skipped by sumNumstat.
-  const { insertions, deletions } = stats.length > 0 && 'run' in numstatRes && numstatRes.run.exitCode === 0
+  const { insertions, deletions } = stats.length > 0 && 'run' in numstatRes && numstatRes.run.exitCode === 0 && !numstatLossy
     ? sumNumstat(numstatRes.run.stdout)
     : { insertions: 0, deletions: 0 }
-  return { ok: true, value: { kind: 'show', ref, commit, body, stats, insertions, deletions } }
+  return { ok: true, value: { kind: 'show', ref, commit, body, stats, insertions, deletions, ...(truncated ? { truncated: true as const } : {}) } }
 }
 
 async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
@@ -799,7 +840,7 @@ async function queryStashList(deps: SnapshotDeps, root: string): Promise<GitQuer
 async function queryAuthors(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
   // Same refset as the history graph so an author picked from this list can
   // never point the graph at a chain it does not display (and vice versa).
-  const res = await runCommand(deps.run, ['git', 'log', ...VISIBLE_REFS, '--format=%an', '--max-count=2000'], root, 'authors', deps.signal)
+  const res = await runCommand(deps.run, ['git', 'log', ...VISIBLE_REFS, '--format=%an', '--max-count=2000', '--'], root, 'authors', deps.signal)
   const authors = 'run' in res && res.run.exitCode === 0
     ? [...new Set(res.run.stdout.split('\n').map((s) => s.trim()).filter((s) => s !== ''))].sort((a, b) => a.localeCompare(b))
     : []
@@ -807,7 +848,7 @@ async function queryAuthors(deps: SnapshotDeps, root: string): Promise<GitQueryR
 }
 
 async function queryLastCommitMessage(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
-  const res = await runCommand(deps.run, ['git', 'log', '-1', '--format=%B'], root, 'last-message', deps.signal)
+  const res = await runCommand(deps.run, ['git', 'log', '-1', '--format=%B', '--'], root, 'last-message', deps.signal)
   const message = 'run' in res && res.run.exitCode === 0 ? res.run.stdout.replace(/\n+$/, '') : ''
   return { ok: true, value: { kind: 'last-commit-message', message } }
 }
@@ -821,20 +862,20 @@ async function queryLastCommitMessage(deps: SnapshotDeps, root: string): Promise
  */
 async function queryPullPreview(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
   const empty = { kind: 'pull-preview', hasUpstream: false, commits: 0, files: 0, insertions: 0, deletions: 0 } as const
-  const commitsRes = await runCommand(deps.run, ['git', 'rev-list', '--count', '--end-of-options', 'HEAD..@{upstream}'], root, 'pull-preview-count', deps.signal)
+  const commitsRes = await runCommand(deps.run, ['git', 'rev-list', '--count', '--end-of-options', 'HEAD..@{upstream}', '--'], root, 'pull-preview-count', deps.signal)
   // A non-zero exit means no upstream (or unborn): report "no upstream".
   if (!('run' in commitsRes) || commitsRes.run.exitCode !== 0) return { ok: true, value: empty }
   const commits = Number(commitsRes.run.stdout.trim()) || 0
-  const diffRes = await runCommand(deps.run, ['git', 'diff', '--numstat', '--end-of-options', 'HEAD', '@{upstream}'], root, 'pull-preview-diff', deps.signal)
-  let files = 0
-  let insertions = 0
-  let deletions = 0
-  if ('run' in diffRes && diffRes.run.exitCode === 0) {
-    files = diffRes.run.stdout.split('\n').filter((l) => l.trim() !== '').length
-    const sum = sumNumstat(diffRes.run.stdout)
-    insertions = sum.insertions
-    deletions = sum.deletions
+  const diffRes = await runCommand(deps.run, ['git', 'diff', '--numstat', '--end-of-options', 'HEAD', '@{upstream}', '--'], root, 'pull-preview-diff', deps.signal)
+  // A failed diffstat must not read as "0 files": the preview would claim an
+  // empty change set that was never measured (a path named like a rev is the
+  // way in — the trailing `--` now keeps revisions operands).
+  if (!('run' in diffRes)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (diffRes.run.exitCode !== 0) {
+    return { ok: false, error: { code: 'git-error', message: diffRes.run.stderr.trim() || 'diffstat failed' } }
   }
+  const files = diffRes.run.stdout.split('\n').filter((l) => l.trim() !== '').length
+  const { insertions, deletions } = sumNumstat(diffRes.run.stdout)
   return { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits, files, insertions, deletions } }
 }
 
@@ -842,19 +883,19 @@ async function queryPushPreview(deps: SnapshotDeps, root: string): Promise<GitQu
   const empty = { kind: 'push-preview', hasUpstream: false, commits: 0, files: 0, insertions: 0, deletions: 0 } as const
   // Outgoing range is the mirror of pull-preview: commits on HEAD not yet on the
   // upstream. A non-zero exit means no upstream (or unborn) → "no upstream".
-  const commitsRes = await runCommand(deps.run, ['git', 'rev-list', '--count', '--end-of-options', '@{upstream}..HEAD'], root, 'push-preview-count', deps.signal)
+  const commitsRes = await runCommand(deps.run, ['git', 'rev-list', '--count', '--end-of-options', '@{upstream}..HEAD', '--'], root, 'push-preview-count', deps.signal)
   if (!('run' in commitsRes) || commitsRes.run.exitCode !== 0) return { ok: true, value: empty }
   const commits = Number(commitsRes.run.stdout.trim()) || 0
-  const diffRes = await runCommand(deps.run, ['git', 'diff', '--numstat', '--end-of-options', '@{upstream}', 'HEAD'], root, 'push-preview-diff', deps.signal)
-  let files = 0
-  let insertions = 0
-  let deletions = 0
-  if ('run' in diffRes && diffRes.run.exitCode === 0) {
-    files = diffRes.run.stdout.split('\n').filter((l) => l.trim() !== '').length
-    const sum = sumNumstat(diffRes.run.stdout)
-    insertions = sum.insertions
-    deletions = sum.deletions
+  const diffRes = await runCommand(deps.run, ['git', 'diff', '--numstat', '--end-of-options', '@{upstream}', 'HEAD', '--'], root, 'push-preview-diff', deps.signal)
+  // A failed diffstat must not read as "0 files": the preview would claim an
+  // empty change set that was never measured (a path named like a rev is the
+  // way in — the trailing `--` now keeps revisions operands).
+  if (!('run' in diffRes)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (diffRes.run.exitCode !== 0) {
+    return { ok: false, error: { code: 'git-error', message: diffRes.run.stderr.trim() || 'diffstat failed' } }
   }
+  const files = diffRes.run.stdout.split('\n').filter((l) => l.trim() !== '').length
+  const { insertions, deletions } = sumNumstat(diffRes.run.stdout)
   return { ok: true, value: { kind: 'push-preview', hasUpstream: true, commits, files, insertions, deletions } }
 }
 

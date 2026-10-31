@@ -437,9 +437,11 @@ export async function runSuggest(
     : []
   const language = resolveSuggestLanguage(config.suggestLanguage, styleSamples)
 
-  // A lossy status (output over the runner's cap) cannot name the files;
-  // degrade to an empty list — the diff below still carries the change.
-  const all = statusRes.run.stdoutLossy ? [] : parseStatus(statusRes.run.stdout)
+  // A lossy status (output over the runner's cap) lost the stream's head: the
+  // first field is a fragment. Keep the whole records that survived and flag the
+  // suggestion as truncated, so the message is never presented as complete.
+  const statusLossy = statusRes.run.stdoutLossy
+  const all = parseStatus(statusRes.run.stdout, { lossy: statusLossy })
   const files = pathSet.size > 0
     ? all.filter((c) => {
       if (pathSet.has(c.path)) return true
@@ -455,7 +457,10 @@ export async function runSuggest(
   const collected = await collectDiff(deps, root, hasHead, pathArgs)
   if (!('diff' in collected)) return collected
 
-  if (files.length === 0 && collected.diff.trim() === '') {
+  // Nothing to summarize — but only when every source was read whole: a lossy
+  // status or an empty diff over clipped output would claim "no changes" about
+  // a read that never saw them.
+  if (files.length === 0 && collected.diff.trim() === '' && !statusLossy) {
     return { ok: false, error: { code: 'empty-diff', message: 'no uncommitted changes to summarize' } }
   }
 
@@ -464,7 +469,7 @@ export async function runSuggest(
   let diff = compactLongLines(collected.diff).text
   // A runner stdout-cap truncation (profile `maxBytes` below the diff size)
   // is just as lossy as the model-input cap — flag it, not silently drop it.
-  let truncated = collected.lossy
+  let truncated = collected.lossy || statusLossy
   if (Buffer.byteLength(diff, 'utf8') > config.suggestMaxBytes) {
     diff = truncateUtf8(diff, config.suggestMaxBytes) + '\n... [diff truncated]'
     truncated = true

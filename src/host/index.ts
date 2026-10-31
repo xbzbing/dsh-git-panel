@@ -1,9 +1,9 @@
 /**
  * dsh-git-panel host half: Cordis + typert Remote service.
  *
- * `GitPanelService` binds the `gitPanel` namespace and exposes three @Remote
- * endpoints (snapshot / run / query) that delegate to the framework-neutral
- * command layer. Host services (subprocess / sessions / sessionPersistence)
+ * `GitPanelService` binds the `gitPanel` namespace and exposes six @Remote
+ * endpoints (snapshot / run / query / suggest / version / openFile) that
+ * delegate to the framework-neutral command layer. Host services (subprocess / sessions / sessionPersistence)
  * are adapted into a structural `SnapshotDeps` face.
  */
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -218,7 +218,6 @@ export class GitPanelService extends TypertRemoteService {
     }
   }
 
-  /** Re-read config so a live-edited volatile field (showInputPill) is current. */
   /** Runs one OS-opener argv; null when the host has no subprocess service. */
   private spawnOpener: ((argv: readonly string[]) => Promise<number | null>) | null = null
 
@@ -239,6 +238,7 @@ export class GitPanelService extends TypertRemoteService {
     }
   }
 
+  /** Re-read config so a live-edited volatile field (showInputPill) is current. */
   private liveConfig(): GitPanelConfig {
     this.config = normalizeConfig(this.rawConfig)
     return this.config

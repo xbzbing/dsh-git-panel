@@ -8,7 +8,7 @@ import type { SnapshotDeps } from './core.js'
 
 export function createFsDeps(): SnapshotDeps['fs'] {
   return {
-    realpath, stat: async (p) => stat(p), readFile,
+    realpath, stat: async (p) => stat(p), lstat: async (p) => lstat(p), readFile,
     symlinkTarget: async (p) => {
       // A missing path or a non-link is `null`, not an error: the caller falls
       // back to reading the file itself.

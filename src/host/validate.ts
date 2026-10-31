@@ -32,9 +32,16 @@ export function isSafeRev(input: string): boolean {
   return true
 }
 
-/** A branch name for `git checkout`: the ref rules plus no leading slash. */
+/** A branch name for `git checkout`: the ref rules plus the shapes
+ * `git check-ref-format` rejects but a rev filter tolerates — a bare `.` or
+ * `..` (which `git checkout` would take as a path, restoring the work tree from
+ * the index), a trailing `.` or `.lock`, and a bare `@`. */
 export function isSafeBranchName(name: string): boolean {
-  return isSafeRev(name) && !name.startsWith('/')
+  if (!isSafeRev(name)) return false
+  if (name === '.' || name === '@') return false
+  if (name.startsWith('/')) return false
+  if (name.endsWith('.') || name.endsWith('.lock')) return false
+  return true
 }
 
 /** A git remote name for `git push -u <remote> HEAD`. Allows the characters git

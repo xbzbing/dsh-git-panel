@@ -40,11 +40,16 @@ function statusOf(code: string): GitChangeStatus {
  * Parse `git status --porcelain=v1 -z`. A mixed XY (both non-space, e.g. MM)
  * is split into a staged side (X) and an unstaged side (Y). Untracked (??) is
  * a single unstaged entry. Real conflicts (UU/AA/DD…) stay one entry.
+ *
+ * `lossy` marks a read that lost the stream's head: the first NUL field is then
+ * whatever fragment survived, and reading its first two characters as XY turns
+ * it into a change that never happened (a real path, so a discard would act on
+ * it). That field is dropped — the remaining ones are whole records.
  */
-export function parseStatus(stdout: string): GitChange[] {
+export function parseStatus(stdout: string, opts?: { readonly lossy?: boolean }): GitChange[] {
   const out: GitChange[] = []
   const records = stdout.split('\0')
-  for (let i = 0; i < records.length; i++) {
+  for (let i = opts?.lossy === true ? 1 : 0; i < records.length; i++) {
     const rec = records[i]
     if (rec === undefined || rec.length < 3) continue
     const x = rec[0]!
