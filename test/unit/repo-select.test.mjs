@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, pinnedFilesRoot, clearFilesRootPin, withRepo } from '../../lib/testkit.mjs'
+import { subscribeRepoSelection, selectedRepo, selectRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, pinnedFilesRoot, clearFilesRootPin, withRepo } from '../../lib/testkit.mjs'
 
 /** A remote that records what reached it, keyed by method. */
 function recordingRemote() {
@@ -199,4 +199,32 @@ test('clearing a pin returns the session to the config default and keeps a proje
   assert.equal(pinnedFilesRoot('fr-6'), undefined, 'the project root is no checkout pin')
   clearFilesRootPin('fr-6')
   assert.equal(filesRootPick('fr-6', true), '', 'so the repair never touches it')
+})
+
+// One session can have two panels mounted (conversation tab + sidebar copy).
+// Both render the shared controller's snapshot, so a pick must reach every
+// subscriber — a per-instance copy would leave one panel writing to the
+// previous checkout (a discard would then land in the wrong work tree).
+test('a selection change reaches every subscriber of the shared store', () => {
+  const seen = []
+  const stopA = subscribeRepoSelection(() => seen.push(['a', selectedRepo('two-panels')]))
+  const stopB = subscribeRepoSelection(() => seen.push(['b', selectedRepo('two-panels')]))
+  try {
+    selectRepo('two-panels', 'nested/site')
+    assert.deepEqual(seen, [['a', 'nested/site'], ['b', 'nested/site']], 'both panels observe the pick')
+    seen.length = 0
+    clearRepoPick('two-panels')
+    assert.deepEqual(seen, [['a', ''], ['b', '']], 'a repair drops the pick for both')
+    seen.length = 0
+    stopB()
+    selectRepo('two-panels', 'x')
+    assert.deepEqual(seen, [['a', 'x']], 'an unmounted panel stops hearing about it')
+    assert.equal(selectedRepo('two-panels'), 'x')
+    assert.equal(selectedRepo('inside'), '', 'another session keeps its own (empty) pick')
+  } finally {
+    stopA()
+    stopB()
+    clearRepoPick('two-panels')
+    clearRepoPick('inside')
+  }
 })

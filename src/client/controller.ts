@@ -15,7 +15,10 @@ export type GitView =
   | { readonly state: 'cold' }
   | { readonly state: 'loading' }
   | { readonly state: 'no-cwd' }
-  | { readonly state: 'ready'; readonly snapshot: GitSnapshot }
+  // `stale` means a sample could not be refreshed (the transport to the host
+  // broke) and the published one is the last good read. The panes keep working
+  // on it and say so, instead of degrading to the file browser over a blip.
+  | { readonly state: 'ready'; readonly snapshot: GitSnapshot; readonly stale?: true }
   | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string; readonly showInputPill?: boolean; readonly isGitRepo?: boolean } }
 
 export interface GitQuerySignal {
@@ -50,6 +53,9 @@ export class GitController {
   private readonly samples = new Map<string, { readonly snapshot: GitSnapshot; readonly receivedAt: number }>()
   // The checkout the published view was read from.
   private viewRepo: string | null = null
+  // The last sample published for the current checkout: a transport failure
+  // republishes it flagged `stale` rather than blanking the panes.
+  private lastReady: GitSnapshot | undefined
   private pendingRefresh = false
   private disposed = false
   private pollMs = DEFAULT_POLL_MS
@@ -149,6 +155,13 @@ export class GitController {
         } else if (result.error.code === 'not-a-git-repo') {
           const e = result.error as { cwd?: string; showInputPill?: boolean }
           this.setView({ state: 'error', error: { code: 'not-a-git-repo', ...(e.cwd ? { cwd: e.cwd } : {}), ...(e.showInputPill !== undefined ? { showInputPill: e.showInputPill } : {}) } })
+        } else if ((result.error.code as string) === 'transport') {
+          // The connection to the host broke (restart, proxy, dropped link).
+          // That says nothing about the repository, so the last good sample
+          // stays on screen, flagged; only a session with nothing read yet
+          // reports the failure.
+          if (this.lastReady !== undefined) this.publish({ state: 'ready', snapshot: this.lastReady, stale: true }, this.unreadySignal())
+          else this.setView({ state: 'error', error: { code: 'transport' } })
         } else if (result.error.code === 'git-unavailable') {
           // git not installed → file-browser-only degrade; `isGitRepo` decides
           // whether the panel surfaces the "git not installed" notice.
@@ -160,7 +173,8 @@ export class GitController {
       })
       .catch((error: unknown) => {
         if (this.disposed || requestGeneration !== this.requestGeneration) return
-        this.setView({ state: 'error', error: { code: 'git-unavailable', detail: error instanceof Error ? error.message : String(error) } })
+        if (this.lastReady !== undefined) this.publish({ state: 'ready', snapshot: this.lastReady, stale: true }, this.unreadySignal())
+        else this.setView({ state: 'error', error: { code: 'transport', detail: error instanceof Error ? error.message : String(error) } })
       })
       .finally(() => {
         // A switch may already own the slot with a newer sample: it schedules
@@ -183,6 +197,16 @@ export class GitController {
     // may carry host-wide fields (font step, browser follow, checkout probing)
     // that no longer hold, so none of them may be replayed.
     this.samples.clear()
+    this.requestGeneration += 1
+    void this.refresh()
+  }
+
+  /** Re-sample after a failed write. Only this checkout can have changed, so
+   * its remembered sample goes and the others stay replayable — a config write
+   * or reconnect is what `resync()` (drop everything) is for. */
+  refreshRepo(): void {
+    if (this.disposed) return
+    this.samples.delete(this.repo)
     this.requestGeneration += 1
     void this.refresh()
   }
@@ -233,6 +257,9 @@ export class GitController {
   setRepo(repo: string): Promise<void> {
     if (this.disposed || repo === this.repo) return Promise.resolve()
     this.repo = repo
+    // The remembered sample of the checkout being left must not stand in for
+    // the new one if the transport fails before the switch lands.
+    this.lastReady = undefined
     this.requestGeneration += 1
     // Drop the sample of the checkout being left instead of queueing behind it:
     // its answer is already unusable, and waiting for it would add a whole round
@@ -277,6 +304,7 @@ export class GitController {
   private publishSnapshot(snapshot: GitSnapshot, generation: number, force: boolean): void {
     this.pollMs = snapshot.refreshIntervalMs || DEFAULT_POLL_MS
     this.viewRepo = this.repo
+    this.lastReady = snapshot
     const previous = this.view.state === 'ready' ? this.view.snapshot : null
     const same = !force && previous !== null && snapshot.root === previous.root
       && snapshot.stateFingerprint !== undefined && snapshot.stateFingerprint === previous.stateFingerprint

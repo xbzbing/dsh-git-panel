@@ -10,7 +10,7 @@
  * checkout pick, the file browser's root selector, and the switch between
  * checkouts.
  */
-import { createElement as h, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { inertAttr } from './inert.js'
 import type { JSX } from 'react'
 import { SegmentedTabs, StateDot, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -32,7 +32,7 @@ import type { GitKey } from './locales.js'
 import { opErrorText } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
-import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, syncFilesFollowConfig, withRepo } from './repo-select.js'
+import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -194,13 +194,14 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // The list block's collapsed state belongs to the panel, not the overview, so
   // it survives navigating between panes. It boots collapsed.
   const [reposCollapsed, setReposCollapsed] = useState(true)
-  const [repoState, setRepoState] = useState<{ readonly session?: string; readonly path: string }>({
-    session: sessionId,
-    path: sessionId === undefined ? '' : selectedRepo(sessionId),
-  })
-  const repo = repoState.session === sessionId
-    ? repoState.path
-    : sessionId === undefined ? '' : selectedRepo(sessionId)
+  // The selection lives in the shared store, not in this component: a session
+  // can have two panels mounted at once (conversation tab + sidebar copy) and
+  // both write through it, so one instance must never hold its own copy of the
+  // pick while the snapshot behind them comes from the shared controller.
+  const repo = useSyncExternalStore(
+    subscribeRepoSelection,
+    () => (sessionId === undefined ? '' : selectedRepo(sessionId)),
+  )
   // The list belongs to one session's cwd: drop it when the session changes so
   // the switcher cannot offer the previous workspace's repositories. The ready
   // flag separates "no answer yet" from "an answer with no repositories" — only
@@ -254,7 +255,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const dropRepo = (): void => {
     if (!hasSession(sessionId)) return
     clearRepoPick(sessionId)
-    setRepoState({ session: sessionId, path: '' })
   }
 
   // Point the panel at another checkout without navigating. The panes keep the
@@ -265,7 +265,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const switchRepo = (next: string): boolean => {
     if (!hasSession(sessionId) || next === repo) return false
     selectRepo(sessionId, next)
-    setRepoState({ session: sessionId, path: next })
     // Hand the controller the new checkout in this same event rather than from
     // an effect: effects run after paint, and the first paint after the pick
     // already shows the next repository's name in the tab bar, so a write
@@ -444,7 +443,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // hit a conflict applies the diff but keeps the stash); resync so the panel
     // reflects the real state rather than the pre-action snapshot.
     if (action.kind === 'branch-checkout' && action.stashMessage !== undefined) setWorktreeGen((n) => n + 1)
-    controllerFor(sessionId).resync()
+    // Only this checkout can have changed: keep the other checkouts' remembered
+    // samples replayable (that is what makes switching back instant).
+    controllerFor(sessionId).refreshRepo()
     return { ok: false, error: opErrorText(result.error.code, result.error.message, t) }
   }
 
@@ -582,9 +583,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (!hasSession(sessionId) || view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     if (filesOnly) return null
     // The copy names which repair applies: an unresolvable pick is the picker's
-    // own stale state, not a missing git.
+    // own stale state, a lost connection is not a missing git either.
     if (view.state === 'error') {
-      const label = view.error.code === 'invalid-repo' ? t('error.invalidRepo') : t('pill.unavailable')
+      const label = view.error.code === 'invalid-repo'
+        ? t('error.invalidRepo')
+        : view.error.code === 'transport' ? t('error.transport') : t('pill.unavailable')
       return h('div', { className: 'gp-empty' }, label)
     }
     if (view.state === 'cold' || view.state === 'loading' || activeTab === null) return h('div', { className: 'gp-empty' }, t('common.loading'))
@@ -691,6 +694,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     style: paneOwner(key) ? { display: 'contents' } : { display: 'none' },
   }, paneContent(key)))
 
+  // A lost connection keeps the last sample on screen: say so above it rather
+  // than letting the numbers read as current.
+  const staleNotice = view.state === 'ready' && view.stale === true
+    ? h(NoticeBar, { key: 'stale', text: t('error.transport'), closeLabel: t('common.close'), onClose: () => setGitNoticeClosed(true) })
+    : null
   // git-not-installed inside a repo: stack a notice above the browser.
   const body = gitMissingInRepo
     ? h('div', { className: 'gp-files-wrap' }, [
@@ -699,7 +707,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
         : h(NoticeBar, { key: 'notice', text: t('files.gitNotInstalled'), closeLabel: t('common.close'), onClose: () => setGitNoticeClosed(true) }),
       ...panes,
     ])
-    : h('div', { style: { display: 'contents' } }, panes)
+    : staleNotice !== null
+      ? h('div', { className: 'gp-files-wrap' }, [staleNotice, ...panes])
+      : h('div', { style: { display: 'contents' } }, panes)
 
   // `data-conversation-composer-overlay` opts the view into the shell's
   // full-height layout: the view area is fixed to the visible height with its

@@ -17,18 +17,18 @@ function ctxWith(call) {
   }
 }
 
-test('missing connection → typed git-unavailable failure', async () => {
+test('missing connection → typed transport failure (not "git missing")', async () => {
   const remote = gitPanelRemoteOf(ctxWith(null))
   const res = await remote.snapshot({ sessionId: 's' })
   assert.equal(res.ok, false)
-  assert.equal(res.error.code, 'git-unavailable')
+  assert.equal(res.error.code, 'transport')
 })
 
 test('rpc.call throwing → typed failure, not a throw', async () => {
   const remote = gitPanelRemoteOf(ctxWith(async () => { throw new Error('boom') }))
   const res = await remote.snapshot({ sessionId: 's' })
   assert.equal(res.ok, false)
-  assert.equal(res.error.code, 'git-unavailable')
+  assert.equal(res.error.code, 'transport')
   assert.match(res.error.message ?? '', /boom/)
 })
 
@@ -36,7 +36,7 @@ test('malformed transport result → typed failure', async () => {
   const remote = gitPanelRemoteOf(ctxWith(async () => 42))
   const res = await remote.snapshot({ sessionId: 's' })
   assert.equal(res.ok, false)
-  assert.equal(res.error.code, 'git-unavailable')
+  assert.equal(res.error.code, 'transport')
 })
 
 test('outer transport failure envelope surfaces its code', async () => {
@@ -50,7 +50,7 @@ test('transport-ok with no inner value → typed failure (no undefined leak)', a
   const remote = gitPanelRemoteOf(ctxWith(async () => ({ ok: true })))
   const res = await remote.snapshot({ sessionId: 's' })
   assert.equal(res.ok, false)
-  assert.equal(res.error.code, 'git-unavailable')
+  assert.equal(res.error.code, 'transport')
 })
 
 test('two-envelope success unwraps the inner business value', async () => {
@@ -73,7 +73,7 @@ test('inner business failure is returned as-is', async () => {
   assert.equal(res.error.code, 'invalid-name')
 })
 
-test('an aborted call → cancelled, not git-unavailable', async () => {
+test('an aborted call → cancelled, not a transport failure', async () => {
   const remote = gitPanelRemoteOf(ctxWith(async (_channel, _endpoint, _payload, signal) => {
     await new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))))
   }))

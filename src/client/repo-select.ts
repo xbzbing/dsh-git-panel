@@ -10,6 +10,7 @@
 import type { GitPanelRemote } from './rpc.js'
 
 const selections = new Map<string, string>()
+
 /** Sessions whose explicit pick was `''` (the cwd's own repository): `''`
  * resets the selection map, so intent has to live outside it or "never
  * picked" and "picked `''` on purpose" would be the same state. */
@@ -36,6 +37,7 @@ export function selectRepo(sessionId: string, repo: string): void {
     rootPicks.delete(sessionId)
     selections.set(sessionId, repo)
   }
+  notifySelection()
 }
 
 /** Forget any pick without recording intent: the repair path (a pick the host
@@ -43,6 +45,26 @@ export function selectRepo(sessionId: string, repo: string): void {
 export function clearRepoPick(sessionId: string): void {
   selections.delete(sessionId)
   rootPicks.delete(sessionId)
+  notifySelection()
+}
+
+/**
+ * Selection changes are broadcast, not polled: one session can have two panels
+ * mounted at once (the conversation tab and the sidebar keepMounted copy), and
+ * each renders the same chosen checkout while the snapshot behind them is one
+ * shared controller. A per-instance copy of the pick would let one panel show
+ * repository A while the other tags its writes with B.
+ */
+const selectionListeners = new Set<() => void>()
+
+/** Subscribe to any selection change; returns the unsubscribe function. */
+export function subscribeRepoSelection(listener: () => void): () => void {
+  selectionListeners.add(listener)
+  return () => { selectionListeners.delete(listener) }
+}
+
+function notifySelection(): void {
+  for (const listener of [...selectionListeners]) listener()
 }
 
 /** Manual file-browser root picks, independent of the followed repository: a

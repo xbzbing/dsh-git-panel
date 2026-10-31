@@ -72,7 +72,12 @@ export function usePanelLayout(el: HTMLElement | null): PanelLayout {
     // unsqueezed, so a transient 0 during mount cannot fold the editor before
     // the first real layout.
     const measure = (): void => setLayout((prev) => {
-      const width = el.clientWidth
+      // Quantized: a sidebar drag reports a new width on every pixel, and each
+      // one re-renders the whole panel (three tabs, one shared tree). Every
+      // consumer compares this value against breakpoints that are tens of
+      // pixels apart, so an 8 px bucket changes no decision while cutting the
+      // render count by an order of magnitude.
+      const width = Math.round(el.clientWidth / 8) * 8
       const height = el.clientHeight
       const next: PanelLayout = {
         compact: width > 0 && width <= COMPACT_BP,

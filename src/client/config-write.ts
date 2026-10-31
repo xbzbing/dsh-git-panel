@@ -50,9 +50,13 @@ export function findNamespace(namespaces: readonly SettingsNamespaceView[]): str
 
 /**
  * Set one field through the settings form, then resync so the pill/tab-dot
- * reflect it without waiting for the next poll. A snapshot already in flight
- * when the write lands can win the first resync with pre-write values, so a
- * second re-pull bounds that race.
+ * reflect it without waiting for the next poll.
+ *
+ * The second pull covers the settings service handing the new value on to the
+ * panel host: the write is accepted here first, and the host's next snapshot can
+ * still read the previous value for a moment. It is not about a sample already
+ * in flight — `resync()` bumps the request generation, so that reply is dropped
+ * rather than published with stale values.
  */
 export function resyncAfterWrite(): void {
   resyncAll()

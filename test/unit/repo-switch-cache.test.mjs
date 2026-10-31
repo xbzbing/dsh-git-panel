@@ -185,3 +185,22 @@ test('a resync drops every remembered sample', async (t) => {
   await back
   assert.equal(rootOf(h.controller), '/ws')
 })
+
+// A broken transport says nothing about the repository. The last good sample
+// must stay on screen (flagged), not be replaced by the "git missing" error the
+// panel degrades on — that path also retires the user's repository pick.
+test('a transport failure keeps the last good sample instead of erroring', async (t) => {
+  const { controller } = setup(t, async (n) => {
+    if (n === 1) return ok(snapshot(Date.now(), '/repo'))
+    return { ok: false, error: { code: 'transport', message: 'Failed to fetch' } }
+  })
+  await controller.refresh()
+  await drain()
+  assert.equal(controller.getSnapshot().state, 'ready')
+  await controller.refresh()
+  await drain()
+  const view = controller.getSnapshot()
+  assert.equal(view.state, 'ready', 'the panes keep their data')
+  assert.equal(view.stale, true, 'and say the numbers are not current')
+  assert.equal(view.snapshot.root, '/repo')
+})

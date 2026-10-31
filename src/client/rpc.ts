@@ -84,14 +84,14 @@ function callerOf(ctx: ClientCtx): ((endpoint: string, payload: unknown, signal?
 /** Unwrap the RPC transport envelope { ok, value } → the inner business value. */
 function unwrap<T>(result: unknown): T | { ok: false; error: { code: string; message?: string } } {
   const r = result as { ok?: unknown; value?: unknown; error?: unknown } | null
-  if (r === null || typeof r !== 'object') return { ok: false, error: { code: 'git-unavailable', message: 'malformed rpc result' } }
+  if (r === null || typeof r !== 'object') return { ok: false, error: { code: 'transport', message: 'malformed rpc result' } }
   if (r.ok !== true) {
     const err = r.error as { code?: unknown; message?: unknown } | undefined
     return { ok: false, error: { code: typeof err?.code === 'string' ? err.code : 'git-unavailable', message: typeof err?.message === 'string' ? err.message : undefined } }
   }
   // A transport-ok envelope with no inner value is malformed: return a typed
   // failure rather than `undefined`, which would trip `result.ok` downstream.
-  if (r.value === undefined) return { ok: false, error: { code: 'git-unavailable', message: 'missing value' } }
+  if (r.value === undefined) return { ok: false, error: { code: 'transport', message: 'missing value' } }
   return r.value as T
 }
 
@@ -136,7 +136,10 @@ export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
   if (cached !== undefined) return cached
   const invoke = async <T>(method: string, request: unknown, signal?: AbortSignal): Promise<T | { ok: false; error: { code: string; message?: string } }> => {
     const caller = callerOf(ctx)
-    if (caller === undefined) return { ok: false, error: { code: 'git-unavailable', message: 'no connection' } }
+    // No connection / a broken transport is not "git is missing": the codes are
+    // kept apart so a blip never degrades the panel to the file browser or
+    // retires the user's repository pick.
+    if (caller === undefined) return { ok: false, error: { code: 'transport', message: 'no connection' } }
     try {
       const result = await caller(`${NS}/${method}`, { args: { request } }, signal)
       return unwrap<T>(result)
@@ -146,7 +149,7 @@ export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
       // switch) never reaches its error handling: the switch bumps the request
       // generation first, and the stale reply is dropped on that.
       const aborted = signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')
-      return { ok: false, error: { code: aborted ? 'cancelled' : 'git-unavailable', message: error instanceof Error ? error.message : String(error) } }
+      return { ok: false, error: { code: aborted ? 'cancelled' : 'transport', message: error instanceof Error ? error.message : String(error) } }
     }
   }
   const remote: GitPanelRemote = {

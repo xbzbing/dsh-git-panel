@@ -13,7 +13,7 @@ export type {
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from '../host/types.js'
 
-export { imageMimeFor, isHistoryFiltered, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
+export { imageMimeFor, isHistoryFiltered, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
 import type { GitQueryResult } from '../host/types.js'
 
 /**
