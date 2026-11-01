@@ -948,3 +948,25 @@ test('long minified lines are folded before the budget instead of truncated out'
     rmSync(longRepo, { recursive: true, force: true })
   }
 })
+
+test('a lossy change list with nothing left to describe never reaches the model', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-suggest-lossy-empty-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    const llm = stubLlm([])
+    const deps = depsFor(dir, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+    const base = deps.run.run
+    deps.run = { run: async (argv, opts) => {
+      const res = await base(argv, opts)
+      // Status whose tail says nothing: lossy and empty — an unreadable change
+      // list is not "no changes", and it is not a prompt either.
+      return argv[1] === 'status' ? { ...res, stdout: '', stdoutLossy: true } : res
+    } }
+    const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
+    assert.equal(res.ok, false)
+    if (!res.ok) assert.equal(res.error.code, 'git-error')
+    assert.equal(llm.calls.length, 0, 'no model call when the input is unknown')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

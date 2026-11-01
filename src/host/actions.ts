@@ -329,9 +329,11 @@ async function runIndexOnlyCommit(
       if ('error' in applied) return { ok: false, error: applied.error }
     }
     const present = new Set(lines.map((record) => record.slice(record.indexOf('\t') + 1)))
-    // An index-side path with no entry is a staged deletion: the temp index was
-    // seeded from HEAD, so the entry has to be dropped explicitly.
-    const missing = indexOnly.filter((path) => !present.has(path))
+    // A selected path with no entry is a staged deletion — for a worktree-side
+    // pick too: `git add` recorded the deletion, so `ls-files` no longer lists
+    // it. The temp index was seeded from HEAD, so every such entry has to be
+    // dropped explicitly or the commit would keep the deleted file.
+    const missing = [...new Set([...worktreePaths, ...indexOnly])].filter((path) => !present.has(path))
     if (missing.length > 0) {
       const removed = await step(['git', 'update-index', '--force-remove', '--', ...missing], { env: true })
       if ('error' in removed) return { ok: false, error: removed.error }

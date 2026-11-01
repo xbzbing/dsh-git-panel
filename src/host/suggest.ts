@@ -459,9 +459,13 @@ export async function runSuggest(
 
   // Nothing to summarize — but only when every source was read whole: a lossy
   // status or an empty diff over clipped output would claim "no changes" about
-  // a read that never saw them.
-  if (files.length === 0 && collected.diff.trim() === '' && !statusLossy) {
-    return { ok: false, error: { code: 'empty-diff', message: 'no uncommitted changes to summarize' } }
+  // a read that never saw them. That uncertainty must also not become a prompt:
+  // with no surviving file and no diff there is nothing to describe, so the
+  // model would invent a commit message from nothing.
+  if (files.length === 0 && collected.diff.trim() === '') {
+    return statusLossy
+      ? { ok: false, error: { code: 'git-error', message: 'status output was truncated; nothing reliable to summarize' } }
+      : { ok: false, error: { code: 'empty-diff', message: 'no uncommitted changes to summarize' } }
   }
 
   // Fold minified single-line blobs first: they would otherwise eat the whole

@@ -342,7 +342,7 @@ async function queryFileLines(
   // gap into several requests).
   const requested = Number.isFinite(q.end) ? Math.max(start, Math.floor(q.end)) : start
   const end = Math.min(requested, start + FILE_LINES_MAX_LINES - 1)
-  const side = await readNewSide(deps, root, q, { worktreeMaxBytes: FILE_LINES_READ_MAX })
+  const side = await readNewSide(deps, root, q, { worktreeMaxBytes: FILE_LINES_READ_MAX, worktreeTooLargeError: true })
   if (!side.ok) return { ok: false, error: { code: side.code, message: side.message } }
   // A side that does not exist (deleted file, missing blob) has no lines: an
   // empty EOF slice is the truthful answer and lets the caller drop its gap.
@@ -365,16 +365,26 @@ const ABSENT_SIDE_RE = /does not exist in|exists on disk, but not in the index|n
  *
  * `worktree` reads the working file itself (the index is the LEFT side of an
  * unstaged diff — reading it would reveal stale lines), `staged` reads the
- * index blob, `commit` the commit blob. `worktreeMaxBytes` bounds the read for
- * the count-only caller; the expansion path leaves it unset.
+ * index blob, `commit` the commit blob. `worktreeMaxBytes` bounds the read: a
+ * file over the bound reads as `null` (count = unknown) for the count-only
+ * caller, and as an error for the caller passing `worktreeTooLargeError`
+ * (`file-lines`), which must not turn a huge file into an empty EOF slice.
  */
 async function readNewSide(
   deps: SnapshotDeps,
   root: string,
   q: Extract<GitQueryRequest['query'], { kind: 'diff' | 'file-lines' }>,
-  opts?: { readonly worktreeMaxBytes?: number },
+  opts?: { readonly worktreeMaxBytes?: number; readonly worktreeTooLargeError?: boolean },
 ): Promise<NewSideRead> {
-  if (q.base === 'worktree') return { ok: true, text: await readWorktreeSide(deps, root, q.path, opts?.worktreeMaxBytes) }
+  if (q.base === 'worktree') {
+    const read = await readWorktreeSide(deps, root, q.path, opts?.worktreeMaxBytes)
+    if ('tooLarge' in read) {
+      return opts?.worktreeTooLargeError === true
+        ? { ok: false, code: 'git-error', message: `worktree file exceeds the read limit: ${q.path}` }
+        : { ok: true, text: null }
+    }
+    return { ok: true, text: 'text' in read ? read.text : null }
+  }
   if (q.base === 'commit' && !isSafeRev(q.commit)) return { ok: false, code: 'invalid-name', message: `unsafe commit: ${q.commit}` }
   const spec = q.base === 'commit' ? `${q.commit}:${q.path}` : `:${q.path}`
   const res = await runCommand(deps.run, ['git', 'show', '--end-of-options', spec], root, 'new-side', deps.signal)
@@ -402,18 +412,26 @@ async function readNewSide(
  * Working file as the diff's new side: the LINK TEXT for a symlink (git stores
  * that as the blob, so following the link would describe a different file), CRLF
  * normalized like the blob git compares, else the file's own text. `maxBytes`
- * bounds the read for the count-only caller; null means "no content known".
+ * bounds the read; over the bound reports `tooLarge`, not "no content known".
  */
-async function readWorktreeSide(deps: SnapshotDeps, root: string, path: string, maxBytes?: number): Promise<string | null> {
+async function readWorktreeSide(deps: SnapshotDeps, root: string, path: string, maxBytes?: number): Promise<WorktreeTextRead> {
   const file = join(root, path)
   const link = await deps.fs.symlinkTarget(file)
-  if (link !== null) return link
-  const text = await readWorktreeText(deps, root, path, maxBytes)
-  // core.autocrlf rewrites the working file on checkout, so the bytes on disk
-  // can carry CRLF while the diff (and the blob it compares) is LF; revealing
-  // the raw bytes would show a \r the diff never had. Line count is unaffected.
-  return text === null ? null : text.replace(/\r\n/g, '\n')
+  if (link !== null) return { text: link }
+  const read = await readWorktreeText(deps, root, path, maxBytes)
+  if ('text' in read) {
+    // core.autocrlf rewrites the working file on checkout, so the bytes on disk
+    // can carry CRLF while the diff (and the blob it compares) is LF; revealing
+    // the raw bytes would show a \r the diff never had. Line count is unaffected.
+    return { text: read.text.replace(/\r\n/g, '\n') }
+  }
+  return read
 }
+
+/** A worktree text read: the file's text, nothing readable at that path, or a
+ * file larger than the caller's byte bound — which is NOT "the side is empty",
+ * so the distinction survives up to the query that decides what to report. */
+type WorktreeTextRead = { readonly text: string } | { readonly absent: true } | { readonly tooLarge: true }
 
 /** Read a worktree file as text when it is inside the root and browsable:
  * symlink-contained, `.git` excluded (its config can carry a remote token), a
@@ -424,18 +442,18 @@ async function readWorktreeText(
   root: string,
   path: string,
   maxBytes?: number,
-): Promise<string | null> {
-  if (hasGitSegment(path)) return null
+): Promise<WorktreeTextRead> {
+  if (hasGitSegment(path)) return { absent: true }
   const file = join(root, path)
-  if ((await isInsideRoot(deps, root, file, true)) !== 'inside') return null
+  if ((await isInsideRoot(deps, root, file, true)) !== 'inside') return { absent: true }
   try {
     const info = await deps.fs.stat(file)
-    if (!info.isFile()) return null
-    if (maxBytes !== undefined && info.size > maxBytes) return null
+    if (!info.isFile()) return { absent: true }
+    if (maxBytes !== undefined && info.size > maxBytes) return { tooLarge: true }
     const buf = await deps.fs.readFile(file)
-    return buf.toString('utf8')
+    return { text: buf.toString('utf8') }
   } catch {
-    return null
+    return { absent: true }
   }
 }
 
@@ -840,7 +858,7 @@ async function queryStashList(deps: SnapshotDeps, root: string): Promise<GitQuer
 async function queryAuthors(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
   // Same refset as the history graph so an author picked from this list can
   // never point the graph at a chain it does not display (and vice versa).
-  const res = await runCommand(deps.run, ['git', 'log', ...VISIBLE_REFS, '--format=%an', '--max-count=2000', '--'], root, 'authors', deps.signal)
+  const res = await runCommand(deps.run, ['git', 'log', ...VISIBLE_REFS, '--format=%an', '--max-count=2000'], root, 'authors', deps.signal)
   const authors = 'run' in res && res.run.exitCode === 0
     ? [...new Set(res.run.stdout.split('\n').map((s) => s.trim()).filter((s) => s !== ''))].sort((a, b) => a.localeCompare(b))
     : []
@@ -848,7 +866,7 @@ async function queryAuthors(deps: SnapshotDeps, root: string): Promise<GitQueryR
 }
 
 async function queryLastCommitMessage(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
-  const res = await runCommand(deps.run, ['git', 'log', '-1', '--format=%B', '--'], root, 'last-message', deps.signal)
+  const res = await runCommand(deps.run, ['git', 'log', '-1', '--format=%B'], root, 'last-message', deps.signal)
   const message = 'run' in res && res.run.exitCode === 0 ? res.run.stdout.replace(/\n+$/, '') : ''
   return { ok: true, value: { kind: 'last-commit-message', message } }
 }

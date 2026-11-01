@@ -18,7 +18,7 @@ import { join, sep } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
-import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, MAX_BYTES_LIMITS } from '../../lib/host/types.js'
+import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, MAX_BYTES_LIMITS } from '../../lib/host/types.js'
 
 let repo
 let repoImg
@@ -479,6 +479,28 @@ test('the count read is capped above DIFF_COUNT_READ_MAX, expansion is not', asy
     assert.equal(diff.value.newLines, 0, 'above the ceiling the count is unknown')
     const slice = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'big.txt', base: 'worktree', start: 1, end: 2 } })
     assert.deepEqual(slice.value.lines, ['HEAD-1', 'x'.repeat(15)], 'on-demand expansion stays uncapped')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('file-lines refuses a worktree file over the byte cap instead of answering an empty EOF', async () => {
+  const { writeFileSync, truncateSync } = await import('node:fs')
+  const dir = await repoWith({ 'small.txt': 'x' })
+  try {
+    // Sparse: the size crosses the cap without writing the bytes.
+    const big = join(dir, 'huge.txt')
+    writeFileSync(big, '')
+    truncateSync(big, FILE_LINES_READ_MAX + 1)
+    const slice = await runQuery(depsAt(dir), DEFAULT_CONFIG, {
+      sessionId: SID,
+      query: { kind: 'file-lines', path: 'huge.txt', base: 'worktree', start: 1, end: 5 },
+    })
+    assert.equal(slice.ok, false, 'over the cap is an error, never an empty slice with eof')
+    if (!slice.ok) {
+      assert.equal(slice.error.code, 'git-error')
+      assert.match(slice.error.message, /read limit/)
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -2947,6 +2969,31 @@ test('a mixed selection commits the index side as staged and leaves the rest sta
     const status = execFileSync('git', ['status', '--porcelain'], { cwd: dir }).toString()
     assert.match(status, /^ M a\.txt$/m, 'the work tree change is still unstaged')
     assert.match(status, /^M {2}g\.txt$/m, 'the unselected path is still staged')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a mixed selection commits a worktree-side deletion', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'keep.txt': 'k', 'drop.txt': 'd' })
+  try {
+    writeFileSync(join(dir, 'keep.txt'), 'staged-keep')
+    await runGit(dir, ['add', 'keep.txt'])
+    rmSync(join(dir, 'drop.txt'))
+
+    // keep is selected on the index side, drop on the work-tree side: the
+    // commit runs through the temporary index, which was seeded from HEAD —
+    // without an explicit removal the deleted file would ride along.
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, {
+      sessionId: SID,
+      action: { kind: 'commit', message: 'keep from index, drop from work tree', paths: ['keep.txt', 'drop.txt'], indexOnly: ['keep.txt'] },
+    })
+    assert.equal(res.ok, true, JSON.stringify(res.ok ? null : res.error))
+    const tree = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD'], { cwd: dir }).toString()
+    assert.match(tree, /keep\.txt/)
+    assert.doesNotMatch(tree, /drop\.txt/, 'the selected deletion must reach the commit')
+    assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: dir }).toString().trim(), '', 'nothing of the selection is left over')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
