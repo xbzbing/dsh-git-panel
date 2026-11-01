@@ -382,3 +382,18 @@ test('intraLineDiff never splits a surrogate pair', () => {
   assert.equal(tail.left[1], '😀y'.length - 1, 'the shared suffix is the "y" only')
   assert.equal(tail.right[1], '😁y'.length - 1)
 })
+
+test('spliceGap all on a bounded host reply keeps the remainder as a gap', () => {
+  const rows = buildSideBySide(GAPPED, 40)
+  const lead = rows.find((r) => r.kind === 'gap' && r.gap.atStart)
+  assert.ok(lead, 'the fixture starts with a gap')
+  const total = lead.gap.count
+  const partial = Array.from({ length: 10 }, (_, i) => `line${i + 1}`)
+  const out = spliceGap(rows, lead.gap.rightStart, 'all', 1, partial, false)
+  assert.ok(!out.some((r) => r.kind === 'gap' && r.gap.atStart), 'the leading gap moved on')
+  const residual = out.find((r) => r.kind === 'gap')
+  assert.ok(residual, 'the unrevealed remainder is still offered, not dropped')
+  assert.equal(residual.gap.count, total - 10)
+  assert.equal(residual.gap.rightStart, 11, 'the remainder starts right after what was revealed')
+  assert.equal(out.filter((r) => r.kind === 'context' && r.rightText.startsWith('line')).length, 10, 'the returned slice is mounted')
+})

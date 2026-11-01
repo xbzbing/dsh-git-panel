@@ -6,7 +6,7 @@ import { createElement as h, memo, useCallback, useEffect, useLayoutEffect, useM
 import type { JSX } from 'react'
 import {
   buildSideBySide, flattenToUnified, isBinaryDiff, retargetTrailingGap,
-  isImagePath, isSvgPath, spliceGap, summarize, gutterWidth, GAP_STEP, type GapInfo, type SideRow,
+  isImagePath, isSvgPath, summarize, gutterWidth, GAP_STEP, type GapInfo, type SideRow,
 } from './diff.js'
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { splitHighlightSpans } from './code-spans.js'
@@ -16,8 +16,8 @@ import { useViewportTracker } from './use-viewport.js'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
 import { ImageCompare } from './ImageCompare.js'
 import type { GitPanelRemote } from './rpc.js'
-import { queryAs } from './rpc.js'
-import { DIFF_EXPAND_CONTEXT, FILE_LINES_MAX_LINES, type GitQuery } from './types.js'
+import { DIFF_EXPAND_CONTEXT } from './types.js'
+import { useGapExpander, type GapExpander } from './gap-expander.js'
 import { useImageDiff } from './image-diff-hook.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import type { GitKey } from './locales.js'
@@ -109,7 +109,7 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     }
     setRows((prev) => retargetTrailingGap(prev, newLines) ?? baseRows)
   }, [text, newLines, baseRows])
-  const expand = useGapExpander(rows, setRows, remote, sessionId, path, base, commit)
+  const expand = useGapExpander(setRows, remote, sessionId, path, base, commit, text, newLines)
 
   // An SVG is both an image (rendered old/new comparison) and text (a source
   // diff). It gets a render/source toggle, defaulting to the rendered view;
@@ -372,6 +372,11 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   const capped = expanded === true && rows.some((r) => r.kind === 'gap')
   const truncatedText = t('diff.truncated')
   const cappedText = t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT })
+  // A failed reveal states its host reason when it has one (a file over the
+  // read cap names itself); the localized line is the anchor either way.
+  const failedText = expand.failed === null ? null
+    : expand.failed === '' ? t('diff.expandFailed')
+      : `${t('diff.expandFailed')}: ${expand.failed}`
   // Dismissal is scoped to the file: this instance survives file switches (the
   // changes pane keys it 'diff'), so a text-only key would suppress the banner
   // for every later truncated file.
@@ -383,6 +388,9 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
       : null,
     capped && !dismissedNotices.isDismissed(noticeKey(cappedText))
       ? h(NoticeBar, { key: 'capped', text: cappedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(noticeKey(cappedText)) })
+      : null,
+    failedText !== null && !dismissedNotices.isDismissed(noticeKey(failedText))
+      ? h(NoticeBar, { key: 'expand-failed', text: failedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(noticeKey(failedText)) })
       : null,
     h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl, style: { '--gp-gutter-w': gutterW } }, body),
   ])
@@ -455,85 +463,6 @@ function svgFrame(
       h('div', { className: 'gp-seg' }, [btn('render', t('diff.svgRender')), btn('source', t('diff.svgSource'))])),
     h('div', { key: 'body', className: 'gp-svgdiff__body' }, body),
   ])
-}
-
-interface GapExpander {
-  readonly busy: string | null
-  readonly run: (gap: GapInfo, direction: 'all' | 'up' | 'down') => void
-}
-
-/**
- * On-demand hidden-context expansion. Clicking a gap control fetches the
- * revealed slice (file-lines query, source mirrors the diff base) and splices it
- * into the row list. A generation guard drops a stale response if the rows
- * were reseeded (diff text changed) mid-flight.
- */
-function useGapExpander(
-  rows: readonly SideRow[],
-  setRows: (updater: (prev: readonly SideRow[]) => readonly SideRow[]) => void,
-  remote: GitPanelRemote | undefined,
-  sessionId: string | undefined,
-  path: string | undefined,
-  base: DiffBase | undefined,
-  commit: string | undefined,
-): GapExpander {
-  const [busy, setBusy] = useState<string | null>(null)
-  const gen = useRef(0)
-  // Reseeding the rows (diff text changed) invalidates any in-flight reveal.
-  useEffect(() => { gen.current += 1; setBusy(null) }, [rows])
-
-  const run = useCallback((gap: GapInfo, direction: 'all' | 'up' | 'down') => {
-    if (remote === undefined || sessionId === undefined || path === undefined || base === undefined) return
-    const key = `${gap.rightStart}:${direction}`
-    setBusy(key)
-    const my = ++gen.current
-    const queryAt = (start: number, end: number): GitQuery => base === 'commit' && commit !== undefined
-      ? { kind: 'file-lines', path, base: 'commit', commit, start, end }
-      : base === 'staged'
-        ? { kind: 'file-lines', path, base: 'staged', start, end }
-        : { kind: 'file-lines', path, base: 'worktree', start, end }
-    // The host bounds one reply (FILE_LINES_MAX_LINES and the config byte cap),
-    // so "expand all" walks forward chunk by chunk until EOF. The walk is capped
-    // too: a few hundred thousand revealed lines in one gesture is not worth the
-    // frame time, and whatever is left stays a gap the reader can click again.
-    const first = sliceRequest(gap, direction)
-    const steps = direction === 'all' ? EXPAND_ALL_STEPS : 1
-    void (async () => {
-      let start = first.start
-      let end = first.end
-      for (let step = 0; step < steps; step += 1) {
-        const res = await remote.query({ sessionId, query: queryAt(start, end) })
-        if (my !== gen.current) return
-        const fl = queryAs(res, 'file-lines')
-        if (fl === null) break
-        setRows((prev) => spliceGap(prev, start, direction, fl.start, fl.lines, fl.eof))
-        if (fl.eof || fl.lines.length === 0 || direction !== 'all') break
-        start = fl.start + fl.lines.length
-        if (start > gap.rightStart + gap.count - 1) break
-        end = Math.min(start + FILE_LINES_MAX_LINES - 1, gap.rightStart + gap.count - 1)
-      }
-      if (my === gen.current) setBusy(null)
-    })().catch(() => { if (my === gen.current) setBusy(null) })
-  }, [remote, sessionId, path, base, commit, setRows])
-
-  return { busy, run }
-}
-
-/** Requests one "expand all" click may chain: ten host-sized replies, so a
- * huge gap fills in one gesture while the frame budget stays bounded. */
-const EXPAND_ALL_STEPS = 10
-
-/** New-side line range to request for a gap expansion step. */
-function sliceRequest(gap: GapInfo, direction: 'all' | 'up' | 'down'): { start: number; end: number } {
-  const total = gap.count
-  if (direction === 'all' || total <= GAP_STEP) {
-    return { start: gap.rightStart, end: gap.rightStart + total - 1 }
-  }
-  if (direction === 'down') {
-    return { start: gap.rightStart, end: gap.rightStart + GAP_STEP - 1 }
-  }
-  // 'up': reveal the bottom window of the gap.
-  return { start: gap.rightStart + total - GAP_STEP, end: gap.rightStart + total - 1 }
 }
 
 /** Syntax runs are React text nodes, not untrusted HTML. */

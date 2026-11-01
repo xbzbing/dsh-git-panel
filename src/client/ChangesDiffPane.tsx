@@ -94,8 +94,12 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
         // Shared with the commit file-diff dialog: same glyph, same pressed
         // contract, so the two toolbars cannot drift.
         const expand = renderDiffExpand({
-          mode: modeSwitch.current, modes: modeSwitch.options, onMode: modeSwitch.onChange,
+          mode: modeSwitch.current,
           expanded, onToggleExpand: onToggleExpand, t,
+          // The stats span carries the right-edge push when it is rendered;
+          // with no summary (loading, or an empty diff) the button takes that
+          // job itself, as it did before the controls were shared.
+          ...(summary === null && !compact ? { style: { marginLeft: 'auto' } } : {}),
         })
         // The enlarged-diff toggle — same glyphs the files preview uses for
         // its fullscreen control. The "modal" is THIS inline .gp-diff restyled
@@ -119,7 +123,7 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
           : null
         const seg = renderDiffModeSeg({
           mode: modeSwitch.current, modes: modeSwitch.options, onMode: modeSwitch.onChange,
-          expanded, onToggleExpand: onToggleExpand, t,
+          t,
         })
         // One row cannot fit back + path + stats + expand + mode seg at phone
         // widths (the seg buttons squeezed into stacked wrapping); compact
