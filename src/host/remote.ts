@@ -55,13 +55,16 @@ function splitHostPath(raw: string): { host: string; path: string } | null {
 /**
  * Drop the userinfo a remote URL can carry (`https://user:token@host/…`). The
  * snapshot ships this URL to every panel, so a token must not ride along just
- * because it is not part of the derived page link. `ssh://` keeps its user: that
- * is an account name, not a secret, and it is the only identity such a URL has.
+ * because it is not part of the derived page link. The match runs to the LAST
+ * `@` before the first `/` (the authority is the only segment that can hold
+ * one), so a password containing a literal `@` is stripped whole instead of
+ * leaving its tail behind. `ssh://` keeps its user: that is an account name,
+ * not a secret, and it is the only identity such a URL has.
  */
 export function scrubUrlCredentials(url: string): string {
   const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(url)
   if (scheme === null || scheme[1]!.toLowerCase() === 'ssh') return url
-  return url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1')
+  return url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/\s]*@/i, '$1')
 }
 
 /** Build a {@link GitRemote} from a remote name + its configured URL. */

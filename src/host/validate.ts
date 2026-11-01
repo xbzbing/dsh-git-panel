@@ -32,10 +32,10 @@ export function isSafeRev(input: string): boolean {
   return true
 }
 
-/** A branch name for `git checkout`: the ref rules plus the shapes
- * `git check-ref-format` rejects but a rev filter tolerates — a bare `.` or
- * `..` (which `git checkout` would take as a path, restoring the work tree from
- * the index), a trailing `.` or `.lock`, and a bare `@`. */
+/** A branch name for `git checkout`: the ref rules plus the shapes a rev
+ * filter tolerates but checkout would misread — a bare `.` (checkout takes it
+ * as a path and restores the work tree from the index), a trailing `.` or
+ * `.lock`, and a bare `@`. */
 export function isSafeBranchName(name: string): boolean {
   if (!isSafeRev(name)) return false
   if (name === '.' || name === '@') return false

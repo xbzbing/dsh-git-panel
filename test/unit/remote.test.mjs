@@ -128,3 +128,13 @@ test('classifyActionFailure scrubs an embedded credential from the message', () 
   assert.ok(!out.message.includes('x-access-token'), 'userinfo stripped from the message')
   assert.ok(out.message.includes('https://github.com/o/r.git'), 'host/path preserved')
 })
+
+test('an unencoded @ inside the password leaves no userinfo tail behind', () => {
+  const r = parseRemote('origin', 'https://user:p@ss@github.com/owner/repo.git')
+  assert.equal(r.url, 'https://github.com/owner/repo.git', 'the whole authority userinfo is gone')
+  assert.equal(r.webUrl, 'https://github.com/owner/repo')
+  assert.equal(r.host, 'github.com')
+  // ssh keeps its account name: an identity, not a secret.
+  const ssh = parseRemote('origin', 'ssh://git@github.com/owner/repo.git')
+  assert.equal(ssh.url, 'ssh://git@github.com/owner/repo.git')
+})

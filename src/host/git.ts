@@ -146,13 +146,22 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
 }
 
 /**
- * Whether this command takes a work-tree path list after `--`. Those are the
- * only commands where pathspec expansion must be off: everywhere else the
- * arguments are options and revisions, and `git check-ignore` / `git stash push`
- * expand pathspecs internally (they reject or misread the literal flag).
+ * Subcommands that receive a work-tree path list after `--` from this plugin.
+ * Only for those does pathspec expansion have to be off (a name containing glob
+ * metacharacters, `app/[id].tsx`, must not match other files), and the list is
+ * the guard: `git check-ignore` and `git stash push` consume pathspecs
+ * themselves and go fatal under `GIT_LITERAL_PATHSPECS`, so adding a `--` to
+ * either must not turn the flag on for them. Subcommands absent here keep the
+ * default expansion whatever their argv looks like; for a `--` that only ends
+ * an option list (`log`, `rev-list`) that is a no-op either way.
  */
+const LITERAL_PATHSPEC_COMMANDS: ReadonlySet<string> = new Set([
+  'add', 'commit', 'checkout', 'diff', 'ls-files', 'reset', 'restore', 'rm', 'show', 'update-index',
+])
+
 function usesLiteralPathspecs(argv: readonly string[]): boolean {
-  return argv.includes('--')
+  const command = argv[1]
+  return command !== undefined && LITERAL_PATHSPEC_COMMANDS.has(command) && argv.includes('--')
 }
 
 /** Resolve stdout: the in-memory tail, or the spill file when the read was lossy. */
