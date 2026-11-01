@@ -594,6 +594,32 @@ async function tipsScenario() {
     result[`phoneLayout${width}`] = await page.evaluate(() => document.querySelector('.gp-panel')?.getAttribute('data-layout'))
   }
 
+  // (c5) Two guards on the armed confirmation. A double-click's second press
+  // carries detail > 1 — it must not count as the confirmation (for an
+  // untracked path it would delete the file). And the arm expires after its
+  // deadline, so a stray later press re-arms instead of executing, with the
+  // press-pinned confirm hint going away with it.
+  await page.mouse.click(2, 2)
+  await page.waitForTimeout(250)
+  const guardBtn = page.locator('.gp-file-row').filter({ hasText: 'w1.txt' }).first()
+    .locator('button[aria-label="放弃更改"], button[aria-label="再次点击以确认放弃"]')
+  const guardBefore = await page.evaluate(() => window.__gpFixture.actions.length)
+  await guardBtn.evaluate((el) => el.click())
+  await page.waitForTimeout(200)
+  result.armTipBeforeExpiry = (await tip())?.text ?? null
+  await guardBtn.evaluate((el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 })))
+  await page.waitForTimeout(200)
+  result.dblPressIgnored = await page.evaluate((n) => window.__gpFixture.actions.length === n, guardBefore)
+  result.stillArmedAfterDbl = (await guardBtn.getAttribute('aria-label')) === '再次点击以确认放弃'
+  await page.waitForTimeout(4300)
+  result.armExpired = (await guardBtn.getAttribute('aria-label')) === '放弃更改'
+  result.armTipGoneOnExpiry = (await tip()) === null
+  const afterExpiry = await page.evaluate(() => window.__gpFixture.actions.length)
+  await guardBtn.evaluate((el) => el.click())
+  await page.waitForTimeout(200)
+  result.expiredPressRearmsOnly = await page.evaluate((n) => window.__gpFixture.actions.length === n, afterExpiry)
+  result.expiredPressRearmed = (await guardBtn.getAttribute('aria-label')) === '再次点击以确认放弃'
+
   await page.close()
   return { out: result, errors }
 }
@@ -1046,6 +1072,16 @@ try {
     assert.equal(geo?.insideViewport, true, `the ${width}px hint stays inside the horizontal edges`)
     assert.equal(geo?.insideVertically, true, `the ${width}px hint stays inside the vertical edges`)
   }
+  // The armed confirmation's two guards: the double-click second press never
+  // executes, the arm expires on its deadline (taking its pinned hint with it),
+  // and a press after the deadline re-arms rather than running.
+  assert.equal(tips.out.armTipBeforeExpiry, '再点一次即放弃此文件的改动，不可恢复', 'arming pins the confirm hint on the spot')
+  assert.equal(tips.out.dblPressIgnored, true, 'the double-click second press (detail > 1) never executes the discard')
+  assert.equal(tips.out.stillArmedAfterDbl, true, 'and it does not consume the armed confirmation either')
+  assert.equal(tips.out.armExpired, true, 'the armed confirmation expires after its deadline')
+  assert.equal(tips.out.armTipGoneOnExpiry, true, 'the pinned confirm hint goes with the expired arm')
+  assert.equal(tips.out.expiredPressRearmsOnly, true, 'a press after the deadline re-arms instead of executing')
+  assert.equal(tips.out.expiredPressRearmed, true, 'the button announces the confirm step again')
   // Touch media: the compact 30px height must outrank the global
   // `@media (hover:none)` rule that lifts `.gp-btn` to 36px.
   const touch = await touchScenario()

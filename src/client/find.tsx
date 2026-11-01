@@ -119,17 +119,24 @@ export interface FindBarProps {
 
 /** The shared Find bar. Esc closes; Enter/Shift+Enter walks matches. */
 export function FindBar(p: FindBarProps): JSX.Element {
-  return h('div', { key: 'find', className: 'gp-find' }, [
+  return h('div', {
+    key: 'find', className: 'gp-find',
+    // Escape lives on the bar, not the input: the dialog layer exempts targets
+    // inside `.gp-find`, so a handler only on the input would leave Esc dead
+    // while focus sits on Aa / ‹ / › / ✕.
+    onKeyDown: (e: KeyboardEvent) => {
+      // stopPropagation so Esc dismisses Find without also closing a host
+      // modal that listens for Escape.
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); p.onClose() }
+    },
+  }, [
     h('input', {
       key: 'in', ref: p.inputRef, className: 'gp-find__input', type: 'text',
       placeholder: p.t('files.findPlaceholder'), value: p.query, spellCheck: false,
       'aria-label': p.t('files.findPlaceholder'),
       onChange: (e: { target: { value: string } }) => p.onChange(e.target.value),
       onKeyDown: (e: KeyboardEvent) => {
-        // stopPropagation so Esc dismisses Find without also closing a host
-        // modal that listens for Escape.
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); p.onClose() }
-        else if (e.key === 'Enter') { e.preventDefault(); p.onStep(e.shiftKey ? -1 : 1) }
+        if (e.key === 'Enter') { e.preventDefault(); p.onStep(e.shiftKey ? -1 : 1) }
       },
     }),
     h('button', {

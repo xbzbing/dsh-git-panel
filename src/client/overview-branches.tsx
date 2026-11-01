@@ -64,7 +64,7 @@ export function BranchScroll({ tree, treeError, activeRef, closed, cbs, trees }:
   ])
 }
 
-export function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchCbs, trees: BranchTrees): JSX.Element {
+function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchCbs, trees: BranchTrees): JSX.Element {
   if (treeError) {
     return h('div', { className: 'gp-empty' }, [
       h('span', { key: 'm' }, cb.t('overview.branchesError')),

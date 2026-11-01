@@ -1,7 +1,7 @@
 /**
  * The commit file-diff dialog: a portaled card around the same DiffView the
- * changes pane renders inline, with the toolbar both surfaces share
- * (`diffToolbarControls`).
+ * changes pane renders inline, with the shared toolbar controls both surfaces
+ * draw from (`diff-controls.tsx`: `renderDiffExpand` + `renderDiffModeSeg`).
  */
 import { createElement as h } from 'react'
 import { createPortal } from 'react-dom'

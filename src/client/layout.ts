@@ -76,8 +76,11 @@ export function usePanelLayout(el: HTMLElement | null): PanelLayout {
       // one re-renders the whole panel (three tabs, one shared tree). Every
       // consumer compares this value against breakpoints that are tens of
       // pixels apart, so an 8 px bucket changes no decision while cutting the
-      // render count by an order of magnitude.
-      const width = Math.round(el.clientWidth / 8) * 8
+      // render count by an order of magnitude. 0 stays reserved for "not
+      // measured" (panel-fit branches on it); a measured width below one bucket
+      // must not quantize down into that bucket, or a 1–3 px panel would read
+      // as unmeasured and skip every width breakpoint.
+      const width = el.clientWidth === 0 ? 0 : Math.max(8, Math.round(el.clientWidth / 8) * 8)
       const height = el.clientHeight
       const next: PanelLayout = {
         compact: width > 0 && width <= COMPACT_BP,

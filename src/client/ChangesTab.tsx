@@ -18,10 +18,10 @@ import { diffSummary, type DiffMode } from './DiffView.js'
 import { ChevronIcon, CloseIcon, SparkleIcon, UploadIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { renderConfirmModal } from './ops-modals.js'
-import { StashPushModal, byPath, renderFileRow, renderStashRow } from './changes-rows.js'
+import { StashPushModal, renderFileRow, renderStashRow } from './changes-rows.js'
 import { inertAttr } from './inert.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
-import { buildTops, windowRange } from './virtual-list.js'
+import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { useRowSlider } from './row-slider.js'
 import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, pickStageTargets, sideOf, toggleGroupKeys } from './selection-keys.js'
@@ -69,10 +69,8 @@ type GroupKey = 'staged' | 'unstaged' | 'untracked'
 // math is exact; the CSS pins .gp-file-row / .gp-group-head to these values.
 const VROW_H = 28
 const VHEAD_H = 26
-const VOVERSCAN = 8
-// Assumed viewport height before the first layout measurement, so the initial
-// paint mounts a bounded window instead of the whole list.
-const VIEWPORT_FALLBACK = 600
+/** Rows sort by path within their own staged/unstaged/untracked list. */
+const byPath = (a: GitChange, b: GitChange): number => a.path.localeCompare(b.path)
 // How long a row's discard button stays armed. The confirmation is a second
 // deliberate click, not a mode: a checkout that never changes never fires the
 // snapshot effect that would disarm it, so without a deadline an armed button
@@ -300,6 +298,15 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     const timer = setTimeout(() => setArmedDiscard(null), DISCARD_ARM_MS)
     return () => clearTimeout(timer)
   }, [armedDiscard])
+  // The pinned "click again" bubble belongs to the armed state: once the arm
+  // expires (timer) or a snapshot disarms it, nothing else would ever take the
+  // press-pinned tip down — it would stay over the row describing an action the
+  // button no longer performs.
+  const armWasArmed = useRef(false)
+  useEffect(() => {
+    if (armedDiscard !== null) { armWasArmed.current = true; return }
+    if (armWasArmed.current) { armWasArmed.current = false; hideTip() }
+  }, [armedDiscard, hideTip])
   // Same for the suggest-overwrite confirmation: a fresh snapshot means the
   // message-in-box context may have moved on.
   useEffect(() => { setArmedSuggest(false) }, [snapshot])

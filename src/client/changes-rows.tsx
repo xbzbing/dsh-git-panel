@@ -26,13 +26,15 @@ export interface StashPushCbs {
  * renderModalShell owns the SSR/portal guard, so this is a single component. */
 export function StashPushModal({ onClose, onStash, error, t }: StashPushCbs): JSX.Element | null {
   const [message, setMessage] = useState('')
-  // The write settles only when the caller closes this dialog; until then a
-  // second Enter or a click on Save would push the same stash twice.
+  // One write at a time: a second Enter or a click on Save while the first is
+  // in flight would push the same stash twice. The guard lifts when the write
+  // settles — success closes this dialog anyway, a failure keeps it open with
+  // the error visible and the button usable for a retry.
   const [saving, setSaving] = useState(false)
   const save = (): void => {
     if (saving) return
     setSaving(true)
-    void onStash(message)
+    void Promise.resolve(onStash(message)).finally(() => setSaving(false))
   }
   return renderModalShell({
     onClose, title: t('stash.title'), icon: h(StashIcon, { size: 15 }),
@@ -74,10 +76,6 @@ export function renderStashRow(s: StashEntry, cb: StashRowCbs): JSX.Element {
       h('button', { key: 'drop', type: 'button', className: 'gp-icon-btn', disabled: cb.busy, title: cb.t('stash.drop'), onClick: cb.onDrop }, h(TrashIcon, { size: 14 })),
     ]),
   ])
-}
-
-export function byPath(a: GitChange, b: GitChange): number {
-  return a.path.localeCompare(b.path)
 }
 
 export interface RowActions {

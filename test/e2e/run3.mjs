@@ -199,13 +199,35 @@ const out = await page.evaluate(async (snap) => {
   result.ovMoreRecollapsed = tb?.querySelector('.gp-toolbar__more') === null
     && tbToggle?.getAttribute('aria-expanded') === 'false'
     && tbToggle?.getAttribute('aria-controls') === null
+  // Open with the toggle focused, so the sheet's close path has an opener to
+  // restore (the same focus contract the portaled modals keep).
+  filterBtn?.focus()
   filterBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
   result.sheetOpened = document.querySelector('.gp-sheet') !== null
+  // The sheet's keydown trap owns Tab: focus enters the sheet on the first Tab
+  // and cycles inside it instead of escaping to the toolbar behind.
+  const sheetRoot = document.querySelector('.gp-sheet')
+  const inSheet = () => sheetRoot !== null && sheetRoot.contains(document.activeElement)
+  const tab = () => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+  result.sheetTabEnters = (() => { tab(); return inSheet() })()
+  result.sheetTabTrapped = (() => {
+    if (sheetRoot === null) return false
+    const items = [...sheetRoot.querySelectorAll('button, input, a[href], [tabindex]')]
+      .filter((el) => !el.hasAttribute('disabled') && el.getClientRects().length > 0)
+    if (items.length === 0) return false
+    // Tab on the last focusable wraps to the first one; with a single control
+    // that means it stays put, and together with sheetTabEnters (focus pulled
+    // in from the opener) the two pin both directions of the cycle.
+    items[items.length - 1].focus()
+    tab()
+    return inSheet() && document.activeElement === items[0]
+  })()
   // Escape dismisses the dialog (a11y parity with the file-diff modal).
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 150))
   result.sheetClosedByEscape = document.querySelector('.gp-sheet') === null
+  result.sheetFocusRestored = document.activeElement === filterBtn
   filterBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
   const featureRow = [...document.querySelectorAll('.gp-sheet .gp-branch-row')].find((r) => (r.textContent || '').includes('feature'))
@@ -570,6 +592,9 @@ try {
   assert.equal(out.ovfOverviewDrill, true, 'the commit detail pane fits without horizontal overflow')
   assert.equal(out.ovHasFilterButton, true, 'compact overview exposes a branch-filter button')
   assert.equal(out.sheetOpened, true, 'the branch filter opens as a bottom sheet')
+  assert.equal(out.sheetTabEnters, true, 'the first Tab pulls focus from the toggle into the sheet')
+  assert.equal(out.sheetTabTrapped, true, 'Tab cycles inside the sheet instead of escaping it')
+  assert.equal(out.sheetFocusRestored, true, 'closing returns focus to the toggle that opened the sheet')
   assert.equal(out.sheetClosedByEscape, true, 'Escape dismisses the bottom sheet')
   assert.equal(out.sheetClosedAfterPick, true, 'the switch button closes the sheet')
   assert.equal(out.filterButtonShowsRef, true, 'the filter button reflects the active ref')

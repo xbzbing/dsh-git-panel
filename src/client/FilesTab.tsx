@@ -33,6 +33,7 @@ import { useHtmlPreview } from './use-html-preview.js'
 import { MermaidFigure } from './MermaidFigure.js'
 import { CodePreview, renderPreview, type FileState } from './files-preview.js'
 import { renderTree } from './files-tree.js'
+import type { Loaded } from './files-types.js'
 import { wrapCapOk } from './wrap-cap.js'
 import { isSvgPath } from './diff.js'
 import { screenFailKeyOf, SCREEN_TIMEOUT_MS } from './screen-full.js'
@@ -66,8 +67,6 @@ interface FilesTabProps {
   readonly onPickRoot?: (selector: string | null) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
-
-import type { Loaded } from './files-types.js'
 
 function isMarkdownPath(path: string): boolean { return /\.(?:md|markdown)$/i.test(path) }
 function isHtmlPath(path: string): boolean { return /\.(?:html?|xhtml)$/i.test(path) }
