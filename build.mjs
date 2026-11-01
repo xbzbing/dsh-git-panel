@@ -1,8 +1,8 @@
 /**
  * dsh-git-panel build script (self-contained; run by hand while developing and
- * by the release workflow before packing — never as an install-time lifecycle
- * hook. `lib/` is not committed: the artifacts this writes are what `npm pack`
- * ships (docs/adr/0018).
+ * explicitly by the release gate right before `npm pack` — never as an
+ * install-time lifecycle hook. `lib/` is not committed: the artifacts this
+ * writes are what `npm pack` ships (docs/adr/0018).
  *
  * 1. Host half: tsc emits the `lib/host/*.d.ts` declarations (emitDeclarationOnly)
  *    and esbuild transpiles `src/host/*.ts` one file per module into

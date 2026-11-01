@@ -79,7 +79,14 @@ if (existsSync(hostSrc)) {
 // file the package does not carry, and npm pack skips a missing `files` entry
 // without an error.
 for (const name of existsSync(join(root, 'locale')) ? readdirSync(join(root, 'locale')).filter((f) => f.endsWith('.json')) : []) {
-  const detail = JSON.parse(readFileSync(join(root, 'locale', name), 'utf8')).meta?.detail
+  let meta
+  try {
+    meta = JSON.parse(readFileSync(join(root, 'locale', name), 'utf8'))
+  } catch (err) {
+    problems.push(`locale/${name} is not valid JSON: ${err.message}`)
+    continue
+  }
+  const detail = meta.meta?.detail
   if (typeof detail === 'string' && !existsSync(join(root, detail))) {
     problems.push(`locale/${name} meta.detail names a file the package does not carry: ${detail}`)
   }
@@ -98,14 +105,22 @@ for (const hook of INSTALL_HOOKS) {
 // Nothing outside the manifest's `files` may ship. A `files` entry that widens
 // (or a stale one pointing at a directory that now holds build output) would
 // otherwise be packed silently: `npm pack` never complains about extra paths.
+// Only `*` inside one segment: enough for this manifest's shapes, and it
+// cannot be tricked into matching across directories.
+const entryPattern = (clean) =>
+  new RegExp(`^${clean.split('*').map((part) => part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('[^/]*')}$`)
 const allowed = []
 for (const entry of manifest.files ?? []) {
   const clean = String(entry).replace(/^\.\//, '').replace(/\/+$/, '')
   if (clean === '') continue
-  // Only `*` inside one segment: enough for this manifest's shapes, and it
-  // cannot be tricked into matching across directories.
-  const pattern = new RegExp(`^${clean.split('*').map((part) => part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('[^/]*')}$`)
-  allowed.push({ dir: clean, pattern })
+  allowed.push({ dir: clean, pattern: entryPattern(clean) })
+}
+// npm always ships the manifest's `main` and every `bin` target, whatever
+// `files` says — a target outside `files` is not an extra path.
+for (const target of [manifest.main, ...Object.values(typeof manifest.bin === 'object' && manifest.bin !== null ? manifest.bin : {})]) {
+  if (typeof target !== 'string' || target === '') continue
+  const clean = target.replace(/^\.\//, '')
+  allowed.push({ dir: clean, pattern: entryPattern(clean) })
 }
 const extra = []
 const walk = (dir) => {

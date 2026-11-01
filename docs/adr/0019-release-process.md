@@ -30,6 +30,6 @@
 - 正文在合并前就被 review，格式不再漂移；发布说明的失真（旧单测数）被测试挡在本地与 CI。
 - 代价：发版多一步「写 `docs/releases/v<v>.md`」；在网页上手工改 Release 正文而不改文件，下次重跑会被文件内容覆盖——这是刻意的，文件是唯一来源。
 - 预发布可以反复发（`rc.1` → `rc.2`），每次都是完整门禁 + 同一份固定说明正文（ADR-0021）；正式版不可回收，出问题只能发补丁。
-- 两个 job 分工：`gate`（只读）装依赖、跑门禁、打包并做 assert-pack，把 tarball 作为 artifact 交出；`release`（`contents: write` + `id-token: write`）只下载 artifact 后打 tag、publish、建 Release，不执行任何依赖代码——否则被投毒的 devDependency 能用合法 provenance 发出恶意版本。npm 认证优先 OIDC，退回 `NPM_TOKEN` 时用 granular、仅限此包、仅 publish 的 token。
-- 触发面收在 main 上：`push` 与 `workflow_dispatch` 都要求 `github.ref == 'refs/heads/main'`；tag 已存在时核对它指向当前发布提交（`v$V^{}` 的 commit 必须等于 `GITHUB_SHA`），否则失败而不是复用。第三方 action 一律 pin 到 commit SHA。
-- 仓库目前没有配置 tag / 分支保护规则集：`v*` tag 由本 workflow 创建，重跑靠上述 SHA 核对保证幂等；如需禁止删除或 force-push，属于 GitHub 仓库设置，不在代码里。
+- 两个 job 分工：`gate`（只读）装依赖、跑门禁、构建并打包（门禁后显式执行 `node build.mjs`，不依赖测试的副作用）再做 assert-pack，把 tarball 作为 artifact 交出；`release`（`contents: write` + `id-token: write`）只下载 artifact 后打 tag、publish、建 Release，不执行任何依赖代码——否则被投毒的 devDependency 能用合法 provenance 发出恶意版本。npm 认证优先 OIDC；退回 `NPM_TOKEN`（granular、仅限此包、仅 publish）时，token 经 `actions/setup-node` 按 `registry-url` 写入的 `.npmrc` 行被 npm 读取（npm 不会原生读取 `NODE_AUTH_TOKEN`）。
+- 触发面收在 main 上：`push` 与 `workflow_dispatch` 都要求 `github.ref == 'refs/heads/main'`，非 main 的手动触发只跑一个输出 `::notice::` 的空 job，不静默空跑；tag 已存在时按**版本**核对：读 tag 所指提交里 `package.json` 的 `version`，等于当前版本说明已发过（跳过打 tag、继续补齐未完成步骤，读不到则失败），不等于才失败而不是复用——因此发版后对 `package.json` 的常规改动（不 bump 版本）重跑是绿的，release job 也会自己重查一次以覆盖 gate 到 release 之间的窗口。第三方 action 一律 pin 到 commit SHA。
+- 仓库目前没有配置 tag / 分支保护规则集：`v*` tag 由本 workflow 创建，重跑靠上述版本核对保证幂等；如需禁止删除或 force-push，属于 GitHub 仓库设置，不在代码里。
