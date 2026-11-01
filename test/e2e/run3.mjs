@@ -223,6 +223,19 @@ const out = await page.evaluate(async (snap) => {
     tab()
     return inSheet() && document.activeElement === items[0]
   })()
+  // Every actionable row is a keyboard stop (leaf rows are toggle buttons like
+  // the dir rows), and the hover-only switch button reveals on focus.
+  const sheetFeatureRow = () => [...document.querySelectorAll('.gp-sheet .gp-branch-row')].find((r) => (r.textContent || '').includes('feature'))
+  result.sheetRowFocusable = (() => {
+    const row = sheetFeatureRow()
+    if (row === undefined) return false
+    row.focus()
+    return document.activeElement === row && inSheet()
+  })()
+  result.sheetSwitchShownOnFocus = (() => {
+    const sw = sheetFeatureRow()?.querySelector('.gp-branch-row__switch')
+    return sw !== null && sw !== undefined && sw.getClientRects().length > 0
+  })()
   // Escape dismisses the dialog (a11y parity with the file-diff modal).
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 150))
@@ -231,10 +244,20 @@ const out = await page.evaluate(async (snap) => {
   filterBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
   const featureRow = [...document.querySelectorAll('.gp-sheet .gp-branch-row')].find((r) => (r.textContent || '').includes('feature'))
-  featureRow?.click()
+  // The keyboard path applies the filter end to end: Enter on the focused row.
+  featureRow?.focus()
+  featureRow?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
   await new Promise((r) => setTimeout(r, 300))
   result.sheetClosedAfterPick = document.querySelector('.gp-sheet') === null
   result.filterButtonShowsRef = [...document.querySelectorAll('.gp-toolbar .gp-btn')].some((b) => (b.textContent || '').includes('feature'))
+  // A mouse click on the same row toggles the filter back off (and closes).
+  filterBtn?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  const featureRowAgain = [...document.querySelectorAll('.gp-sheet .gp-branch-row')].find((r) => (r.textContent || '').includes('feature'))
+  featureRowAgain?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.sheetClosedAfterSecondPick = document.querySelector('.gp-sheet') === null
+  result.filterButtonCleared = [...document.querySelectorAll('.gp-toolbar .gp-btn')].some((b) => (b.textContent || '').includes('feature')) === false
 
   // Branch switch in compact: the filter sheet's branch rows carry the switch
   // button (no hover on touch, so the sheet keeps it reachable); using it closes
@@ -596,8 +619,12 @@ try {
   assert.equal(out.sheetTabTrapped, true, 'Tab cycles inside the sheet instead of escaping it')
   assert.equal(out.sheetFocusRestored, true, 'closing returns focus to the toggle that opened the sheet')
   assert.equal(out.sheetClosedByEscape, true, 'Escape dismisses the bottom sheet')
-  assert.equal(out.sheetClosedAfterPick, true, 'the switch button closes the sheet')
+  assert.equal(out.sheetClosedAfterPick, true, 'Enter on a focused branch row closes the sheet')
   assert.equal(out.filterButtonShowsRef, true, 'the filter button reflects the active ref')
+  assert.equal(out.sheetRowFocusable, true, 'a branch leaf row is a keyboard stop inside the sheet')
+  assert.equal(out.sheetSwitchShownOnFocus, true, 'the hover-only switch button reveals while its row has focus')
+  assert.equal(out.sheetClosedAfterSecondPick, true, 'clicking the active row again closes the sheet too')
+  assert.equal(out.filterButtonCleared, true, 'the second pick toggles the filter back off')
   assert.equal(out.ovNoToolbarSwitch, true, 'compact has no separate toolbar switch button any more')
   assert.equal(out.sheetHasSwitch, true, 'the filter sheet rows carry the switch button')
   assert.equal(out.sheetCurrentNoSwitch, true, 'the checked-out branch has no switch button')

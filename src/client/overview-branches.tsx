@@ -90,7 +90,16 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
     return h('div', {
       key: b.name, className: cls, style: { paddingLeft: BRANCH_BASE + depth * BRANCH_INDENT }, title: b.name,
       'data-current': isCurrent ? 'true' : undefined, 'data-primary': isPrimary ? 'true' : undefined,
+      // Keyboard parity with the dir rows below: a leaf row is a toggle button
+      // (filter on/off), and inside a focus trap (the compact sheet) it must be
+      // reachable, not just clickable.
+      role: 'button',
+      tabIndex: 0,
+      'aria-pressed': activeRef === ref,
       onClick: () => cb.onFilter(activeRef === ref ? null : ref),
+      onKeyDown: (e: KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cb.onFilter(activeRef === ref ? null : ref) }
+      },
     }, [
       h('span', { key: 'i', className: `gp-branch-row__ic${isCurrent ? ' gp-branch-row__ic--current' : isPrimary ? ' gp-branch-row__ic--primary' : ''}`, title: roleLabel || undefined, 'aria-label': roleLabel || undefined }, rowIcon),
       h('span', { key: 'n', className: 'gp-tree-name' }, label),
@@ -147,7 +156,11 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       walk(nodes, 0, key, icon, rows)
     }
     return h('div', { key, className: 'gp-branch-group' }, [
-      h('div', { key: 'head', className: 'gp-branch-group__head', onClick: () => cb.onToggle(key) }, [
+      h('div', {
+        key: 'head', className: 'gp-branch-group__head', role: 'button', tabIndex: 0, 'aria-expanded': !closed.has(key),
+        onClick: () => cb.onToggle(key),
+        onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cb.onToggle(key) } },
+      }, [
         h(ChevronIcon, { key: 'c', size: 11, open: !closed.has(key) }),
         `${cb.t(labelKey)} (${count})`,
       ]),
@@ -155,7 +168,12 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
     ])
   }
   return h('div', {}, [
-    h('div', { key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' }, onClick: () => cb.onFilter(null) }, cb.t('overview.head')),
+    h('div', {
+      key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' },
+      role: 'button', tabIndex: 0,
+      onClick: () => cb.onFilter(null),
+      onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cb.onFilter(null) } },
+    }, cb.t('overview.head')),
     section('local', 'overview.local', tree.local.length, h(BranchIcon, { size: 13 }), trees.local, trees.localPinned),
     section('remote', 'overview.remote', tree.remote.length, h(BranchIcon, { size: 13 }), trees.remote),
     section('tags', 'overview.tags', tree.tags.length, h(TagIcon, { size: 13 }), trees.tags),

@@ -44,7 +44,7 @@ export const CSS = `
 .gp-branch-row__sync-icon{flex:none}
 .gp-branch-row__switch{display:none;flex:none;margin:-2px 0 -2px auto;padding:0 7px;height:18px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .gp-branch-row__track+.gp-branch-row__switch,.gp-branch-row__head+.gp-branch-row__switch{margin-left:0}
-.gp-branch-row:hover .gp-branch-row__switch{display:inline-block}
+.gp-branch-row:hover .gp-branch-row__switch,.gp-branch-row:focus-within .gp-branch-row__switch{display:inline-block}
 .gp-branch-row__switch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 .gp-branch-row__switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 /* Refs sharing a '/'-prefix fold into a collapsible directory row: the chevron

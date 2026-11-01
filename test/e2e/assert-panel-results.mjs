@@ -477,7 +477,9 @@ export function assertPanelResults(out, realInput, errors) {
   assert.deepEqual(out.switchBtnRows, ['feature', 'origin/release'],
     'only rows with a switch target carry the button (not the current branch or the remote resolving to it)')
   assert.equal(out.switchBtnHidden, true, 'the switch button is hidden until the row is hovered')
-  assert.equal(out.switchBtnHoverRule, true, 'a hover rule reveals the switch button')
+  assert.equal(out.switchBtnHoverRule, true, 'one grouped rule reveals the switch button on hover and on row focus')
+  assert.equal(out.switchBtnShownOnRowFocus, true, 'focusing the row reveals the switch button')
+  assert.equal(out.switchBtnHiddenAgain, true, 'blurring the row hides the switch button again')
   assert.equal(out.switchBtnTitleTrack, true, 'a remote row without a local branch says it creates a tracking branch')
   assert.equal(out.switchBtnTitleLocal, true, 'a local row titles a plain switch')
   assert.equal(out.switchBtnNoFilter, true, 'clicking the switch button does not toggle the history filter')

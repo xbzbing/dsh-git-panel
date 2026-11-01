@@ -674,11 +674,23 @@ const out = await page.evaluate(async (snap) => {
   result.switchBtnRows = [...document.querySelectorAll('.gp-col--left .gp-branch-row')]
     .filter((r) => r.querySelector('.gp-branch-row__switch') !== null)
     .map((r) => r.getAttribute('title'))
-  // Hidden until hover (no pointer in the headless run), revealed by a hover rule.
+  // Hidden until hover (no pointer in the headless run); hover and row focus
+  // reveal it through one grouped rule.
   result.switchBtnHidden = switchBtnOf('feature') !== null && getComputedStyle(switchBtnOf('feature')).display === 'none'
   result.switchBtnHoverRule = [...document.styleSheets].some((sheet) => {
-    try { return [...sheet.cssRules].some((rule) => rule.selectorText === '.gp-branch-row:hover .gp-branch-row__switch') } catch { return false }
+    try {
+      return [...sheet.cssRules].some((rule) => {
+        const selectors = (rule.selectorText || '').split(',').map((s) => s.trim())
+        return selectors.includes('.gp-branch-row:hover .gp-branch-row__switch')
+          && selectors.includes('.gp-branch-row:focus-within .gp-branch-row__switch')
+      })
+    } catch { return false }
   })
+  // Focus reveals it the way hover does, and blurring hides it again.
+  leftRow('feature')?.focus()
+  result.switchBtnShownOnRowFocus = switchBtnOf('feature') !== null && getComputedStyle(switchBtnOf('feature')).display !== 'none'
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+  result.switchBtnHiddenAgain = switchBtnOf('feature') !== null && getComputedStyle(switchBtnOf('feature')).display === 'none'
   result.switchBtnTitleTrack = switchBtnOf('origin/release')?.getAttribute('title') === 'switch.rowTitleTrack'
   result.switchBtnTitleLocal = switchBtnOf('feature')?.getAttribute('title') === 'switch.rowTitle'
   const branchQueriesBefore = fixture.branchQueries
