@@ -87,7 +87,10 @@ function unwrap<T>(result: unknown): T | { ok: false; error: { code: string; mes
   if (r === null || typeof r !== 'object') return { ok: false, error: { code: 'transport', message: 'malformed rpc result' } }
   if (r.ok !== true) {
     const err = r.error as { code?: unknown; message?: unknown } | undefined
-    return { ok: false, error: { code: typeof err?.code === 'string' ? err.code : 'git-unavailable', message: typeof err?.message === 'string' ? err.message : undefined } }
+    // No code means the business envelope itself is malformed — the same truth
+    // as the branches above and below. A `git-unavailable` fallback here would
+    // turn a host bug into a false "git is not installed" degradation.
+    return { ok: false, error: { code: typeof err?.code === 'string' ? err.code : 'transport', message: typeof err?.message === 'string' ? err.message : undefined } }
   }
   // A transport-ok envelope with no inner value is malformed: return a typed
   // failure rather than `undefined`, which would trip `result.ok` downstream.

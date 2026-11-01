@@ -24,6 +24,7 @@ import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime } from './time.js'
 import { useBranchTree, useCommitDetail, useHistory, type HistoryFilter } from './overview-hooks.js'
 import { useCopyFeedback } from './copy-feedback.js'
+import { NoticeBar, useDismissedNotices } from './notice.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
 import { runRemoteAction, runSnapshotAction } from './op-runner.js'
@@ -36,7 +37,7 @@ import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 import { useRowSlider } from './row-slider.js'
-import { buildTops, windowRange } from './virtual-list.js'
+import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
@@ -170,6 +171,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const [opError, setOpError] = useState<string | null>(null)
   // In-flight guard so a double-click on confirm can't fire two tag RPCs.
   const [opBusy, setOpBusy] = useState(false)
+  const dismissedNotices = useDismissedNotices()
   // Left-column status bar: a sync check (fetch) and a fast-forward pull, each
   // with its own in-flight guard; the pull is gated behind a confirm dialog.
   const [syncBusy, setSyncBusy] = useState(false)
@@ -299,17 +301,25 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const opScope = `${snapshot.root}\u0000${snapshot.branch ?? ''}\u0000${snapshot.head ?? ''}`
   const opScopeRef = useRef<string | null>(null)
   const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || pullConfirm
+  const opInFlight = opBusy || pullBusy || switchBusy
   useEffect(() => {
     if (!opDialogOpen) { opScopeRef.current = null; return }
+    // An in-flight write keeps its dialog: the failure text renders only inside
+    // the dialog, so closing it here would swallow the reason the op failed.
+    if (opInFlight) return
     if (opScopeRef.current === null) { opScopeRef.current = opScope; return }
     if (opScopeRef.current === opScope) return
+    // The scope moved under an open dialog. A success already closed it, so the
+    // survivor of a mid-flight move is a failure with its message showing: keep
+    // it readable and adopt the new scope (which stops this from looping).
+    if (opError !== null) { opScopeRef.current = opScope; return }
     opScopeRef.current = null
     setResetTarget(null)
     setRevertTarget(null)
     setSwitchTarget(null)
     setPullConfirm(false)
     setOpError(null)
-  }, [opScope, opDialogOpen])
+  }, [opScope, opDialogOpen, opInFlight, opError])
 
   // Switching repositories keeps the page (the panes are not rebuilt), but a
   // branch filter belongs to the checkout it was picked in: in an unrelated
@@ -768,7 +778,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     const all = buildTops(heights)
     return { tops: all, totalH: all[rows.length]! }
   }, [rows, rowH])
-  const historyWindow = windowRange(tops, viewport.top, viewport.height > 0 ? viewport.height : 600, rowH * 6)
+  const historyWindow = windowRange(tops, viewport.top, viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK, rowH * VOVERSCAN)
 
   const commitSlider = useRowSlider({
     activeSelector: '.gp-commit-row--active',
@@ -830,11 +840,20 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     activeSelector: '.gp-tree-row--active',
     deps: [detail.fileDiff, fileTree],
   })
+  // A truncated read must say so above the (incomplete) file list; dismissal is
+  // per commit, so the next truncated commit announces itself again.
+  const showTruncatedText = t('overview.showTruncated')
+  const showTruncatedKey = `${selected?.hash ?? ''}\u0000${showTruncatedText}`
+  const showTruncatedNotice = detail.detail !== null && detail.detail.truncated === true
+    && !dismissedNotices.isDismissed(showTruncatedKey)
+    ? h(NoticeBar, { key: 'show-truncated', text: showTruncatedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(showTruncatedKey) })
+    : null
   const detailBody: JSX.Element[] = selected === null
     ? [h('div', { key: 'empty', className: 'gp-empty' }, [h(CommitIcon, { key: 'i', size: 20 }), t('overview.selectCommit')])]
     : [
       h('div', { key: 'files', className: 'gp-detail__files', ref: detailSlider.ref }, [
         detailSlider.slider,
+        showTruncatedNotice,
         detail.detail === null
           ? h('div', { key: 'empty', className: 'gp-empty' }, detail.detailError ? t('overview.detailFailed') : t('common.loading'))
           : [

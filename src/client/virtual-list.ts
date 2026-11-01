@@ -6,6 +6,15 @@
  * need to mount. Kept pure so the window arithmetic is unit-tested directly.
  */
 
+/** Viewport height assumed before the first layout measurement, so the initial
+ * paint mounts a bounded window instead of the whole list. */
+export const VIEWPORT_FALLBACK = 600
+
+/** Rows mounted beyond each edge of the window (scroll slack), in rows — each
+ * list multiplies it by its own row height. One shared value keeps the lists
+ * from drifting apart window by window. */
+export const VOVERSCAN = 8
+
 /** Ascending prefix-sum of item heights; `tops.length === heights.length + 1`. */
 export function buildTops(heights: readonly number[]): number[] {
   const tops = new Array<number>(heights.length + 1)

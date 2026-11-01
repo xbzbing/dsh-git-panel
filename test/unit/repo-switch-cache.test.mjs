@@ -204,3 +204,44 @@ test('a transport failure keeps the last good sample instead of erroring', async
   assert.equal(view.stale, true, 'and say the numbers are not current')
   assert.equal(view.snapshot.root, '/repo')
 })
+
+// The recovery path must repaint the view: an idle checkout keeps its
+// fingerprint across an outage, so the same-identity fast path would otherwise
+// carry `stale` over into the recovered session forever.
+test('a recovered sample clears the stale flag even when the fingerprint is unchanged', async (t) => {
+  const at = Date.now()
+  const { controller } = setup(t, async (n) => {
+    if (n === 2) return { ok: false, error: { code: 'transport', message: 'down' } }
+    return ok(snapshot(at, '/repo', 'idle-fp'))
+  })
+  await controller.refresh(); await drain()
+  assert.equal(controller.getSnapshot().state, 'ready')
+  await controller.refresh(); await drain()
+  const stale = controller.getSnapshot()
+  assert.equal(stale.state, 'ready', 'the panes keep their data')
+  assert.equal(stale.stale, true, 'and say the numbers are not current')
+  await controller.refresh(); await drain()
+  const recovered = controller.getSnapshot()
+  assert.equal(recovered.state, 'ready')
+  assert.equal(recovered.stale, undefined, 'recovery must drop the outage flag')
+  assert.equal(recovered.snapshot.root, '/repo')
+})
+
+// A dead host keeps polling: every failing cycle must reuse the one flagged
+// view instead of minting a new object (which would rerender the panel each
+// poll tick).
+test('one object per outage: repeat failures reuse the same view', async (t) => {
+  const at = Date.now()
+  const { controller } = setup(t, async (n) => {
+    if (n === 2 || n === 3) return { ok: false, error: { code: 'transport', message: 'down' } }
+    return ok(snapshot(at, '/repo', 'idle-fp'))
+  })
+  await controller.refresh(); await drain()
+  await controller.refresh(); await drain()
+  const first = controller.getSnapshot()
+  assert.equal(first.stale, true)
+  await controller.refresh(); await drain()
+  const second = controller.getSnapshot()
+  assert.equal(second.stale, true)
+  assert.equal(second, first, 'the outage is one view object, not one per poll')
+})

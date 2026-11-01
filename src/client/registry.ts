@@ -72,8 +72,12 @@ export function disposeAll(): void {
   refCounts.clear()
 }
 
+/** Remote for a surface whose context is not bound yet: the call never reached
+ * the host, so it fails at the transport layer. Reporting `git-unavailable`
+ * here would claim git is missing and degrade a healthy panel to file-only
+ * mode with a false notice. */
 function failingRemote(): GitPanelRemote {
-  const fail = async () => ({ ok: false as const, error: { code: 'git-unavailable' as const } })
+  const fail = async () => ({ ok: false as const, error: { code: 'transport' as const } })
   return { snapshot: fail as never, run: fail as never, query: fail as never, suggest: fail as never, version: fail as never, openFile: fail as never }
 }
 

@@ -84,3 +84,10 @@ test('an aborted call → cancelled, not a transport failure', async () => {
   assert.equal(res.ok, false)
   assert.equal(res.error.code, 'cancelled')
 })
+
+test('inner business failure without a code → transport, not "git missing"', async () => {
+  const remote = gitPanelRemoteOf(ctxWith(async () => ({ ok: false, error: { message: 'host bug' } })))
+  const res = await remote.snapshot({ sessionId: 's' })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'transport', 'a malformed business envelope is a transport-layer truth')
+})

@@ -177,6 +177,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const [worktreeGen, setWorktreeGen] = useState(0)
   // The git-not-installed banner can be dismissed for this mount.
   const [gitNoticeClosed, setGitNoticeClosed] = useState(false)
+  // The outage banner has its own latch: dismissal lives exactly as long as
+  // the outage (a recovered view resets it, so the next outage announces
+  // itself), and closing it must not silence the unrelated git-missing banner.
+  const [staleNoticeClosed, setStaleNoticeClosed] = useState(false)
+  useEffect(() => {
+    if (view.state !== 'ready' || view.stale !== true) setStaleNoticeClosed(false)
+  }, [view])
   // Manual file-root picks live in the module store (repo-select.ts); this
   // state exists only to re-render the panes when one changes.
   const [, setFilesRootBump] = useState(0)
@@ -696,8 +703,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
 
   // A lost connection keeps the last sample on screen: say so above it rather
   // than letting the numbers read as current.
-  const staleNotice = view.state === 'ready' && view.stale === true
-    ? h(NoticeBar, { key: 'stale', text: t('error.transport'), closeLabel: t('common.close'), onClose: () => setGitNoticeClosed(true) })
+  const staleNotice = view.state === 'ready' && view.stale === true && !staleNoticeClosed
+    ? h(NoticeBar, { key: 'stale', text: t('error.transport'), closeLabel: t('common.close'), onClose: () => setStaleNoticeClosed(true) })
     : null
   // git-not-installed inside a repo: stack a notice above the browser.
   const body = gitMissingInRepo

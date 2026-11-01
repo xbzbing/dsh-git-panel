@@ -28,7 +28,28 @@ export interface HistoryFilter {
   since: string
 }
 
-type CommitDetail = { commit: GitCommit | null; body: string; stats: readonly GitFileStat[]; insertions: number; deletions: number }
+type CommitDetail = {
+  commit: GitCommit | null
+  body: string
+  stats: readonly GitFileStat[]
+  insertions: number
+  deletions: number
+  /** The host read the commit truncated (name-status/numstat lossy): the file
+   * list and the +/- counts are incomplete and must say so, not render as zero. */
+  truncated?: boolean
+}
+
+/** One wire `show` reply → the record both the pane and the LRU cache hold. */
+function detailFromShow(show: { commit: GitCommit | null; body: string; stats: readonly GitFileStat[]; insertions: number; deletions: number; truncated?: boolean }): CommitDetail {
+  return {
+    commit: show.commit,
+    body: show.body,
+    stats: show.stats,
+    insertions: show.insertions,
+    deletions: show.deletions,
+    ...(show.truncated === true ? { truncated: true } : {}),
+  }
+}
 
 /**
  * Left column: branch/tag tree + author list. Reloads on `queryKey` (commit
@@ -325,7 +346,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     if (selectedHash.current !== commit.hash) return
     const show = queryAs(res, 'show')
     if (show !== null) {
-      const d = { commit: show.commit, body: show.body, stats: show.stats, insertions: show.insertions, deletions: show.deletions }
+      const d = detailFromShow(show)
       putDetail(commit.hash, d)
       setDetail(d)
     } else {
@@ -382,7 +403,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
         if (hoverHash.current !== commit.hash) return
         const show = queryAs(res, 'show')
         if (show !== null) {
-          putDetail(commit.hash, { commit: show.commit, body: show.body, stats: show.stats, insertions: show.insertions, deletions: show.deletions })
+          putDetail(commit.hash, detailFromShow(show))
           setHoverBody(show.body)
         } else setHoverBody('')
       })

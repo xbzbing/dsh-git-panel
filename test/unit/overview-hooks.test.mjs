@@ -414,3 +414,19 @@ test('useBranchTree surfaces treeError when branches fail, and reload recovers',
   assert.equal(h.value.tree?.current, 'main')
   h.unmount()
 })
+
+test('useCommitDetail keeps the host truncation flag through select and cache', async () => {
+  const remote = {
+    query: async (req) => req.query.kind === 'show'
+      ? { ok: true, value: { kind: 'show', ref: req.query.ref, commit: { hash: req.query.ref }, body: 'b', stats: [], insertions: 0, deletions: 0, truncated: true } }
+      : { ok: true, value: { kind: req.query.kind } },
+  }
+  const h = mount(() => useCommitDetail(remote, 's'))
+  h.value.select({ hash: 'a1' })
+  await h.settle()
+  assert.equal(h.value.detail.truncated, true, 'the pane can say the numbers are partial')
+  h.value.select({ hash: 'a2' }); await h.settle()
+  h.value.select({ hash: 'a1' }); await h.settle()
+  assert.equal(h.value.detail.truncated, true, 'the cached record keeps the flag too')
+  h.unmount()
+})

@@ -160,7 +160,7 @@ export class GitController {
           // That says nothing about the repository, so the last good sample
           // stays on screen, flagged; only a session with nothing read yet
           // reports the failure.
-          if (this.lastReady !== undefined) this.publish({ state: 'ready', snapshot: this.lastReady, stale: true }, this.unreadySignal())
+          if (this.lastReady !== undefined) this.publishStale()
           else this.setView({ state: 'error', error: { code: 'transport' } })
         } else if (result.error.code === 'git-unavailable') {
           // git not installed → file-browser-only degrade; `isGitRepo` decides
@@ -173,7 +173,7 @@ export class GitController {
       })
       .catch((error: unknown) => {
         if (this.disposed || requestGeneration !== this.requestGeneration) return
-        if (this.lastReady !== undefined) this.publish({ state: 'ready', snapshot: this.lastReady, stale: true }, this.unreadySignal())
+        if (this.lastReady !== undefined) this.publishStale()
         else this.setView({ state: 'error', error: { code: 'transport', detail: error instanceof Error ? error.message : String(error) } })
       })
       .finally(() => {
@@ -274,6 +274,10 @@ export class GitController {
     const cached = this.fresh(repo)
     if (cached !== undefined) {
       this.viewRepo = repo
+      // The replayed sample IS the checkout's last good read: a transport
+      // failure before the calibrating sample lands must flag it stale rather
+      // than blank the panel (the same rule the poll path follows).
+      this.lastReady = cached
       this.publish({ state: 'ready', snapshot: cached }, this.unreadySignal())
     }
     return this.refresh()
@@ -314,7 +318,25 @@ export class GitController {
       ready: this.visibility.isVisible() && generation === this.visibilityGeneration,
       root: snapshot.root,
     }
-    this.publish(same ? this.view : { state: 'ready', snapshot }, nextSignal)
+    // Same fingerprint normally reuses the view object — but never the stale
+    // one: an idle checkout keeps its fingerprint across an outage, so reuse
+    // would carry the "connection lost" flag over into the recovered session.
+    const staleFlag = this.view.state === 'ready' && this.view.stale === true
+    this.publish(same && !staleFlag ? this.view : { state: 'ready', snapshot }, nextSignal)
+  }
+
+  /** An outage says nothing about the repository: the last good sample stays on
+   * screen flagged stale. While the current view already IS that flag for that
+   * same sample, reuse it — one object per outage, so a dead host does not
+   * rerender the whole panel on every remaining poll tick. */
+  private publishStale(): void {
+    const last = this.lastReady
+    if (last === undefined) return
+    const current = this.view
+    const view = current.state === 'ready' && current.stale === true && current.snapshot === last
+      ? current
+      : { state: 'ready' as const, snapshot: last, stale: true as const }
+    this.publish(view, this.unreadySignal())
   }
 
   private unreadySignal(): GitQuerySignal {
