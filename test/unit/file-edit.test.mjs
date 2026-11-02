@@ -5,6 +5,7 @@
  */
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
+import './_tmp-ceiling.mjs'
 import { spawn as nodeSpawn } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, lstatSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -286,4 +287,24 @@ test('a temp name that is already taken is left alone', async () => {
   assert.deepEqual(res, { ok: false, error: { code: 'write-failed', message: 'EEXIST' } })
   assert.equal(readFileSync(taken, 'utf8'), 'not ours')
   assert.equal(readFileSync(join(dir, 'g.txt'), 'utf8'), 'x\n')
+})
+
+test('a failed temp write removes the partial temp file and reports the errno only', async () => {
+  const dir = workspace()
+  writeFileSync(join(dir, 'h.txt'), 'x\n')
+  let partial = null
+  const fs = {
+    ...createFsDeps(),
+    writeExclusive: async (path, data) => {
+      // A write that dies mid-way (ENOSPC) leaves the file it opened behind.
+      partial = path
+      writeFileSync(path, data.subarray(0, 3))
+      throw errno('ENOSPC', path)
+    },
+  }
+  const res = await save(dir, 'h.txt', 'y\n', sha(Buffer.from('x\n')), DEFAULT_CONFIG, fs)
+  assert.deepEqual(res, { ok: false, error: { code: 'write-failed', message: 'ENOSPC' } })
+  assert.notEqual(partial, null)
+  assert.deepEqual(readdirSync(dir), ['h.txt'], 'the partial temp file is removed')
+  assert.equal(readFileSync(join(dir, 'h.txt'), 'utf8'), 'x\n')
 })

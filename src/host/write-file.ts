@@ -97,20 +97,22 @@ export async function writeWorkspaceFile(
   // script: the target's own name is checked too.
   if (!isEditablePath(real)) return fail('not-editable')
 
-  let mode: number
-  try {
-    const info = await deps.fs.stat(real)
-    if (!info.isFile()) return fail('not-editable')
-    if (info.size > EDIT_MAX_BYTES) return blocked('too-large')
-    mode = info.mode & 0o7777
-  } catch (error) {
-    return fsFailure(error)
-  }
-  // `rename` only needs the directory to be writable: without this a
-  // read-only file would be replaced.
-  if (!(await deps.fs.writable(real))) return blocked('read-only')
-
   return withFileLock(real, async () => {
+    // The stat / mode / writability checks run under the lock: another save of
+    // this file in this process cannot chmod or replace it in between.
+    let mode: number
+    try {
+      const info = await deps.fs.stat(real)
+      if (!info.isFile()) return fail('not-editable')
+      if (info.size > EDIT_MAX_BYTES) return blocked('too-large')
+      mode = info.mode & 0o7777
+    } catch (error) {
+      return fsFailure(error)
+    }
+    // `rename` only needs the directory to be writable: without this a
+    // read-only file would be replaced.
+    if (!(await deps.fs.writable(real))) return blocked('read-only')
+
     let current: Buffer
     try {
       current = await deps.fs.readFile(real)
