@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import {
   editorLanguageFor, isJsoncName, checkedLanguageFor, toEditBuffer, inferIndentUnit, lineColumnAt,
   checkJson, checkXml, editAvailability, editBlockKey, validateYaml,
-  registerEditMount, hasUnsavedEdit, hasStashedUnsavedEdit, discardUnsavedEdit, stashDraft, takeStashedDraft, resetEditStore,
+  registerEditMount, hasUnsavedEdit, hasStashedUnsavedEdit, discardUnsavedEdit, stashDraft, takeStashedDraft, restoreStashedDraft, resetEditStore,
 } from '../../lib/testkit.mjs'
 
 test('editor language per allow-listed file', () => {
@@ -130,6 +130,25 @@ test('edit store: a session is unsaved while any of its mounts or its stash is',
   assert.equal(takeStashedDraft('s1').dirty, true)
   assert.equal(takeStashedDraft('s1'), null, 'taken once')
   assert.equal(hasUnsavedEdit('s1'), false)
+})
+
+test('edit store: restoring keeps a dirty draft whose selection moved; only a clean mismatch is dropped', () => {
+  resetEditStore()
+  // The other panel of the session left a different selection in the shared
+  // browser cache, so this mount restores onto another file than the parked
+  // draft was made on.
+  stashDraft('s1', draft(true))
+  assert.equal(restoreStashedDraft('s1', 'other.md'), null, 'a mismatched selection restores nothing')
+  assert.equal(hasStashedUnsavedEdit('s1'), true, 'the unsaved draft stays parked and keeps the unload prompt')
+  assert.equal(hasUnsavedEdit('s1'), true, 'and still counts as unsaved')
+  assert.equal(restoreStashedDraft('s1', 'a.md')?.dirty, true, 'the mount on its file still gets it')
+  assert.equal(takeStashedDraft('s1'), null, 'taken once for real')
+  // A clean draft that matches nothing is expired browser state: dropped.
+  stashDraft('s1', draft(false, 'clean.md'))
+  assert.equal(restoreStashedDraft('s1', 'gone.md'), null)
+  assert.equal(takeStashedDraft('s1'), null, 'nothing left parked')
+  assert.equal(hasUnsavedEdit('s1'), false)
+  resetEditStore()
 })
 
 test('edit store: a discard reaches every mount of the session and the stash', () => {

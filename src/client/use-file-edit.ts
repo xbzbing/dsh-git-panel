@@ -24,7 +24,7 @@ import type { FileState } from './files-preview.js'
 import { checkJson, checkXml, checkedLanguageFor, editAvailability, editBlockKey, editorLanguageFor, inferIndentUnit, toEditBuffer, type EditAvailability } from './edit-buffer.js'
 import { editorChunkIfLoaded, FileEditor, loadEditorChunk, type EditorChunk, type EditorHandle } from './FileEditor.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
-import { newDraftId, registerEditMount, takeStashedDraft, type EditDraft, type EditMount } from './edit-store.js'
+import { newDraftId, registerEditMount, restoreStashedDraft, type EditDraft, type EditMount } from './edit-store.js'
 import { renderDetachedNote, renderEditNotice, type EditNotice } from './edit-notice.js'
 import { useCopyFeedback } from './copy-feedback.js'
 
@@ -74,8 +74,9 @@ export function useFileEdit(options: {
   /** The host's edit switch (false hides the entry). */
   readonly allowEdit: boolean
   /** The selection the browser restored at mount: a draft parked in the
-   * stash comes back only into the selection it was made on (otherwise it
-   * was a clean one whose browser state expired, and it is dropped). */
+   * stash comes back only into the selection it was made on. A clean
+   * mismatch was expired browser state and is dropped; a dirty one stays
+   * parked for the mount that lands on its file. */
   readonly restoreSelected: string | null
   /** A save landed for the draft on screen: the file-content view of the
    * bytes now on disk. */
@@ -90,8 +91,7 @@ export function useFileEdit(options: {
   const { sessionId, file, t } = options
   const restored = useRef<EditDraft | null | undefined>(undefined)
   if (restored.current === undefined) {
-    const parked = takeStashedDraft(sessionId)
-    restored.current = parked !== null && parked.path === options.restoreSelected ? parked : null
+    restored.current = restoreStashedDraft(sessionId, options.restoreSelected)
   }
   const [draft, setDraft] = useState<EditDraft | null>(restored.current)
   const [dirty, setDirty] = useState(restored.current?.dirty === true)

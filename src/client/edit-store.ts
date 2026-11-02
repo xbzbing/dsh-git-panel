@@ -7,9 +7,9 @@
  *   holds its own draft, so dirtiness is tracked per mount and a session is
  *   unsaved while any of its mounts or its stash is.
  * - A Files tab that unmounts parks its draft here (`stashDraft`) and the next
- *   mount for the session picks it up (`takeStashedDraft`). A parked unsaved
- *   draft counts as unsaved: it survives until a save, a confirmed discard or
- *   a page reload.
+ *   mount for the session picks it up (`restoreStashedDraft`). A parked
+ *   unsaved draft counts as unsaved: it survives until a save, a confirmed
+ *   discard or a page reload.
  * - A `beforeunload` prompt is armed while any draft anywhere is unsaved.
  */
 import type { GitPanelRemote } from './rpc.js'
@@ -154,6 +154,23 @@ export function takeStashedDraft(sessionId: string): EditDraft | null {
     syncUnloadPrompt()
   }
   return draft
+}
+
+/**
+ * The parked draft as a mount restoring `restoreSelected` may take it: only
+ * back into the selection it was made on. A clean draft that no longer matches
+ * is expired browser state and is dropped; a dirty one still owns its unsaved
+ * text (another panel of the same session may have left a different selection
+ * in the shared browser cache), so it goes back into the stash for the mount
+ * that lands on its file — parked unsaved drafts live until a save, a
+ * confirmed discard or a page reload.
+ */
+export function restoreStashedDraft(sessionId: string, restoreSelected: string | null): EditDraft | null {
+  const parked = takeStashedDraft(sessionId)
+  if (parked === null) return null
+  if (parked.path === restoreSelected) return parked
+  if (parked.dirty) stashDraft(sessionId, parked)
+  return null
 }
 
 /** Test hook: forget every mount and parked draft. */
