@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url'
 const RUNNERS = [
   'run', 'run2', 'run3', 'run4', 'run5',
   'branch-tree-review', 'filtered-graph', 'graph-filter-transition',
+  // Search scopes, capability negotiation, deferred responses and responsive geometry.
+  'history-path-search',
   'branch-status-review', 'files-tree-review', 'files-refresh',
   // Files preview toolbar at five widths: review screenshots plus the wrap
   // contract (the trailing cluster moves as one item, never split).

@@ -96,6 +96,17 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-graph-boundary{opacity:.8}
 .gp-search{flex:1;min-width:60px;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;box-sizing:border-box}
 .gp-search:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+/* Scope + text are one toolbar item. min-content lets the item shrink to the
+ * trigger plus the input floor instead of collapsing the input to nothing; the
+ * trigger itself never shrinks, so a squeezing toolbar truncates the placeholder
+ * rather than the scope label. The 60px floor is what the geometry runner
+ * measures at every layout and font step. */
+.gp-history-search{display:flex;align-items:center;flex:1 1 120px;min-width:min-content;gap:4px}
+.gp-history-search .gp-search{min-width:60px;width:0}
+.gp-history-search .gp-search-scope{flex:none}
+.gp-history-search .gp-search-scope__trigger{flex:none;gap:4px;height:28px;padding:0 6px;font-size:12px}
+.gp-search-scope__trigger svg{flex:none}
+.gp-search-scope__reason{display:block;max-width:240px;white-space:normal;font-size:11px;color:var(--dsw-alias-label-tertiary)}
 /* Filter dropdowns are the platform Menu: the wrapper is the Menu's own anchor
  * span (inline-flex, so it still lays out as a toolbar item), and the trigger
  * uses the same module background as the shell's settings selectors. */

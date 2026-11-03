@@ -1,7 +1,7 @@
 /**
  * Data hooks backing OverviewTab. Each owns one concern's state + fetch timing,
- * lifted verbatim from the component so the view layer is a thin composition.
- * Behavior (generation guards, LRU cache, debounced paging) is unchanged.
+ * lifted out of the view so generation guards, the detail LRU, paging and the
+ * history path-search capability stay testable without a renderer.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { queryAs, type GitPanelRemote } from './rpc.js'
@@ -24,9 +24,13 @@ export interface BranchTree {
 export interface HistoryFilter {
   ref: string | null
   search: string
+  /** File / path history search; mutually exclusive with `search` on the wire. */
+  pathSearch?: string
   author: string
   since: string
 }
+
+export type PathSearchSupport = 'unknown' | 'supported' | 'unsupported'
 
 type CommitDetail = {
   commit: GitCommit | null
@@ -143,6 +147,15 @@ interface HistoryData {
   readonly appliedFilter: HistoryFilter
 }
 
+interface PathCapabilityState {
+  readonly scope: number
+  readonly support: PathSearchSupport
+  /** A path request answered without the capability field. It is kept for as
+   * long as the same path query is retried, so the explanation does not unmount
+   * on every poll and does not vanish when a retry fails. */
+  readonly refused: boolean
+}
+
 /**
  * Middle column: paged commit history. One effect owns page 0 (keyed on
  * filter + queryKey) so a filter change and a snapshot advance can't race and
@@ -172,6 +185,9 @@ export function useHistory(
   total: number
   loading: boolean
   listError: boolean
+  pathSearchSupport: PathSearchSupport
+  /** The current path query was refused because the host omitted its capability. */
+  pathSearchUnsupported: boolean
   hasMore: boolean
   /** Mutable: the caller attaches the list node through a composing callback ref
    * (the viewport tracker needs the same node), so the ref must be assignable. */
@@ -184,6 +200,16 @@ export function useHistory(
   const { commits, topology, total, appliedFilter } = history
   const [loading, setLoading] = useState(false)
   const [listError, setListError] = useState(false)
+  // The request boundary serializes keys: remote objects themselves cannot
+  // distinguish facades. A local serial also invalidates responses while hidden.
+  const scopeRef = useRef({ remote, sessionId, serial: 0 })
+  if (scopeRef.current.remote !== remote || scopeRef.current.sessionId !== sessionId) {
+    scopeRef.current = { remote, sessionId, serial: scopeRef.current.serial + 1 }
+  }
+  const scope = scopeRef.current.serial
+  const [capability, setCapability] = useState<PathCapabilityState>({ scope, support: 'unknown', refused: false })
+  const pathSearchSupport = capability.scope === scope ? capability.support : 'unknown'
+  const pathSearchUnsupported = capability.scope === scope && capability.refused
   const seqRef = useRef(0)
   const loadingRef = useRef(false)
   // Pagination merges against the last complete publication, not render timing.
@@ -206,6 +232,7 @@ export function useHistory(
         kind: 'history', limit: PAGE, skip,
         ...(f.ref ? { ref: f.ref } : {}),
         ...(f.search ? { search: f.search } : {}),
+        ...(f.pathSearch?.trim() ? { pathSearch: f.pathSearch.trim() } : {}),
         ...(f.author ? { author: f.author } : {}),
         ...(f.since ? { since: f.since } : {}),
       },
@@ -215,6 +242,16 @@ export function useHistory(
     setLoading(false)
     const history = queryAs(res, 'history')
     if (history === null) { setListError(true); return }
+    const supported = history.pathSearchSupported === true
+    const refused = Boolean(f.pathSearch?.trim()) && !supported
+    setCapability({ scope, support: supported ? 'supported' : 'unsupported', refused })
+    if (refused) {
+      // Even an append from a previously capable host must re-confirm support.
+      // Its unfiltered rows cannot join a path result or permit another append.
+      appendReady.current = false
+      setListError(true)
+      return
+    }
     const previous = historyRef.current
     const commits = skip === 0 ? history.commits : [...previous.commits, ...history.commits]
     const next: HistoryData = {
@@ -226,13 +263,21 @@ export function useHistory(
     historyRef.current = next
     appendReady.current = true
     setHistory(next)
-  }, [remote, sessionId])
+  }, [remote, sessionId, scope])
 
   const prevFilter = useRef(filter)
-  useVisibleRequest([sessionId, ...queryKey, filter.ref, filter.search, filter.author, filter.since], visible, async (isCurrent) => {
+  useVisibleRequest([scope, sessionId, ...queryKey, filter.ref, filter.search, filter.pathSearch?.trim() ?? '', filter.author, filter.since], visible, async (isCurrent) => {
     seqRef.current += 1
     loadingRef.current = false
     currentPage.current = isCurrent
+    // A refusal outlives the request that produced it: the host stays unable to
+    // answer the same path query, so clearing it here would flash the notice on
+    // every poll and drop the explanation for good if this retry fails.
+    setCapability((previous) => ({
+      scope,
+      support: previous.scope === scope ? previous.support : 'unknown',
+      refused: previous.scope === scope && previous.refused && (filter.pathSearch?.trim() ?? '') !== '',
+    }))
     // A failed replacement may leave old rows visible, but cannot append a page
     // from the new filter/session to that retained result.
     appendReady.current = false
@@ -245,7 +290,7 @@ export function useHistory(
     await loadPage(0, filter, isCurrent)
   }, () => { loadingRef.current = false; setLoading(false); setListError(true) })
 
-  const hasMore = total < 0 ? true : commits.length < total
+  const hasMore = !pathSearchUnsupported && (total < 0 || commits.length < total)
   const loadMore = useCallback(() => {
     if (!visibleRef.current || !pageVisibility.isVisible() || loadingRef.current || !appendReady.current || !hasMore || !currentPage.current()) return
     const isCurrent = currentPage.current
@@ -257,7 +302,7 @@ export function useHistory(
     })
   }, [loadPage, commits.length, filter, hasMore])
 
-  return { commits, topology, appliedFilter, total, loading, listError, hasMore, listRef, loadMore }
+  return { commits, topology, appliedFilter, total, loading, listError, pathSearchSupport, pathSearchUnsupported, hasMore, listRef, loadMore }
 }
 
 /**

@@ -104,7 +104,7 @@ await page.evaluate(async (snap) => {
       search: read(tb?.querySelector('.gp-search')),
       toggle: read(tb?.querySelector('.gp-toolbar__more-toggle')),
       more: read(tb?.querySelector('.gp-toolbar__more')),
-      triggers: [...(tb?.querySelectorAll('.gp-select-trigger') ?? [])].map((n) => read(n)),
+      triggers: [...(tb?.querySelectorAll('.gp-select-trigger:not(.gp-search-scope__trigger)') ?? [])].map((n) => read(n)),
       overflowX: tb ? tb.scrollWidth > tb.clientWidth + 1 : null,
       barH: tb ? Math.round(tb.getBoundingClientRect().height) : null,
     }

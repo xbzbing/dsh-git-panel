@@ -54,7 +54,7 @@ try {
       await waitFor(() => document.querySelector('.gp-branch-row[title="feat"]'))
       await flush()
       const before = nameReads
-      document.querySelector('.gp-select-trigger').click()
+      document.querySelector('.gp-select-trigger:not(.gp-search-scope__trigger)').click()
       await waitFor(() => document.querySelector('[role="menu"]'))
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       await flush()
