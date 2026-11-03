@@ -150,9 +150,12 @@ interface HistoryData {
 interface PathCapabilityState {
   readonly scope: number
   readonly support: PathSearchSupport
-  /** A path request answered without the capability field. It is kept for as
-   * long as the same path query is retried, so the explanation does not unmount
-   * on every poll and does not vanish when a retry fails. */
+  /** A path request answered without the capability field. It describes only
+   * the current path query: it is kept for as long as the same path query is
+   * retried (so the explanation does not unmount on every poll and does not
+   * vanish when a retry fails), and it does not assert anything about the
+   * host — the scope menu's disabled-state copy is keyed on `support`, which
+   * survives a scope switch away from path and back. */
   readonly refused: boolean
 }
 

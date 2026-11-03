@@ -84,8 +84,10 @@ export async function writeWorkspaceFile(
     return fail('not-editable')
   }
   if (!isEditablePath(path)) return fail('not-editable')
-  // Every UTF-16 code unit encodes to at least one UTF-8 byte, so text longer
-  // than the cap in code units is over it in bytes: refused before any I/O.
+  // BMP code units encode to at least one UTF-8 byte, so text longer than the
+  // cap in code units is over it in bytes; astral chars encode to two code
+  // units (surrogate pair) = four bytes, which is also ≥ 2. Either way, a
+  // longer-than-cap input fails this check and is refused before any I/O.
   if (content.length > EDIT_MAX_BYTES) return blocked('too-large')
   const file = join(root, path)
   // One realpath resolution: the path that passed containment is the one the

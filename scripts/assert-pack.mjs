@@ -144,6 +144,11 @@ if (extra.length > 0) {
 // package group: `cm-content` (a class @codemirror/view writes),
 // `Invalid change range` (@codemirror/state), `No parse at` (@lezer/lr, the
 // parser under every language package) and `TAB_AS_INDENT` (a yaml error code).
+// Fragility note: these are *surviving* strings, not a package census. If a
+// marker disappears from a future esbuild/CodeMirror/yaml version (tree-shaken
+// error branch, changed message), the check silently stops covering that
+// package — on suspicion, grep lib/client.editor.js for the package itself
+// and update the marker list alongside the dependency bump.
 const mainBundle = join(root, 'lib/client.js')
 if (existsSync(mainBundle)) {
   const text = readFileSync(mainBundle, 'utf8')

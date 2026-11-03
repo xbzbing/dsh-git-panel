@@ -279,14 +279,19 @@
         if (MOD[id]) return MOD[id];
         throw new Error('unknown module ' + id);
       };
-      // Package-local lazy chunks (require.async('./client.<name>.js')),
-      // mirroring the production client-modules import path.
+      // Package-local lazy chunks (require.async('./client.<name>.js')).
+      // Two paths, on purpose: mermaid is a stub (deterministic figure for
+      // assertions, and it must not hit the network in a file:// harness);
+      // the editor chunk is the real shipped bundle loaded by <script> —
+      // the gate that proves the chunk registered under its own name.
       requireFn.async = function (spec) {
         if (spec === './client.mermaid.js') return Promise.resolve(MOD['@xbzbing/dsh-git-panel/client.mermaid']);
         if (spec === './client.editor.js') return loadRealChunk('client.editor.js');
         return Promise.reject(new Error('unknown chunk ' + spec));
       };
       if (entry.chunk) {
+        // Reached when a real chunk registers itself (its <script> ran); the
+        // testkit bundles never pass a chunk entry.
         CHUNKS[entry.chunk] = entry.factory(requireFn);
         (CHUNK_WAITERS[entry.chunk] || []).forEach(function (resolve) { resolve(CHUNKS[entry.chunk]); });
         CHUNK_WAITERS[entry.chunk] = [];

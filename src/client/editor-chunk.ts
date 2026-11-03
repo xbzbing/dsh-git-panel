@@ -66,7 +66,7 @@ export interface EditorHandle {
 }
 
 const highlight = HighlightStyle.define([
-  { tag: [tags.keyword, tags.operatorKeyword, tags.tagName, tags.heading], color: 'var(--shiki-token-keyword)' },
+  { tag: [tags.keyword, tags.operatorKeyword, tags.tagName], color: 'var(--shiki-token-keyword)' },
   { tag: [tags.string, tags.special(tags.string), tags.monospace, tags.quote], color: 'var(--shiki-token-string)' },
   { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.meta, tags.processingInstruction], color: 'var(--shiki-token-comment)' },
   { tag: [tags.number, tags.bool, tags.null, tags.atom, tags.literal, tags.typeName], color: 'var(--shiki-token-constant)' },
@@ -74,7 +74,8 @@ const highlight = HighlightStyle.define([
   { tag: [tags.attributeName, tags.variableName], color: 'var(--shiki-token-parameter)' },
   { tag: [tags.punctuation, tags.bracket, tags.separator, tags.angleBracket, tags.contentSeparator], color: 'var(--shiki-token-punctuation)' },
   { tag: [tags.link, tags.url], color: 'var(--shiki-token-link)', textDecoration: 'underline' },
-  { tag: tags.heading, fontWeight: 'bold' },
+  // Headings take the keyword color and the weight in one rule.
+  { tag: tags.heading, color: 'var(--shiki-token-keyword)', fontWeight: 'bold' },
   { tag: tags.strong, fontWeight: 'bold' },
   { tag: tags.emphasis, fontStyle: 'italic' },
   { tag: tags.strikethrough, textDecoration: 'line-through' },

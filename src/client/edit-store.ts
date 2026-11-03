@@ -21,6 +21,11 @@ export interface EditDraft {
    * that sent it, not to a later edit of the same path. */
   readonly id: number
   readonly path: string
+  /** The remote face as mounted when the edit started, NOT tagged with the
+   * browse root: Panel rebuilds its tagged `filesRemote` wrapper every time
+   * the root selector changes, so a stored tagged instance would go stale
+   * (its `repo` label frozen on a root that may no longer resolve). The tag
+   * is re-derived from `rootKey` at every use (`editRemote`). */
   readonly remote: GitPanelRemote
   /** The file browser's root selector when the edit started; the draft keeps
    * writing there after the browser has moved to another root. */

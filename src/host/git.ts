@@ -109,7 +109,6 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
             // pinned as well. See pathspecEnv.
             ...pathspecEnv(argv),
             ...opts.env,
-            ...opts.env,
           },
           stdio: {
             stdin: opts.stdinData === undefined ? 'ignore' : { data: opts.stdinData },

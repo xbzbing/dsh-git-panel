@@ -21,7 +21,7 @@
 - 语言映射：`json` / `xml` / `md` / `yaml` 用各自的语言包；`toml` 与 `properties` / `ini` / `cfg` / `.editorconfig` / `.env` 及未自带格式扩展名的 `.env.*` 变体（`.env.local`）用 `legacy-modes` 的 toml 与 properties 模式，`.env.json` / `.env.yaml` 仍按各自扩展名走语言包；`txt` / `conf` / `.gitignore` / `.gitattributes` 为纯文本。
 - 配色只用宿主变量：编辑器外观用 `--dsw-alias-*`，语法色用 `--shiki-token-*`，与只读源码视图同一套颜色。
 - YAML 的保存前检查用 `yaml` 包的 `parseAllDocuments`，只看 `errors`，不看 `warnings`：CloudFormation 的 `!Ref` 一类自定义标签只产生 warning。它在 chunk 里，因为能点保存时 chunk 一定已加载。JSON 用自写的 RFC 8259 扫描定位第一处错误（V8 的 `JSON.parse` 报错常常不带位置），XML 用浏览器 `DOMParser`，都留在主 bundle 的纯模块 `edit-buffer.ts` 里。
-- 键盘：Tab / Shift+Tab 缩进（`indentWithTab`，先按 Esc 再按 Tab 可移出编辑器），Ctrl/Cmd+S 保存，Esc 不退出编辑态。
+- 键盘：Tab / Shift+Tab 缩进（`indentWithTab`；焦点移出靠方向键 / 点击，不存在「先按 Esc 再按 Tab」的出口——CodeMirror 的默认键表对 Tab 一直捕获缩进，Esc 默认无绑定）。Ctrl/Cmd+S 保存，Esc 不退出编辑态；查找面板开着时 Esc 先关面板（`searchKeymap` 处理并 preventDefault），面板关闭后再按 Esc 才走浮层关闭（dialog-focus 冒泡阶段只处理未被 preventDefault 的事件）。
 - `dialog-focus.ts` 的焦点收容在 window 捕获阶段拦 Tab 与 Esc，先于 CodeMirror 执行。改为：目标在 `data-gp-keys-owner` 子树内的 Tab / Esc 在捕获阶段放行，冒泡阶段只有事件仍未被 `preventDefault` 时才执行原逻辑；另一个浮层里的按键也不再被它截走。全屏阅读器、弹窗、分支抽屉一起受益。
 - 编辑器是内容的唯一持有者：React 只接收「是否已修改」，保存、暂存、离开时才读全文。视图挂载一次，换行与只读经 `Compartment` 切换，撤销栈不丢。
 

@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { listSessionRepos, resolveBrowseRoot, resolveWorkspace } from '../../lib/host/core.js'
-import { repoDirFor, scanRepos } from '../../lib/host/repos.js'
+import { repoDirCertified, repoDirFor, scanRepos } from '../../lib/host/repos.js'
 import { DEFAULT_CONFIG, runQuery, snapshotForSession } from '../../lib/host/index.js'
 import { gitRunner, runGit } from './_git-fixture.mjs'
 
@@ -327,6 +327,24 @@ test('a selector may leave the cwd only for the repository root', async () => {
     assert.equal(ws.ok, false, 'must refuse ' + JSON.stringify(bad))
     assert.equal(ws.failure.error.code, 'invalid-repo', JSON.stringify(bad))
   }
+})
+
+test('repoDirCertified itself refuses a selector landing inside the cwd', async () => {
+  // resolveWorkspace asks repoDirFor first, so an inside-cwd path is claimed by
+  // that door before the certified one sees it. This calls the certified door
+  // directly to pin its own guarantee: a selector resolving inside the cwd is
+  // refused there too — the two doors partition the path space, they do not
+  // overlap.
+  const inWorktree = join(wtRepo, '.agents', 'worktrees', 'feat-a')
+  const fs = createFsDeps()
+  const root = realpathSync.native(wtRepo)
+  for (const inside of ['subdir', '..', '../..']) {
+    const res = await repoDirCertified(fs, inWorktree, inside, root)
+    assert.equal(res.ok, false, 'must refuse ' + JSON.stringify(inside))
+  }
+  const res = await repoDirCertified(fs, inWorktree, '../../..', root)
+  assert.equal(res.ok, true, 'the repository root itself is admitted')
+  assert.equal(res.dir, root)
 })
 
 test('a worktree directory is claimed once, never re-listed as a nested repository', async () => {

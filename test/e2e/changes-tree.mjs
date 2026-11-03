@@ -64,11 +64,10 @@ async function flush(page) {
 }
 
 /** Boot the harness on an existing page (reused after a reload). */
-async function boot(page, snapshot, { clearView = true, panelWidth = 1000 } = {}) {
+async function boot(page, snapshot, { panelWidth = 1000 } = {}) {
   await page.addStyleTag({ content: THEME })
   for (const file of ['client.js', 'mock-rpc.mjs']) await page.addScriptTag({ path: resolve(DIR, file) })
-  await page.evaluate(({ snapshot, clearView, panelWidth }) => {
-    if (clearView) localStorage.removeItem('gp.changes.view')
+  await page.evaluate(({ snapshot, panelWidth }) => {
     const panel = document.getElementById('panel')
     panel.style.width = panelWidth + 'px'
     panel.style.height = '764px'
@@ -98,7 +97,7 @@ async function boot(page, snapshot, { clearView = true, panelWidth = 1000 } = {}
     }
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(panel).render(registered['conversation.view']({ sessionId: 'changes-tree-session' }))
-  }, { snapshot, clearView, panelWidth })
+  }, { snapshot, panelWidth })
   await page.locator('[role="tab"]').nth(1).waitFor()
   await page.locator('[role="tab"]').nth(1).click()
   await page.locator('.gp-changes__toolbar').waitFor()
