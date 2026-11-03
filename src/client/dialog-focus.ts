@@ -15,9 +15,10 @@
  * that subtree first: the capture listener lets Tab / Escape through, and a
  * bubble listener applies the dialog's handling only when the subtree left
  * the event un-`preventDefault`ed. That is how Tab indents inside the editor
- * and Escape closes its search panel without closing the reader, while an
- * unhandled key (Escape with no panel, Tab after the editor's Escape escape
- * hatch) still reaches the dialog.
+ * (`indentWithTab`), and how Escape closes the editor's find panel first
+ * (CodeMirror's `searchKeymap` handles the key and marks it handled) before
+ * a second Escape — with no panel open and the event left un-handled —
+ * still reaches the dialog and closes the reader.
  *
  * `escape` turns the Escape half off for an overlay that is not the topmost
  * layer of its own right (the branch drawer yields it to whatever dialog is

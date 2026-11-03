@@ -11,7 +11,11 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 import { createGitRunner, DEFAULT_CONFIG } from '../../lib/host/index.js'
 
-/** child_process-backed subprocess service matching SubprocessLike. */
+/** child_process-backed subprocess service matching SubprocessLike.
+ * Mirrors the production collector's bounds: stdout/stderr past the spec's
+ * `maxBytes` kill the child and are reported `lossy` (the spill-file half of
+ * the production contract has no meaning here — the test runner reads only
+ * the in-memory tail). */
 export const subprocess = {
   spawn(spec) {
     const child = nodeSpawn(spec.argv[0], spec.argv.slice(1), {
@@ -20,10 +24,21 @@ export const subprocess = {
     })
     if (typeof spec.stdio.stdin === 'object') child.stdin.end(spec.stdio.stdin.data)
     else child.stdin.end()
+    const maxOut = spec.stdio.stdout?.collect?.maxBytes ?? Infinity
+    const maxErr = spec.stdio.stderr?.collect?.maxBytes ?? Infinity
     let out = ''
     let err = ''
-    child.stdout.on('data', (d) => { out += d })
-    child.stderr.on('data', (d) => { err += d })
+    let outLossy = false
+    let errLossy = false
+    const overflow = () => { child.kill('SIGKILL') }
+    child.stdout.on('data', (d) => {
+      if (out.length + d.length > maxOut) { outLossy = true; overflow(); return }
+      out += d
+    })
+    child.stderr.on('data', (d) => {
+      if (err.length + d.length > maxErr) { errLossy = true; overflow(); return }
+      err += d
+    })
     const done = new Promise((resolve, reject) => {
       child.on('error', reject)
       child.on('close', (code, signal) => resolve({ exitCode: code, signal }))
@@ -31,8 +46,8 @@ export const subprocess = {
     return {
       done,
       collected: {
-        stdout: { readFrom: () => ({ text: out, lossy: false }) },
-        stderr: { readFrom: () => ({ text: err, lossy: false }) },
+        stdout: { readFrom: () => ({ text: out, lossy: outLossy }) },
+        stderr: { readFrom: () => ({ text: err, lossy: errLossy }) },
       },
     }
   },
