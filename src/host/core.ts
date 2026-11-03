@@ -8,9 +8,9 @@ import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
-import { repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
+import { repoDirCertified, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
 import { parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
-import type { WorktreeCheckout } from './worktrees.js'
+import type { WorktreeCheckout, WorktreeInfo } from './worktrees.js'
 import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
 import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitRepoEntry, GitRepoList, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
@@ -452,15 +452,24 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string, re
     deps.rootNegCache?.delete(key)
   }
   // Where git runs: the cwd itself for the default repository, or the selected
-  // nested repository's real directory.
+  // checkout's real directory. Two doors lead out of the cwd: a plain nested
+  // directory (`repoDirFor`), and the repository root itself (`repoDirCertified`)
+  // — the latter is what lets a session that moved into a linked worktree get
+  // back to the main checkout. That one directory is the only escape: a sibling
+  // checkout outside the cwd is still reachable, but as a row of the root you
+  // select first.
   let start = cwd
   if (rel !== '') {
-    const target = await repoDirFor(deps.fs, cwd, rel)
-    if (!target.ok) {
-      deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
-      return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
+    const nested = await repoDirFor(deps.fs, cwd, rel)
+    if (nested.ok) start = nested.dir
+    else {
+      const certified = await repoDirCertified(deps.fs, cwd, rel, await certifiedRepoRoot(deps, cwd))
+      if (!certified.ok) {
+        deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
+        return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
+      }
+      start = certified.dir
     }
-    start = target.dir
   }
   const top = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], start, 'toplevel', deps.signal)
   if ('failure' in top) {
@@ -505,6 +514,13 @@ async function workspaceWorktrees(
   cwd: string,
   root: string,
 ): Promise<readonly WorktreeCheckout[]> {
+  const infos = await readWorktreeInfos(deps, root)
+  if (infos.length === 0) return []
+  return worktreeCheckouts(deps.fs, cwd, root, infos)
+}
+
+/** The repository's own checkout records, or none when git cannot answer. */
+async function readWorktreeInfos(deps: SnapshotDeps, root: string): Promise<readonly WorktreeInfo[]> {
   let run = await runCommand(deps.run, ['git', 'worktree', 'list', '--porcelain', '-z'], root, 'worktrees', deps.signal)
   if ('failure' in run) return []
   if (run.run.cancelled || run.run.timedOut) return []
@@ -513,9 +529,22 @@ async function workspaceWorktrees(
     if ('failure' in run) return []
     if (run.run.cancelled || run.run.timedOut || run.run.exitCode !== 0) return []
   }
-  const infos = parseWorktreePorcelain(run.run.stdout)
-  if (infos.length === 0) return []
-  return worktreeCheckouts(deps.fs, cwd, root, infos)
+  return parseWorktreePorcelain(run.run.stdout)
+}
+
+/**
+ * The repository root — the primary work tree — of the repository the cwd
+ * belongs to, as an absolute realpath; null when git cannot name one (no git,
+ * not a repository, a bare repository with no primary checkout).
+ *
+ * Read fresh on the one request that escapes the cwd and never cached with the
+ * workspace: a stale answer would admit a directory git no longer owns.
+ */
+async function certifiedRepoRoot(deps: SnapshotDeps, cwd: string): Promise<string | null> {
+  const infos = await readWorktreeInfos(deps, cwd)
+  const primary = infos[0]
+  if (primary === undefined || primary.bare) return null
+  return await deps.fs.realpath(primary.path).catch(() => null)
 }
 
 /** Selectable worktree rows first (the ones the user can act on), then the

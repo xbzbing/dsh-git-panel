@@ -457,8 +457,10 @@ export interface GitRepoEntry {
   /** HEAD branch of this checkout from `git worktree list`; null = detached.
    * Absent = unknown (an older host, or a repository with no worktree data). */
   readonly branch?: string | null
-  /** Why the row cannot be chosen: `outside` = the directory sits outside the
-   * session cwd subtree, `stale` = its directory is gone. Absent = selectable. */
+  /** Why the row cannot be chosen: `outside` = the checkout sits outside the
+   * session cwd and is not its repository root (the root is always choosable,
+   * every other out-of-cwd checkout is one hop from it), `stale` = its directory
+   * is gone. Absent = selectable. */
   readonly disabled?: 'outside' | 'stale'
   /** git's `locked` flag on this worktree (display only). */
   readonly locked?: boolean
