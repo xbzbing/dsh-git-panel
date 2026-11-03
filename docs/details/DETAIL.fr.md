@@ -5,7 +5,7 @@ Un panneau Git de style IDE dans l’espace de travail de la conversation : bran
 ## Fonctionnalités
 
 - **Vue d’ensemble** : liste des branches et des tags, graphe de l’historique des commits avec recherche et détails du commit ; cliquez sur un fichier pour voir sa différence dans ce commit.
-- **Modifications** : indexer et abandonner fichier par fichier ou en lot, commit et **Amend**, remisage (stash) et statistiques de lignes ajoutées·supprimées ; la liste bascule entre vue à plat et arborescence, avec comptes par dossier, indexation / abandon par dossier et filtre par chemin.
+- **Modifications** : indexer et abandonner fichier par fichier ou en lot, commit et **Amend**, remisage (stash) et statistiques de lignes ajoutées·supprimées ; la liste bascule entre vue à plat et arborescence, avec comptes par dossier et indexation / abandon par dossier — à plat par défaut, la vue se règle dans la configuration du plugin.
 - **Actions Git courantes** : changer de branche, créer et supprimer des tags, revert / reset de commits ; les actions destructives demandent une confirmation, et les modifications restent dans le dépôt local, sans push automatique.
 - **Messages de commit générés par IA** : ils suivent le style des commits existants du dépôt ; le modèle suit la session en cours par défaut et peut être fixé sur la page de détails. **La génération envoie le contenu du diff au fournisseur du modèle choisi.**
 - **Indicateur Git dans la zone de saisie** : `<dépôt> (<branche>)` façon zsh, vert quand tout est synchronisé et orange en présence de modifications non validées ; un clic ouvre le panneau.
