@@ -63,7 +63,7 @@ function save(dir, path, content, baseSha256, config = DEFAULT_CONFIG, fs) {
   return writeWorkspaceFile(depsAt(dir, fs), config, dir, { path, content, baseSha256 })
 }
 
-test('allow-list: every extension and whole name, case-insensitive; .env.* variants refused', () => {
+test('allow-list: every extension and whole name, case-insensitive; .env.* variants by prefix', () => {
   for (const ext of EDITABLE_EXTENSIONS) {
     assert.equal(isEditablePath(`conf/app.${ext}`), true, ext)
     assert.equal(isEditablePath(`APP.${ext.toUpperCase()}`), true, ext)
@@ -73,12 +73,12 @@ test('allow-list: every extension and whole name, case-insensitive; .env.* varia
     assert.equal(isEditablePath(`sub/dir/${name}`), true, name)
   }
   assert.equal(isEditablePath('.ENV'), true)
-  // The extension of these names is on the list, so only the `.env.` prefix
-  // rule keeps them out.
-  for (const name of ['.env.local', '.env.example', '.env.production', '.env.json', '.env.yaml', 'sub/.env.toml']) {
-    assert.equal(isEditablePath(name), false, name)
+  // `.env.*` variants pass on the prefix alone: `.env.local` has no listed
+  // extension, and `.env.json` / `.env.yaml` match before theirs.
+  for (const name of ['.env.local', '.env.example', '.env.production', '.env.json', '.env.yaml', 'sub/.env.toml', '.ENV.LOCAL']) {
+    assert.equal(isEditablePath(name), true, name)
   }
-  for (const name of ['run.sh', 'index.js', 'page.html', 'logo.svg', 'Makefile', '.json', 'notes.md.bak', 'a/.gitignore/x']) {
+  for (const name of ['run.sh', 'index.js', 'page.html', 'logo.svg', 'Makefile', '.json', 'notes.md.bak', 'a/.gitignore/x', '.envrc']) {
     assert.equal(isEditablePath(name), false, name)
   }
 })
@@ -184,13 +184,11 @@ test('refusals write nothing: type, path, .git, disabled, too large, encoding', 
   mkdirSync(join(dir, '.git'))
   writeFileSync(join(dir, '.git', 'config.toml'), 'x')
   writeFileSync(join(dir, 'run.sh'), 'echo\n')
-  writeFileSync(join(dir, '.env.local'), 'K=1\n')
   writeFileSync(join(dir, 'gbk.txt'), Buffer.from([0xd6, 0xd0, 0x0a]))
   writeFileSync(join(dir, 'ok.md'), 'x\n')
   const okBase = sha(Buffer.from('x\n'))
   const code = async (p) => (await p).error?.code
   assert.equal(await code(save(dir, 'run.sh', 'rm -rf /\n', sha(Buffer.from('echo\n')))), 'not-editable')
-  assert.equal(await code(save(dir, '.env.local', 'K=2\n', sha(Buffer.from('K=1\n')))), 'not-editable')
   assert.equal(await code(save(dir, '../outside.md', 'x', okBase)), 'invalid-path')
   assert.equal(await code(save(dir, '/etc/hosts.txt', 'x', okBase)), 'invalid-path')
   assert.equal(await code(save(dir, '.git/config.toml', 'x', sha(Buffer.from('x')))), 'invalid-path')
@@ -202,8 +200,24 @@ test('refusals write nothing: type, path, .git, disabled, too large, encoding', 
   assert.deepEqual(await reason(save(dir, 'ok.md', '中'.repeat(Math.floor(EDIT_MAX_BYTES / 3) + 1), okBase)), ['not-editable', 'too-large'], 'the byte size counts, not the text length')
   assert.deepEqual(await reason(save(dir, 'gbk.txt', 'x\n', sha(Buffer.from([0xd6, 0xd0, 0x0a])))), ['not-editable', 'encoding'])
   assert.equal(readFileSync(join(dir, 'run.sh'), 'utf8'), 'echo\n')
-  assert.equal(readFileSync(join(dir, '.env.local'), 'utf8'), 'K=1\n')
   assert.equal(readFileSync(join(dir, 'ok.md'), 'utf8'), 'x\n')
+})
+
+test('.env variants are editable: .env.local on the prefix, .env.json on its extension', async () => {
+  const dir = workspace()
+  writeFileSync(join(dir, '.env.local'), 'K=1\n')
+  const info = await read(dir, '.env.local')
+  assert.equal(info.edit.ok, true)
+  assert.equal(info.sha256, sha(Buffer.from('K=1\n')))
+  const saved = await save(dir, '.env.local', 'K=2\n', sha(Buffer.from('K=1\n')))
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+  assert.equal(readFileSync(join(dir, '.env.local'), 'utf8'), 'K=2\n')
+  writeFileSync(join(dir, '.env.json'), '{"a":1}\n')
+  assert.equal((await read(dir, '.env.json')).edit.ok, true)
+  // A name outside the list still refuses, fingerprint or not.
+  writeFileSync(join(dir, '.envrc'), 'export A=1\n')
+  assert.equal((await save(dir, '.envrc', 'export B=1\n', sha(Buffer.from('export A=1\n')))).error?.code, 'not-editable')
+  assert.equal(readFileSync(join(dir, '.envrc'), 'utf8'), 'export A=1\n')
 })
 
 test('links: an allow-listed name may not lead to a script; an in-root link writes its target and stays a link', async (t) => {

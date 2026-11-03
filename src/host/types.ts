@@ -785,15 +785,14 @@ export const EDITABLE_FILENAMES: readonly string[] = ['.gitignore', '.gitattribu
 
 /**
  * Whether a path's file name is on the edit allow-list (case-insensitive).
- * `.env` matches only as the whole name: every `.env.*` variant is refused
- * before the extension check, because `.env.json` / `.env.yaml` would
- * otherwise pass on their extension.
+ * `.env` matches as a whole name; `.env.*` variants (`.env.local`,
+ * `.env.json`, …) match on that prefix regardless of their extension.
  */
 export function isEditablePath(path: string): boolean {
   const name = (path.split(/[\\/]/).pop() ?? '').toLowerCase()
   if (name === '') return false
   if (EDITABLE_FILENAMES.includes(name)) return true
-  if (name.startsWith('.env.')) return false
+  if (name.startsWith('.env.')) return true
   const dot = name.lastIndexOf('.')
   // A leading dot alone is a hidden name, not an extension (`.json` is not a
   // JSON file named "").
