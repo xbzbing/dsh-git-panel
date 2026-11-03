@@ -1,8 +1,10 @@
 /**
  * Change-list rows and their dialogs: the per-file row (status badge, stage and
- * two-step discard buttons), the directory row of the tree view, the stash rows,
- * and the stash-push dialog. Split out of ChangesTab so the row contract and the
- * tab's orchestration stay separately readable.
+ * two-step discard buttons), the directory row of the tree view, the group
+ * header, the stash rows, and the stash-push dialog. The head/dir/file dispatch
+ * the tab's virtual window mounts lives here as `renderChangeRow`, so the tab
+ * only assembles the context (selection, dialogs, queries) and the row contract
+ * and the orchestration stay separately readable.
  */
 import { createElement as h, useState } from 'react'
 import type { JSX } from 'react'
@@ -11,7 +13,8 @@ import type { StashEntry } from './types.js'
 import type { GitKey } from './locales.js'
 import { ChevronIcon, FolderIcon, StashIcon, TrashIcon } from './icons.js'
 import { statusChar, statusClass } from './status.js'
-import { changeKey, type GroupPickState } from './selection-keys.js'
+import { changeKey, groupPickState, type GroupPickState } from './selection-keys.js'
+import { dirDiscardPaths, dirKey, dirStageAction, ROW_H, type ChangeGroupKey, type ChangeListRow } from './changes-tree.js'
 import { renderAiHint, renderModalFooter, renderModalShell } from './ops-modals.js'
 import { TipWrapper } from './tip.js'
 
@@ -104,6 +107,148 @@ export interface RowActions {
 /** Indent shared by tree rows of every kind: one directory level per step. */
 const INDENT = 14
 
+/** Group header label of each list (the row model carries no display text). */
+const GROUP_LABEL: Record<ChangeGroupKey, GitKey> = {
+  staged: 'changes.groupStaged', unstaged: 'changes.groupUnstaged', untracked: 'changes.groupUntracked',
+}
+
+/**
+ * The tab's orchestration, injected into one row render: selection, the diff
+ * query, the dialogs and the hover tips all stay in ChangesTab; this file only
+ * decides how a row kind presents them.
+ */
+export interface ChangeRowCtx {
+  /** Flat list repeats the directory after the name; the tree already shows it. */
+  readonly showDir: boolean
+  readonly selected: ReadonlySet<string>
+  /** Path / side of the row whose diff is open (both must match to read active). */
+  readonly activePath: string | null
+  readonly activeBase: 'staged' | 'worktree' | null
+  readonly busy: boolean
+  readonly armedDiscard: string | null
+  readonly t: (key: GitKey, params?: Record<string, string | number>) => string
+  readonly tipProps: (text: string) => Record<string, unknown>
+  readonly hideTip: () => void
+  readonly showTipNow: (el: HTMLElement, text: string) => void
+  readonly onToggleGroup: (group: ChangeGroupKey) => void
+  readonly onToggleDir: (group: ChangeGroupKey, path: string) => void
+  /** Group / directory select-all over its descendant changes. */
+  readonly onPick: (changes: readonly GitChange[]) => void
+  readonly onToggleRow: (rowKey: string) => void
+  readonly onOpenRow: (path: string, base: 'staged' | 'worktree') => void
+  readonly onStageRow: (change: GitChange) => void
+  /** Executes or arms the two-press discard; returns whether it armed. */
+  readonly onDiscardRow: (rowKey: string, detail: number) => boolean
+  readonly onStageDir: (action: { readonly kind: 'stage' | 'unstage'; readonly paths: readonly string[] }) => void
+  readonly onOpenDirDiscard: (group: ChangeGroupKey, path: string) => void
+}
+
+/**
+ * One row of the virtualized list: the wrapper carries the window's offset and
+ * the fixed height for its kind; the kind maps to its own controls.
+ */
+export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: number): JSX.Element {
+  const box = (key: string, inner: JSX.Element): JSX.Element =>
+    h('div', { key, className: 'gp-changes__vrow', style: { top, height: ROW_H[row.kind] } }, inner)
+  if (row.kind === 'head') {
+    const labelKey = GROUP_LABEL[row.group]
+    const pick = groupPickState(ctx.selected, row.items)
+    // A group kept only for its full count (every row fell past the cap) has
+    // nothing to toggle: the static modifier drops the chevron and the hand.
+    const modifier = row.collapsible ? '' : ' gp-group-head--static'
+    return box(`h:${row.group}`, h('div', {
+      className: `gp-group-head${modifier}`,
+      ...(row.collapsible ? { onClick: () => ctx.onToggleGroup(row.group) } : {}),
+    }, [
+      row.collapsible
+        ? h(ChevronIcon, { key: 'chev', size: 12, open: !row.collapsed })
+        : h('span', { key: 'chev', className: 'gp-group-head__chev-spacer' }),
+      // Hidden while the group is capped past the list cap: the head count
+      // comes from the full stats but only the prefix is loaded, so a
+      // select-all would read as checked while covering just those rows —
+      // under a filter too, where the displayed count is only the hits among
+      // the loaded prefix. Expanding the list restores the checkbox.
+      row.items.length > 0 && !row.truncated
+        ? h('span', {
+          key: 'pick', className: 'gp-group-head__pick',
+          onClick: (e: Event) => e.stopPropagation(),
+        }, h('input', {
+          type: 'checkbox', className: 'gp-check',
+          checked: pick === 'all',
+          // `indeterminate` is not in React's DOM property table — a JSX prop
+          // would land as a content attribute, which never sets the IDL
+          // property. The ref sets it directly; the inline identity is
+          // load-bearing (React re-runs a callback ref only when the function
+          // identity changes), so do not wrap it in useCallback.
+          ref: (el: HTMLInputElement | null) => { if (el !== null) el.indeterminate = pick === 'partial' },
+          disabled: ctx.busy,
+          'aria-label': ctx.t('changes.selectAllGroup', { group: ctx.t(labelKey) }),
+          onChange: () => ctx.onPick(row.items),
+        }))
+        : null,
+      `${ctx.t(labelKey)} (${row.count})`,
+    ]))
+  }
+  if (row.kind === 'dir') {
+    // The directory's own controls carry what its rows would: a tri-state pick
+    // over its descendants (the existing group select-all), and stage /
+    // unstage / discard for the subtree.
+    const stage = dirStageAction(row.group, row.changes)
+    const discardPaths = dirDiscardPaths(row.changes)
+    return box(`d:${dirKey(row.group, row.path)}`, renderDirRow({
+      path: row.path,
+      name: row.name,
+      depth: row.depth,
+      collapsed: row.collapsed,
+      count: row.changes.length,
+      pick: groupPickState(ctx.selected, row.changes),
+      busy: ctx.busy,
+      toggleTitle: ctx.t('changes.dirToggle'),
+      selectAllLabel: ctx.t('changes.selectAllDir', { n: row.changes.length }),
+      stage: stage === null ? null : {
+        glyph: stage.kind === 'stage' ? '+' : '\u2212',
+        label: ctx.t(stage.kind === 'stage' ? 'changes.dirStage' : 'changes.dirUnstage'),
+        tip: ctx.t(stage.kind === 'stage' ? 'changes.dirStageTip' : 'changes.dirUnstageTip', { n: stage.paths.length }),
+        onAct: () => ctx.onStageDir(stage),
+      },
+      discard: discardPaths.length === 0 ? null : {
+        label: ctx.t('changes.dirDiscard'),
+        tip: ctx.t('changes.dirDiscardTip', { n: discardPaths.length }),
+        onAct: () => ctx.onOpenDirDiscard(row.group, row.path),
+      },
+      onToggle: () => ctx.onToggleDir(row.group, row.path),
+      onTogglePick: () => ctx.onPick(row.changes),
+      tipProps: ctx.tipProps,
+      hideTip: ctx.hideTip,
+    }))
+  }
+  // A path staged AND modified appears in two rows; key selection / active /
+  // armed by path+side so acting on one row doesn't light up the other.
+  const c = row.change
+  const rowKey = changeKey(c)
+  // The diff query names the side with its own vocabulary; spell the mapping
+  // once for the row instead of twice inside the props below.
+  const base = c.staged ? 'staged' : 'worktree'
+  return box(rowKey, renderFileRow(c, {
+    depth: row.depth,
+    // The tree already places the row under its directory; repeating the
+    // directory text would read as a second, wrong path.
+    showDir: ctx.showDir,
+    selected: ctx.selected.has(rowKey),
+    active: ctx.activePath === c.path && ctx.activeBase === base,
+    busy: ctx.busy,
+    armed: ctx.armedDiscard === rowKey,
+    onToggle: () => ctx.onToggleRow(rowKey),
+    onOpen: () => ctx.onOpenRow(c.path, base),
+    onStage: () => ctx.onStageRow(c),
+    onDiscard: (detail: number) => ctx.onDiscardRow(rowKey, detail),
+    tipProps: ctx.tipProps,
+    hideTip: ctx.hideTip,
+    showTipNow: ctx.showTipNow,
+    t: ctx.t,
+  }))
+}
+
 export function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
   const name = c.path.split('/').pop() ?? c.path
   const dir = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''
@@ -119,7 +264,10 @@ export function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
     h('span', { key: 'st', className: `gp-status-badge ${statusClass(c.status)}` }, statusChar[c.status] ?? '?'),
     h('span', { key: 'nm', className: 'gp-tree-name', title }, [
       name,
-      dir !== '' && a.showDir
+      // The flat list repeats the directory after the name — unless a rename
+      // already carries its source path, which names a directory too: one
+      // "from" per row, not two.
+      dir !== '' && a.showDir && c.oldPath === undefined
         ? h('span', { key: 'd', className: 'gp-file-row__aside' }, dir)
         : null,
       c.oldPath === undefined
@@ -216,8 +364,8 @@ export function renderDirRow(a: DirRowActions): JSX.Element {
       'aria-label': a.selectAllLabel,
       onChange: a.onTogglePick,
     })),
-    // The fold control takes the rest of the row, so a click anywhere on the
-    // directory line (outside the pick and the actions) folds it.
+    // The fold control fills the row between the pick and the actions, so a
+    // click anywhere in that stretch folds it.
     h('button', {
       key: 'toggle', type: 'button', className: 'gp-dir-row__toggle',
       title: a.toggleTitle,

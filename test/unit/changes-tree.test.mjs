@@ -2,11 +2,11 @@
  * Changes-view row model: flat vs tree flattening, directory counts and the
  * directory-level policies the tab drives. Every expectation is about the row
  * list the virtualized list mounts, so the tests cover ordering, collapse,
- * filtering and what a directory action would name — not the DOM.
+ * truncation and what a directory action would name — not the DOM.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildChangeRows, dirDiscardPaths, dirKey, dirStageAction, matchesFilter, normalizeViewMode } from '../../lib/testkit.mjs'
+import { buildChangeRows, dirDiscardPaths, dirKey, dirStageAction, normalizeViewMode } from '../../lib/testkit.mjs'
 
 const change = (path, { status = 'modified', staged = false, ...rest } = {}) => ({
   path, status, staged, isDirectory: false, ...rest,
@@ -24,7 +24,6 @@ const build = (groups, overrides = {}) => buildChangeRows({
   closedGroups: new Set(),
   mode: 'tree',
   collapsedDirs: new Set(),
-  filter: '',
   ...overrides,
 })
 
@@ -48,6 +47,7 @@ test('tree mode nests changes under their directories and counts them', () => {
   ])
   const dir = rows.find((row) => row.kind === 'dir')
   assert.equal(dir.changes.length, 2)
+  assert.equal(rows[0].truncated, false, 'an uncapped group is selectable')
 })
 
 test('tree mode collapses a single-child directory chain into one row', () => {
@@ -87,59 +87,15 @@ test('a closed group keeps its header and drops every row', () => {
   assert.deepEqual(shape(build(groups, { mode: 'flat', closedGroups: new Set(['unstaged']) })), ['head:unstaged:1'])
 })
 
-test('a filter reopens a group the reader had folded', () => {
-  const groups = [{ key: 'unstaged', count: 1, items: [change('src/a.ts')] }]
-  const filtered = build(groups, { closedGroups: new Set(['unstaged']), filter: 'a.ts' })
-  assert.deepEqual(shape(filtered), ['head:unstaged:1', 'dir:src@0', 'file:a.ts@1'])
-  assert.equal(filtered[0].collapsed, false, 'a hit is always reachable')
-  // The fold is remembered: clearing the query folds the group again.
-  assert.deepEqual(shape(build(groups, { closedGroups: new Set(['unstaged']) })), ['head:unstaged:1'])
-})
-
 test('a group that fell past the list cap keeps its honest count', () => {
   // The host capped the list before this group's rows: header only, full total.
   const rows = build([{ key: 'unstaged', count: 9, items: [] }])
   assert.deepEqual(shape(rows), ['head:unstaged:9'])
   assert.equal(rows[0].collapsible, false)
-})
-
-test('the filter narrows to matching paths and counts the hits', () => {
-  const rows = build([{
-    key: 'unstaged',
-    count: 3,
-    items: [change('src/client/a.ts'), change('src/client/b.ts'), change('docs/readme.md')],
-  }], { filter: 'client' })
-  assert.deepEqual(shape(rows), ['head:unstaged:2', 'dir:src/client@0', 'file:a.ts@1', 'file:b.ts@1'])
-})
-
-test('a filter match inside a collapsed directory is still shown', () => {
-  // The reader folded `src`, then searched for a file inside it: the hit — and
-  // the directory that holds it — must appear.
-  const rows = build([{ key: 'unstaged', count: 2, items: [change('src/a.ts'), change('other/b.ts')] }], {
-    collapsedDirs: new Set([dirKey('unstaged', 'src')]),
-    filter: 'a.ts',
-  })
-  assert.deepEqual(shape(rows), ['head:unstaged:1', 'dir:src@0', 'file:a.ts@1'])
-  const dir = rows.find((row) => row.kind === 'dir')
-  assert.equal(dir.collapsed, false)
-})
-
-test('a filter that matches nothing leaves no rows', () => {
-  const groups = [
-    { key: 'staged', count: 1, items: [change('src/a.ts', { staged: true })] },
-    { key: 'unstaged', count: 1, items: [change('src/b.ts')] },
-  ]
-  assert.deepEqual(build(groups, { filter: 'nope' }), [])
-  // A blank filter is not a filter: the whole list stays.
-  assert.equal(build(groups, { filter: '   ' }).length, 6)
-})
-
-test('matching is case-insensitive and only looks at the path', () => {
-  assert.equal(matchesFilter('src/Client/A.ts', 'client'), true)
-  assert.equal(matchesFilter('src/client/a.ts', 'CLIENT'), true)
-  assert.equal(matchesFilter('src/client/a.ts', '  client '), true)
-  assert.equal(matchesFilter('src/client/a.ts', 'docs'), false)
-  assert.equal(matchesFilter('src/client/a.ts', ''), true)
+  assert.equal(rows[0].truncated, true, 'the header knows it is only a prefix')
+  // A partially loaded group is capped too — that is what hides its select-all.
+  const partial = build([{ key: 'unstaged', count: 9, items: [change('src/a.ts')] }])
+  assert.equal(partial[0].truncated, true)
 })
 
 test('an untracked directory entry stays a leaf row', () => {
@@ -185,10 +141,11 @@ test('discard names the working-tree rows only', () => {
   assert.deepEqual(dirDiscardPaths([change('vendor/lib', { status: 'untracked', isDirectory: true })]), ['vendor/lib'])
 })
 
-test('collapse keys separate the groups and the view mode defaults to flat', () => {
+test('collapse keys separate the groups and any stored view value reads as flat unless it is tree', () => {
   assert.notEqual(dirKey('staged', 'src'), dirKey('unstaged', 'src'))
   assert.equal(normalizeViewMode('tree'), 'tree')
   assert.equal(normalizeViewMode('flat'), 'flat')
   assert.equal(normalizeViewMode(null), 'flat')
+  assert.equal(normalizeViewMode(undefined), 'flat', 'an older host that omits the preference reads flat')
   assert.equal(normalizeViewMode('nonsense'), 'flat')
 })

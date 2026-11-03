@@ -11,15 +11,21 @@
  * already exist as change entries, so a directory click cannot aim git at a
  * directory prefix the host never validated (the nested-repo and collapsed
  * untracked-directory guards stay in force).
+ *
+ * The per-kind row heights live here too: the window math and the renderer
+ * share one table, and the stylesheet must pin every row kind to the box that
+ * table assumes (the pin is a selector list — dropping one entry lets that row
+ * grow to its content height while the offsets still space by the constant).
  */
 import { buildFileTree, type FileTreeNode } from './file-tree.js'
-import type { GitChange } from './types.js'
+import type { ChangesViewMode, GitChange } from './types.js'
 
 /** The three lists the changes tab renders. */
 export type ChangeGroupKey = 'staged' | 'unstaged' | 'untracked'
 
-/** One row per change, or one row per directory plus its nested changes. */
-export type ChangeViewMode = 'flat' | 'tree'
+/** One row per change, or one row per directory plus its nested changes.
+ * The wire's `ChangesViewMode`, named for the row model. */
+export type ChangeViewMode = ChangesViewMode
 
 export interface ChangeGroupInput {
   readonly key: ChangeGroupKey
@@ -27,8 +33,7 @@ export interface ChangeGroupInput {
   readonly items: readonly GitChange[]
   /**
    * Honest total for the group header (the snapshot's stats count). It exceeds
-   * `items.length` when the host capped the list; while filtering it is ignored
-   * in favour of the number of hits, which is what the reader can act on.
+   * `items.length` when the host capped the list.
    */
   readonly count: number
 }
@@ -38,14 +43,17 @@ export interface ChangeHeadRow {
   readonly kind: 'head'
   readonly group: ChangeGroupKey
   readonly count: number
-  /** Rows the head's select-all covers: the loaded, filter-matching ones. */
+  /** Rows the head's select-all covers: the loaded ones. */
   readonly items: readonly GitChange[]
-  readonly collapsible: boolean
   /**
-   * Whether the header reads as folded. Always false while filtering: a hit
-   * must be reachable, and the filter only ignores the fold temporarily — the
-   * stored state comes back when the query is cleared.
+   * The host capped this group: `items` is only a prefix of the full total.
+   * Read off the group so select-all stays hidden whenever only a prefix is
+   * loaded — a checked box would read as covering rows the list never fetched.
    */
+  readonly truncated: boolean
+  readonly collapsible: boolean
+  /** Whether the header reads as folded (the stored state; nothing else
+   * overrides it — a row the reader folded stays folded). */
   readonly collapsed: boolean
 }
 
@@ -72,6 +80,16 @@ export interface ChangeFileRow {
 
 export type ChangeListRow = ChangeHeadRow | ChangeDirRow | ChangeFileRow
 
+/**
+ * Fixed height per row kind: the virtual window sums these before any render
+ * and the stylesheet pins the same kinds to their box
+ * (`.gp-changes__vrow>…{height:100%}`), so a kind added here needs its pin
+ * there too. Both sides of that contract are asserted: this table and the pin
+ * in `test/unit/changes-row-heights.test.mjs`, the rendered geometry in
+ * `test/e2e/changes-tree.mjs`.
+ */
+export const ROW_H: Record<ChangeListRow['kind'], number> = { head: 26, dir: 26, file: 28 }
+
 export interface ChangeRowsInput {
   readonly groups: readonly ChangeGroupInput[]
   /** Groups the reader collapsed (headers stay, rows go). */
@@ -79,8 +97,6 @@ export interface ChangeRowsInput {
   readonly mode: ChangeViewMode
   /** Directory collapse state, keyed by `dirKey`. Only read in tree mode. */
   readonly collapsedDirs: ReadonlySet<string>
-  /** Path filter; blank means "no filter". */
-  readonly filter: string
 }
 
 /** Collapse-state key of a directory: the same path can sit in two groups. */
@@ -93,13 +109,9 @@ export function normalizeViewMode(raw: string | null | undefined): ChangeViewMod
   return raw === 'tree' ? 'tree' : 'flat'
 }
 
-/** Case-insensitive path match: the filter narrows the list, it never edits it. */
-export function matchesFilter(path: string, filter: string): boolean {
-  const query = filter.trim().toLowerCase()
-  return query === '' || path.toLowerCase().includes(query)
-}
-
-const NO_DIRS: ReadonlySet<string> = new Set()
+/** Folds passed down into an already-collapsed subtree: its rows are not
+ * emitted, so nothing inside it can read as hidden-but-expanded. */
+const EMPTY_FOLDS: ReadonlySet<string> = new Set()
 
 /**
  * Flatten the groups into the row list the virtualized list mounts. Groups keep
@@ -108,33 +120,28 @@ const NO_DIRS: ReadonlySet<string> = new Set()
  * into one row (`src/client`).
  */
 export function buildChangeRows(input: ChangeRowsInput): ChangeListRow[] {
-  const filtering = input.filter.trim() !== ''
   const rows: ChangeListRow[] = []
   for (const group of input.groups) {
-    const visible = group.items.filter((c) => matchesFilter(c.path, input.filter))
-    // While filtering a group without a hit is noise; without a filter a group
-    // whose rows all fell past the host's cap keeps its honest count on screen.
-    if (visible.length === 0 && (filtering || group.count === 0)) continue
-    // A filter reveals every hit: a fold the reader made must not swallow the
-    // rows the query was meant to find (the same rule as a folded directory).
-    const closed = !filtering && input.closedGroups.has(group.key)
+    const items = group.items
+    // A group whose rows all fell past the host's cap keeps its honest count
+    // on screen; one with nothing at all (and no count to show) is noise.
+    if (items.length === 0 && group.count === 0) continue
+    const closed = input.closedGroups.has(group.key)
     rows.push({
       kind: 'head',
       group: group.key,
-      count: filtering ? visible.length : group.count,
-      items: visible,
-      collapsible: visible.length > 0,
+      count: group.count,
+      items,
+      truncated: items.length < group.count,
+      collapsible: items.length > 0,
       collapsed: closed,
     })
     if (closed) continue
     if (input.mode === 'flat') {
-      for (const change of visible) rows.push({ kind: 'file', change, depth: 0 })
+      for (const change of items) rows.push({ kind: 'file', change, depth: 0 })
       continue
     }
-    // A filter reveals every hit: an ancestor the reader had collapsed must not
-    // swallow the rows the filter was meant to find.
-    const collapsed = filtering ? NO_DIRS : input.collapsedDirs
-    const tree = walkTree(buildFileTree(visible.map((c) => ({ path: c.path, meta: c }))), 0, group.key, collapsed)
+    const tree = walkTree(buildFileTree(items.map((c) => ({ path: c.path, meta: c }))), 0, group.key, input.collapsedDirs)
     for (const row of tree.rows) rows.push(row)
   }
   return rows
@@ -159,7 +166,7 @@ function walkTree(
     const hidden = collapsed.has(dirKey(group, node.path))
     // A collapsed directory still needs its descendant list: the directory's
     // count, select-all and actions cover rows the reader has not opened.
-    const below = walkTree(node.children, depth + 1, group, hidden ? NO_DIRS : collapsed)
+    const below = walkTree(node.children, depth + 1, group, hidden ? EMPTY_FOLDS : collapsed)
     for (const change of below.changes) changes.push(change)
     rows.push({ kind: 'dir', group, path: node.path, name: node.name, depth, collapsed: hidden, changes: below.changes })
     if (hidden) continue
