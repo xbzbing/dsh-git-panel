@@ -119,6 +119,12 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     readonly size?: number
     readonly className?: string
   }) => JSX.Element
+  /** Compare glyph the shell uses for its unified / split diff toggle: two
+   * panes side by side at rest; the caller rotates it for the stacked layout. */
+  export const IconCompareSplitOutlineRegular: (props: {
+    readonly size?: number
+    readonly className?: string
+  }) => JSX.Element
   /** Folder glyphs with a closed/open pair: the open one marks an expanded
    * directory in the official file lists. */
   export const IconFolderCloseRegular: (props: {

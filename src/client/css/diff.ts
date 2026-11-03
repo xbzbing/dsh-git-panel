@@ -17,11 +17,13 @@ export const CSS = `
 .gp-diff__toolbar-row:first-child{flex:1 1 100%}
 .gp-diff__toolbar-row--controls{flex:1 1 100%;flex-wrap:wrap}
 .gp-diff__toolbar-row--controls .gp-diff__expand{flex:none}
-/* Seg labels never break: the track keeps at least its content width and may
- * wrap below the expand toggle on an ultra-narrow panel instead of squeezing
- * "变更前 / 变更后" into two lines. Buttons stay equal-width while they fit. */
-.gp-diff__toolbar-row--controls .gp-seg{flex:1 1 auto;min-width:max-content}
-.gp-diff__toolbar-row--controls .gp-seg .gp-seg__btn{flex:1 1 0;min-width:max-content}
+/* View-mode switches are three fixed-size icon targets, so the compact
+ * controls row never has to give them room by wrapping labels. */
+.gp-diff__modes{display:inline-flex;align-items:center;gap:4px;flex:none}
+/* The compare glyph is two panes side by side; once the split view is on it
+ * turns 90° to mirror the stacked layout, and its label names the way back. */
+.gp-diff__mode .gp-diff__compare-icon{transition:transform .12s ease}
+.gp-diff__mode[aria-pressed="true"] .gp-diff__compare-icon{transform:rotate(90deg)}
 /* The filename stays whole: the directory part shrinks first (flex-shrink
  * only applies to it), eliding from its LEFT — a right-to-left run keeps the
  * tail ("…client/OverviewTab.tsx") — and the full relative path rides on the

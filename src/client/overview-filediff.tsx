@@ -1,7 +1,7 @@
 /**
  * The commit file-diff dialog: a portaled card around the same DiffView the
  * changes pane renders inline, with the shared toolbar controls both surfaces
- * draw from (`diff-controls.tsx`: `renderDiffExpand` + `renderDiffModeSeg`).
+ * draw from (`diff-controls.tsx`: `renderDiffExpand` + `renderDiffModes`).
  */
 import { createElement as h } from 'react'
 import { createPortal } from 'react-dom'
@@ -14,7 +14,7 @@ import { OVERLAY_ATTR } from './dialog-focus.js'
 import { pathCopyButton } from './path-copy-button.js'
 import type { CopyFeedback } from './copy-feedback.js'
 import type { GitPanelRemote } from './rpc.js'
-import { renderDiffExpand, renderDiffModeSeg } from './diff-controls.js'
+import { renderDiffExpand, renderDiffModes } from './diff-controls.js'
 
 export interface FileDiffModalCbs {
   visible: boolean
@@ -55,7 +55,7 @@ export function renderFileDiffModal(
     mode: effMode, modes, onMode, expanded, onToggleExpand: () => onExpand(!expanded), t,
   }
   const expandEl = renderDiffExpand(controls)
-  const segEl = renderDiffModeSeg(controls)
+  const modesEl = renderDiffModes(controls)
   const closeEl = h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 }))
   // The header path doubles as its copy control, in the same shape as the
   // changes pane's and the files toolbar's (path-copy-button.tsx). `--copy`
@@ -82,14 +82,14 @@ export function renderFileDiffModal(
     expandEl,
   ]
   // Compact mirrors the changes-pane toolbar: one row cannot fit header +
-  // mode seg + close at phone widths, so the seg and a bordered close button
-  // move to a dedicated second row (close at its far right).
+  // mode switches + close at phone widths, so the switches and a bordered
+  // close button move to a dedicated second row (close at its far right).
   const barChildren = compact
     ? [
       h('div', { key: 'brow1', className: 'gp-modal__bar-row' }, barHead),
-      h('div', { key: 'brow2', className: 'gp-modal__bar-row gp-modal__bar-row--controls' }, [segEl, closeEl]),
+      h('div', { key: 'brow2', className: 'gp-modal__bar-row gp-modal__bar-row--controls' }, [modesEl, closeEl]),
     ]
-    : [...barHead, segEl, closeEl]
+    : [...barHead, modesEl, closeEl]
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     // Declares this dialog as an overlay above the page, so the branch drawer's

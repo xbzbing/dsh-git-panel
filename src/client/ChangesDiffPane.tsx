@@ -11,7 +11,7 @@ import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc.js'
 import type { GitKey } from './locales.js'
 import { DiffView, type DiffMode } from './DiffView.js'
-import { renderDiffExpand, renderDiffModeSeg } from './diff-controls.js'
+import { renderDiffExpand, renderDiffModes } from './diff-controls.js'
 import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon } from './icons.js'
 import { pathCopyButton } from './path-copy-button.js'
 import type { CopyFeedback } from './copy-feedback.js'
@@ -121,20 +121,20 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
             onClick: () => card.close(),
           }, h(CloseIcon, { size: 15 }))
           : null
-        const seg = renderDiffModeSeg({
+        const modes = renderDiffModes({
           mode: modeSwitch.current, modes: modeSwitch.options, onMode: modeSwitch.onChange,
           t,
         })
-        // One row cannot fit back + path + stats + expand + mode seg at phone
-        // widths (the seg buttons squeezed into stacked wrapping); compact
-        // splits the controls onto a dedicated second row instead.
+        // One row cannot fit back + path + stats + expand + mode switches at
+        // phone widths; compact splits the controls onto a dedicated second
+        // row instead.
         if (compact) {
           return [
             h('div', { key: 'row1', className: 'gp-diff__toolbar-row' }, [back, path, sum]),
-            h('div', { key: 'row2', className: 'gp-diff__toolbar-row gp-diff__toolbar-row--controls' }, [expand, modalBtn, seg, cardClose]),
+            h('div', { key: 'row2', className: 'gp-diff__toolbar-row gp-diff__toolbar-row--controls' }, [expand, modalBtn, modes, cardClose]),
           ]
         }
-        return [back, path, sum, expand, modalBtn, seg, cardClose]
+        return [back, path, sum, expand, modalBtn, modes, cardClose]
       })()),
       diffData === null
         ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
