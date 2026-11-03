@@ -52,7 +52,12 @@ export function isSafeRemoteName(name: string): boolean {
   return /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(name) && name.length <= 128
 }
 
-/** Search text accepted by the history path filter. Empty/whitespace is absent. */
+/** Search text accepted by the history path filter. Empty/whitespace is absent.
+ * The length cap counts the raw input (code units); escaping below can push the
+ * result past it (an astral char halves its capacity; a metachar at the cut
+ * adds one). That is safe: the result is only passed to git as a single
+ * pathspec after `--`, wildmatch has no length limit, and such a long literal
+ * can never match a real file name (NAME_MAX caps at 255). */
 export function validateHistoryPathSearch(input: unknown): { readonly ok: true; readonly value: string } | { readonly ok: false; readonly message: string } {
   if (input === undefined) return { ok: true, value: '' }
   if (typeof input !== 'string') return { ok: false, message: 'path search must be a string' }

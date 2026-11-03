@@ -90,6 +90,12 @@ test('path text validation caps raw code units, rejects controls/types, and trim
   assert.equal(isHistoryFiltered({ pathSearch: ' ', author: ' ' }), true)
   assert.equal(historyPathspec('a*b?[id]\\'), ':(top,icase)*a\\*b\\?\\[id\\]\\\\*')
   assert.equal(historyPathspec(':(exclude)--output=x'), ':(top,icase)*:(exclude)--output=x*')
+  // Escaping can grow the result past the raw cap (metachar at the 1024 boundary);
+  // the spec accepts it: it only reaches git as a post-`--` pathspec.
+  const boundary = `${'a'.repeat(1023)}*`
+  assert.equal(validateHistoryPathSearch(boundary).ok, true)
+  assert.equal(historyPathspec(boundary), `:(top,icase)*${'a'.repeat(1023)}\\**`)
+  assert.equal(historyPathspec(boundary).length, 1039)
 })
 
 test('root/deep filenames, intermediate directories, slash fragments, case and spaces match', async () => {
