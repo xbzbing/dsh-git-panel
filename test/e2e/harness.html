@@ -129,6 +129,16 @@
           width: props.size || 14, height: props.size || 14,
         });
       },
+      IconCompareSplitOutlineRegular: function (props) {
+        // Two panes side by side; the plugin rotates it via CSS when split is on.
+        return window.React.createElement('svg', {
+          'data-compare-split': '', 'aria-hidden': 'true', className: props.className,
+          width: props.size || 15, height: props.size || 15, viewBox: '0 0 16 16',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinejoin: 'round',
+        },
+        window.React.createElement('rect', { x: 2, y: 2.5, width: 12, height: 11, rx: 1.6 }),
+        window.React.createElement('path', { d: 'M8 2.5v11' }));
+      },
       // Official closed/open folder glyphs: data-folder lets the e2e assert the
       // expanded state without depending on the icon package.
       IconFolderCloseRegular: function (props) {

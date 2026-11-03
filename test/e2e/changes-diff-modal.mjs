@@ -284,7 +284,7 @@ out.open = await page.evaluate(() => {
     // Both are bordered boxes of the seg's height, not bare glyphs — the same
     // treatment the files preview's glyph buttons get.
     boxes: (() => {
-      const seg = document.querySelector('.gp-diff__toolbar .gp-seg')
+      const modes = document.querySelector('.gp-diff__toolbar .gp-diff__modes')
       const read = (el) => {
         if (el === null) return null
         const cs = getComputedStyle(el)
@@ -295,11 +295,8 @@ out.open = await page.evaluate(() => {
       }
       return {
         expand: read(expand), modal: read(modalBtn),
-        segH: seg === null ? -1 : Math.round(seg.getBoundingClientRect().height),
-        // The seg's line box must be explicit: with the font default a platform
-        // whose fallback font has taller metrics throws the derived height off
-        // and the icon buttons stop matching (that is how CI caught it first).
-        segLineHeight: seg === null ? null : getComputedStyle(seg.querySelector('.gp-seg__btn') ?? seg).lineHeight,
+        modes: modes === null ? [] : [...modes.querySelectorAll('.gp-diff__mode')].map(read),
+        modesH: modes === null ? -1 : Math.round(modes.getBoundingClientRect().height),
       }
     })(),
   }
@@ -312,19 +309,24 @@ assert.equal(out.open.closeBtn, true, 'a close button appears in the card bar')
 assert.equal(out.open.pressed, 'true', 'the trigger reports its pressed state')
 assert.equal(out.open.expandIsIcon, true, 'expand-all renders as an icon')
 assert.equal(out.open.iconStylesMatch, true, 'the two toolbar icons share one style')
-// The shared height is a derived constant, so pin it: 1px borders top+bottom plus
-// 5px padding each side plus the seg's 13px line box. Asserting this separately
-// keeps the failure legible — otherwise a drifted font metric only shows up as
-// the two controls disagreeing, which reads like a border bug.
-assert.equal(out.open.boxes.segH, 25, 'the mode seg is 25px tall (1+1 border, 5+5 padding, 13px line box)')
-assert.equal(out.open.boxes.segLineHeight, '13px', 'the seg pins its line box instead of inheriting the font default')
+// Every control in the row wears one box: the three mode switches and the
+// expand / card triggers share the toolbar's 25px icon-button treatment.
+assert.equal(out.open.boxes.modesH, 25, 'the mode switch strip is 25px tall, the toolbar icon height')
+assert.equal(out.open.boxes.modes.length, 3, 'unified/split is one switch and before/after add two more')
+for (const [index, box] of out.open.boxes.modes.entries()) {
+  assert.equal(box.borderW, '1px', `mode switch ${index} is a bordered button, not a bare glyph`)
+  assert.equal(box.borderStyle, 'solid', `mode switch ${index} draws its border`)
+  assert.equal(box.radius, '6px', `mode switch ${index} keeps the icon-button radius`)
+  assert.notEqual(box.bg, 'rgba(0, 0, 0, 0)', `mode switch ${index} has a surface`)
+  assert.equal(box.h, out.open.boxes.modesH, `mode switch ${index} fits the switch strip (${box.h} vs ${out.open.boxes.modesH})`)
+}
 for (const name of ['expand', 'modal']) {
   const box = out.open.boxes[name]
   assert.equal(box.borderW, '1px', `the ${name} control is a bordered button, not a bare glyph`)
   assert.equal(box.borderStyle, 'solid', `the ${name} border is drawn`)
   assert.equal(box.radius, '6px', `the ${name} control keeps the icon-button radius`)
   assert.notEqual(box.bg, 'rgba(0, 0, 0, 0)', `the ${name} control has a surface, like the files toolbar's buttons`)
-  assert.equal(box.h, out.open.boxes.segH, `the ${name} control matches the mode seg height in the same row (${box.h} vs ${out.open.boxes.segH})`)
+  assert.equal(box.h, out.open.boxes.modesH, `the ${name} control matches the mode switches in the same row (${box.h} vs ${out.open.boxes.modesH})`)
 }
 assert.notEqual(out.open.boxes.modal.bg, out.open.boxes.expand.bg, 'the open card tints its trigger apart from the resting button')
 out.rowsOpen = await rows()

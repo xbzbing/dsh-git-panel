@@ -303,14 +303,31 @@ async function virtScenario() {
     // The one-sided (before/after) and split modes window their own row lists;
     // switching modes must not fall back to laying the whole file out.
     const cellsIn = () => document.querySelectorAll('.gp-diff-cell').length
-    const clickMode = async (label) => {
-      const btn = [...document.querySelectorAll('.gp-seg__btn')].find((b) => (b.textContent || '') === label)
+    // Unified has no switch of its own: pressing the active switch returns to it.
+    const clickMode = async (name) => {
+      const btn = name === 'unified'
+        ? document.querySelector('.gp-diff__mode[aria-pressed="true"]')
+        : document.querySelector(`.gp-diff__mode[data-diff-mode="${name}"]`)
       if (btn) { btn.click(); await new Promise((r) => setTimeout(r, 250)) }
       return cellsIn()
     }
-    result.beforeModeCells = await clickMode('diff.before')
-    result.afterModeCells = await clickMode('diff.after')
-    result.splitModeCells = await clickMode('diff.split')
+    const switchState = (name) => {
+      const btn = document.querySelector(`.gp-diff__mode[data-diff-mode="${name}"]`)
+      if (btn === null) return null
+      return {
+        pressed: btn.getAttribute('aria-pressed'),
+        title: btn.getAttribute('title'),
+        icon: btn.querySelector('svg') !== null,
+        transform: getComputedStyle(btn.querySelector('svg')).transform,
+      }
+    }
+    result.beforeModeCells = await clickMode('before')
+    result.beforeSwitch = switchState('before')
+    result.pressedWhileBefore = switchState('after')
+    result.afterModeCells = await clickMode('after')
+    result.afterSwitch = switchState('after')
+    result.splitModeCells = await clickMode('split')
+    result.splitSwitch = switchState('split')
     // The capped notice is derived from the rows still hidden, so it must be
     // absent before any expansion is asked for.
     result.noticeBeforeExpand = document.querySelector('.gp-notice')?.textContent ?? null
@@ -344,7 +361,8 @@ async function virtScenario() {
     // Far Find jump: back to unified, at the top, then jump to a match ~550 rows
     // down. The window must SNAP to the match's neighbourhood — sampling every
     // frame so a one-commit span cannot hide between measurements.
-    await clickMode('diff.unified')
+    await clickMode('unified')
+    result.unifiedSwitch = switchState('split')
     const scForFind = scrollerNow()
     if (scForFind) {
       scForFind.scrollTop = 0
@@ -425,6 +443,22 @@ try {
     assert.equal(cells > 0, true, `${name} mode renders rows`)
     assert.equal(cells < 300, true, `${name} mode is windowed too (got ${cells} cells)`)
   }
+  // The switches are icon-only and pressed-state driven: the pressed one names
+  // the way back to unified, and the compare glyph turns 90° for split.
+  assert.deepEqual(virt.out.beforeSwitch, { pressed: 'true', title: 'diff.backToUnified', icon: true, transform: 'none' }, 'the before switch is pressed and offers the way back')
+  assert.equal(virt.out.pressedWhileBefore?.pressed, 'false', 'only the active single-side switch is pressed')
+  assert.deepEqual(
+    { pressed: virt.out.afterSwitch?.pressed, title: virt.out.afterSwitch?.title },
+    { pressed: 'true', title: 'diff.backToUnified' },
+    'clicking after moves the pressed state',
+  )
+  assert.deepEqual(
+    { pressed: virt.out.splitSwitch?.pressed, title: virt.out.splitSwitch?.title },
+    { pressed: 'true', title: 'diff.toUnified' },
+    'the split switch reports its pressed state and names the next action',
+  )
+  assert.notEqual(virt.out.splitSwitch?.transform, 'none', 'the compare glyph rotates once split is on')
+  assert.equal(virt.out.unifiedSwitch?.pressed, 'false', 'pressing the active switch returns to unified')
 
   assert.equal(virt.out.expandContext <= 2000, true, `expand all asks for a bounded context (got ${virt.out.expandContext})`)
   assert.equal(virt.out.expandContext > 0, true, 'expand all still asks for context')
