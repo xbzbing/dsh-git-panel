@@ -8,52 +8,19 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import './_tmp-ceiling.mjs'
 import { linkOrSkip } from './_fs-helpers.mjs'
-import { spawn as nodeSpawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { listSessionRepos, resolveBrowseRoot, resolveWorkspace } from '../../lib/host/core.js'
 import { repoDirFor, scanRepos } from '../../lib/host/repos.js'
-import { DEFAULT_CONFIG, createGitRunner, runQuery, snapshotForSession } from '../../lib/host/index.js'
-
-/** child_process-backed subprocess service matching SubprocessLike. */
-const subprocess = {
-  spawn(spec) {
-    const child = nodeSpawn(spec.argv[0], spec.argv.slice(1), { cwd: spec.cwd })
-    if (typeof spec.stdio.stdin === 'object') child.stdin.end(spec.stdio.stdin.data)
-    else child.stdin.end()
-    let out = ''
-    let err = ''
-    child.stdout.on('data', (d) => { out += d })
-    child.stderr.on('data', (d) => { err += d })
-    const done = new Promise((resolve, reject) => {
-      child.on('error', reject)
-      child.on('close', (code, signal) => resolve({ exitCode: code, signal }))
-    })
-    return {
-      done,
-      collected: {
-        stdout: { readFrom: () => ({ text: out, lossy: false }) },
-        stderr: { readFrom: () => ({ text: err, lossy: false }) },
-      },
-    }
-  },
-}
-
-function runGit(cwd, args) {
-  return new Promise((resolve, reject) => {
-    const c = nodeSpawn('git', args, { cwd })
-    let err = ''
-    c.stderr.on('data', (d) => { err += d })
-    c.on('close', (code) => (code === 0 ? resolve() : reject(new Error('git ' + args.join(' ') + ': ' + err))))
-  })
-}
+import { DEFAULT_CONFIG, runQuery, snapshotForSession } from '../../lib/host/index.js'
+import { gitRunner, runGit } from './_git-fixture.mjs'
 
 /** A deps face locked to `dir`, using the production wiring. */
 function depsAt(dir) {
   return {
-    run: createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes),
+    run: gitRunner(),
     fs: createFsDeps(),
     sessions: { liveCwd: () => dir, persistedMeta: async () => undefined },
   }

@@ -18,54 +18,16 @@ import { join, sep } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
+import { gitRunner, runGit, subprocess } from './_git-fixture.mjs'
 import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, MAX_BYTES_LIMITS } from '../../lib/host/types.js'
 
 let repo
 let repoImg
 const SID = 'test-session'
 
-/** child_process-backed subprocess service matching SubprocessLike. */
-const subprocess = {
-  spawn(spec) {
-    // The runner hands git its behaviour-carrying env here (prompts off,
-    // optional locks off, literal pathspecs). Dropping it would make every test
-    // in this file describe a configuration production never runs.
-    const child = nodeSpawn(spec.argv[0], spec.argv.slice(1), {
-      cwd: spec.cwd,
-      env: { ...process.env, ...(spec.env ?? {}) },
-    })
-    if (typeof spec.stdio.stdin === 'object') child.stdin.end(spec.stdio.stdin.data)
-    else child.stdin.end()
-    let out = ''
-    let err = ''
-    child.stdout.on('data', (d) => { out += d })
-    child.stderr.on('data', (d) => { err += d })
-    const done = new Promise((resolve, reject) => {
-      child.on('error', reject)
-      child.on('close', (code, signal) => resolve({ exitCode: code, signal }))
-    })
-    return {
-      done,
-      collected: {
-        stdout: { readFrom: () => ({ text: out, lossy: false }) },
-        stderr: { readFrom: () => ({ text: err, lossy: false }) },
-      },
-    }
-  },
-}
-
-function runGit(cwd, args) {
-  return new Promise((resolve, reject) => {
-    const c = nodeSpawn('git', args, { cwd })
-    let err = ''
-    c.stderr.on('data', (d) => { err += d })
-    c.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`git ${args.join(' ')}: ${err}`))))
-  })
-}
-
 function depsAt(dir) {
   return {
-    run: createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes),
+    run: gitRunner(),
     // The production wiring itself, never a mirror: identical wiring is what
     // makes these tests evidence about the host rather than about a copy.
     fs: createFsDeps(),

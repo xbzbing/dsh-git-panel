@@ -25,6 +25,7 @@ export const ja: Record<GitKey, string> = {
   'repos.lockedTag': 'ロック中',
   'repos.disabled.outside': 'ワークスペースのディレクトリ外です',
   'repos.disabled.stale': 'ディレクトリがありません。git worktree prune で整理できます',
+  'repos.dropped': '選択したリポジトリを解決できませんでした。既定のチェックアウトに戻しました',
   'repos.countAria': '{m} 件中 {n} 件を選択可能',
   'repos.collapse': '一覧を折りたたむ',
   'repos.expand': '一覧を展開',
