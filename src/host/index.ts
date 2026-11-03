@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createGitRunner, type SubprocessLike } from './git.js'
 import { createFsDeps } from './fs-deps.js'
-import { normalizeConfig, resolveBrowseRoot, sessionLiveCwd, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type LiveSession, type SessionProjectionsFace, type SnapshotDeps } from './core.js'
+import { normalizeConfig, resolveBrowseRoot, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps } from './core.js'
 import { canOpenWithSystem, openWithSystem } from './open-file.js'
 import { writeWorkspaceFile } from './write-file.js'
 import { runAction } from './actions.js'
@@ -73,44 +73,12 @@ async function spawnDetached(subprocess: SubprocessLike, argv: readonly string[]
 
 /** Structural slice of the Cordis sessions store (live session objects). */
 interface SessionsService {
-  get(id: string): LiveSession | undefined
+  get(id: string): { readonly header?: { readonly cwd?: string } } | undefined
 }
 
 /** Structural slice of the sessionPersistence service (persisted cwd). */
 interface SessionPersistenceLike {
   stat(id: string): Promise<{ readonly header?: { readonly cwd?: string } } | undefined>
-}
-
-/** Structural slice of the host's `get(name)` service lookup. */
-export type ServiceLookup = (name: string) => unknown
-
-/**
- * The session faces of `SnapshotDeps`, built from the host services.
- *
- * `liveCwd` reads the session's *effective* directory, never `header.cwd`
- * alone: a `working_directory` switch only appends a projection event, so the
- * header keeps the directory the session started in. Every lookup happens per
- * call — the host may activate `sessionProjections` after this plugin, and
- * `get` reports only a ready service, so a captured value would pin every
- * session to its first directory for the plugin's lifetime.
- */
-export function sessionFaces(get: ServiceLookup): SnapshotDeps['sessions'] {
-  return {
-    liveCwd: (id) => {
-      const sessions = get('sessions') as SessionsService | undefined
-      return sessionLiveCwd(sessions?.get(id), get('sessionProjections') as SessionProjectionsFace | undefined)
-    },
-    persistedMeta: async (id) => {
-      const persistence = get('sessionPersistence') as SessionPersistenceLike | undefined
-      if (persistence === undefined) return undefined
-      try {
-        const snap = await persistence.stat(id)
-        return snap?.header?.cwd === undefined ? undefined : { cwd: snap.header.cwd }
-      } catch {
-        return undefined
-      }
-    },
-  }
 }
 
 export class GitPanelService extends TypertRemoteService {
@@ -197,10 +165,23 @@ export class GitPanelService extends TypertRemoteService {
     this.spawnOpener = subprocess === undefined
       ? null
       : (argv) => spawnDetached(subprocess, argv)
+    const sessions = get('sessions') as SessionsService | undefined
+    const persistence = get('sessionPersistence') as SessionPersistenceLike | undefined
     return {
       run,
       fs,
-      sessions: sessionFaces(get),
+      sessions: {
+        liveCwd: (id) => sessions?.get(id)?.header?.cwd,
+        persistedMeta: async (id) => {
+          if (persistence === undefined) return undefined
+          try {
+            const snap = await persistence.stat(id)
+            return snap?.header?.cwd === undefined ? undefined : { cwd: snap.header.cwd }
+          } catch {
+            return undefined
+          }
+        },
+      },
       rootCache,
       rootNegCache,
       // Optional model services, resolved per request so a provider fiber that

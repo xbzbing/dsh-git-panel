@@ -25,7 +25,6 @@ export const es: Record<GitKey, string> = {
   'repos.lockedTag': 'Bloqueado',
   'repos.disabled.outside': 'Fuera del directorio del área de trabajo',
   'repos.disabled.stale': 'Falta el directorio: git worktree prune puede limpiarlo',
-  'repos.dropped': 'No se pudo resolver el repositorio seleccionado; el panel volvió al checkout predeterminado',
   'repos.countAria': '{n} de {m} seleccionables',
   'repos.collapse': 'Contraer la lista',
   'repos.expand': 'Expandir la lista',
