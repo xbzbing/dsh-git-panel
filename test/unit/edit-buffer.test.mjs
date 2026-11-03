@@ -19,8 +19,9 @@ test('editor language per allow-listed file', () => {
   assert.equal(editorLanguageFor('notes.markdown'), 'markdown')
   assert.equal(editorLanguageFor('ci.yml'), 'yaml')
   assert.equal(editorLanguageFor('Cargo.toml'), 'toml')
-  for (const name of ['app.properties', 'setup.cfg', 'php.ini', '.editorconfig', 'sub/.env']) assert.equal(editorLanguageFor(name), 'properties', name)
+  for (const name of ['app.properties', 'setup.cfg', 'php.ini', '.editorconfig', 'sub/.env', '.env.local', '.env.production']) assert.equal(editorLanguageFor(name), 'properties', name)
   for (const name of ['a.txt', 'nginx.conf', '.gitignore', '.gitattributes']) assert.equal(editorLanguageFor(name), 'text', name)
+  assert.equal(editorLanguageFor('.env.json'), 'json', 'a variant naming its own format keeps it')
 })
 
 test('JSONC names skip the JSON check; XML and YAML are checked', () => {

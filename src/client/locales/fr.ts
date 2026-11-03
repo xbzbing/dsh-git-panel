@@ -485,6 +485,6 @@ export const fr: Record<GitKey, string> = {
   'files.editOverwriteBody': 'La version du disque sera remplacée par votre texte ; les changements faits entre-temps seront perdus.',
   'cfg.fileEditTitle': 'Modification de fichiers',
   'cfg.fileEditToggle': 'Autoriser la modification des fichiers de configuration et de documentation',
-  'cfg.fileEditHint': 'Activé, l’aperçu propose un bouton de modification pour les fichiers {exts} ainsi que {names} (les variantes .env.* comme .env.local restent en lecture seule), jusqu’à 2 Mio, en UTF-8 et avec un seul style de fin de ligne. L’enregistrement vérifie d’abord la version du fichier : un changement fait entre-temps par l’IA ou un autre programme n’est jamais écrasé en silence. Les modifications enregistrées s’appliquent immédiatement.',
+  'cfg.fileEditHint': 'Activé, l’aperçu propose un bouton de modification pour les fichiers {exts} ainsi que {names} et les variantes .env.* comme .env.local, jusqu’à 2 Mio, en UTF-8 et avec un seul style de fin de ligne. L’enregistrement vérifie d’abord la version du fichier : un changement fait entre-temps par l’IA ou un autre programme n’est jamais écrasé en silence. Les modifications enregistrées s’appliquent immédiatement.',
   'cfg.saveFailed': 'Échec de l’enregistrement, veuillez réessayer',
 }

@@ -485,6 +485,6 @@ export const es: Record<GitKey, string> = {
   'files.editOverwriteBody': 'La versión del disco se sustituirá por tu texto; se perderán los cambios hechos entretanto.',
   'cfg.fileEditTitle': 'Edición de archivos',
   'cfg.fileEditToggle': 'Permitir editar archivos de configuración y documentos en el explorador',
-  'cfg.fileEditHint': 'Activado, la vista previa ofrece un botón de edición para archivos {exts}, además de {names} (las variantes .env.*, como .env.local, quedan de solo lectura), de hasta 2 MiB, en UTF-8 y con un único estilo de fin de línea. Al guardar se comprueba la versión del archivo, así que un cambio hecho entretanto por la IA u otro programa nunca se sobrescribe sin aviso. Los cambios guardados se aplican de inmediato.',
+  'cfg.fileEditHint': 'Activado, la vista previa ofrece un botón de edición para archivos {exts}, además de {names} y de las variantes .env.* como .env.local, de hasta 2 MiB, en UTF-8 y con un único estilo de fin de línea. Al guardar se comprueba la versión del archivo, así que un cambio hecho entretanto por la IA u otro programa nunca se sobrescribe sin aviso. Los cambios guardados se aplican de inmediato.',
   'cfg.saveFailed': 'Error al guardar; vuelva a intentarlo',
 }

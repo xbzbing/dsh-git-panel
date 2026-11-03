@@ -485,6 +485,6 @@ export const de: Record<GitKey, string> = {
   'files.editOverwriteBody': 'Die Version auf der Festplatte wird durch Ihren Text ersetzt; zwischenzeitliche Änderungen gehen verloren.',
   'cfg.fileEditTitle': 'Dateibearbeitung',
   'cfg.fileEditToggle': 'Bearbeiten von Konfigurations- und Dokumentdateien im Dateibrowser erlauben',
-  'cfg.fileEditHint': 'Wenn aktiv, bietet die Dateivorschau eine Bearbeiten-Schaltfläche für Dateien vom Typ {exts} sowie {names} (.env.*-Varianten wie .env.local bleiben schreibgeschützt), bis 2 MiB, UTF-8 und mit einheitlichen Zeilenenden. Beim Speichern wird zuerst die Dateiversion geprüft, sodass eine zwischenzeitliche Änderung durch die KI oder ein anderes Programm nie unbemerkt überschrieben wird. Gespeicherte Änderungen gelten sofort.',
+  'cfg.fileEditHint': 'Wenn aktiv, bietet die Dateivorschau eine Bearbeiten-Schaltfläche für Dateien vom Typ {exts} sowie {names} und .env.*-Varianten wie .env.local, bis 2 MiB, UTF-8 und mit einheitlichen Zeilenenden. Beim Speichern wird zuerst die Dateiversion geprüft, sodass eine zwischenzeitliche Änderung durch die KI oder ein anderes Programm nie unbemerkt überschrieben wird. Gespeicherte Änderungen gelten sofort.',
   'cfg.saveFailed': 'Speichern fehlgeschlagen, bitte erneut versuchen',
 }

@@ -77,7 +77,9 @@ export function editorLanguageFor(path: string): EditorLanguage {
     case 'yaml': case 'yml': return 'yaml'
     case 'toml': return 'toml'
     case 'properties': case 'ini': case 'cfg': return 'properties'
-    default: return 'text'
+    // `.env.*` variants that name no format of their own (.env.local) are
+    // dotenv key=value files; .env.json / .env.yaml matched above.
+    default: return name.startsWith('.env.') ? 'properties' : 'text'
   }
 }
 
