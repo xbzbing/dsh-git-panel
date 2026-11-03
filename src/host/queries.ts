@@ -5,7 +5,7 @@
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { listSessionRepos, mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
-import { isSafePath, isSafeRev } from './validate.js'
+import { historyPathspec, isSafePath, isSafeRev, validateHistoryPathSearch } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
@@ -120,9 +120,18 @@ async function queryHistory(
   // refs/tags/…) so parseRefs can tell a slashed local branch from a remote ref
   // and not misclassify it (which mislabeled the current-branch chip).
   const args = ['git', 'log', '--topo-order', '--decorate=full', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
+  if (q.search !== undefined && typeof q.search !== 'string') {
+    return { ok: false, error: { code: 'invalid-name', message: 'history search must be a string' } }
+  }
+  const pathInput = validateHistoryPathSearch(q.pathSearch)
+  if (!pathInput.ok) return { ok: false, error: { code: 'invalid-name', message: pathInput.message } }
   const search = q.search?.trim() ?? ''
-  const hexJump = isHistoryHashSearch(search)
-  const filtered = isHistoryFiltered(q)
+  const pathSearch = pathInput.value
+  if (search !== '' && pathSearch !== '') {
+    return { ok: false, error: { code: 'invalid-name', message: 'history search fields are mutually exclusive' } }
+  }
+  const hexJump = pathSearch === '' && isHistoryHashSearch(search)
+  const filtered = isHistoryFiltered({ ...q, pathSearch })
   // Exactly the flags pushed below (one source, so they can never disagree). An
   // effective filter hides commits — and therefore parents — from the page
   // itself, which is what makes the raw-ancestry walk necessary; a ref-only walk
@@ -156,6 +165,7 @@ async function queryHistory(
       filters.push(...VISIBLE_REFS)
     }
     filters.push('--')
+    if (pathSearch !== '') filters.push(historyPathspec(pathSearch))
     args.push(...filters)
     countArgs.push(...filters)
   } else {
@@ -184,7 +194,7 @@ async function queryHistory(
     if (hexJump || /unknown revision|bad revision|does not have any commits/i.test(stderr)) {
       // A filtered empty page still carries the field, so the client can tell
       // "filtered, no ancestry" from "unfiltered / old host".
-      return { ok: true, value: { kind: 'history', commits: [], total: 0, ...(filtered ? { topology: [] } : {}) } }
+      return { ok: true, value: { kind: 'history', commits: [], total: 0, pathSearchSupported: true, ...(filtered ? { topology: [] } : {}) } }
     }
     return { ok: false, error: { code: 'git-error', message: stderr || `git exited ${res.run.exitCode}` } }
   }
@@ -211,7 +221,7 @@ async function queryHistory(
   const topology = filtered
     ? (commits.length === 0 ? [] : await walkHistoryTopology(deps.run, root, commits.map((c) => c.hash), deps.signal))
     : undefined
-  return { ok: true, value: { kind: 'history', commits, total, ...(topology !== undefined ? { topology } : {}) } }
+  return { ok: true, value: { kind: 'history', commits, total, pathSearchSupported: true, ...(topology !== undefined ? { topology } : {}) } }
 }
 
 async function queryDiff(

@@ -53,10 +53,24 @@ test('pathspec consumers keep expansion even after a --', async () => {
   for (const argv of [
     ['git', 'check-ignore', '--', 'app/[id].tsx'],
     ['git', 'stash', 'push', '-u', '--', 'app/[id].tsx'],
-    ['git', 'log', '--oneline', '--'],
-    ['git', 'rev-list', 'HEAD', '--'],
   ]) {
     assert.equal((await envFor(argv)).GIT_LITERAL_PATHSPECS, undefined, argv.join(' '))
+  }
+})
+
+test('pattern-composing subcommands pin the default expansion on', async () => {
+  // The history search builds `:(top,icase)*<escaped>*`, whose meaning depends on
+  // git's default wildmatch. Leaving these unset would inherit a GIT_*PATHSPECS
+  // setting from the shell and turn a correct pattern into an empty result.
+  for (const argv of [
+    ['git', 'log', '--oneline', '--'],
+    ['git', 'rev-list', 'HEAD', '--'],
+    ['git', 'log', '--format=%H'],
+  ]) {
+    const env = await envFor(argv)
+    assert.equal(env.GIT_LITERAL_PATHSPECS, '0', argv.join(' '))
+    assert.equal(env.GIT_NOGLOB_PATHSPECS, '0', argv.join(' '))
+    assert.equal(env.GIT_GLOB_PATHSPECS, '0', argv.join(' '))
   }
 })
 

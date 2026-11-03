@@ -7,6 +7,7 @@
  * reject that option — so for them this validation is the only guard.
  */
 import { isAbsolute, normalize } from 'node:path'
+import { HISTORY_PATH_SEARCH_MAX_LENGTH } from './types.js'
 
 /** A repository-relative path is safe when it stays inside the work tree. */
 export function isSafePath(path: string): boolean {
@@ -49,4 +50,19 @@ export function isSafeBranchName(name: string): boolean {
  * a configured remote can never slip into the option position. */
 export function isSafeRemoteName(name: string): boolean {
   return /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(name) && name.length <= 128
+}
+
+/** Search text accepted by the history path filter. Empty/whitespace is absent. */
+export function validateHistoryPathSearch(input: unknown): { readonly ok: true; readonly value: string } | { readonly ok: false; readonly message: string } {
+  if (input === undefined) return { ok: true, value: '' }
+  if (typeof input !== 'string') return { ok: false, message: 'path search must be a string' }
+  if (input.length > HISTORY_PATH_SEARCH_MAX_LENGTH) return { ok: false, message: 'path search is too long' }
+  if (/[\x00-\x1f\x7f-\x9f]/.test(input)) return { ok: false, message: 'path search contains a control character' }
+  return { ok: true, value: input.trim() }
+}
+
+/** Escape the four metacharacters in Git's default wildcard pathspec syntax. */
+export function historyPathspec(keyword: string): string {
+  const escaped = keyword.replace(/[\\*?\[\]]/g, '\\$&')
+  return `:(top,icase)*${escaped}*`
 }
