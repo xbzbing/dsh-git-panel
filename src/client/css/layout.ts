@@ -120,6 +120,7 @@ export const CSS = `
  * means row actions must stay visible, and hit targets grow. */
 @media (hover:none){
   .gp-file-row__actions{visibility:visible}
+  .gp-dir-row__actions{visibility:visible}
   .gp-icon-btn{width:34px;height:34px}
   .gp-btn{height:36px}
   /* The diff toolbar and the dialog bar size their icon controls with a

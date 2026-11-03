@@ -7,7 +7,7 @@ export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitGraphNode, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
-  GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, FontDelta, DirEntry, ResetMode, GitPanelPlacement,
+  GitVersionRequest, GitVersionInfo, DiffViewMode, ChangesViewMode, GraphStyle, FontDelta, DirEntry, ResetMode, GitPanelPlacement,
   GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList,
   GitWriteFileRequest, GitWriteFileResult, FileEditInfo, FileEditBlock,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, TruncationReason,

@@ -34,6 +34,9 @@ const RUNNERS = [
   'html-preview-lifecycle',
   'overview-detail-scroll',
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
+  // The change list's flat / tree views (issue #99): directory rows and counts,
+  // folding, directory-level stage and discard, the path filter, remembered view.
+  'changes-tree',
   'sidebar-tab',
   // The plugin detail page's config form: section / field hierarchy and the
   // collapse contract.

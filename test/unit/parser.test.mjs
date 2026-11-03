@@ -36,6 +36,23 @@ test('parseStatus keeps a real conflict as one entry', () => {
   assert.deepEqual(out, [{ path: 'merge.txt', status: 'conflicted', staged: false, isDirectory: false }])
 })
 
+test('parseStatus carries the source path of a staged rename', () => {
+  const out = parseStatus('R  new/name.txt\0old/name.txt\0')
+  assert.deepEqual(out, [{ path: 'new/name.txt', status: 'renamed', staged: true, isDirectory: false, oldPath: 'old/name.txt' }])
+})
+
+test('parseStatus keeps the rename source on the renamed side only', () => {
+  // `RM`: rename in the index (X) plus an unrelated edit in the work tree (Y).
+  const out = parseStatus('RM moved.txt\0was.txt\0')
+  const staged = out.find((c) => c.staged)
+  const worktree = out.find((c) => !c.staged)
+  assert.equal(staged.oldPath, 'was.txt')
+  assert.equal(staged.status, 'renamed')
+  // The work-tree side is a modification of the new path, not a second rename.
+  assert.equal(worktree.oldPath, undefined)
+  assert.equal(worktree.status, 'modified')
+})
+
 test('parseGraphLog reads records with unit/record separators', () => {
   const fmt = [
     'HASH1', 'h1', 'PARENT0', 'Alice', '2026-01-01T00:00:00+08:00', 'HEAD -> main, origin/main', 'first',

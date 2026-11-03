@@ -11,6 +11,7 @@ export type VolatileField =
   | 'showInputPill'
   | 'placement'
   | 'defaultDiffView'
+  | 'changesView'
   | 'graphStyle'
   | 'fontDelta'
   | 'suggestEnabled'

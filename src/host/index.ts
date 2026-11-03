@@ -118,7 +118,7 @@ export class GitPanelService extends TypertRemoteService {
 
   /**
    * Config schema surfaced on the plugin detail page. `showInputPill`,
-   * `defaultDiffView`, `graphStyle`, `detectCheckouts`, `filesFollowRepo`,
+   * `defaultDiffView`, `changesView`, `graphStyle`, `detectCheckouts`, `filesFollowRepo`,
    * `collapseReposOnPick`, `allowFileEdit` and the suggest fields are `.volatile()`, so the settings host renders them as
    * live-editable controls; the operational limits stay profile-only and out
    * of the UI form.
@@ -134,6 +134,10 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const('unified').description('统一视图（单栏行内对比）'),
       Schema.const('split').description('并排视图（左右分栏对比）'),
     ]).default('unified').volatile().description('差异对比默认视图'),
+    changesView: Schema.union([
+      Schema.const('flat').description('平铺（一文件一行）'),
+      Schema.const('tree').description('树形（按目录折叠，汇总每个目录的变更数）'),
+    ]).default('flat').volatile().description('变更记录列表视图（操作栏尾部的切换图标可随时切换，空间不足时自动隐藏）'),
     graphStyle: Schema.union([
       Schema.const('parallel').description('平行线（VSCode 风格，分支各占一列）'),
       Schema.const('compact').description('紧凑（git log 风格，共享祖先合并为一列）'),

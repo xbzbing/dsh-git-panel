@@ -1,10 +1,12 @@
 /**
  * Confirm dialog for the toolbar's "discard picked changes" batch action
- * (issue #40). Counts only — the dialog is a guard rail, not a file list —
- * with separate lines for picks that are out of scope (index-side) and for
- * untracked targets that will be deleted from disk for good. The untracked
- * count is derived here from `snapshot × targets` so `pickDiscardTargets`
- * keeps its pure key-only contract.
+ * (issue #40) and for a directory's own discard — same counts and warnings,
+ * the title names the subtree instead of the selection. Counts only — the
+ * dialog is a guard rail, not a file list — with separate lines for picks that
+ * are out of scope (index-side) and for untracked targets that will be deleted
+ * from disk for good. The untracked count is derived here from
+ * `snapshot × targets` so `pickDiscardTargets` keeps its pure key-only
+ * contract.
  */
 import { createElement as h, useMemo } from 'react'
 import type { JSX } from 'react'
@@ -16,6 +18,9 @@ export interface DiscardPickedModalProps {
   readonly paths: readonly string[]
   /** Index-side picks kept out of the request, reported as unaffected. */
   readonly stagedOnly: readonly string[]
+  /** Dialog title; defaults to the "selected changes" wording. A directory
+   * scope names itself instead — the rows below are about the same counts. */
+  readonly title?: string
   readonly snapshot: GitSnapshot
   readonly busy: boolean
   readonly error: string | null
@@ -24,7 +29,7 @@ export interface DiscardPickedModalProps {
   readonly t: OpT
 }
 
-export function DiscardPickedModal({ paths, stagedOnly, snapshot, busy, error, onConfirm, onClose, t }: DiscardPickedModalProps): JSX.Element | null {
+export function DiscardPickedModal({ paths, stagedOnly, title, snapshot, busy, error, onConfirm, onClose, t }: DiscardPickedModalProps): JSX.Element | null {
   // Untracked targets are deleted from disk and were never in the object store,
   // unlike the tracked ones (`git restore --`, file survives): worth a line of
   // its own in a dialog that deliberately names no files.
@@ -43,7 +48,7 @@ export function DiscardPickedModal({ paths, stagedOnly, snapshot, busy, error, o
     ])
     : null
   return renderConfirmModal({
-    title: t('changes.discardPickedTitle'),
+    title: title ?? t('changes.discardPickedTitle'),
     // Only the count — the dialog is a guard rail, not a file list.
     body: t('changes.discardPickedBody', { count: paths.length }),
     // Index-side picks are not discarded; untracked targets are deleted from

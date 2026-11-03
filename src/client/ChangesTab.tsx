@@ -18,13 +18,14 @@ import { diffSummary, type DiffMode } from './DiffView.js'
 import { ChevronIcon, CloseIcon, SparkleIcon, UploadIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { renderConfirmModal } from './ops-modals.js'
-import { StashPushModal, renderFileRow, renderStashRow } from './changes-rows.js'
+import { StashPushModal, renderChangeRow, renderStashRow, type ChangeRowCtx } from './changes-rows.js'
+import { buildChangeRows, dirDiscardPaths, dirKey, normalizeViewMode, ROW_H, type ChangeGroupKey, type ChangeViewMode } from './changes-tree.js'
 import { inertAttr } from './inert.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { useRowSlider } from './row-slider.js'
-import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, pickStageTargets, sideOf, toggleGroupKeys } from './selection-keys.js'
+import { changeKey, pathOfKey, pickDiscardTargets, pickStageTargets, sideOf, toggleGroupKeys } from './selection-keys.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
@@ -55,20 +56,21 @@ interface ChangesTabProps {
    * squeezed by a sidebar, a large phone) is not cramped and keeps both.
    */
   readonly cramped: boolean
+  /** Write the changes-list view to the plugin config (the settings form's
+   * write contract); resolves false when the write could not land. */
+  readonly onSetChangesView: (view: ChangeViewMode) => Promise<boolean>
   /** Docked repository list above the change list; the panel withholds it in
    * the compact layout, which keeps the list in the overview's branch filter. */
   readonly repositories?: RepositoriesHost
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-type GroupKey = 'staged' | 'unstaged' | 'untracked'
-
 // Change-list virtualization: only the rows in (or near) the viewport mount, so
 // a work tree with thousands of changes (issue #16) renders ~a screenful of
-// nodes instead of all of them. Heights are fixed per row kind so the window
-// math is exact; the CSS pins .gp-file-row / .gp-group-head to these values.
-const VROW_H = 28
-const VHEAD_H = 26
+// nodes instead of all of them. Fixed per-kind heights make the window math
+// exact; the table is the row model's (`ROW_H` in changes-tree.ts) and the CSS
+// pins the same kinds to it — both sides are asserted in
+// test/unit/changes-row-heights.test.mjs, the rendered geometry in e2e.
 /** Rows sort by path within their own staged/unstaged/untracked list. */
 const byPath = (a: GitChange, b: GitChange): number => a.path.localeCompare(b.path)
 // How long a row's discard button stays armed. The confirmation is a second
@@ -77,11 +79,7 @@ const byPath = (a: GitChange, b: GitChange): number => a.path.localeCompare(b.pa
 // would wait indefinitely for a stray click.
 const DISCARD_ARM_MS = 4000
 
-type ListItem =
-  | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean }; readonly items: readonly GitChange[] }
-  | { readonly kind: 'row'; readonly c: GitChange }
-
-export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, compact, stacked, cramped, repositories, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, onSetChangesView, compact, stacked, cramped, repositories, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
@@ -96,7 +94,23 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [expanding, setExpanding] = useState(false)
   const busy = actionBusy || pushBusy || publishBusy || expanding
   const [error, setError] = useState<string | null>(null)
-  const [closed, setClosed] = useState<ReadonlySet<GroupKey>>(new Set())
+  const [closed, setClosed] = useState<ReadonlySet<ChangeGroupKey>>(new Set())
+  // The list's presentation: one row per file, or one per directory. It is an
+  // install-level setting (host config, default flat); the toolbar's icon
+  // group writes it and the snapshot carries it back. The local copy only
+  // covers the write's round-trip so the switch feels immediate.
+  const [viewMode, setViewMode] = useState<ChangeViewMode>(() => normalizeViewMode(snapshot.changesView))
+  useEffect(() => { setViewMode(normalizeViewMode(snapshot.changesView)) }, [snapshot.changesView])
+  // Directory collapse state, keyed by group + path: the same directory appears
+  // in "staged" and "changes" and the two rows collapse independently.
+  const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set())
+  // Directory discard confirm target: a directory has no armed-button gesture
+  // (one stray pair of clicks would wipe a whole subtree), so it reuses the
+  // batch-discard dialog with the directory's own scope. Only the identity is
+  // stored — the path list is re-derived from the live rows on every render
+  // (`discardDirPaths`), so the dialog's count always equals what confirming
+  // would actually send.
+  const [discardDir, setDiscardDir] = useState<{ group: ChangeGroupKey; path: string } | null>(null)
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
   const [discardPickedOpen, setDiscardPickedOpen] = useState(false)
   const [discardAllOpen, setDiscardAllOpen] = useState(false)
@@ -168,47 +182,62 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const unstaged = useMemo(() => snapshot.changes.filter((c) => !c.staged && c.status !== 'untracked').sort(byPath), [snapshot])
   const untracked = useMemo(() => snapshot.changes.filter((c) => c.status === 'untracked').sort(byPath), [snapshot])
 
-  const allGroups: Array<{ key: GroupKey; labelKey: GitKey; items: GitChange[] }> = [
-    { key: 'staged', labelKey: 'changes.groupStaged', items: staged },
-    { key: 'unstaged', labelKey: 'changes.groupUnstaged', items: unstaged },
-    { key: 'untracked', labelKey: 'changes.groupUntracked', items: untracked },
+  const allGroups: Array<{ key: ChangeGroupKey; items: readonly GitChange[] }> = [
+    { key: 'staged', items: staged },
+    { key: 'unstaged', items: unstaged },
+    { key: 'untracked', items: untracked },
   ]
   // A capped list is only a prefix of the change set, but `stats` still counts
   // everything: keep a group visible (and its header honest) even when every one
-  // of its rows fell past the cap. The record is exhaustive over GroupKey so a
-  // future group cannot silently inherit another group's count.
-  const counts: Record<GroupKey, number> = {
+  // of its rows fell past the cap. The record is exhaustive over ChangeGroupKey
+  // so a future group cannot silently inherit another group's count.
+  const counts: Record<ChangeGroupKey, number> = {
     staged: snapshot.stats.staged,
     unstaged: snapshot.stats.modified,
     untracked: snapshot.stats.untracked,
   }
   const groups = allGroups.filter((g) => g.items.length > 0 || (snapshot.truncated && counts[g.key] > 0))
 
-  // Flatten the visible (non-collapsed) groups into one row list and precompute
-  // each item's top offset, so the list can mount only the viewport window.
+  // The directory dialog's targets, re-derived from the live rows on every
+  // render: same group, same directory prefix — so a poll that removes files
+  // shrinks the count instead of letting the confirmation promise paths the
+  // panel no longer knows about.
+  const discardDirPaths = useMemo(() => {
+    if (discardDir === null) return []
+    const items = discardDir.group === 'staged' ? staged
+      : discardDir.group === 'unstaged' ? unstaged
+        : untracked
+    const prefix = `${discardDir.path}/`
+    return dirDiscardPaths(items.filter((c) => c.path.startsWith(prefix)))
+  }, [discardDir, staged, unstaged, untracked])
+
+  // Flatten the groups into the row list the window mounts — flat or nested,
+  // filter applied, collapsed directories hidden — and precompute each row's
+  // top offset so only the viewport's rows render.
   const { items, tops, totalH } = useMemo(() => {
-    const items: ListItem[] = []
-    for (const g of groups) {
-      const count = snapshot.truncated ? counts[g.key] : g.items.length
-      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count, collapsible: g.items.length > 0 }, items: g.items })
-      if (!closed.has(g.key)) for (const c of g.items) items.push({ kind: 'row', c })
-    }
-    const tops = buildTops(items.map((it) => (it.kind === 'head' ? VHEAD_H : VROW_H)))
-    return { items, tops, totalH: tops[items.length]! }
-    // staged/unstaged/untracked already memoize on snapshot; closed drives collapse.
+    const rows = buildChangeRows({
+      groups: groups.map((g) => ({ key: g.key, items: g.items, count: snapshot.truncated ? counts[g.key] : g.items.length })),
+      closedGroups: closed,
+      mode: viewMode,
+      collapsedDirs,
+    })
+    const tops = buildTops(rows.map((row) => ROW_H[row.kind]))
+    return { items: rows, tops, totalH: tops[rows.length]! }
+    // staged/unstaged/untracked already memoize on snapshot; the rest is the
+    // view state the builder reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staged, unstaged, untracked, closed, snapshot.truncated, snapshot.stats])
+  }, [staged, unstaged, untracked, closed, viewMode, collapsedDirs, snapshot.truncated, snapshot.stats])
 
   // Mounted window [first, last): the items overlapping the viewport, padded by
   // VOVERSCAN rows each side. Before the first layout measurement a fallback
   // height bounds the initial paint.
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
-  const { first, last } = windowRange(tops, viewport.top, effHeight, VOVERSCAN * VROW_H)
+  const { first, last } = windowRange(tops, viewport.top, effHeight, VOVERSCAN * ROW_H.file)
 
   // A hovered row can vanish without a mouseleave — the virtualized window
-  // slides, or a snapshot refresh replaces the list — so drop the bubble with
-  // whichever of those moved.
-  useEffect(() => { hideTip() }, [first, last, snapshot, hideTip])
+  // slides, a snapshot refresh replaces the list, or the tree collapses above
+  // the row — so drop the bubble with whatever moved.
+  useEffect(() => { hideTip() }, [first, last, snapshot, items, hideTip])
 
   // The fill travels between files (see row-slider.tsx). The list is
   // virtualized, so the mounted window is part of what can move the row.
@@ -232,6 +261,10 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       return changed ? next : prev
     })
   }, [snapshot])
+
+  // Collapsed directories belong to one checkout: another repository has its
+  // own tree, and a stale path would hide a directory the reader never folded.
+  useEffect(() => { setCollapsedDirs(new Set()) }, [snapshot.root])
 
   // Prefill amend message from the last commit when the box is toggled on empty.
   useEffect(() => {
@@ -325,6 +358,13 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     if (discardPickedOpen && discardTargets.paths.length === 0) setDiscardPickedOpen(false)
   }, [discardPickedOpen, discardTargets])
 
+  // A directory whose rows all left the work tree closes its dialog; a partial
+  // shrink does not, it just narrows the re-derived path list below — the
+  // count the reader confirms is never larger than the action.
+  useEffect(() => {
+    if (discardDir !== null && discardDirPaths.length === 0) setDiscardDir(null)
+  }, [discardDir, discardDirPaths])
+
   // Keyed by selection key (`path:s`/`path:w`), not by bare path: the same path
   // can be picked on both sides and the two rows must toggle independently.
   const toggle = (key: string): void => {
@@ -339,6 +379,26 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // every row is already picked). The pure toggle lives in selection-keys.
   const toggleGroupPick = (items: readonly GitChange[]): void => {
     setSelected((prev) => toggleGroupKeys(prev, items))
+  }
+
+  // Directory collapse state survives a snapshot (the tree rarely changes shape
+  // between polls) but not a repository switch — see the reset effect above.
+  const toggleDir = (group: ChangeGroupKey, path: string): void => {
+    const key = dirKey(group, path)
+    setCollapsedDirs((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
+  const pickView = (next: ChangeViewMode): void => {
+    if (next === viewMode) return
+    const prev = viewMode
+    setViewMode(next)
+    // The write round-trips through the settings service; a failure falls back
+    // to the last value the snapshot actually carries.
+    void onSetChangesView(next).then((ok) => { if (!ok) setViewMode(prev) })
   }
 
   const run = async (action: GitAction): Promise<boolean> => {
@@ -406,6 +466,15 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     if (paths.length === 0) { setDiscardPickedOpen(false); return }
     const ok = await run({ kind: 'discard', paths })
     if (ok) setDiscardPickedOpen(false)
+  }
+  // Directory discard: the dialog already collected the confirmation, so this
+  // is the ordinary batch discard scoped to that directory's work-tree rows —
+  // the list is re-derived above, so it is current by construction.
+  const discardDirectory = async (): Promise<void> => {
+    const paths = discardDirPaths
+    if (discardDir === null || paths.length === 0) { setDiscardDir(null); return }
+    const ok = await run({ kind: 'discard', paths })
+    if (ok) setDiscardDir(null)
   }
 
   // "Expand all": ask the controller to lift the host list cap and re-sample.
@@ -482,7 +551,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     }
   }
 
-  const toggleGroup = (key: GroupKey): void => {
+  const toggleGroup = (key: ChangeGroupKey): void => {
     setClosed((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key); else next.add(key)
@@ -627,6 +696,43 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     { n: snapshot.changes.length },
   )
 
+  // One context for the row dispatch: the tab owns selection, dialogs, queries
+  // and the fold state; the row file owns how each row kind presents them.
+  const rowCtx: ChangeRowCtx = {
+    showDir: viewMode === 'flat',
+    selected,
+    activePath: diffPath?.path ?? null,
+    activeBase: diffPath?.base ?? null,
+    busy,
+    armedDiscard,
+    t,
+    tipProps,
+    hideTip,
+    showTipNow,
+    onToggleGroup: toggleGroup,
+    onToggleDir: toggleDir,
+    onPick: toggleGroupPick,
+    onToggleRow: toggle,
+    onOpenRow: openDiff,
+    onStageRow: (c) => { void run(c.staged ? { kind: 'unstage', paths: [c.path] } : { kind: 'stage', paths: [c.path] }) },
+    onDiscardRow: (rowKey, detail) => {
+      // Two presses confirm. A double click delivers its second press with
+      // `detail > 1` inside one gesture, and that press must not count as the
+      // confirmation — for an untracked path it deletes the file. A deliberate
+      // second click always reports detail 1.
+      if (detail > 1) return false
+      if (armedDiscard === rowKey) {
+        void run({ kind: 'discard', paths: [pathOfKey(rowKey)] })
+        setArmedDiscard(null)
+        return false
+      }
+      setArmedDiscard(rowKey)
+      return true
+    },
+    onStageDir: (action) => { void run(action) },
+    onOpenDirDiscard: (group, path) => { setError(null); setDiscardDir({ group, path }) },
+  }
+
   const leftChildren = [
     // The same docked list the overview shows (one shared collapse state), so
     // switching repositories is one click away from this pane too.
@@ -634,7 +740,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     h(ChangeStats, { key: 'stats', stats: snapshot.stats, compact, showTimes: !cramped, t }),
     h(ChangesToolbar, {
       key: 'toolbar', snapshot, busy, hasDiscardTargets: discardTargets.paths.length > 0,
-      stageTargets,
+      stageTargets, viewMode, onPickView: pickView,
       onStagePicked: (paths) => { if (paths.length > 0) void run({ kind: 'stage', paths: [...paths] }) },
       onStageAll: () => void run({ kind: 'stage-all' }),
       onUnstageAll: () => void run({ kind: 'unstage-all' }),
@@ -674,90 +780,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       snapshot.changes.length === 0
         ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
         : h('div', { className: 'gp-changes__vlist', style: { height: totalH } },
-          items.slice(first, last).map((it, k) => {
-            const idx = first + k
-            if (it.kind === 'head') {
-              const g = it.g
-              // A group kept only for its full count (every row fell past the cap)
-              // has nothing to toggle: render a static head instead of a chevron
-              // that silently does nothing.
-              // The head checkbox picks the whole group (or clears it when all
-              // rows are already picked); its press must not also collapse the
-              // group, so it stops propagation.
-              const pick = groupPickState(selected, it.items)
-              return h('div', {
-                key: `h:${g.key}`, className: 'gp-changes__vrow', style: { top: tops[idx], height: VHEAD_H },
-              }, h('div', {
-                className: `gp-group-head${g.collapsible ? '' : ' gp-group-head--static'}`,
-                ...(g.collapsible ? { onClick: () => toggleGroup(g.key) } : {}),
-              }, [
-                g.collapsible
-                  ? h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) })
-                  : h('span', { key: 'chev', className: 'gp-group-head__chev-spacer' }),
-                // Hidden while the group is truncated past the list cap: the
-                // head count comes from the full stats but only the prefix is
-                // loaded, so a select-all would read as checked while covering
-                // just those rows. Expanding the list restores the checkbox.
-                it.items.length > 0 && it.items.length >= g.count
-                  ? h('span', {
-                    key: 'pick', className: 'gp-group-head__pick',
-                    onClick: (e: Event) => e.stopPropagation(),
-                  }, h('input', {
-                    type: 'checkbox', className: 'gp-check',
-                    checked: pick === 'all',
-                    // `indeterminate` is not in React's DOM property table — a
-                    // JSX prop would land as a content attribute, which never
-                    // sets the IDL property. The ref sets it directly; the
-                    // inline identity is load-bearing (React re-runs a callback
-                    // ref only when the function identity changes), so do not
-                    // wrap it in useCallback.
-                    ref: (el: HTMLInputElement | null) => { if (el !== null) el.indeterminate = pick === 'partial' },
-                    disabled: busy,
-                    'aria-label': t('changes.selectAllGroup', { group: t(g.labelKey) }),
-                    onChange: () => toggleGroupPick(it.items),
-                  }))
-                  : null,
-                `${t(g.labelKey)} (${g.count})`,
-              ]))
-            }
-            // A path staged AND modified appears in two rows; key selection /
-            // active / armed by path+side so acting on one row doesn't light up
-            // the other.
-            const c = it.c
-            const rowKey = changeKey(c)
-            // The diff query names the side with its own vocabulary; spell the
-            // mapping once for the row instead of twice inside the props below.
-            const base = c.staged ? 'staged' : 'worktree'
-            return h('div', {
-              key: rowKey, className: 'gp-changes__vrow', style: { top: tops[idx], height: VROW_H },
-            }, renderFileRow(c, {
-              selected: selected.has(rowKey),
-              active: diffPath?.path === c.path && diffPath.base === base,
-              busy,
-              armed: armedDiscard === rowKey,
-              onToggle: () => toggle(rowKey),
-              onOpen: () => openDiff(c.path, base),
-              onStage: () => void run(c.staged ? { kind: 'unstage', paths: [c.path] } : { kind: 'stage', paths: [c.path] }),
-              // Two presses confirm. A double click delivers its second press
-              // with `detail > 1` inside one gesture, and that press must not
-              // count as the confirmation — for an untracked path it deletes the
-              // file. A deliberate second click always reports detail 1.
-              onDiscard: (detail: number) => {
-                if (detail > 1) return false
-                if (armedDiscard === rowKey) {
-                  void run({ kind: 'discard', paths: [c.path] })
-                  setArmedDiscard(null)
-                  return false
-                }
-                setArmedDiscard(rowKey)
-                return true
-              },
-              tipProps,
-              hideTip,
-              showTipNow,
-              t,
-            }))
-          })),
+            items.slice(first, last).map((it, k) => renderChangeRow(it, rowCtx, tops[first + k]))),
     ]),
     // Truncation control: expand lifts the host list cap (fullChanges mode,
     // kept for the controller's lifetime so the next poll does not re-truncate
@@ -853,6 +876,24 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         error,
         onConfirm: () => void discardPicked(),
         onClose: () => setDiscardPickedOpen(false),
+        t,
+      })
+      : null,
+    // A directory's discard reuses that dialog: same counts, same untracked
+    // warning, only the title names the scope instead of "selected changes".
+    // The paths are re-derived every render, so the count the dialog shows is
+    // exactly what confirming sends.
+    discardDir !== null && discardDirPaths.length > 0
+      ? h(DiscardPickedModal, {
+        key: 'discard-dir',
+        title: t('changes.discardDirTitle', { name: discardDir.path }),
+        paths: discardDirPaths,
+        stagedOnly: [],
+        snapshot,
+        busy,
+        error,
+        onConfirm: () => void discardDirectory(),
+        onClose: () => setDiscardDir(null),
         t,
       })
       : null,

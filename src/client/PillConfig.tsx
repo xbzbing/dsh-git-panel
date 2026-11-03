@@ -18,7 +18,7 @@ import { effortForModel, modelForProvider } from './model-route.js'
 import { selectTrigger } from './select-trigger.js'
 import { gitPanelRemoteOf, queryAs } from './rpc.js'
 import type { ClientCtx, ConfigFormsFace } from './rpc.js'
-import type { FontDelta, GitPanelPlacement, GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
+import type { ChangesViewMode, FontDelta, GitPanelPlacement, GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
 import { EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
 import type { GitKey } from './locales.js'
 
@@ -83,6 +83,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pending, setPending] = useState<boolean | null>(null)
   const [pendingPlacement, setPendingPlacement] = useState<GitPanelPlacement | null>(null)
   const [pendingView, setPendingView] = useState<DiffView | null>(null)
+  const [pendingChangesView, setPendingChangesView] = useState<ChangesViewMode | null>(null)
   const [pendingGraph, setPendingGraph] = useState<GraphStyle | null>(null)
   const [pendingFont, setPendingFont] = useState<FontDelta | null>(null)
   const [pendingSuggest, setPendingSuggest] = useState<boolean | null>(null)
@@ -140,6 +141,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const checked = pending ?? (typeof snap?.value?.showInputPill === 'boolean' ? (snap.value.showInputPill as boolean) : true)
   const placement: GitPanelPlacement = pendingPlacement ?? normalizePlacement(snap?.value?.placement)
   const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
+  const changesView: ChangesViewMode = pendingChangesView ?? (snap?.value?.changesView === 'tree' ? 'tree' : 'flat')
   const graphStyle: GraphStyle = pendingGraph ?? (snap?.value?.graphStyle === 'compact' ? 'compact' : 'parallel')
   const fontDelta: FontDelta = pendingFont
     ?? (snap?.value?.fontDelta === -1 || snap?.value?.fontDelta === 1 ? (snap.value.fontDelta as FontDelta) : 0)
@@ -242,6 +244,12 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     if (next === diffView) return Promise.resolve()
     setPendingView(next)
     return commitField('defaultDiffView', next, () => setPendingView(null))
+  }
+
+  const setChangesView = (next: ChangesViewMode): Promise<void> => {
+    if (next === changesView) return Promise.resolve()
+    setPendingChangesView(next)
+    return commitField('changesView', next, () => setPendingChangesView(null))
   }
 
   const setGraph = (next: GraphStyle): Promise<void> => {
@@ -525,6 +533,13 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         segButtons<DiffView>(['unified', 'split'], diffView, (v) => { void setView(v) },
           (v) => t(v === 'unified' ? 'cfg.diffUnified' : 'cfg.diffSplit'), busy || snap?.writable === false)),
       h('p', { key: 'diffhint', className: 'gp-cfg__hint' }, t('cfg.diffHint')),
+    ]),
+    field('changesview', [
+      h('h3', { key: 'cvtitle', className: 'gp-cfg__title' }, t('changes.view')),
+      h('div', { key: 'cvseg', className: 'gp-seg gp-cfg__seg' },
+        segButtons<ChangesViewMode>(['flat', 'tree'], changesView, (v) => { void setChangesView(v) },
+          (v) => t(v === 'flat' ? 'changes.viewFlat' : 'changes.viewTree'), busy || snap?.writable === false)),
+      h('p', { key: 'cvhint', className: 'gp-cfg__hint' }, t('cfg.changesViewHint')),
     ]),
     field('graph', [
       h('h3', { key: 'graphtitle', className: 'gp-cfg__title' }, t('cfg.graphTitle')),

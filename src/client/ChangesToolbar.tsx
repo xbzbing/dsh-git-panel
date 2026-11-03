@@ -2,8 +2,8 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitKey } from './locales.js'
-import type { GitSnapshot } from './types.js'
-import { RefreshIcon, StageAllIcon, StagePickedIcon, StashIcon, TrashAllIcon, TrashIcon, UnstageAllIcon, UploadIcon } from './icons.js'
+import type { ChangesViewMode, GitSnapshot } from './types.js'
+import { ListIcon, RefreshIcon, StageAllIcon, StagePickedIcon, StashIcon, TrashAllIcon, TrashIcon, TreeIcon, UnstageAllIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { pushIntent } from './push-policy.js'
 
@@ -13,6 +13,9 @@ interface ChangesToolbarProps {
   readonly hasDiscardTargets: boolean
   /** Working-tree paths behind the checked rows; empty when nothing stageable is picked. */
   readonly stageTargets: readonly string[]
+  /** Current changes-list presentation; the tail switch icon flips it. */
+  readonly viewMode: ChangesViewMode
+  readonly onPickView: (view: ChangesViewMode) => void
   readonly onStagePicked: (paths: readonly string[]) => void
   readonly onStageAll: () => void
   readonly onUnstageAll: () => void
@@ -62,6 +65,23 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     ...(key === 'refresh' ? { 'aria-busy': refreshing } : {}),
     onClick: () => { hideTip(); onClick() },
   }, h('span', { 'aria-hidden': true }, icon)))
+  // The list's presentation switch sits at the tail as one icon showing the view
+  // in use (a list for flat, indented lines for tree); a click flips to the
+  // other. It never disables with `busy`: it only changes how rows are laid out,
+  // not the work tree. The container query in css/changes.ts takes it out of the
+  // bar when the bar is compressed, so the actions keep their one row.
+  const nextView: ChangesViewMode = props.viewMode === 'tree' ? 'flat' : 'tree'
+  const viewName = (mode: ChangesViewMode): string => t(mode === 'tree' ? 'changes.viewTree' : 'changes.viewFlat')
+  // The name states both the state and the action: the glyph alone cannot say
+  // whether it is the current view or the one a click brings.
+  const viewLabel = t('changes.viewSwitch', { current: viewName(props.viewMode), next: viewName(nextView) })
+  const viewToggle = h(TipWrapper, { key: 'view', tipProps: tipProps(viewLabel), className: 'gp-changes__viewslot' }, h('button', {
+    type: 'button',
+    className: 'gp-icon-btn gp-changes__viewbtn',
+    'aria-label': viewLabel,
+    'data-view': props.viewMode,
+    onClick: () => { hideTip(); props.onPickView(nextView) },
+  }, h('span', { 'aria-hidden': true }, props.viewMode === 'tree' ? h(TreeIcon, { size: 16 }) : h(ListIcon, { size: 16 }))))
   return h('div', { className: 'gp-toolbar gp-changes__toolbar', role: 'group', 'aria-label': t('changes.actions') }, [
     // Stages only the checked working-tree rows — the batch form of each row's
     // own "+" (issue #82). Unavailable until a stageable row is picked, and
@@ -76,6 +96,7 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     button('stash', 'changes.stash', h(StashIcon, { size: 16 }), snapshot.staged === 0 && snapshot.modified === 0, props.onStash),
     button('push', remoteLabel, h(UploadIcon, { size: 16 }), intent === null, remoteAction, '', remoteTip),
     button('refresh', 'changes.refresh', h(RefreshIcon, { size: 16 }), false, () => void refresh(), refreshing ? ' gp-changes__refresh--busy' : ''),
+    viewToggle,
     tipNode,
   ])
 }
