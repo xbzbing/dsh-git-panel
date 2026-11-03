@@ -318,8 +318,6 @@ export const es: Record<GitKey, string> = {
   'commit.suggesting': 'Generando…',
   'commit.suggestOverwrite': 'Haga clic de nuevo en «Sugerir con AI» para reemplazar el mensaje actual',
   'commit.suggestTruncated': 'Las diferencias se truncaron; la sugerencia puede estar incompleta',
-  'commit.publish': 'Publicar rama',
-  'commit.publishTitle': 'El remoto aún no tiene esta rama: crea una rama remota con el mismo nombre y la establece como upstream (git push -u)',
   'diff.unified': 'Unificada',
   'diff.split': 'En paralelo',
   'diff.before': 'Antes',

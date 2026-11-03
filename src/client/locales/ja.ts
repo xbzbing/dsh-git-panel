@@ -317,8 +317,6 @@ export const ja: Record<GitKey, string> = {
   'commit.suggesting': '生成中…',
   'commit.suggestOverwrite': 'もう一度「AI 生成」をクリックすると現在のメッセージを置き換えます',
   'commit.suggestTruncated': '差分が長すぎるため切り詰めました。提案が不完全な可能性があります',
-  'commit.publish': 'ブランチの公開',
-  'commit.publishTitle': 'リモートにはまだこのブランチがありません：同名のリモートブランチを作成してアップストリームに設定します（git push -u）',
   'diff.unified': '統合',
   'diff.split': '並列',
   'diff.before': '変更前',

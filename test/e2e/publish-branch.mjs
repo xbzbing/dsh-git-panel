@@ -6,8 +6,7 @@
  * anything, and that is exactly the moment a user wants a "publish" entry. Both
  * surfaces must offer it:
  *   - the overview status bar button (publish replaces push),
- *   - the changes page: a VSCode-style "Publish Branch" strip above the commit
- *     editor, plus the toolbar upload icon, which switches intent instead of
+ *   - the changes page toolbar upload icon, which switches intent instead of
  *     sitting there disabled.
  *
  * Also pins the states that must NOT publish: detached HEAD, an unborn repo
@@ -129,19 +128,20 @@ async function counts(page) {
   }))
 }
 
-/** The changes page: toolbar intent + the VSCode-style publish strip. */
+/** The changes page: the toolbar upload icon is its only publish entry. */
 async function changesPageScenario() {
   const page = await openPanel(LOCAL_ONLY)
-  // The strip sits above the commit editor; the toolbar icon carries the intent.
-  assert.equal(await page.locator('.gp-publishbar__btn').count(), 1, 'a local-only branch shows the publish strip')
-  assert.equal(await page.locator('.gp-publishbar__btn').textContent(), '发布分支', 'the strip carries the VSCode-style label')
+  // One entry on this page: the upload icon switches intent instead of sitting
+  // disabled. The old full-width "Publish Branch" strip above the commit editor
+  // is gone — two controls for one action read as two different actions.
+  assert.equal(await page.locator('.gp-publishbar').count(), 0, 'no publish strip above the commit editor')
   assert.equal(await page.locator('.gp-changes__push').isEnabled(), true, 'the toolbar upload icon offers publish instead of sitting disabled')
   assert.equal(await page.locator('.gp-changes__push').getAttribute('aria-label'), '发布分支并设置上游', 'the toolbar icon is named for the publish intent')
-  // Tip/aria and the strip are the same intent; no push-only wording leaks in.
+  // Tip/aria state the publish intent; no push-only wording leaks in.
   assert.ok(!/推送本地提交到远程/.test(await page.locator('.gp-changes__push').getAttribute('aria-label') ?? ''), 'publish does not read as push')
 
-  // The strip opens the shared confirm dialog.
-  await page.locator('.gp-publishbar__btn').click()
+  // The icon opens the shared confirm dialog.
+  await page.locator('.gp-changes__push').click()
   await page.locator('.gp-modal--sm').waitFor()
   const dialog = await page.locator('.gp-modal--sm').evaluate((modal) => ({
     title: modal.querySelector('.gp-modal__path').textContent,
@@ -157,16 +157,9 @@ async function changesPageScenario() {
   await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
   assert.deepEqual((await counts(page)).actions, [], 'cancelling publishes nothing')
 
-  // Cancelling from the toolbar path opens the same dialog.
-  await page.locator('.gp-changes__push').click()
-  await page.locator('.gp-modal--sm').waitFor()
-  assert.equal(await page.locator('.gp-modal__path').textContent(), '发布分支到远程', 'both entries share one dialog')
-  await page.keyboard.press('Escape')
-  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
-
   // A double click on confirm must reach the wire exactly once, and the panel
   // locks while it is in flight.
-  await page.locator('.gp-publishbar__btn').click()
+  await page.locator('.gp-changes__push').click()
   await page.locator('.gp-modal__footer .gp-btn--primary').waitFor()
   await page.evaluate(() => { window.__gpFixture.holdPublish = true })
   await page.locator('.gp-modal__footer .gp-btn--primary').evaluate((button) => { button.click(); button.click() })
@@ -175,7 +168,7 @@ async function changesPageScenario() {
   assert.equal(await page.locator('.gp-modal__overlay-label').textContent(), '发布中…')
   assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isDisabled(), true, 'busy confirm disabled')
   assert.equal(await page.locator('.gp-modal__close').isDisabled(), true, 'busy close disabled')
-  assert.equal(await page.locator('.gp-publishbar__btn').isDisabled(), true, 'the strip locks while publishing')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'the toolbar control locks while publishing')
   assert.equal(await page.evaluate(() => window.__gpFixture.publishCalls), 1, 'busy guard prevents duplicate publishes')
   await page.evaluate(() => {
     window.__gpFixture.holdPublish = false
@@ -184,14 +177,17 @@ async function changesPageScenario() {
   await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
   assert.deepEqual((await counts(page)).actions, ['publish'], 'confirm sends exactly one publish action')
   assert.equal(await page.evaluate(() => window.__gpFixture.actions[0].remote), 'origin', 'the action carries the primary remote name')
-  assert.equal(await page.locator('.gp-publishbar__btn').count(), 0, 'the strip disappears once the branch has an upstream')
+  // The branch has an upstream now and nothing to send, so the same control
+  // reads as push and is unavailable: publish is gone from this page.
+  assert.equal(await page.locator('.gp-changes__push').getAttribute('aria-label'), '推送本地提交到远程', 'the toolbar icon falls back to push once the branch has an upstream')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'a synced branch has no remote write to offer')
   await page.close()
 }
 
 /** A refusal stays inside the open dialog and can be retried. */
 async function publishFailureScenario() {
   const page = await openPanel(LOCAL_ONLY)
-  await page.locator('.gp-publishbar__btn').click()
+  await page.locator('.gp-changes__push').click()
   await page.locator('.gp-modal--sm').waitFor()
   await page.evaluate(() => { window.__gpFixture.publishFailure = { code: 'auth-failed' } })
   await page.locator('.gp-modal__footer .gp-btn--primary').click()
@@ -203,7 +199,7 @@ async function publishFailureScenario() {
   )
   assert.equal(await page.locator('.gp-modal__overlay').count(), 0, 'a failed publish unlocks the dialog')
   assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isEnabled(), true, 'a failed publish can be retried')
-  assert.equal(await page.locator('.gp-publishbar__btn').isDisabled(), false, 'the strip unlocks again')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), false, 'the toolbar control unlocks again')
   await page.close()
 }
 
@@ -218,7 +214,6 @@ async function unavailableScenario() {
   for (const [state, patch] of cases) {
     const page = await openPanel(LOCAL_ONLY)
     await feed(page, patch, '.gp-changes__refresh')
-    assert.equal(await page.locator('.gp-publishbar__btn').count(), 0, `${state}: no publish strip`)
     assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, `${state}: the upload icon is unavailable`)
     await page.close()
   }

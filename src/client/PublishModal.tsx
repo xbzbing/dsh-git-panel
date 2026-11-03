@@ -16,8 +16,8 @@ export interface PublishModalProps {
 /**
  * Confirm publishing a branch that exists only locally: `git push -u <remote>
  * HEAD` creates the same-named branch on the remote and sets it as upstream.
- * Shared by the overview status bar and the changes page so both entry points
- * carry one dialog (copy, scope guard, busy lock) instead of two.
+ * Shared by the overview status bar and the changes page toolbar so both entry
+ * points carry one dialog (copy, scope guard, busy lock) instead of two.
  *
  * Mount only while open. A changed repository / branch / HEAD invalidates the
  * confirmation: the branch it would publish is no longer the one the user saw.

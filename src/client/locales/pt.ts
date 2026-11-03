@@ -318,8 +318,6 @@ export const pt: Record<GitKey, string> = {
   'commit.suggesting': 'Gerando…',
   'commit.suggestOverwrite': 'Clique em "Sugestão da AI" novamente para substituir a mensagem atual',
   'commit.suggestTruncated': 'As diferenças foram truncadas; a sugestão pode estar incompleta',
-  'commit.publish': 'Publicar Branch',
-  'commit.publishTitle': 'O remoto ainda não tem esse branch: cria um branch remoto com o mesmo nome e o define como upstream (git push -u)',
   'diff.unified': 'Unificado',
   'diff.split': 'Lado a lado',
   'diff.before': 'Antes',

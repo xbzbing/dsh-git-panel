@@ -318,8 +318,6 @@ export const fr: Record<GitKey, string> = {
   'commit.suggesting': 'Génération…',
   'commit.suggestOverwrite': 'Cliquez à nouveau sur « Suggérer (AI) » pour remplacer le message actuel',
   'commit.suggestTruncated': 'Les différences ont été tronquées ; la suggestion peut être incomplète',
-  'commit.publish': 'Publier la branche',
-  'commit.publishTitle': 'Cette branche n’existe pas encore sur le distant : créer une branche distante du même nom et la définir comme amont (git push -u)',
   'diff.unified': 'Unifié',
   'diff.split': 'Côte à côte',
   'diff.before': 'Avant',

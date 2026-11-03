@@ -58,14 +58,6 @@ export const CSS = `
 .gp-stash-row__meta{display:flex;gap:8px;font-size:10px;color:var(--dsw-alias-label-tertiary)}
 .gp-stash-row__actions{flex:none;display:flex;align-items:center;gap:4px}
 
-/* Publish strip above the commit editor: shown only while the branch exists
- * solely on the local side, so a fresh local branch still has a visible way
- * onto the remote (issue #63). Mirrors VSCode's "Publish Branch" affordance —
- * a full-width primary action directly above the commit message field. */
-.gp-publishbar{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px}
-.gp-publishbar__btn{width:100%;justify-content:center}
-.gp-panel[data-layout="compact"] .gp-publishbar__btn{height:30px}
-
 /* commit hover card (middle column): pointer-anchored, lists changed files */
 .gp-hovercard{position:fixed;z-index:70;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 8px 28px rgba(0,0,0,.2),0 1px 3px rgba(0,0,0,.12);font-size:12px;pointer-events:none;max-height:60vh;overflow:hidden;display:flex;flex-direction:column}
 .gp-hovercard__subject{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px;white-space:normal;word-break:break-word;overflow-wrap:anywhere}

@@ -338,10 +338,6 @@ export const zh = {
   'commit.suggesting': '生成中…',
   'commit.suggestOverwrite': '再次点击「AI 生成」以覆盖当前提交信息',
   'commit.suggestTruncated': 'diff 过长已截断，生成的建议可能不完整',
-  // Publish entry beside the commit box: the branch exists only locally, so the
-  // remote write is "create it there" (push -u) rather than a plain push.
-  'commit.publish': '发布分支',
-  'commit.publishTitle': '远程还没有这个分支：创建同名远程分支并设为上游（git push -u）',
   // diff
   'diff.unified': '统一',
   'diff.split': '对照',
@@ -861,8 +857,6 @@ export const en: Record<GitKey, string> = {
   'commit.suggesting': 'Generating…',
   'commit.suggestOverwrite': 'Click "AI suggest" again to replace the current message',
   'commit.suggestTruncated': 'The diff was truncated; the suggestion may be incomplete',
-  'commit.publish': 'Publish Branch',
-  'commit.publishTitle': 'The remote has no such branch yet: create a same-named remote branch and set it as upstream (git push -u)',
   'diff.unified': 'Unified',
   'diff.split': 'Split',
   'diff.before': 'Before',

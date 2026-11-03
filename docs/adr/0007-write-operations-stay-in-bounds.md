@@ -1,6 +1,6 @@
 # ADR-0007：写操作不越权：push / pull / publish / 检出
 
-- 状态：Accepted（2026-10-18，迁移自现有实现；2026-10-19 补充 publish 的可用条件与双入口，issue #63）
+- 状态：Accepted（2026-10-18，迁移自现有实现；2026-10-19 补充 publish 的可用条件与双入口，issue #63；2026-11-04 变更页入口收敛为工具栏上传图标）
 - 相关：`src/client/push-policy.ts`、`src/host/actions.ts`、`src/client/overview-statusbar.tsx`、`src/client/ChangesToolbar.tsx`、`src/client/PublishModal.tsx`
 
 ## Context
@@ -16,7 +16,7 @@
 - **绝不直接检出远程引用**：`branch-checkout` 带 `createFrom`（如 `origin/x`）时落为同名本地分支并设置跟踪（`git checkout -b x --track origin/x`），避免游离 HEAD。
 - **publish 的 `HEAD`、pull-preview 的 `@{upstream}` 是固定字面量**，不接受来自 RPC 的拼接；remote 名来自 client 已持有的 primary remote，host 侧再校验一次。
 - 这些策略在 client 与 host 两侧都有实现：`push-policy.ts` 的 `pushIntent`（`canPush` / `canPublish` 二选一，绝不并存）决定每个上传按钮的意图与可用性，被总览状态栏与变更页工具栏共用；host 侧不依赖 UI 的自律——请求不合规时照样拒绝。
-- **publish 的可用条件**（issue #63）：当前分支**只存在于本地**（无上游、HEAD 在分支上、至少有一个提交、存在远程）即提供 publish——在远程创建同名分支不可能覆盖任何东西，无需领先/落后对账；两个入口——总览状态栏按钮、变更页提交框上方的「发布分支」条——共用同一个 `PublishModal` 二次确认。游离 HEAD 或尚无提交时 git 无法从 `HEAD` 推出远程目标名，host 以 `no-branch` 拒绝而不是把 git 的 refspec 提示漏给用户；`canPublish` 也让这两个状态在 UI 上根本不出现该入口。
+- **publish 的可用条件**（issue #63）：当前分支**只存在于本地**（无上游、HEAD 在分支上、至少有一个提交、存在远程）即提供 publish——在远程创建同名分支不可能覆盖任何东西，无需领先/落后对账；两个入口——总览状态栏按钮、变更页工具栏的上传图标——共用同一个 `PublishModal` 二次确认。游离 HEAD 或尚无提交时 git 无法从 `HEAD` 推出远程目标名，host 以 `no-branch` 拒绝而不是把 git 的 refspec 提示漏给用户；`canPublish` 也让这两个状态在 UI 上根本不出现该入口。
 - 破坏性本地操作（discard、reset、stash-drop、删除标签、带贮藏的分支切换）必须二次确认；硬重置还要列出将丢失的改动并额外勾选。
 
 ## Consequences

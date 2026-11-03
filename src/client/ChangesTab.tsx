@@ -13,9 +13,8 @@ import { useGitQuerySignal } from './registry.js'
 import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types.js'
 import type { GitKey } from './locales.js'
 import { ChangeStats } from './ChangeStats.js'
-import { canPublish } from './push-policy.js'
 import { diffSummary, type DiffMode } from './DiffView.js'
-import { ChevronIcon, CloseIcon, SparkleIcon, UploadIcon } from './icons.js'
+import { ChevronIcon, CloseIcon, SparkleIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { renderConfirmModal } from './ops-modals.js'
 import { StashPushModal, renderChangeRow, renderStashRow, type ChangeRowCtx } from './changes-rows.js'
@@ -675,19 +674,6 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       }, t('commit.commit')),
     ])
 
-  // VSCode-style "Publish Branch" strip: the branch exists only locally, so
-  // there is no upstream to push to yet. Rendered above the commit editor where
-  // the eye lands right after committing, and kept out of the way whenever the
-  // branch can be pushed normally (or has nowhere to go).
-  const publishBar = canPublish(snapshot)
-    ? h('div', { key: 'publishbar', className: 'gp-publishbar' }, h('button', {
-      type: 'button', className: 'gp-btn gp-btn--primary gp-publishbar__btn',
-      disabled: busy,
-      title: t('commit.publishTitle'),
-      onClick: () => { hideTip(); setPublishOpen(true) },
-    }, [h(UploadIcon, { key: 'ic', size: 13 }), t('commit.publish')]))
-    : null
-
   const collapsedNotice = t('changes.untrackedCollapsed')
   const truncatedNotice = t(
     snapshot.truncatedReason === 'lossy'
@@ -825,7 +811,6 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         t,
       }))),
     ]) : null,
-    publishBar,
     commitBox,
   ]
 

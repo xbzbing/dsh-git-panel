@@ -318,8 +318,6 @@ export const ru: Record<GitKey, string> = {
   'commit.suggesting': 'Генерация…',
   'commit.suggestOverwrite': 'Нажмите «AI-сообщение» ещё раз, чтобы заменить текущее сообщение',
   'commit.suggestTruncated': 'Различия были обрезаны; предложение может быть неполным',
-  'commit.publish': 'Опубликовать ветвь',
-  'commit.publishTitle': 'На удалённом репозитории такой ветви ещё нет: создать одноимённую удалённую ветвь и назначить её вышестоящей (git push -u)',
   'diff.unified': 'Единый',
   'diff.split': 'Рядом',
   'diff.before': 'До',
