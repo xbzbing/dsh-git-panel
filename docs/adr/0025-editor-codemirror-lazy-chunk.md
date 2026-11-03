@@ -18,7 +18,7 @@
 - 采用 CodeMirror 6，打进第二个懒加载 chunk `lib/client.editor.js`（注册 `chunk: "client.editor.js"`），与 mermaid chunk 同一包装（ADR-0004）。**主 bundle 只有 `FileEditor.tsx` 里一个 `require.async('./client.editor.js')` 引用点**；CodeMirror、`@lezer/*` 与 `yaml` 只能被 `editor-chunk.ts` / `yaml-check.ts` 导入，由 `architecture.test.mjs` 与 `scripts/assert-pack.mjs` 把住。
 - 依赖 pin 精确版本进 devDependencies：`@codemirror/state` `view` `commands` `language` `search` `lang-json` `lang-xml` `lang-markdown` `lang-yaml` `legacy-modes`、`@lezer/highlight`、`yaml`。
 - 扩展集只取行号、撤销历史、输入时缩进、括号匹配、当前行高亮、选中匹配、查找面板、自动换行与语言包；不要自动补全、括号自动闭合、折叠。Markdown 只用 `markdownLanguage`，不调 `markdown()`：后者会带进 HTML / CSS / JS 语法与标签补全。
-- 语言映射：`json` / `xml` / `md` / `yaml` 用各自的语言包；`toml` 与 `properties` / `ini` / `cfg` / `.editorconfig` / `.env` 用 `legacy-modes` 的 toml 与 properties 模式；`txt` / `conf` / `.gitignore` / `.gitattributes` 为纯文本。
+- 语言映射：`json` / `xml` / `md` / `yaml` 用各自的语言包；`toml` 与 `properties` / `ini` / `cfg` / `.editorconfig` / `.env` 及未自带格式扩展名的 `.env.*` 变体（`.env.local`）用 `legacy-modes` 的 toml 与 properties 模式，`.env.json` / `.env.yaml` 仍按各自扩展名走语言包；`txt` / `conf` / `.gitignore` / `.gitattributes` 为纯文本。
 - 配色只用宿主变量：编辑器外观用 `--dsw-alias-*`，语法色用 `--shiki-token-*`，与只读源码视图同一套颜色。
 - YAML 的保存前检查用 `yaml` 包的 `parseAllDocuments`，只看 `errors`，不看 `warnings`：CloudFormation 的 `!Ref` 一类自定义标签只产生 warning。它在 chunk 里，因为能点保存时 chunk 一定已加载。JSON 用自写的 RFC 8259 扫描定位第一处错误（V8 的 `JSON.parse` 报错常常不带位置），XML 用浏览器 `DOMParser`，都留在主 bundle 的纯模块 `edit-buffer.ts` 里。
 - 键盘：Tab / Shift+Tab 缩进（`indentWithTab`，先按 Esc 再按 Tab 可移出编辑器），Ctrl/Cmd+S 保存，Esc 不退出编辑态。

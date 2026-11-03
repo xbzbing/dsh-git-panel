@@ -62,7 +62,7 @@ Host 半 (Cordis + typert, lib/host)
 - git 命令一律用 argv 数组经 subprocess 执行，禁止拼接 shell 字符串；cwd 锁仓库根，带超时与输出上限。
 - 经 RPC 到来的 path / ref / 分支名 / 标签名 / remote 名是唯一不可信的 argv 素材，必须先过 `validate.ts`（`isSafePath` / `isSafeRev` / `isSafeBranchName` / `isSafeRemoteName`）；子命令支持时再用 `--end-of-options` 殿后。`checkout` / `reset` 不认该选项（旧 git 会直接失败），只靠校验兜底。贮藏 index 在 `actions.ts` 校验为非负整数。
 - `dir-list` / `file-content` / `writeFile` / 未跟踪文件删除是插件唯一直接触碰工作区文件内容的入口：`isSafePath` + realpath 包含检查，软链指向仓库外一律拒，`.git` 不可浏览。
-- 编辑写盘（ADR-0024）：白名单只在 `types.ts`（`EDITABLE_EXTENSIONS` / `EDITABLE_FILENAMES` / `isEditablePath`）单源，**`.env.` 前缀必须在查扩展名之前排除**（否则 `.env.json` 借扩展名通过）；请求路径与 realpath 的文件名都要命中；保存一律是 `baseSha256` 比对写，「仍然覆盖」也只是换成冲突响应里的 `currentSha256` 再比对一次，**不存在无条件写入**；写入走同目录 `wx` 临时文件 + `rename`，失败必须删掉临时文件（`EEXIST` 除外：那个条目不是自己的）；`rename` 只要求目录可写，所以读写两侧都要先查文件本身可写（`read-only`）；写盘错误只回 errno 码，系统原文含绝对路径。
+- 编辑写盘（ADR-0024）：白名单只在 `types.ts`（`EDITABLE_EXTENSIONS` / `EDITABLE_FILENAMES` / `isEditablePath`）单源，**`.env` 按完整文件名、`.env.*` 变体按 `.env.` 前缀命中**（`.env.local` 无白名单扩展名也放行，`.env.json` 不靠扩展名判断）；请求路径与 realpath 的文件名都要命中；保存一律是 `baseSha256` 比对写，「仍然覆盖」也只是换成冲突响应里的 `currentSha256` 再比对一次，**不存在无条件写入**；写入走同目录 `wx` 临时文件 + `rename`，失败必须删掉临时文件（`EEXIST` 除外：那个条目不是自己的）；`rename` 只要求目录可写，所以读写两侧都要先查文件本身可写（`read-only`）；写盘错误只回 errno 码，系统原文含绝对路径。
 - 远程链接（`remote.ts`）必须剥除 URL 内嵌凭据，避免 token 泄进 href。
 - 写操作不越权：push 绝不 `--force` 且仅在严格领先时提供；pull 只走 `--ff-only`；分叉时 push / pull 都不提供；绝不直接检出远程引用（落为同名跟踪分支，避免游离 HEAD）；publish 的 `HEAD`、pull-preview 的 `@{upstream}` 为固定字面量。
 - 放弃未跟踪条目由 host 直接删盘（`git restore` 摸不到）：任何删除失败都汇总成错误返回，绝不静默；条目本身是仓库（嵌套仓库 / 子模块 / bare 布局）时整批拒绝（`nested-repo`），删除循环内逐条复检（竞态命中报 `nested-repo-partial`）；只「包含」仓库的普通目录仍整体删除——这条边界是刻意的（issue #46），单测同时锁住两者。

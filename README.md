@@ -44,7 +44,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 - **Git 命令**：所有 git 命令都经宿主的 `subprocess` 服务执行——argv 数组、不拼接 shell 字符串、工作目录锁定在仓库根，每条命令带超时与输出上限；不使用 `--force`，也不改动 git 配置。
 - **文件访问**：只读工作区内的文件（差异、文件浏览、AI 生成的输入），路径经校验并做 realpath 包含检查——软链指向仓库外一律拒绝，`.git` 不可浏览。插件只有两种写盘动作：
   - 「放弃未跟踪条目」：按你的确认直接删除工作区文件，条目本身是 Git 仓库时整批拒绝。
-  - 在文件浏览中编辑已有文件：只限 `json` `yaml` `yml` `xml` `properties` `md` `markdown` `txt` `toml` `conf` `ini` `cfg` 与 `.gitignore` `.gitattributes` `.editorconfig` `.env`，单个文件不超过 2 MiB、UTF-8 编码，只读文件不可编辑。`.env` 可编辑（它通常含密钥），`.env.local` 等 `.env.*` 变体不可编辑。保存时先比对文件版本，编辑期间文件被 AI 或其他程序改过就不会直接覆盖；写入经临时文件原子替换，保留换行风格、BOM 与权限位。可在插件配置「基础配置」里关闭。
+  - 在文件浏览中编辑已有文件：只限 `json` `yaml` `yml` `xml` `properties` `md` `markdown` `txt` `toml` `conf` `ini` `cfg` 与 `.gitignore` `.gitattributes` `.editorconfig` `.env`，单个文件不超过 2 MiB、UTF-8 编码，只读文件不可编辑。`.env` 与 `.env.local` 等 `.env.*` 变体可编辑（它们通常含密钥）。保存时先比对文件版本，编辑期间文件被 AI 或其他程序改过就不会直接覆盖；写入经临时文件原子替换，保留换行风格、BOM 与权限位。可在插件配置「基础配置」里关闭。
 - **网络**：插件自身只发起一个请求——`GET https://api.github.com/repos/<owner>/<repo>/releases/latest`，用于版本条上的「有新版本」提示（5 秒超时，结果带进程内缓存）。`fetch` / `pull` / `push` / `publish` 只在你点击后经 git 命令联网，凭据始终由 git 处理；插件不读取、不存储、不返回任何令牌或凭据。
 - **外部服务**：只有「AI 生成提交信息」会把 diff 内容发送给你在 DSH 中配置的模型供应商；模型调用由宿主完成，插件不持有凭据。
 - **系统依赖**：需要 `git` CLI；未安装 git 或目录不是 Git 仓库时只显示文件浏览，以当前工作目录为根。
