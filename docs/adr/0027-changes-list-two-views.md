@@ -26,7 +26,7 @@
 ## Decision
 
 - **一个纯函数出两种行**：`changes-tree.ts` 的 `buildChangeRows` 把「组 → 行」拍平成一份列表，平铺与树形只是同一份数据的两种走法。行的种类是 `head` / `dir` / `file`，行分发在 `changes-rows.tsx` 的 `renderChangeRow`（`ChangesTab` 只注入选择 / 对话框 / 查询的上下文）。目录树复用 `file-tree.ts`（同目录先于文件排序、单子目录链折成 `src/client` 一行）。
-- **行高按种类钉死**：`ROW_H` 表（`changes-tree.ts`）`head` 26 / `dir` 26 / `file` 28，CSS 用 `.gp-changes__vrow>…{height:100%}` 跟随同一批行种。两侧契约都有锁：`test/unit/changes-row-heights.test.mjs` 锁文本（高度表 + 三个子选择器），`test/e2e/child-geometry` 之外的 `test/e2e/changes-tree.mjs` 锁渲染几何（子行填满盒子、top 链相加、spacer 对齐、内容不溢出）。
+- **行高按种类钉死**：`ROW_H` 表（`changes-tree.ts`）`head` 26 / `dir` 26 / `file` 28，CSS 用 `.gp-changes__vrow>…{height:100%}` 跟随同一批行种。两侧契约都有锁：`test/unit/changes-row-heights.test.mjs` 锁文本（高度表 + 三个子选择器），`test/e2e/changes-tree.mjs` 锁渲染几何（子行填满盒子、top 链相加、spacer 对齐、内容不溢出）。
 - **折叠状态按「组 + 目录路径」记**：`dirKey(group, path)`。同一目录在「已暂存」与「更改」各有一行，两处独立折叠；切换仓库（`snapshot.root` 变化）时清空，避免旧检出留下的路径把新树的一层藏起来。折叠状态不持久化——只有视图模式持久化（进配置）。
 - **目录的挑选复用组头全选**：目录行带 `changes`（其后代变更条目），三态勾选与「选择本组全部文件」是同一段 `selection-keys` 逻辑，没有第二套选择语义。折叠起来的目录照样能勾选其后代。
 - **目录级操作只报它自己那些行**：`dirStageAction` 取该组这一侧的路径（已暂存 → 取消暂存，工作区 → 暂存），`dirDiscardPaths` 只取工作区侧。传的始终是「已经是变更条目」的路径，绝不传目录前缀，所以嵌套仓库 / 折叠未跟踪目录的既有拒绝（`nested-repo`）原样生效。
