@@ -70,7 +70,12 @@ export const CSS = `
 .gp-panel[data-layout="compact"] .gp-files__refresh{width:30px;height:30px}
 .gp-files__preview{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-files__preview-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.gp-files__bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__bar{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+/* Trailing cluster as one flex item: a wrap moves it whole instead of splitting
+ * its buttons across rows. It shrinks only down to one button (wrap fallback
+ * below its own width), and on a row of its own the bar's justify-content
+ * parks it on the right. */
+.gp-files__bar-end{flex:0 1 auto;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 /* The filename is the copy control: the directory elides from its left (tail
  * kept), the name stays whole, and clicking copies the relative path. */
 .gp-files__path{flex:1 1 120px;min-width:0;display:flex;align-items:baseline;overflow:hidden;background:none;border:0;padding:0;margin:0;font:inherit;color:var(--dsw-alias-label-secondary);text-align:left;cursor:pointer;border-radius:4px}

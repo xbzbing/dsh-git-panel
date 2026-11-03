@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 // Historical `test:e2e` order. The helpers next to these (assert-panel-results,
 // mock-rpc, *-helper, setup, harness.html) are imported by them, not run.
-// The screenshot / measurement probes (files-bar-review, overview-toolbar-review,
+// The screenshot / measurement probes (overview-toolbar-review,
 // version-bar-review, discard-tip-review) are deliberately NOT runners: they
 // carry no assertions, so they could never fail — run them by hand for visual
 // review instead of spending gate time on an always-green exit.
@@ -21,6 +21,9 @@ const RUNNERS = [
   'run', 'run2', 'run3', 'run4', 'run5',
   'branch-tree-review', 'filtered-graph', 'graph-filter-transition',
   'branch-status-review', 'files-tree-review', 'files-refresh',
+  // Files preview toolbar at five widths: review screenshots plus the wrap
+  // contract (the trailing cluster moves as one item, never split).
+  'files-bar-review',
   // Edit mode against the real CodeMirror chunk: save / conflict / guards /
   // reader keys / chunk retry.
   'files-edit',

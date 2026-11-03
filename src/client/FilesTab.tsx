@@ -783,18 +783,23 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const wideBar = compact
     ? null
     : editing
-      ? h('div', { key: 'bar', className: 'gp-files__bar' }, [pathButton, modeSeg, editWrapButton, fullscreenButton, editActions])
+      ? h('div', { key: 'bar', className: 'gp-files__bar' }, [
+        pathButton,
+        modeSeg,
+        // One flex item: a wrap moves the whole trailing cluster instead of
+        // splitting its buttons across rows.
+        h('div', { key: 'end', className: 'gp-files__bar-end' }, [editWrapButton, fullscreenButton, editActions]),
+      ])
       : h('div', { key: 'bar', className: 'gp-files__bar' }, [
         pathButton,
         modeSeg,
-        editButton,
-        // Hidden (not disabled) for binary/image/too-large/error previews and for
-        // documents at/above the copy envelope — no dead control to click.
-        copyContentButton,
-        scriptToggle,
-        wrapButton,
-        fullscreenButton,
-        propsButton,
+        // One flex item: a wrap moves the whole trailing cluster instead of
+        // splitting its buttons across rows. Hidden (not disabled) for
+        // binary/image/too-large/error previews and for documents at/above the
+        // copy envelope — no dead control to click.
+        h('div', { key: 'end', className: 'gp-files__bar-end' }, [
+          editButton, copyContentButton, scriptToggle, wrapButton, fullscreenButton, propsButton,
+        ]),
       ])
 
   // The switcher that owns these tabs is hidden in the reader, so the panel

@@ -196,6 +196,8 @@ const editing = await page.evaluate(() => ({
   cancel: document.querySelector('.gp-files__edit-cancel')?.textContent,
   focused: document.activeElement?.classList.contains('cm-content') ?? false,
   status: document.querySelector('.gp-files__editor-facts')?.textContent,
+  stray: [...document.querySelectorAll('.gp-files__bar > button')]
+    .filter((b) => !b.classList.contains('gp-files__path')).length,
   bg: getComputedStyle(document.querySelector('.gp-files__editor .cm-editor')).backgroundColor,
   gutter: getComputedStyle(document.querySelector('.gp-files__editor .cm-gutters')).color,
 }))
@@ -203,6 +205,7 @@ assert.equal(editing.save, '保存')
 assert.equal(editing.cancel, '取消')
 assert.equal(editing.saveDisabled, true, 'save is disabled until something changes')
 assert.equal(editing.focused, true, 'entering edit mode focuses the editor')
+assert.equal(editing.stray, 0, 'the edit toolbar keeps its trailing controls in one group')
 assert.match(editing.status, /LF · UTF-8 · 第 1 行，第 1 列/)
 assert.equal(editing.bg, 'rgb(255, 255, 255)', 'the editor background comes from --dsw-alias-bg-layer-1')
 assert.equal(editing.gutter, 'rgb(129, 133, 140)', 'line numbers use --dsw-alias-label-tertiary')
