@@ -13,6 +13,9 @@ const DIR = dirname(fileURLToPath(import.meta.url))
 const SCREENSHOT = resolve(DIR, '../../docs/local/review/changes-toolbar.png')
 const ACTIONS = ['stage-picked', 'stage-all', 'unstage-all', 'discard-picked', 'discard-all', 'stash', 'push', 'refresh']
 const LABELS = ['暂存选中的更改', '全部暂存', '全部取消暂存', '放弃选中的更改', '放弃全部变更', '贮藏更改', '推送本地提交到远程', '刷新当前仓库状态']
+// The tail switch names the view in use and what a click does; the toolbar in
+// these fixtures always mounts flat (no changesView in the snapshot).
+const VIEW_SWITCH = '当前平铺，点击切换到树形'
 // Hover copy: stage-picked explains its scope (picked rows only) instead of
 // repeating the accessible name.
 const TIPS = ['暂存勾选文件在工作区的改动，未勾选的文件不受影响', ...LABELS.slice(1)]
@@ -22,6 +25,7 @@ const THEME = `body{margin:0;font:13px system-ui,sans-serif;--dsh-composer-heigh
 --dsw-alias-bg-base:#fff;--dsw-alias-bg-layer-1:#fff;--dsw-alias-bg-layer-2:#fff;
 --dsw-alias-bg-layer-3:#fff;--dsw-alias-border-l1:#0000000a;--dsw-alias-border-l2:#0000001a;
 --dsw-alias-interactive-bg-hover:#2631480f;--dsw-alias-label-primary:#0f1115;
+--dsw-alias-bg-module-platform:#f5f6f7;
 --dsw-alias-label-secondary:#61666b;--dsw-alias-label-tertiary:#81858c;
 --dsw-alias-state-business-primary:#4176e6;--dsw-alias-state-error-primary:#ec1313;
 --dsw-alias-state-success-primary:#22c55e;--dsw-alias-state-warn-primary:#f59e0b;
@@ -170,6 +174,14 @@ async function refresh(page) {
 }
 
 async function geometry(page, label) {
+  // The view switch yields (display:none) once the column is too narrow for the
+  // actions plus the switch; changes-tree.mjs pins that policy, this runner only
+  // measures what is actually on screen.
+  // A display:none ancestor still reports the button's own display, so the
+  // yield shows up as a zero-width box instead.
+  const yielded = await page.locator('.gp-changes__viewbtn').evaluate((node) => node.getBoundingClientRect().width === 0)
+  const expectedActions = yielded ? ACTIONS : [...ACTIONS, 'viewbtn']
+  const expectedLabels = yielded ? LABELS : [...LABELS, VIEW_SWITCH]
   const actual = await page.locator('.gp-changes__toolbar').evaluate((toolbar) => {
     const rect = (node) => {
       const r = node.getBoundingClientRect()
@@ -179,19 +191,21 @@ async function geometry(page, label) {
       role: toolbar.getAttribute('role'), name: toolbar.getAttribute('aria-label'),
       toolbar: rect(toolbar), left: rect(toolbar.parentElement),
       clientWidth: toolbar.clientWidth, scrollWidth: toolbar.scrollWidth,
-      buttons: [...toolbar.querySelectorAll('button')].map((button) => ({
-        rect: rect(button), label: button.getAttribute('aria-label'), title: button.getAttribute('title'),
-        text: button.textContent.trim(), disabled: button.disabled, native: button instanceof HTMLButtonElement,
-        icon: button.querySelector('svg') !== null,
-        decorative: button.querySelector('[aria-hidden="true"]') !== null,
-        action: [...button.classList].find((c) => c.startsWith('gp-changes__'))?.replace('gp-changes__', ''),
-      })),
+      buttons: [...toolbar.querySelectorAll('button')]
+        .filter((button) => button.getBoundingClientRect().width > 0)
+        .map((button) => ({
+          rect: rect(button), label: button.getAttribute('aria-label'), title: button.getAttribute('title'),
+          text: button.textContent.trim(), disabled: button.disabled, native: button instanceof HTMLButtonElement,
+          icon: button.querySelector('svg') !== null,
+          decorative: button.querySelector('[aria-hidden="true"]') !== null,
+          action: [...button.classList].find((c) => c.startsWith('gp-changes__'))?.replace('gp-changes__', ''),
+        })),
     }
   })
   assert.equal(actual.role, 'group', label + ': action group semantics')
   assert.equal(actual.name, '仓库变更操作', label + ': localized group label')
-  assert.deepEqual(actual.buttons.map((b) => b.action), ACTIONS, label + ': all eight controls in order')
-  assert.deepEqual(actual.buttons.map((b) => b.label), LABELS, label + ': meaningful accessible names')
+  assert.deepEqual(actual.buttons.map((b) => b.action), expectedActions, label + ': the actions (plus the yielded-in view switch) in order')
+  assert.deepEqual(actual.buttons.map((b) => b.label), expectedLabels, label + ': meaningful accessible names')
   assert.ok(actual.scrollWidth <= actual.clientWidth + 1, label + ': toolbar has no horizontal overflow')
   const first = actual.buttons[0].rect
   for (const button of actual.buttons) {
@@ -207,7 +221,7 @@ async function geometry(page, label) {
   for (let i = 1; i < actual.buttons.length; i++) {
     assert.ok(actual.buttons[i].rect.left >= actual.buttons[i - 1].rect.right, label + ': controls do not overlap')
   }
-  return actual
+  return { ...actual, yielded }
 }
 
 async function geometryScenario() {
@@ -219,13 +233,19 @@ async function geometryScenario() {
     ]) {
       const page = await openPanel(snapshot, options)
       const normal = await geometry(page, `${state}, ${label}`)
+      // The measured boundary: every pointer column here is wide enough for
+      // the eight actions plus the switch (283px of content box); the phone's
+      // 34px buttons need 337px, which changes-tree.mjs pins in compact.
+      assert.equal(normal.yielded, false, `${state}, ${label}: a pointer column keeps the switch`)
       if (label === 'wide left 380') assert.ok(Math.abs(normal.left.width - 380) < 1, 'representative left column is 380px')
       if (label === 'compact 320') assert.equal(await page.locator('.gp-panel').getAttribute('data-layout'), 'compact')
       if (state === 'clean') {
         // stage-picked / stage-all / unstage-all / discard-picked / discard-all
         // / stash / push are all unavailable on a clean repo; only refresh stays
         // enabled (stage-picked also needs picked rows, of which there are none).
-        assert.deepEqual(normal.buttons.map((b) => b.disabled), [true, true, true, true, true, true, true, false], 'clean repo keeps refresh enabled')
+        // The view switch is presentation-only and never disables.
+        const expectedDisabled = [...Array(7).fill(true), false, ...(normal.yielded ? [] : [false])]
+        assert.deepEqual(normal.buttons.map((b) => b.disabled), expectedDisabled, 'clean repo keeps refresh (and the view switch) enabled')
         assert.equal(await page.locator('.gp-changes__list .gp-empty').textContent(), '没有未提交的变更')
       }
       // Compact unmounts the font stepper (it lives on the config page).
