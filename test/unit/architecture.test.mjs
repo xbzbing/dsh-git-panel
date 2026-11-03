@@ -163,7 +163,7 @@ const HOST_IMPORT_ALLOWED = new Set(['client/types.ts', 'client/testkit.ts'])
 
 /** Pure algorithms: no React, no RPC, no platform — importable from `node --test`. */
 const PURE_ALGORITHMS = [
-  'branch-options.ts', 'branch-tree.ts', 'bytes.ts', 'code-spans.ts', 'copy-content.ts', 'diff.ts',
+  'branch-options.ts', 'branch-tree.ts', 'bytes.ts', 'changes-tree.ts', 'code-spans.ts', 'copy-content.ts', 'diff.ts',
   'edit-buffer.ts', 'file-tree.ts', 'filtered-graph.ts', 'git-graph.ts', 'lang-label.ts', 'mermaid-blocks.ts',
   'model-route.ts', 'panel-fit.ts', 'path-images.ts', 'push-policy.ts', 'selection-keys.ts', 'status.ts', 'time.ts',
   'virtual-list.ts', 'wrap-cap.ts', 'zoom.ts',
