@@ -319,9 +319,7 @@ const STATS_FANOUT_LIMIT = 200
 const UNTRACKED_NUMSTAT_LIMIT = 32
 
 export type WorkspaceResolution =
-  /** `cwd` is the session's effective directory this resolution started from
-   * (not realpath'd); `root` is the work-tree top it resolved to. */
-  | { readonly ok: true; readonly root: string; readonly cwd: string }
+  | { readonly ok: true; readonly root: string }
   | { readonly ok: false; readonly failure: GitSnapshotResult & { ok: false } }
 
 /**
@@ -359,56 +357,6 @@ export async function resolveBrowseRoot(
     }
   }
   return { ok: false, error: mapWorkspaceFailure(ws.failure) }
-}
-
-/** Structural slice of the session metadata the live cwd read needs. */
-export interface LiveSession {
-  readonly header?: { readonly cwd?: string }
-}
-
-/** Structural slice of the `sessionProjections` read face. */
-export interface SessionProjectionsFace {
-  snapshot(session: LiveSession, keys?: readonly string[]): {
-    readonly values?: { readonly workingDirectory?: string | null }
-  }
-}
-
-/**
- * The session's effective working directory, or undefined when it has none.
- *
- * `header.cwd` is immutable creation metadata: a `working_directory` switch only
- * appends a `working-directory/change` event, so reading the header alone pins
- * every consumer to the directory the session started in. The `workingDirectory`
- * projection keeps the current one, and its wire view distinguishes the two
- * states this function has to keep apart: a string is the directory, null means
- * the session never recorded one. An absent service or an unreadable cell is
- * the third state — undefined — and only then does the header answer.
- */
-export function sessionLiveCwd(
-  session: LiveSession | undefined,
-  projections: SessionProjectionsFace | undefined,
-): string | undefined {
-  if (session === undefined) return undefined
-  const projected = readWorkingDirectory(session, projections)
-  if (projected === null) return undefined
-  if (projected !== undefined) return projected
-  const original = session.header?.cwd
-  return original === undefined || original === '' ? undefined : original
-}
-
-/** The projection's value, or undefined when no service/cell can answer. */
-function readWorkingDirectory(
-  session: LiveSession,
-  projections: SessionProjectionsFace | undefined,
-): string | null | undefined {
-  if (projections === undefined) return undefined
-  try {
-    const value = projections.snapshot(session, ['workingDirectory']).values?.workingDirectory
-    if (typeof value === 'string' && value !== '') return value
-    return value === null ? null : undefined
-  } catch {
-    return undefined
-  }
 }
 
 /** The session's cwd: the live session header first, then the persisted one. */
@@ -453,7 +401,7 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string, re
   const rel = repo ?? ''
   const key = rootCacheKey(cwd, rel)
   const cached = deps.rootCache?.get(key)
-  if (cached !== undefined) return { ok: true, root: cached, cwd }
+  if (cached !== undefined) return { ok: true, root: cached }
   const negAt = deps.rootNegCache?.get(key)
   if (negAt !== undefined) {
     if (Date.now() < negAt) {
@@ -508,7 +456,7 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string, re
     return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
   }
   deps.rootCache?.set(key, root)
-  return { ok: true, root, cwd }
+  return { ok: true, root }
 }
 
 /**
@@ -745,11 +693,6 @@ export async function snapshotForSession(
     return failure
   }
   const root = workspace.root
-  // The directory this sample resolved against, realpath'd like the repository
-  // list's own `cwd` so the two compare. The client keys "re-ask which
-  // repositories does cwd offer" on it: `root` alone cannot see a session move
-  // between two checkouts of one workspace, or into a subdirectory of one.
-  const cwd = await deps.fs.realpath(workspace.cwd).catch(() => workspace.cwd)
 
   const [branchRes, headRes, statusRes, aheadBehindRes, lastCommitRes, worktreeNumRes, stagedNumRes, remoteRes] = await Promise.all([
     runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'branch', deps.signal),
@@ -873,7 +816,6 @@ export async function snapshotForSession(
 
   const snapshot: GitSnapshot = {
     root,
-    cwd,
     branch,
     head,
     unborn,

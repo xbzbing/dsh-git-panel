@@ -131,11 +131,6 @@ export type TruncationReason = 'cap' | 'lossy'
 export interface GitSnapshot {
   /** Realpath of the repository root (work tree top). */
   readonly root: string
-  /** Realpath of the session directory this sample resolved against. The
-   * repository list is an answer about *this* directory, so a client keys its
-   * re-scan on it: a `working_directory` switch moves it while `root` may stay
-   * the same. Absent on older hosts. */
-  readonly cwd?: string
   /** Current branch name; null when detached. */
   readonly branch: string | null
   /** Short HEAD hash; null when the repository has no commits (unborn). */
