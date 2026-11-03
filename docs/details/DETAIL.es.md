@@ -5,7 +5,7 @@ Un panel de Git al estilo IDE en el espacio de trabajo de la conversación: rama
 ## Funciones
 
 - **Resumen**: lista de ramas y etiquetas, gráfico de historial de commits con búsqueda y detalles del commit; haz clic en un archivo para ver su diferencia en ese commit.
-- **Cambios**: preparar y descartar por archivo o en lote, commit y **Amend**, stash y estadísticas de líneas añadidas·eliminadas.
+- **Cambios**: preparar y descartar por archivo o en lote, commit y **Amend**, stash y estadísticas de líneas añadidas·eliminadas; la lista alterna entre vista plana y de carpetas, con recuento por carpeta, preparación / descarte por carpeta y filtro por ruta.
 - **Acciones de Git habituales**: cambiar de rama, crear y eliminar etiquetas, revert / reset de commits; las acciones destructivas piden confirmación y los cambios se quedan en el repositorio local, sin push automático.
 - **Mensajes de commit generados con IA**: siguen el estilo de los commits existentes del repositorio; el modelo sigue la sesión actual por defecto y se puede fijar en la página de detalles. **La generación envía el contenido del diff al proveedor del modelo elegido.**
 - **Indicador de Git en el cuadro de entrada**: `<repositorio> (<rama>)` al estilo zsh, verde cuando está sincronizado y naranja con cambios sin confirmar; un clic abre el panel.

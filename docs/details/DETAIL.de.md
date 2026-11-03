@@ -5,7 +5,7 @@ Ein Git-Panel im IDE-Stil für den Konversations-Arbeitsbereich: Branches und Co
 ## Funktionen
 
 - **Übersicht**: Branch- und Tag-Liste, durchsuchbarer Commit-Verlaufsgraph und Commit-Details; ein Klick auf eine Datei zeigt ihren Diff in diesem Commit.
-- **Änderungen**: einzeln oder gesammelt stagen und verwerfen, Commit und **Amend**, Stash sowie Statistik der hinzugefügten·gelöschten Zeilen.
+- **Änderungen**: einzeln oder gesammelt stagen und verwerfen, Commit und **Amend**, Stash sowie Statistik der hinzugefügten·gelöschten Zeilen; die Liste wechselt zwischen flacher Ansicht und Ordnerbaum, mit Zählern je Ordner, Stagen / Verwerfen je Ordner und Pfadfilter.
 - **Häufige Git-Aktionen**: Branch wechseln, Tags anlegen und löschen, Commits per revert / reset zurücknehmen; destruktive Aktionen verlangen eine Bestätigung, Änderungen bleiben im lokalen Repository und werden nicht automatisch gepusht.
 - **KI-generierte Commit-Nachrichten**: orientieren sich am Stil der vorhandenen Commits des Repositorys; das Modell folgt standardmäßig der aktuellen Sitzung und lässt sich auf der Detailseite festlegen. **Beim Generieren wird der Diff-Inhalt an den Anbieter des gewählten Modells gesendet.**
 - **Git-Anzeige im Eingabefeld**: `<Repository> (<Branch>)` im zsh-Stil, grün wenn synchron, orange bei nicht committeten Änderungen; ein Klick öffnet das Panel.

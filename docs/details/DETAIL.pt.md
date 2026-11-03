@@ -5,7 +5,7 @@ Um painel Git no estilo IDE no espaço de trabalho da conversa: branches e hist�
 ## Recursos
 
 - **Visão geral**: lista de branches e tags, gráfico de histórico de commits com busca e detalhes do commit; clique em um arquivo para ver a diferença dele nesse commit.
-- **Alterações**: preparar e descartar por arquivo ou em lote, commit e **Amend**, stash e estatísticas de linhas adicionadas·removidas.
+- **Alterações**: preparar e descartar por arquivo ou em lote, commit e **Amend**, stash e estatísticas de linhas adicionadas·removidas; a lista alterna entre visão plana e árvore de pastas, com contagem por pasta, preparação / descarte por pasta e filtro por caminho.
 - **Ações Git comuns**: trocar de branch, criar e excluir tags, revert / reset de commits; ações destrutivas pedem confirmação, e as alterações ficam no repositório local, sem push automático.
 - **Mensagens de commit geradas por IA**: seguem o estilo dos commits existentes do repositório; o modelo segue a sessão atual por padrão e pode ser fixado na página de detalhes. **A geração envia o conteúdo do diff ao provedor do modelo escolhido.**
 - **Indicador Git na caixa de entrada**: `<repositório> (<branch>)` no estilo zsh, verde quando sincronizado e laranja com alterações não confirmadas; um clique abre o painel.
