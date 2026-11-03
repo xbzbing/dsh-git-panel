@@ -1,8 +1,9 @@
 /**
  * The file browser's edit-mode controls, composed by `FilesTab` into its wide
- * bar, compact bar and reader bar: the edit entry, save / cancel with the
- * unsaved marker, the editor's wrap toggle, and the Markdown edit / preview
- * switch with the rendered draft it shows.
+ * bar, compact bar and reader bar: the edit entry, save / cancel (the unsaved
+ * marker floats on the editor itself, see `FileEditor`), the editor's wrap
+ * toggle, and the Markdown edit / preview switch with the rendered draft it
+ * shows.
  */
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
@@ -34,7 +35,8 @@ export function useEditPreview(editing: boolean): {
 export interface EditControls {
   /** The entry into edit mode; null while editing or for a file without it. */
   readonly editButton: JSX.Element | null
-  /** Unsaved marker, cancel and save; null outside edit mode. */
+  /** Cancel and save; null outside edit mode. The unsaved marker is not part
+   * of it: the editor shows it as a floating badge. */
   readonly editActions: JSX.Element | null
   /** Word wrap for the editor (the read-only view's size cap does not apply:
    * the editor renders by viewport); null outside edit mode and in the
@@ -75,10 +77,6 @@ export function renderEditControls(o: {
   // than as a glyph, and they are the only way out of edit mode.
   const editActions = editing
     ? h('div', { key: 'edit-actions', className: 'gp-files__edit-actions' }, [
-      fileEdit.dirty ? h('span', { key: 'dirty', className: 'gp-files__edit-dirty' }, [
-        h('span', { key: 'dot', className: 'gp-files__edit-dot', 'aria-hidden': 'true' }),
-        t('files.editModified'),
-      ]) : null,
       h('button', {
         key: 'cancel', type: 'button', className: 'gp-btn gp-files__edit-cancel', disabled: fileEdit.saving,
         onClick: () => { preview.set(null); fileEdit.cancel() },

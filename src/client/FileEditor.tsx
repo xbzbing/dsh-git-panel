@@ -118,11 +118,10 @@ function FileEditorImpl(props: FileEditorProps): JSX.Element {
 
   const { t } = props
   const facts = [
-    props.dirty ? t('files.editModified') : null,
     props.eol === 'crlf' ? 'CRLF' : 'LF',
     props.bom ? 'UTF-8 BOM' : 'UTF-8',
     t('files.editCursor', { line: cursor.line, column: cursor.column }),
-  ].filter((part): part is string => part !== null)
+  ].join(' · ')
   return h('div', {
     className: 'gp-files__editor',
     [KEYS_OWNER_ATTR]: '',
@@ -130,9 +129,17 @@ function FileEditorImpl(props: FileEditorProps): JSX.Element {
   }, [
     h('div', { key: 'cm', ref: hostRef, className: 'gp-files__editor-host' }),
     h('div', { key: 'status', className: 'gp-files__editor-status' }, [
-      h('span', { key: 'facts', className: 'gp-files__editor-facts' }, facts.join(' · ')),
+      h('span', { key: 'facts', className: 'gp-files__editor-facts' }, facts),
       h('span', { key: 'hint', className: 'gp-files__editor-hint' }, t('files.editTabHint')),
     ]),
+    // Unsaved marker: floats over the editor's top-right corner, so the save /
+    // cancel row never shifts when it appears or clears.
+    props.dirty
+      ? h('span', { key: 'dirty', className: 'gp-files__edit-dirty' }, [
+        h('span', { key: 'dot', className: 'gp-files__edit-dot', 'aria-hidden': 'true' }),
+        t('files.editModified'),
+      ])
+      : null,
   ])
 }
 

@@ -301,7 +301,7 @@ export const CSS = `
 /* File editor (edit mode of the files preview). The CodeMirror host fills the
  * preview body; its own theme paints the inside from the same alias variables.
  * The status line sits under it in small type. */
-.gp-files__editor{flex:1;min-height:0;display:flex;flex-direction:column}
+.gp-files__editor{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
 .gp-files__editor-host{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .gp-files__editor-host>.cm-editor{flex:1;min-height:0}
 .gp-files__editor-status{flex:none;display:flex;align-items:center;gap:12px;padding:3px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}
@@ -309,7 +309,10 @@ export const CSS = `
 .gp-files__editor-hint{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
 /* Save / cancel group at the trailing end of the edit toolbar. */
 .gp-files__edit-actions{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px}
-.gp-files__edit-dirty{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dsw-alias-state-warn-primary);white-space:nowrap}
+/* Unsaved marker: a pill floating over the editor's top-right corner (never
+ * in the toolbar), so save / cancel keep their row and the code underneath
+ * stays clickable. */
+.gp-files__edit-dirty{position:absolute;top:6px;right:10px;z-index:2;pointer-events:none;display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,var(--dsw-alias-bg-layer-1));white-space:nowrap}
 .gp-files__edit-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
 .gp-files__edit-actions .gp-btn{height:26px;padding:0 12px;font-size:12px}
 .gp-files__edit[aria-disabled="true"]{opacity:.5;cursor:default}

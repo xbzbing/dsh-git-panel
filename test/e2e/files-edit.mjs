@@ -215,14 +215,27 @@ await page.evaluate(() => { document.body.style.removeProperty('--dsw-alias-bg-l
 // Tab indents in place and keeps focus; undo takes it back.
 await page.keyboard.press('Tab')
 await page.waitForTimeout(100)
-const afterTab = await page.evaluate(() => ({
-  focused: document.activeElement?.classList.contains('cm-content') ?? false,
-  first: document.querySelector('.gp-files__editor .cm-line')?.textContent,
-  dirty: document.querySelector('.gp-files__edit-dirty') !== null,
-}))
+const afterTab = await page.evaluate(() => {
+  const badge = document.querySelector('.gp-files__edit-dirty')
+  const editor = document.querySelector('.gp-files__editor')
+  const box = badge === null ? null : badge.getBoundingClientRect()
+  const frame = editor === null ? null : editor.getBoundingClientRect()
+  return {
+    focused: document.activeElement?.classList.contains('cm-content') ?? false,
+    first: document.querySelector('.gp-files__editor .cm-line')?.textContent,
+    dirty: badge !== null,
+    inToolbar: document.querySelector('.gp-files__edit-actions .gp-files__edit-dirty') !== null,
+    corner: box !== null && frame !== null
+      ? { top: Math.round(box.top - frame.top), right: Math.round(frame.right - box.right) }
+      : null,
+  }
+})
 assert.equal(afterTab.focused, true, 'Tab keeps focus in the editor')
 assert.equal(afterTab.first, '  a: 1', 'Tab inserts one indent unit (inferred: 2 spaces)')
 assert.equal(afterTab.dirty, true, 'a change shows the modified marker')
+assert.equal(afterTab.inToolbar, false, 'the marker lives on the editor, not in the toolbar')
+assert.ok(afterTab.corner !== null && afterTab.corner.top < 40 && afterTab.corner.right < 40,
+  `the marker floats at the editor's top-right corner (got ${JSON.stringify(afterTab.corner)})`)
 await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z')
 await page.waitForTimeout(100)
 assert.equal(await page.evaluate(() => document.querySelector('.gp-files__editor .cm-line')?.textContent), 'a: 1', 'undo reverts the indent')
