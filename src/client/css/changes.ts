@@ -70,7 +70,12 @@ export const CSS = `
 .gp-panel[data-layout="compact"] .gp-files__refresh{width:30px;height:30px}
 .gp-files__preview{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-files__preview-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.gp-files__bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__bar{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+/* Trailing cluster as one flex item: a wrap moves it whole instead of splitting
+ * its buttons across rows. It shrinks only down to one button (wrap fallback
+ * below its own width), and on a row of its own the bar's justify-content
+ * parks it on the right. */
+.gp-files__bar-end{flex:0 1 auto;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 /* The filename is the copy control: the directory elides from its left (tail
  * kept), the name stays whole, and clicking copies the relative path. */
 .gp-files__path{flex:1 1 120px;min-width:0;display:flex;align-items:baseline;overflow:hidden;background:none;border:0;padding:0;margin:0;font:inherit;color:var(--dsw-alias-label-secondary);text-align:left;cursor:pointer;border-radius:4px}
@@ -298,4 +303,29 @@ export const CSS = `
 .gp-panel[data-layout="compact"] .gp-commitbox__fold:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-commitbox__fold:disabled{opacity:.5;cursor:default}
 .gp-commitbox__actions{margin-left:auto;display:flex;flex-wrap:nowrap;gap:6px}
+/* File editor (edit mode of the files preview). The CodeMirror host fills the
+ * preview body; its own theme paints the inside from the same alias variables.
+ * The status line sits under it in small type. */
+.gp-files__editor{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+.gp-files__editor-host{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.gp-files__editor-host>.cm-editor{flex:1;min-height:0}
+.gp-files__editor-status{flex:none;display:flex;align-items:center;gap:12px;padding:3px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}
+.gp-files__editor-facts{flex:none;white-space:nowrap}
+.gp-files__editor-hint{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+/* Save / cancel group at the trailing end of the edit toolbar. */
+.gp-files__edit-actions{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px}
+/* Unsaved marker: a pill floating over the editor's top-right corner (never
+ * in the toolbar), so save / cancel keep their row and the code underneath
+ * stays clickable. */
+.gp-files__edit-dirty{position:absolute;top:6px;right:10px;z-index:2;pointer-events:none;display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,var(--dsw-alias-bg-layer-1));white-space:nowrap}
+.gp-files__edit-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.gp-files__edit-actions .gp-btn{height:26px;padding:0 12px;font-size:12px}
+.gp-files__edit[aria-disabled="true"]{opacity:.5;cursor:default}
+/* Notice for a failed save, a syntax problem or a conflict: text, then the
+ * actions, then the close glyph; wraps to a second row on a narrow pane. */
+.gp-files__edit-notice{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__edit-notice .gp-notice__text{flex:1 1 220px;color:var(--dsw-alias-label-primary)}
+.gp-files__edit-notice-actions{display:flex;flex-wrap:wrap;gap:6px}
+.gp-files__edit-notice-btn{height:24px;padding:0 10px;font-size:12px}
+.gp-files__fsbar .gp-files__edit-actions{margin-left:0}
 `

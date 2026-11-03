@@ -57,6 +57,12 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // A rejected path came from the panel's own selection: it is outside the
     // repository (or a `.git` entry), so there is no detail worth showing.
     case 'invalid-path': return t('error.invalidPath')
+    // File-browser saves. A save the host refused on an edit rule carries a
+    // `reason` the editor maps itself; this is the fallback for the rest
+    // (type or file kind). Write errors carry only the errno code.
+    case 'not-editable': return t('error.notEditable')
+    case 'write-denied': return t('error.writeDenied', { reason: message ?? '' })
+    case 'write-failed': return t('error.writeFailed', { reason: message ?? '' })
     // Transport-level outcomes carry no message of their own.
     case 'timeout': return t('error.timeout')
     case 'cancelled': return t('error.cancelled')
@@ -110,6 +116,13 @@ export interface ModalShellProps {
   overlay?: JSX.Element | null
   /** Stable React portal key, unique per dialog kind. */
   portalKey: string
+  /** Portal target; document.body when absent. A dialog raised from inside
+   * another dialog that is in browser fullscreen must render inside that
+   * element, or it is not displayed at all. */
+  container?: Element | null
+  /** Take focus on open, keep Tab inside, restore it on close
+   * (`useDialogFocus`): for a dialog raised over another focus-trapping one. */
+  trapFocus?: boolean
   t: OpT
 }
 
@@ -123,48 +136,53 @@ export function renderModalShell(props: ModalShellProps): JSX.Element | null {
   return h(ModalShell, props)
 }
 
-function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, overlay, portalKey, t }: ModalShellProps): JSX.Element {
+function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, overlay, portalKey, container, trapFocus, t }: ModalShellProps): JSX.Element {
   // Busy is declared, never inferred: an overlay only exists for dialogs that
   // also pass a label, and inferring from it left reset/revert/tag-delete
   // dismissible mid-flight (their error line then had no dialog to render in).
   const busy = busyProp === true
-  const cardRef = useRef<HTMLDivElement | null>(null)
-  // Escape stays with this shell (it knows about `busy`); the shared hook is
-  // only for the Tab cycle and focus restore, so it must not claim the key.
-  useDialogFocus(cardRef, onClose, undefined, undefined, false)
+  const frameRef = useRef<HTMLDivElement | null>(null)
+  const closeRef = useRef<HTMLButtonElement | null>(null)
+  // Escape stays with this shell (it knows about `busy`) unless it traps focus:
+  // then the shared hook owns Tab, focus restore and the key, starting on the
+  // safe button.
+  useDialogFocus(frameRef, onClose, trapFocus === true ? closeRef : undefined, undefined, trapFocus === true)
   useLayoutEffect(() => {
     // A dialog that opens with focus still on the page leaves a keyboard user
     // tabbing through the content behind it (and screen readers announce nothing
     // new). Forms start in their input, confirmations on the safe button.
-    const root = cardRef.current
+    if (trapFocus === true) return
+    const root = frameRef.current
     const target = root?.querySelector<HTMLElement>('input:not([type="hidden"]), textarea, select')
       ?? root?.querySelector<HTMLElement>('.gp-modal__footer .gp-btn')
     target?.focus()
-  }, [])
+  }, [trapFocus])
   useEffect(() => {
+    // A focus-trapping shell gets Escape from `useDialogFocus` instead.
+    if (trapFocus === true) return undefined
     // While an op runs, swallow Escape so the dialog can't be dismissed mid-flight.
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !busy) onClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose, busy])
+  }, [onClose, busy, trapFocus])
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     // Declares this dialog as an overlay above the page, so a lower layer's
     // Escape handler (the branch drawer) can yield the keystroke to it.
     [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (!busy && e.target === e.currentTarget) onClose() },
-  }, h('div', { ref: cardRef, className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
+  }, h('div', { ref: frameRef, className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, [
       icon !== undefined ? h('span', { key: 'ic', className: 'gp-modal__fileicon' }, icon) : null,
       h('span', { key: 'title', className: 'gp-modal__path' }, title),
       hash !== undefined ? h('span', { key: 'hash', className: 'gp-modal__hash' }, hash) : null,
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), disabled: busy, onClick: onClose }, h(CloseIcon, { size: 15 })),
+      h('button', { key: 'close', ref: closeRef, type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), disabled: busy, onClick: onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'body', className: 'gp-modal__form' }, body),
     footer,
     overlay ?? null,
   ]))
-  return createPortal(modal, document.body, portalKey)
+  return createPortal(modal, container ?? document.body, portalKey)
 }
 
 /**
@@ -194,6 +212,9 @@ export interface ConfirmCbs {
   busyLabel?: string
   onConfirm: () => void
   onClose: () => void
+  /** See `ModalShellProps.container` / `trapFocus`. */
+  container?: Element | null
+  trapFocus?: boolean
   t: OpT
 }
 
@@ -205,6 +226,8 @@ export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
     onClose: cb.onClose,
     title: cb.title,
     portalKey: 'confirm-modal',
+    ...(cb.container !== undefined ? { container: cb.container } : {}),
+    ...(cb.trapFocus !== undefined ? { trapFocus: cb.trapFocus } : {}),
     t: cb.t,
     body: [
       h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, cb.body),

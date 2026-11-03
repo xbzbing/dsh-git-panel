@@ -112,6 +112,10 @@ export const CSS = `
 .gp-sheet__body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:6px 0}
 .gp-sheet__body .gp-branch-row{padding-top:8px;padding-bottom:8px}
 
+/* Compact edit toolbar: save / cancel match the 30px back button and icons. */
+.gp-panel[data-layout="compact"] .gp-files__edit-actions .gp-btn{height:30px}
+.gp-panel[data-layout="compact"] .gp-files__editor-hint{display:none}
+
 /* Touch devices (independent of width — e.g. a tablet in landscape): no hover
  * means row actions must stay visible, and hit targets grow. */
 @media (hover:none){
@@ -125,6 +129,7 @@ export const CSS = `
    * the pointer-density box (28x25) on every touch device. */
   .gp-diff__toolbar .gp-icon-btn,.gp-modal__bar .gp-icon-btn{width:34px;height:34px}
   .gp-modal__bar .gp-files__fs-screen{height:36px}
+  .gp-files__edit-actions .gp-btn,.gp-files__edit-notice-btn{height:36px}
   .gp-tree-row{padding-top:7px;padding-bottom:7px}
   .gp-branch-row{padding-top:8px;padding-bottom:8px}
   .gp-branch-row__switch{display:inline-block;height:26px;line-height:24px;padding:0 10px;margin-block:-4px}

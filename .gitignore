@@ -24,6 +24,7 @@ coverage/
 
 # E2E vendored artifacts (copied at test time by test/e2e/setup.mjs)
 test/e2e/client.js
+test/e2e/client.editor.js
 test/e2e/react.production.min.js
 test/e2e/react-dom.production.min.js
 test/e2e/react-jsx-runtime.js

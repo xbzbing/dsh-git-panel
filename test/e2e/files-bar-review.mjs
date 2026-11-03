@@ -3,8 +3,11 @@
  * a phone width drills into a single bar (plain files have no source/render
  * switcher, so the trailing icons must stay pinned to the right edge); the wide
  * bar keeps the path, both copy buttons, the official source/render switcher
- * and the fullscreen reading entry. Run setup.mjs first.
+ * and the fullscreen reading entry. Also locks the wrap contract: the trailing
+ * cluster is one flex item, so a narrow preview moves it whole instead of
+ * splitting its buttons across rows. Run setup.mjs first.
  */
+import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -130,6 +133,10 @@ await page.evaluate(async (snap) => {
       rows: new Set(['.gp-subhead__back', '.gp-files__bar-end', '[role="tablist"]']
         .flatMap((sel) => [...bar.querySelectorAll(sel)]
           .map((n) => { const b = n.getBoundingClientRect(); return Math.round(b.top + b.height / 2) }))).size,
+      // Trailing buttons loose in the bar (neither the path nor the back entry)
+      // mean the cluster is not one item and a wrap can split it.
+      stray: [...bar.children].filter((c) => c.tagName === 'BUTTON'
+        && !c.classList.contains('gp-files__path') && !c.classList.contains('gp-subhead__back')).length,
       overflowX: bar.scrollWidth > bar.clientWidth + 1,
     }
   }
@@ -153,4 +160,25 @@ for (const width of [1000, 640, 620, 390, 304]) {
 
 console.log(JSON.stringify(report, null, 2))
 if (errors.length) console.log('CONSOLE ERRORS:', errors)
+
+// ── Wrap contract ──────────────────────────────────────────────────────────
+const rowCenter = (r) => (r === null ? null : Math.round(r.top + r.h / 2))
+for (const [width, keys] of Object.entries(report)) {
+  for (const [key, m] of Object.entries(keys)) {
+    const tag = `${width}/${key}`
+    assert.equal(m.overflowX, false, `${tag}: the bar never scrolls sideways`)
+    assert.equal(m.stray, 0, `${tag}: every trailing button sits inside .gp-files__bar-end (${m.stray} loose)`)
+    if (m.end !== null) assert.ok(m.end.h <= 44, `${tag}: the cluster stays one row tall (${m.end.h}px)`)
+    if (m.rows > 1 && m.seg !== null && rowCenter(m.end) !== rowCenter(m.seg)) {
+      assert.ok(m.end.right >= m.contentRight - 8,
+        `${tag}: a cluster on its own row hugs the right edge (right ${m.end.right} vs content ${m.contentRight})`)
+    }
+  }
+}
+// The reported case: a narrow wide-tier preview (640px panel) keeps the
+// source/render switcher on row one and drops the whole cluster below it.
+assert.notEqual(report[640].rich.end, null, 'the wide bar wraps its buttons as one group')
+assert.equal(report[640].rich.rows, 2, 'at 640 the cluster wraps to its own row under the switcher')
+
 await browser.close()
+console.log('e2e files-bar-review.mjs: PASS')

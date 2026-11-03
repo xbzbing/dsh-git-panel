@@ -7,6 +7,7 @@
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitKey } from './locales.js'
+import type { FileEditInfo, GitQueryResult } from './types.js'
 import { languageForPath, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
 import { ZoomableImage } from './ImageZoom.js'
@@ -40,11 +41,34 @@ const VIEWPORT_FALLBACK = 600
 export type FileState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading'; readonly path: string }
-  | { readonly kind: 'text'; readonly path: string; readonly content: string; readonly lines: number; readonly absolutePath?: string; readonly size?: number; readonly mtimeMs?: number }
+  // `sha256` / `edit` come from the host only for allow-listed files while
+  // editing is enabled (file-content.edit); absent = no edit feature.
+  | { readonly kind: 'text'; readonly path: string; readonly content: string; readonly lines: number; readonly absolutePath?: string; readonly size?: number; readonly mtimeMs?: number; readonly sha256?: string; readonly edit?: FileEditInfo }
   | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string; readonly content?: string; readonly lines?: number; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'binary'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
-  | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
+  | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number; readonly edit?: FileEditInfo }
   | { readonly kind: 'error'; readonly path: string; readonly code?: string }
+
+/** Preview state for one `file-content` result (a read, or a save's answer). */
+export function fileStateOf(path: string, fc: Extract<GitQueryResult, { kind: 'file-content' }>): FileState {
+  const stat = { ...(fc.size !== undefined ? { size: fc.size } : {}), ...(fc.mtimeMs !== undefined ? { mtimeMs: fc.mtimeMs } : {}) }
+  const edit = { ...(fc.sha256 !== undefined ? { sha256: fc.sha256 } : {}), ...(fc.edit !== undefined ? { edit: fc.edit } : {}) }
+  if (fc.tooLarge === true) return { kind: 'tooLarge', path, ...stat, ...(fc.edit !== undefined ? { edit: fc.edit } : {}) }
+  if (fc.variant === 'image' && fc.dataUrl !== undefined) {
+    // An SVG arrives with its markup beside the picture: one read feeds both
+    // faces of the preview.
+    return {
+      kind: 'image', path, dataUrl: fc.dataUrl,
+      ...(fc.content !== undefined ? { content: fc.content } : {}),
+      ...(fc.lines !== undefined ? { lines: fc.lines } : {}),
+      ...stat,
+    }
+  }
+  if (fc.variant === 'text') {
+    return { kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0, ...stat, ...(fc.absolutePath !== undefined ? { absolutePath: fc.absolutePath } : {}), ...edit }
+  }
+  return { kind: 'binary', path, ...stat }
+}
 
 export function renderPreview(file: FileState, wrap: boolean, t: (key: GitKey, params?: Record<string, string | number>) => string): JSX.Element {
   switch (file.kind) {

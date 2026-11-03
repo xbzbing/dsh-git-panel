@@ -33,6 +33,10 @@ function dep(pkg, rel, hint) {
 // Built client bundle.
 need(resolve(ROOT, 'lib/client.js'), 'run `node build.mjs` first')
 copyFileSync(resolve(ROOT, 'lib/client.js'), resolve(DIR, 'client.js'))
+// The editor chunk is loaded for real (harness.html `require.async`), so the
+// e2e runs exercise the shipped CodeMirror bundle.
+need(resolve(ROOT, 'lib/client.editor.js'), 'run `node build.mjs` first')
+copyFileSync(resolve(ROOT, 'lib/client.editor.js'), resolve(DIR, 'client.editor.js'))
 
 // React + ReactDOM UMD production builds. NOTE: React 19 removed the /umd
 // entrypoints; this fixture (and the pinned react 18.3.1 devDep) depends on

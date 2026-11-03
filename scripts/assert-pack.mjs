@@ -30,6 +30,7 @@ const REQUIRED = [
   'cordis.patch.yml',
   'lib/client.js',
   'lib/client.mermaid.js',
+  'lib/client.editor.js',
   'lib/host/index.js',
   'lib/host/index.d.ts',
   'locale/zh.json',
@@ -136,6 +137,21 @@ const walk = (dir) => {
 walk(root)
 if (extra.length > 0) {
   problems.push(`packed paths the manifest's files does not allow: ${extra.slice(0, 12).join(', ')}${extra.length > 12 ? ` (+${extra.length - 12} more)` : ''}`)
+}
+// The editor chunk must stay a chunk: the main bundle reaches it through one
+// `require.async('./client.editor.js')` and carries none of CodeMirror or yaml.
+// Each marker is a string literal that survives minification, one per
+// package group: `cm-content` (a class @codemirror/view writes),
+// `Invalid change range` (@codemirror/state), `No parse at` (@lezer/lr, the
+// parser under every language package) and `TAB_AS_INDENT` (a yaml error code).
+const mainBundle = join(root, 'lib/client.js')
+if (existsSync(mainBundle)) {
+  const text = readFileSync(mainBundle, 'utf8')
+  const refs = text.split('./client.editor.js').length - 1
+  if (refs !== 1) problems.push(`lib/client.js must reference ./client.editor.js exactly once (found ${refs})`)
+  for (const marker of ['cm-content', 'Invalid change range', 'No parse at', 'TAB_AS_INDENT']) {
+    if (text.includes(marker)) problems.push(`lib/client.js contains editor-chunk code (${marker}) — see docs/adr/0025`)
+  }
 }
 
 if (problems.length > 0) {
