@@ -25,6 +25,7 @@ export const ru: Record<GitKey, string> = {
   'repos.lockedTag': 'Заблокировано',
   'repos.disabled.outside': 'За пределами каталога рабочей области',
   'repos.disabled.stale': 'Каталог отсутствует — его можно убрать командой git worktree prune',
+  'repos.dropped': 'Не удалось разрешить выбранный репозиторий; панель вернулась к репозиторию по умолчанию',
   'repos.countAria': 'Доступно для выбора: {n} из {m}',
   'repos.collapse': 'Свернуть список',
   'repos.expand': 'Развернуть список',

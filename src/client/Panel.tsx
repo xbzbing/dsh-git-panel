@@ -185,6 +185,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   useEffect(() => {
     if (view.state !== 'ready' || view.stale !== true) setStaleNoticeClosed(false)
   }, [view])
+  // The checkout the panel had to abandon because its sample said it no longer
+  // resolves. The repair keeps the page usable, so it still says the pick was
+  // dropped — otherwise the panes just show another repository with no
+  // explanation. Keyed by session: a session switch must not paint the previous
+  // session's banner for a frame, and the pick store is per-session too.
+  const [pickDroppedFor, setPickDroppedFor] = useState<string | null>(null)
+  const pickDropped = sessionId !== undefined && pickDroppedFor === sessionId
   // Manual file-root picks live in the module store (repo-select.ts); this
   // state exists only to re-render the panes when one changes.
   const [, setFilesRootBump] = useState(0)
@@ -263,8 +270,15 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // repair of the selection, not a navigation, and the page was never the
   // problem. It also skips the dim-in-place switch — there is no next tree to
   // wait for, the default one is already resolved.
-  const dropRepo = (): void => {
+  //
+  // `notify` is the cause, not a style choice: only a sample that rejects the
+  // pick (`invalid-repo`) is evidence the checkout stopped resolving. A pick
+  // that merely left the list is not — turning the checkout probe off empties
+  // the list, and reporting that as "gone" would be a lie about a healthy
+  // repository.
+  const dropRepo = (notify: boolean): void => {
     if (!hasSession(sessionId)) return
+    if (notify && repo !== '') setPickDroppedFor(sessionId)
     clearRepoPick(sessionId)
   }
 
@@ -275,6 +289,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // against.
   const switchRepo = (next: string): boolean => {
     if (!hasSession(sessionId) || next === repo) return false
+    setPickDroppedFor(null)
     selectRepo(sessionId, next)
     // Hand the controller the new checkout in this same event rather than from
     // an effect: effects run after paint, and the first paint after the pick
@@ -375,6 +390,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (gitTarget !== null) switchRepo(gitTarget)
   }
 
+  // The directory the current sample resolved against. The repository list is an
+  // answer about *that* directory, so a `working_directory` switch has to re-ask
+  // it: `root` alone misses a move between two checkouts of one workspace, or
+  // into a subdirectory of one. Older hosts omit the field — the list then keeps
+  // the old cadence (visibility and the probe switch only).
+  const sampleCwd = view.state === 'ready' ? view.snapshot.cwd ?? null : null
+
   useEffect(() => {
     if (!queryVisible) return
     let alive = true
@@ -391,21 +413,23 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       setRepoListReady(true)
     })()
     return () => { alive = false }
-    // The scan answers "which repositories does this cwd offer". Neither the pick
-    // nor the sample's root can change that answer, and re-running on either
-    // walks the tree again for a result that has already arrived. Visibility
-    // stays in the list: coming back to the page is when a repository created
-    // while the panel was hidden can be found. The probe switch changes the
-    // answer itself, so it stays in the list.
-  }, [remote, sessionId, queryVisible, detectCheckouts])
+    // The scan answers "which repositories does this cwd offer", so the cwd it
+    // answered for is part of the question. Neither the pick nor the sample's
+    // root can change the answer, and re-running on either walks the tree again
+    // for a result that has already arrived. Visibility stays in the list: coming
+    // back to the page is when a repository created while the panel was hidden
+    // can be found. The probe switch changes the answer itself.
+  }, [remote, sessionId, queryVisible, detectCheckouts, sampleCwd])
 
   // A remembered pick that disappeared from the scan (the directory is gone, or
   // it stopped being a repository) falls back to the default one. Waiting for a
   // finished scan is what keeps a fresh mount from retiring the pick the user
-  // made in an earlier session before the answer is even in.
+  // made in an earlier session before the answer is even in. This repair is
+  // silent by design: leaving the list is not evidence the checkout is gone
+  // (turning the probe off empties the list too).
   useEffect(() => {
     if (!repoListReady || repo === '' || repos.some((entry) => entry.path === repo)) return
-    dropRepo()
+    dropRepo(false)
     // dropRepo only calls setters and the module-level selection store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoListReady, repos, repo])
@@ -426,15 +450,18 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // selector stopped resolving (directory gone, no longer a work-tree top) or
   // nothing can verify it at all (git missing). Without this the panel would
   // keep the failure on screen with no way back.
+  const pickRejected = view.state === 'error' && view.error.code === 'invalid-repo'
   const repoRejected = view.state === 'error' && (view.error.code === 'invalid-repo' || view.error.code === 'git-unavailable')
   useEffect(() => {
     if (!hasSession(sessionId) || repo === '' || !repoRejected) return
     // The published view can still belong to the previous pick while a switch is
     // in flight; only the sample of the selected repository may reject it.
     if (controllerFor(sessionId).getRepo() !== repo) return
-    dropRepo()
+    // A missing git rejects every pick alike, so it says nothing about *this*
+    // checkout and the pick is dropped without a banner.
+    dropRepo(pickRejected)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoRejected, repo, sessionId])
+  }, [repoRejected, pickRejected, repo, sessionId])
 
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
@@ -744,16 +771,23 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const staleNotice = view.state === 'ready' && view.stale === true && !staleNoticeClosed
     ? h(NoticeBar, { key: 'stale', text: t('error.transport'), closeLabel: t('common.close'), onClose: () => setStaleNoticeClosed(true) })
     : null
+  // A pick whose sample said it stopped resolving is repaired in place (see
+  // dropRepo); the banner names what was abandoned so the new checkout is not
+  // mistaken for a silent switch. Announced once, because it arrives with a poll.
+  const droppedNotice = pickDropped
+    ? h(NoticeBar, { key: 'dropped', status: true, text: t('repos.dropped'), closeLabel: t('common.close'), onClose: () => setPickDroppedFor(null) })
+    : null
   // git-not-installed inside a repo: stack a notice above the browser.
   const body = gitMissingInRepo
     ? h('div', { className: 'gp-files-wrap' }, [
       gitNoticeClosed
         ? null
         : h(NoticeBar, { key: 'notice', text: t('files.gitNotInstalled'), closeLabel: t('common.close'), onClose: () => setGitNoticeClosed(true) }),
+      droppedNotice,
       ...panes,
     ])
-    : staleNotice !== null
-      ? h('div', { className: 'gp-files-wrap' }, [staleNotice, ...panes])
+    : staleNotice !== null || droppedNotice !== null
+      ? h('div', { className: 'gp-files-wrap' }, [staleNotice, droppedNotice, ...panes])
       : h('div', { style: { display: 'contents' } }, panes)
 
   // `data-conversation-composer-overlay` opts the view into the shell's

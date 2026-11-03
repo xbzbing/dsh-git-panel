@@ -104,7 +104,7 @@ async function mount(repos, action, options = {}) {
   const polled = options.pollMs === undefined ? snap : { ...snap, refreshIntervalMs: options.pollMs }
   const snapUsed = options.foldOnPick === true ? { ...polled, collapseReposOnPick: true } : polled
   const scene = options.scene || 'scene'
-  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn }) => {
+  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn, cwdMove }) => {
     const React = window.React
     const origWarn = console.warn.bind(console)
     console.warn = (...args) => origWarn('[' + scene + ']', ...args)
@@ -123,6 +123,13 @@ async function mount(repos, action, options = {}) {
     // carry detectCheckouts:false and repo-list answers with the workspace row
     // alone, the way the host gates its two probes behind that switch.
     const probe = { active: probeToggle, off: false }
+    // Scenario: the session's working directory moves (DSH's
+    // `working_directory` tool) while the panel is open. The sample carries the
+    // new directory; the repository list is an answer about that directory and
+    // has to be asked again — the root alone cannot tell when two checkouts
+    // share one workspace.
+    const moving = { on: cwdMove === true, value: snap.cwd ?? '/mock/workspace' }
+    window.__gpCwd = (dir) => { moving.value = dir }
     const calls = []
     const mockCall = connection.rpc.call
     connection.rpc.call = async (channel, endpoint, payload) => {
@@ -132,6 +139,9 @@ async function mount(repos, action, options = {}) {
         kind: request && request.query ? request.query.kind : null,
         repo: request && typeof request.repo === 'string' ? request.repo : '',
       })
+      if (moving.on && endpoint === 'gitPanel/snapshot') {
+        return { ok: true, value: { ok: true, value: { ...snap, cwd: moving.value, checkedAt: Date.now() } } }
+      }
       if (probe.active && endpoint === 'gitPanel/snapshot') {
         const tag = request && typeof request.repo === 'string' ? request.repo : ''
         return { ok: true, value: { ok: true, value: { ...snap, detectCheckouts: !probe.off, root: tag === '' ? snap.root : 'fixture-repo/' + tag } } }
@@ -221,6 +231,9 @@ async function mount(repos, action, options = {}) {
       return true
     }
     const visibleList = () => [...document.querySelectorAll('.gp-panel .gp-repolist')].find((n) => inVisiblePane(n)) ?? null
+    const noticeTexts = () => [...document.querySelectorAll('.gp-panel .gp-notice__text')]
+      .map((node) => node.textContent.trim())
+      .filter((text) => text !== '')
     const listRows = () => [...document.querySelectorAll('.gp-panel .gp-repolist__item')]
       .filter((node) => inVisiblePane(node))
       .map((node) => ({
@@ -527,12 +540,29 @@ async function mount(repos, action, options = {}) {
       const mark = calls.length
       await expandRepos()
       pickRow('.gp-repolist__item', 'site')
-      for (let i = 0; i < 50; i += 1) { sampleEmpty(); await wait(24) }
+      // The repair must state itself: the panes now show another checkout, so a
+      // silent switch would read as the panel changing its mind on its own.
+      const notices = []
+      const sampleNotices = () => {
+        for (const node of document.querySelectorAll('.gp-panel .gp-notice__text')) {
+          const text = node.textContent.trim()
+          if (text !== '' && !notices.includes(text)) notices.push(text)
+        }
+      }
+      for (let i = 0; i < 50; i += 1) { sampleEmpty(); sampleNotices(); await wait(24) }
       sampleEmpty()
+      sampleNotices()
+      const closeBanner = document.querySelector('.gp-panel .gp-notice__close')
+      if (closeBanner !== null) closeBanner.click()
+      await wait(80)
+      const noticesAfterClose = Array.from(document.querySelectorAll('.gp-panel .gp-notice__text')).map((node) => node.textContent.trim())
       observed.rejected = {
         activeTab: activeTabLabel(),
         rows: listRows(),
         empties: empties.slice(),
+        notices: notices.slice(),
+        closeButton: closeBanner !== null,
+        noticesAfterClose,
         calls: calls.slice(mark),
       }
       return { observed, calls }
@@ -624,6 +654,9 @@ async function mount(repos, action, options = {}) {
         headPresent: headInfo().present,
         repoListCalls: calls.slice(mark).filter((call) => call.kind === 'repo-list').length,
         lastSnapshotTag: calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo).at(-1),
+        // Turning the probe off empties the list; the abandoned pick is healthy,
+        // so the repair must not claim it stopped resolving.
+        notices: noticeTexts(),
       }
       return { observed, calls }
     }
@@ -642,7 +675,27 @@ async function mount(repos, action, options = {}) {
       for (let i = 0; i < 80 && statusbarInfo().path !== 'fixture-repo'; i += 1) await wait(50)
       await wait(400)
       const dirLists = calls.slice(mark).filter((call) => call.kind === 'dir-list')
-      observed.afterProbeOff = { status: statusbarInfo(), menu: rootMenuInfo(), lastDirListTag: dirLists.length === 0 ? null : dirLists.at(-1).repo }
+      observed.afterProbeOff = { status: statusbarInfo(), menu: rootMenuInfo(), lastDirListTag: dirLists.length === 0 ? null : dirLists.at(-1).repo, notices: noticeTexts() }
+      return { observed, calls }
+    }
+    if (action === 'cwd-move') {
+      // The session's directory moves under a live panel. The next polled sample
+      // carries the new cwd, and the repository list must be asked again for it:
+      // the rows describe the directory the question was about, not the root.
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      await expandRepos()
+      await wait(300)
+      const mark = calls.length
+      observed.beforeMove = { rows: listRows().map((row) => row.name), cwd: moving.value }
+      window.__gpCwd('/mock/workspace-moved')
+      for (let i = 0; i < 80 && calls.slice(mark).filter((call) => call.kind === 'repo-list').length === 0; i += 1) await wait(50)
+      await wait(300)
+      observed.afterMove = {
+        cwd: moving.value,
+        repoListCalls: calls.slice(mark).filter((call) => call.kind === 'repo-list').length,
+        rows: listRows().map((row) => row.name),
+        notices: noticeTexts(),
+      }
       return { observed, calls }
     }
     if (action === 'changes-bar') {
@@ -959,7 +1012,7 @@ async function mount(repos, action, options = {}) {
       observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
     }
     return { observed, calls }
-  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip' })
+  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip', cwdMove: options.cwdMove === true })
   // A row's hover tip needs a real pointer, so the probe runs after the page
   // script finished and before the page goes away; failures stay out of the
   // scene's own try/catch.
@@ -1231,6 +1284,9 @@ const failures = []
     assert.deepEqual(rejected.rows.map((row) => row.active), [true, false], 'the rejected pick falls back to the workspace checkout')
     assert.equal(rejected.activeTab, 'tab.overview', 'a repair is not a navigation: the page stays')
     assert.equal(rejected.empties.includes('pill.unavailable'), false, 'a stale pick is never reported as a missing git: ' + JSON.stringify(rejected.empties))
+    assert.deepEqual(rejected.notices, ['repos.dropped'], 'the abandoned pick is stated above the panes: ' + JSON.stringify(rejected.notices))
+    assert.equal(rejected.closeButton, true, 'the banner carries a close control')
+    assert.deepEqual(rejected.noticesAfterClose, [], 'and dismissing it clears the banner')
     assert.equal(seen.tabCount, '3', 'a rejected pick does not collapse the bar into the browser')
     const tags = rejected.calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo)
     assert.ok(tags.includes('site'), 'the rejected pick was sampled: ' + JSON.stringify(tags))
@@ -1359,6 +1415,7 @@ const failures = []
     assert.deepEqual(seen.probeOff.rows, [], 'one checkout needs no list')
     assert.equal(seen.probeOff.headPresent, false, 'the block unmounts with it')
     assert.equal(seen.probeOff.lastSnapshotTag, '', 'the stale sub-repository pick fell back to the workspace')
+    assert.deepEqual(seen.probeOff.notices, [], 'a probe flip is not evidence the checkout is gone: no banner')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('probe-toggle observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
@@ -1511,6 +1568,7 @@ const failures = []
     assert.equal(seen.afterProbeOff.status.present, true, 'the status bar stays')
     assert.equal(seen.afterProbeOff.status.path, 'fixture-repo', 'the pin is repaired back to the project root')
     assert.equal(seen.afterProbeOff.lastDirListTag, '', 'and the tree re-lists untagged: ' + JSON.stringify(seen.afterProbeOff))
+    assert.deepEqual(seen.afterProbeOff.notices, [], 'the abandoned pin is healthy too: no banner')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('probe-files-pin observation: ' + JSON.stringify({ observed: out.observed, errors }))
@@ -1561,6 +1619,28 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('files-root-git observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls.slice(-30), errors }))
+    failures.push(error)
+  }
+}
+
+// 17. The session's working directory moves while the panel is open (DSH's
+// `working_directory` tool). The repository list is an answer about that
+// directory, so the next sample carrying the new cwd has to re-ask it — the
+// root alone cannot see a move inside one workspace, and a stale list would
+// describe checkouts the panel no longer answers about.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'cwd-move', { pollMs: 200, cwdMove: true, scene: 'S17' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.deepEqual(seen.beforeMove.rows, ['fixture-repo', 'site'], 'the list starts on the original directory')
+    assert.equal(seen.afterMove.cwd, '/mock/workspace-moved', 'the sample reports the moved directory')
+    assert.ok(seen.afterMove.repoListCalls > 0, 'the list was asked again for it: ' + JSON.stringify(seen.afterMove))
+    assert.deepEqual(seen.afterMove.rows, ['fixture-repo', 'site'], 'and answers the same rows for that directory')
+    assert.deepEqual(seen.afterMove.notices, [], 'a move re-asks the list without pretending the pick is gone')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('cwd-move observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls.slice(-20), errors }))
     failures.push(error)
   }
 }
