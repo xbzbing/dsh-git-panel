@@ -157,8 +157,10 @@ const out = await page.evaluate(async (snap) => {
     && Math.round(tbToggleRect.width) === 30 && Math.round(tbToggleRect.height) === 30
   result.ovToolbarOneRow = new Set(centers).size === 1
   result.ovMoreCollapsed = tb?.querySelector('.gp-toolbar__more') === null
-    && tb?.querySelectorAll('.gp-select-trigger').length === 0
+    && tb?.querySelectorAll('.gp-select-trigger:not(.gp-search-scope__trigger)').length === 0
     && tbToggle?.getAttribute('aria-expanded') === 'false'
+  // The scope picker is the one search control that stays on the first row.
+  result.ovSearchScopeAlwaysVisible = tb?.querySelectorAll('.gp-search-scope__trigger').length === 1
   // A collapsed panel must not name an element that does not exist.
   result.ovMoreAriaControls = tbToggle?.getAttribute('aria-controls') === null
   tbToggle?.click()
@@ -683,6 +685,7 @@ try {
   assert.equal(out.ovMoreToggleSize, true, 'the more-filters toggle is a 30px square')
   assert.equal(out.ovToolbarOneRow, true, 'the compact history toolbar keeps a single row by default')
   assert.equal(out.ovMoreCollapsed, true, 'author / since / refresh start collapsed behind the chevron')
+  assert.equal(out.ovSearchScopeAlwaysVisible, true, 'the search scope stays visible when the secondary filters collapse')
   assert.equal(out.ovMoreAriaControls, true, 'collapsed: the toggle names no missing element')
   assert.equal(out.ovMoreExpanded, true, 'the chevron reveals the secondary filter group')
   assert.equal(out.ovMoreAriaControlsExpanded, true, 'expanded: the toggle controls the revealed group')

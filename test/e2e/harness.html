@@ -111,7 +111,11 @@
           }, item.label);
         })) : null;
         // Positional children, not an array: no key warnings from a wrapper.
-        return window.React.createElement('span', { className: 'dsh-menu-root' }, props.anchor, list);
+        // Mirror the real primitive: its wrapper carries the caller's className
+        // (gp-filter / gp-search-scope), which the panel's CSS styles.
+        return window.React.createElement('span', {
+          className: props.className ? 'dsh-menu-root ' + props.className : 'dsh-menu-root',
+        }, props.anchor, list);
       },
       MenuItemButton: function (props) {
         return window.React.createElement('button', {

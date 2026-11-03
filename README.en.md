@@ -26,7 +26,7 @@ After a first install the **Git** panel appears in the workspace tab bar with no
 
 ## Features
 
-- **Overview** — branch / tag list, a searchable commit history graph, and commit details; click a file to see its diff in that commit.
+- **Overview** — branch / tag list, commit history graph, and commit details; click a file to see its diff in that commit. History offers “message / hash” and “file / path” search. File / path search matches literal substrings in historical paths without distinguishing English letter case, including file names and directory fragments, while author, date and branch filters still combine with it. It does not search code contents; deleted paths remain searchable, renames do not automatically follow the old name, Git may simplify parts of merge and side-branch history, and commit details still show the complete file list.
 - **Changes** — stage and discard per file or in batches, commit and **Amend**, stash, and added·deleted statistics. A pick carries the side it was made on: selecting only the staged row commits what the index already holds (no re-`git add` of unstaged hunks, so a partial `git add -p` survives), while selecting the working-tree row commits the whole file.
 - **Common Git actions** — switch branches, create and delete tags, revert / reset commits; destructive actions ask for confirmation, and nothing leaves the local repository or gets pushed automatically.
 - **AI commit-message suggestion** — follows the style of the repository's existing commits; the model follows the current session by default and can be pinned on the detail page. **Generation sends your diff content to the provider of the model you picked.**

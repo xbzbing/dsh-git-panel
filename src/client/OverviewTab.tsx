@@ -18,7 +18,8 @@ import { ArrowLeftIcon, ChevronIcon, CloseIcon, CommitIcon, FilterIcon, RefreshI
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
 import { layoutFilteredGraph } from './filtered-graph.js'
 import { GRAPH_LANE_W } from './CommitGraph.js'
-import { isHistoryFiltered } from './types.js'
+import { HISTORY_PATH_SEARCH_MAX_LENGTH, isHistoryFiltered } from './types.js'
+import { HistorySearch, type HistorySearchScope } from './HistorySearch.js'
 import { buildBranchTree, buildLocalBranchSection, pinPrimaryFirst, primaryBranchName, primaryRemoteRef } from './branch-tree.js'
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime } from './time.js'
@@ -115,6 +116,12 @@ const ROW_H_STACKED = 40
  * width nearly constant while the toolbar's width is the real space signal. */
 const SEARCH_HINT_MIN_W = 260
 
+/** Toolbar width below which the scope label collapses to its icon. The text
+ * costs about 100px, and keeping it in a wide toolbar that also holds the author
+ * / date / refresh controls pushes the last one onto a second row. Stacked puts
+ * the search on its own row, so it keeps the label at the same width. */
+const SCOPE_LABEL_MIN_W = 420
+
 /** Observe an element's width; true once it is measured and below `min`. */
 function useNarrow(el: HTMLElement | null, min: number): boolean {
   const [narrow, setNarrow] = useState(false)
@@ -133,11 +140,13 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
+  const [searchScope, setSearchScope] = useState<HistorySearchScope>('message')
   /** Menu open state per filter: Menu is controlled and never closes itself. */
   const [authorOpen, setAuthorOpen] = useState(false)
   const [sinceOpen, setSinceOpen] = useState(false)
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
   const searchNarrow = useNarrow(searchEl, SEARCH_HINT_MIN_W)
+  const scopeLabelNarrow = useNarrow(searchEl, SCOPE_LABEL_MIN_W)
   /** Compact-only: the secondary filters (author / since / refresh) hide behind
    * one chevron so the first row keeps the branch filter, search and the toggle. */
   const [moreOpen, setMoreOpen] = useState(false)
@@ -288,7 +297,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   }, [tree, remoteName])
   const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
   const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
-  const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore } = useHistory(
+  const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore, pathSearchSupport, pathSearchUnsupported } = useHistory(
     remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
   )
 
@@ -337,11 +346,17 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree, filter.ref])
 
-  // Search debounce → filter change (which reloads history from page 0).
+  // One debounce publishes the scope and text together, so the request never
+  // combines a previous message filter with the new path filter.
   useEffect(() => {
-    const timer = setTimeout(() => setFilter((prev) => (prev.search === searchInput ? prev : { ...prev, search: searchInput })), 300)
+    const timer = setTimeout(() => setFilter((prev) => {
+      const search = searchScope === 'message' ? searchInput : ''
+      const pathSearch = searchScope === 'path' ? searchInput : ''
+      return prev.search === search && (prev.pathSearch ?? '') === pathSearch
+        ? prev : { ...prev, search, pathSearch }
+    }), 300)
     return () => clearTimeout(timer)
-  }, [searchInput])
+  }, [searchInput, searchScope])
 
   // The published topology signals projection mode. An older host may omit it;
   // use the shared query predicate as a conservative fallback for those rows.
@@ -711,9 +726,17 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     className: 'gp-filter',
     anchor: selectTrigger(sinceOpen, sinceLabel, () => setSinceOpen((v) => !v)),
   })
-  const searchInputEl = h('input', {
-    key: 'search', className: 'gp-search', placeholder: t(searchNarrow || compact ? 'overview.searchShort' : 'overview.search'), value: searchInput,
-    onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
+  const changeScope = useCallback((next: HistorySearchScope): void => {
+    setSearchScope(next)
+    // The message field has no host length cap, the path field does: truncate a
+    // carried-over value so switching scopes cannot send an invalid request.
+    if (next === 'path') setSearchInput((value) => value.slice(0, HISTORY_PATH_SEARCH_MAX_LENGTH))
+  }, [])
+  const searchInputEl = h(HistorySearch, {
+    key: 'search', value: searchInput, scope: searchScope, support: pathSearchSupport,
+    narrow: searchNarrow || compact,
+    labelNarrow: searchNarrow || compact || (!stacked && scopeLabelNarrow),
+    onChange: setSearchInput, onScopeChange: changeScope, t,
   })
   const secondaryFilters: JSX.Element[] = [authorMenu, sinceMenu, fetchButton]
   // Tight stacked: the left column does not occupy the band, so its only entry
@@ -793,6 +816,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     // it; the tier that moves the column behind the drawer needs this line.
     stacked && tight ? h(RepoBar, { key: 'repobar', snapshot, t }) : null,
     h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),
+    pathSearchUnsupported && !dismissedNotices.isDismissed('path-search-unsupported') ? h(NoticeBar, {
+      key: 'path-unsupported', text: t('overview.searchPathUnsupported'), closeLabel: t('common.close'), status: true,
+      onClose: () => dismissedNotices.dismiss('path-search-unsupported'),
+    }) : null,
     h('div', { key: 'list', className: 'gp-history__list', ref: attachList, onScroll }, [
       commitSlider.slider,
       commits.length === 0

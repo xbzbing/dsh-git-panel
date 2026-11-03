@@ -173,6 +173,94 @@ test('hidden history blocks pagination, then resumes current filter without poll
   h.unmount()
 })
 
+test('hidden path changes coalesce into one page zero and reject the old response capability', async (t) => {
+  const requests = []
+  const remote = { query: (req) => new Promise((resolve) => requests.push({ ...req, resolve })) }
+  const props = { visible: true, filter: { ...F, pathSearch: 'old' }, key: 0 }
+  const h = mount(() => useHistory(remote, 's', props.filter, [props.key], () => {}, props.visible))
+  t.after(() => h.unmount())
+  props.visible = false; h.rerender()
+  props.filter = { ...F, pathSearch: 'middle' }; props.key++; h.rerender()
+  props.filter = { ...F, pathSearch: 'current' }; props.key++; h.rerender()
+  requests[0].resolve({ ok: true, value: { kind: 'history', commits: [{ hash: 'unfiltered' }], total: 5 } })
+  await h.settle()
+  assert.equal(requests.length, 1)
+  assert.equal(h.value.pathSearchSupport, 'unknown', 'hidden stale response cannot establish capability')
+  assert.equal(h.value.pathSearchUnsupported, false)
+  assert.deepEqual(h.value.commits, [])
+  h.value.loadMore(); await h.settle()
+  assert.equal(requests.length, 1)
+  props.visible = true; h.rerender()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].query.pathSearch, 'current')
+  assert.equal(requests[1].query.skip, 0)
+  requests[1].resolve({ ok: true, value: { kind: 'history', commits: [{ hash: 'current' }], total: 5, pathSearchSupported: true } })
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'supported')
+  assert.equal(h.value.appliedFilter, props.filter)
+  props.visible = false; h.rerender()
+  h.value.loadMore(); await h.settle()
+  assert.equal(requests.length, 2, 'hidden path results cannot start pagination')
+  props.visible = true; h.rerender()
+  assert.equal(requests.length, 3, 'restore starts one replacement rather than an append')
+  assert.equal(requests[2].query.skip, 0)
+})
+
+test('hidden remote and session changes reset capability immediately and query on activation', async (t) => {
+  const requests = []
+  const makeRemote = () => ({ query: (req) => new Promise((resolve) => requests.push({ ...req, resolve })) })
+  const props = { remote: makeRemote(), sid: 'old', visible: true, key: 0 }
+  const h = mount(() => useHistory(props.remote, props.sid, F, [props.key], () => {}, props.visible))
+  t.after(() => h.unmount())
+  requests[0].resolve({ ok: true, value: { kind: 'history', commits: [{ hash: 'old' }], total: 5, pathSearchSupported: true } })
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'supported')
+  props.key++; h.rerender()
+  props.visible = false; h.rerender()
+  props.remote = makeRemote(); h.rerender()
+  assert.equal(h.value.pathSearchSupport, 'unknown')
+  requests[1].resolve({ ok: true, value: { kind: 'history', commits: [{ hash: 'stale' }], total: 1 } })
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'unknown')
+  assert.equal(h.value.commits[0].hash, 'old')
+  props.visible = true; h.rerender()
+  assert.equal(requests.length, 3, 'new remote has a new key even when hidden during replacement')
+  requests[2].resolve({ ok: true, value: { kind: 'history', commits: [], total: 0 } })
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'unsupported')
+  props.visible = false; h.rerender()
+  props.sid = 'new'; h.rerender()
+  assert.equal(h.value.pathSearchSupport, 'unknown', 'session change starts a distinct capability scope')
+  props.visible = true; h.rerender()
+  assert.equal(requests.length, 4)
+  assert.equal(requests[3].sessionId, 'new')
+  requests[3].resolve({ ok: false, error: { code: 'transport' } })
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'unknown', 'failed activation does not mark the new session unsupported')
+})
+
+test('path replacement failure preserves supported capability and blocks retained-list paging', async (t) => {
+  const calls = []
+  const props = { filter: { ...F, pathSearch: 'old' }, key: 0 }
+  const remote = { query: async ({ query }) => {
+    calls.push(query)
+    return query.pathSearch === 'old'
+      ? { ok: true, value: { kind: 'history', commits: [{ hash: 'old' }], total: 5, pathSearchSupported: true } }
+      : { ok: false, error: { code: 'git-error' } }
+  } }
+  const h = mount(() => useHistory(remote, 's', props.filter, [props.key], () => {}))
+  t.after(() => h.unmount())
+  await h.settle()
+  props.filter = { ...F, pathSearch: 'new' }; h.rerender(); await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'supported')
+  assert.equal(h.value.pathSearchUnsupported, false, 'query failure does not imply unsupported path search')
+  assert.equal(h.value.listError, true)
+  assert.equal(h.value.commits[0].hash, 'old')
+  assert.equal(h.value.appliedFilter.pathSearch, 'old')
+  h.value.loadMore(); await h.settle()
+  assert.equal(calls.length, 2)
+})
+
 test('old pagination cannot clear the loading guard of a new first-page request', async () => {
   const oldMore = deferred(), newPage = deferred()
   let filter = F

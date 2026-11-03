@@ -75,7 +75,7 @@ try {
     }
     const rows = () => [...document.querySelectorAll('.gp-commit-row')]
     const pick = async (index, label) => {
-      document.querySelectorAll('.gp-select-trigger')[index].click()
+      document.querySelectorAll('.gp-select-trigger:not(.gp-search-scope__trigger)')[index].click()
       await waitFor(() => document.querySelector('[role="menu"]'))
       const item = [...document.querySelectorAll('[role="menuitem"]')].find((node) => node.textContent === label)
       if (!item) throw new Error('missing filter option ' + label)

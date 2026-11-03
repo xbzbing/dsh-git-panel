@@ -157,7 +157,7 @@ try {
     await frames()
   }
   const pickAuthor = async (author) => {
-    await page.locator('.gp-select-trigger').first().click()
+    await page.locator('.gp-select-trigger:not(.gp-search-scope__trigger)').first().click()
     await page.getByRole('menuitem', { name: author || 'overview.allUsers', exact: true }).click()
     await page.waitForSelector('[role="menu"]', { state: 'detached' })
   }
