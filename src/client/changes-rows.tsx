@@ -165,9 +165,8 @@ export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: numb
         : h('span', { key: 'chev', className: 'gp-group-head__chev-spacer' }),
       // Hidden while the group is capped past the list cap: the head count
       // comes from the full stats but only the prefix is loaded, so a
-      // select-all would read as checked while covering just those rows —
-      // under a filter too, where the displayed count is only the hits among
-      // the loaded prefix. Expanding the list restores the checkbox.
+      // select-all would read as checked while covering just those rows.
+      // Expanding the list restores the checkbox.
       row.items.length > 0 && !row.truncated
         ? h('span', {
           key: 'pick', className: 'gp-group-head__pick',
@@ -362,6 +361,9 @@ export function renderDirRow(a: DirRowActions): JSX.Element {
       ref: (el: HTMLInputElement | null) => { if (el !== null) el.indeterminate = a.pick === 'partial' },
       disabled: a.busy,
       'aria-label': a.selectAllLabel,
+      // Like the group head's checkbox: never let a click here also land on
+      // whatever the row gains as a parent click target later (fold etc.).
+      onClick: (e: Event) => e.stopPropagation(),
       onChange: a.onTogglePick,
     })),
     // The fold control fills the row between the pick and the actions, so a
