@@ -234,6 +234,22 @@ async function mount(repos, action, options = {}) {
     const noticeTexts = () => [...document.querySelectorAll('.gp-panel .gp-notice__text')]
       .map((node) => node.textContent.trim())
       .filter((text) => text !== '')
+    // The collapsed head's repository mark: an icon squeezed by a long selected
+    // chip is the regression this measures (16px box, 14px glyph).
+    const headMark = () => {
+      const svg = document.querySelector('.gp-panel .gp-repolist__head .gp-repolist__label svg')
+      const label = document.querySelector('.gp-panel .gp-repolist__head .gp-repolist__label')
+      const chip = document.querySelector('.gp-panel .gp-repolist__selected')
+      const rect = (node) => node === null ? null : node.getBoundingClientRect()
+      const box = rect(svg)
+      const chipBox = rect(chip)
+      return {
+        mark: box === null ? null : { w: Math.round(box.width * 10) / 10, h: Math.round(box.height * 10) / 10 },
+        labelW: rect(label) === null ? null : Math.round(rect(label).width * 10) / 10,
+        chipClipped: chip === null ? null : chip.scrollWidth > chip.clientWidth + 1,
+        chipW: chipBox === null ? null : Math.round(chipBox.width),
+      }
+    }
     const listRows = () => [...document.querySelectorAll('.gp-panel .gp-repolist__item')]
       .filter((node) => inVisiblePane(node))
       .map((node) => ({
@@ -696,6 +712,21 @@ async function mount(repos, action, options = {}) {
         rows: listRows().map((row) => row.name),
         notices: noticeTexts(),
       }
+      return { observed, calls }
+    }
+    if (action === 'head-icon') {
+      // A switch to a long-named checkout folds to a head that names it: the
+      // mark must keep its size and the name must be what gives way.
+      await wait(300)
+      observed.atBoot = headMark()
+      await expandRepos()
+      await wait(200)
+      pickRow('.gp-repolist__item', 'php2shell-bypass-asl-test-suite (site)')
+      await wait(700)
+      const head = document.querySelector('.gp-panel .gp-repolist__head')
+      if (head !== null) head.click()
+      await wait(400)
+      observed.afterLongPick = headMark()
       return { observed, calls }
     }
     if (action === 'changes-bar') {
@@ -1641,6 +1672,27 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('cwd-move observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls.slice(-20), errors }))
+    failures.push(error)
+  }
+}
+
+// 18. The collapsed head names the selected checkout with a chip, and a long
+// name used to squeeze the repository mark into a sliver (the label shrank, the
+// SVG shrank with it). The mark keeps its 14px; the name ellipsizes instead.
+{
+  const SHORT_WS = { path: '', root: 'fixture-repo', name: 'dsh-playground', kind: 'workspace' }
+  const LONG_PICK = { path: 'site', root: 'fixture-repo/site', name: 'php2shell-bypass-asl-test-suite', kind: 'nested' }
+  const { out, errors } = await mount([SHORT_WS, LONG_PICK], 'head-icon', { scene: 'S18', panelWidth: 700 })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.deepEqual(seen.atBoot.mark, { w: 14, h: 14 }, 'the mark starts at its 14px box')
+    assert.deepEqual(seen.afterLongPick.mark, { w: 14, h: 14 }, 'a long selected name does not squeeze it: ' + JSON.stringify(seen.afterLongPick))
+    assert.ok(seen.afterLongPick.labelW === 14 || seen.afterLongPick.labelW > 14, 'the label holds the mark alone: ' + JSON.stringify(seen.afterLongPick))
+    assert.equal(seen.afterLongPick.chipClipped, true, 'the name is what gives way: ' + JSON.stringify(seen.afterLongPick))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('head-icon observation: ' + JSON.stringify({ observed: out.observed, errors }))
     failures.push(error)
   }
 }

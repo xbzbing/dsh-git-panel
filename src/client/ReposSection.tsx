@@ -204,7 +204,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   const headChildren: (JSX.Element | null)[] = [
     h('span', {
       key: 'label',
-      className: 'gp-repolist__label',
+      className: `gp-repolist__label${collapsed ? ' gp-repolist__label--icon' : ''}`,
       ...(collapsed ? { role: 'img', 'aria-label': t('tab.repos') } : {}),
     }, collapsed
       ? h(RepoIcon, { size: 14 })

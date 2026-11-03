@@ -24,6 +24,13 @@ export const CSS = `
 /* The label leads with a repository mark in both states; collapsed it is the
  * mark alone so the selected chip takes the width the words used to hold. */
 .gp-repolist__label{display:flex;align-items:center;gap:4px;min-width:0}
+/* The mark keeps its 14px. As a flex item an SVG with width/height attributes
+ * still shrinks, so a long selected chip (name plus path) squeezed it into a
+ * sliver — the label was shrinking and the icon shrank with it. */
+.gp-repolist__label svg{flex:none}
+/* Collapsed the label holds only that mark: there is no text to ellipsize, so
+ * it must not take part in the squeeze at all — the chip ellipsizes instead. */
+.gp-repolist__label--icon{flex:none}
 .gp-repolist__labeltext{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-repolist__badge{flex:none;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);font-size:10px;line-height:16px;text-align:center;box-sizing:border-box}
 /* The scroll container also anchors the travelling fill, so the slider scrolls
