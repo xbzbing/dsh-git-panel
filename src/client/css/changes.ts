@@ -203,10 +203,10 @@ export const CSS = `
 .gp-changes__list{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 /* Virtualized change list: a fixed-height relative spacer owns the scrollbar;
  * each mounted row/head is absolutely positioned at its offset and pinned to
- * the fixed height the window math assumes (VROW_H / VHEAD_H). */
+ * the fixed height the window math assumes (VROW_H / VHEAD_H / VDIR_H). */
 .gp-changes__vlist{position:relative;width:100%}
 .gp-changes__vrow{position:absolute;left:0;right:0;box-sizing:border-box}
-.gp-changes__vrow>.gp-file-row,.gp-changes__vrow>.gp-group-head{height:100%;box-sizing:border-box}
+.gp-changes__vrow>.gp-file-row,.gp-changes__vrow>.gp-group-head,.gp-changes__vrow>.gp-dir-row{height:100%;box-sizing:border-box}
 .gp-check{width:14px;height:14px;flex:none;cursor:pointer}
 .gp-group-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
 /* A group kept only for its count has nothing to collapse: no chevron, no hand. */
@@ -234,6 +234,38 @@ export const CSS = `
 /* The trash glyph sits in an aria-hidden span; without flex the span is a
  * baseline inline box and the SVG rides above the "+" text's centre line. */
 .gp-file-row__actions .gp-icon-btn>span{display:inline-flex;align-items:center;justify-content:center}
+/* Secondary path text after the file name: the flat list repeats the directory,
+ * a rename names the path it came from. Both elide before the name does. */
+.gp-file-row__aside{color:var(--dsw-alias-label-tertiary);margin-left:6px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-file-row__from{opacity:.9}
+/* View bar above the list: flat/tree switch and the path filter. One row so the
+ * list keeps its height, and it disappears with nothing to show. */
+.gp-changes__viewbar{flex:none;display:flex;align-items:center;gap:6px;padding:5px 8px 5px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-changes__viewseg{flex:none}
+.gp-changes__viewseg .gp-seg__btn{padding:4px 9px;font-size:11px}
+/* The filter shares the row with the switch: it takes the remaining width and
+ * never pushes the switch out (the input can shrink to 60px). */
+.gp-changes__filter{flex:1 1 auto;min-width:60px;height:26px;font-size:12px;padding:0 8px}
+.gp-changes__filter:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-changes__filter-clear{flex:none;width:24px;height:24px}
+/* Directory row of the tree view: same row language as a file row, one indent
+ * step shallower for its children (the tab sets padding-left from the depth). */
+.gp-dir-row{display:flex;align-items:center;gap:6px;padding:3px 10px;font-size:12px;border-radius:4px}
+.gp-dir-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
+/* The fold control fills the row (minus the pick and the actions), so the whole
+ * directory line toggles and the control is the row's keyboard/AT target. */
+.gp-dir-row__toggle{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:4px}
+.gp-dir-row__toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-dir-row__pick{padding:5px;box-sizing:content-box;display:inline-flex;align-items:center;flex:none;cursor:pointer}
+.gp-dir-row__pick .gp-check{margin:0}
+.gp-dir-row__icon{display:inline-flex;flex:none;color:var(--dsw-alias-label-tertiary)}
+.gp-dir-row__name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-weight:500}
+/* Descendant count: a muted pill, not a second status colour — it counts rows,
+ * it is not a change state. */
+.gp-dir-row__count{flex:none;padding:0 6px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;font-variant-numeric:tabular-nums}
+.gp-dir-row__actions{margin-left:auto;display:flex;gap:4px;flex:none;visibility:hidden}
+.gp-dir-row:hover .gp-dir-row__actions{visibility:visible}
+.gp-dir-row__actions .gp-icon-btn>span{display:inline-flex;align-items:center;justify-content:center}
 
 /* stats bar */
 .gp-stats{display:flex;align-items:center;gap:6px;padding:8px 12px;min-height:33px;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
