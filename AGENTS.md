@@ -106,6 +106,7 @@ Host 半 (Cordis + typert, lib/host)
 - 图片缩放：`.gp-zoom__img` 必须 `flex:none`（否则放大超过 100% 不生效）；拖拽的 pointer 事件挂 window 且不 `setPointerCapture`（会改写 click 目标）。
 - **加载指示一律用平台 `StateDot`（`state="ongoing"`，尺寸按场景传 `size`）**，不自绘边框圈：`border` + `border-top-color` 拼出来的圆环在 13–26px 下看着不是正圆，且与平台的加载标记不同源，会随改版漂移。动画由平台样式表提供，所以遮罩进 ready 后要显式让透明层上的动画停下（`.gp-files__html-mask-spin *{animation:none}`）。
 - **悬停提示只认 hover 与键盘焦点，不认触摸**（`tip.tsx` 的 `tipProps` 与 `GitPill` 的提示面板两条实现都要守）：tap 合成 `mouseenter` 却永远没有 `mouseleave`，按下时升起的提示牌会永久挂在界面上（机理注释在 `tip.tsx`）。按下来自手指一律不升起提示；按下驱动的确认（两步放弃的 `showTipNow`）不受影响，鼠标 / 键盘按下会把焦点这一半重新放开。
+- **文件浏览工具栏的尾部控件整组换行**：宽栏的尾部按钮收进一个 `.gp-files__bar-end`（单个 flex 项），宽度不够时整组换到下一行靠右，不拍平逐个换行（会把按钮劈成两截）；`.gp-files__bar` 的 `justify-content:flex-end` 只在没有 grow 项的行生效，不会挤掉 path 的伸展。`test/e2e/files-bar-review.mjs` 锁住三条：无散落按钮、组高单行、独立行靠右。
 
 ## 依赖策略
 
