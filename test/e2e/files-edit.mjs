@@ -61,15 +61,32 @@ async function boot(page, opts = {}) {
         'big.json': null,
         'other.txt': 'other\n',
       },
+      // The nested checkout whose disappearance exercises the detached draft
+      // (it is present at boot, dropped mid-scenario by ctl.dropNested).
+      nested: {
+        'inner.txt': 'nested body\n',
+      },
       version: {},
       writes: [], snapshots: 0,
+      dropNested: false,
       // 'ok' | 'conflict' | 'mixed-eol' | 'denied' (each refusal once)
       writeMode: 'ok',
       writeDelay: 0,
     }
     for (const path of Object.keys(ctl.files)) ctl.version[path] = 1
+    ctl.version['inner.txt'] = 1
     window.__ctl = ctl
+    // A 200 ms poll keeps the detach scenario (repo-list re-asked after the
+    // sample flips detectCheckouts) inside the e2e's patience.
+    const fastSnap = { ...snap, refreshIntervalMs: 200 }
     const editable = (path) => /\.(?:yaml|md|json|txt)$/.test(path)
+    const nestedContent = (path) => {
+      const body = ctl.nested[path]
+      return {
+        kind: 'file-content', path, variant: 'text', content: body, lines: body.split('\n').length - 1, size: body.length,
+        ...(editable(path) ? { sha256: sha(ctl.version[path]), edit: { ok: true, eol: 'lf', bom: false } } : {}),
+      }
+    }
     const content = (path) => {
       const body = ctl.files[path]
       if (body === null) return { kind: 'file-content', path, variant: 'text', tooLarge: true, size: 3 * 1024 * 1024, edit: { ok: false, reason: 'too-large' } }
@@ -80,10 +97,24 @@ async function boot(page, opts = {}) {
     }
     const connection = { rpc: { call: async (_channel, endpoint, payload) => {
       const request = payload && payload.args && payload.args.request
-      if (endpoint === 'gitPanel/snapshot') { ctl.snapshots++; return { ok: true, value: { ok: true, value: snap } } }
+      const inNested = request !== undefined && typeof request.repo === 'string' && request.repo.startsWith('nested')
+      if (endpoint === 'gitPanel/snapshot') {
+        ctl.snapshots++
+        // The nested checkout answers only its own placeholder sample: the
+        // git-pill state is never asserted in this runner, but the snapshot
+        // must resolve (and carry the selector's root) for the browser's
+        // address line to follow the picked root.
+        const base = inNested ? { ...fastSnap, root: '/w/nested' } : fastSnap
+        return { ok: true, value: { ok: true, value: { ...base, detectCheckouts: !ctl.dropNested } } }
+      }
       if (endpoint === 'gitPanel/writeFile') {
         ctl.writes.push(request)
+        // A write whose root disappeared must never reach the host: the client
+        // derives the tag from the draft's root key, and the request only goes
+        // out when that root still resolves. This mock answers both roots, so
+        // the assertion is on which `repo` tag the write carried.
         if (ctl.writeDelay > 0) await new Promise((r) => setTimeout(r, ctl.writeDelay))
+        const store = inNested ? ctl.nested : ctl.files
         if (ctl.writeMode === 'mixed-eol' || ctl.writeMode === 'denied') {
           const mode = ctl.writeMode
           ctl.writeMode = 'ok'
@@ -99,25 +130,34 @@ async function boot(page, opts = {}) {
         if (request.baseSha256 !== sha(ctl.version[request.path])) {
           return { ok: true, value: { ok: false, error: { code: 'file-changed', currentSha256: sha(ctl.version[request.path]) } } }
         }
-        ctl.files[request.path] = request.content
+        store[request.path] = request.content
         ctl.version[request.path] += 1
-        return { ok: true, value: { ok: true, value: content(request.path) } }
+        return { ok: true, value: { ok: true, value: inNested ? nestedContent(request.path) : content(request.path) } }
       }
       if (endpoint === 'gitPanel/query') {
         const q = request.query
         if (q.kind === 'dir-list') {
-          const entries = q.path === '' ? Object.keys(ctl.files).map((name) => ({ name, dir: false, size: 10 })) : []
+          if (inNested) {
+            const entries = q.path === '' ? Object.keys(ctl.nested).map((name) => ({ name, dir: false, size: 10 })) : []
+            return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries } } }
+          }
+          const entries = q.path === ''
+            ? [{ name: 'nested', dir: true }, ...Object.keys(ctl.files).map((name) => ({ name, dir: false, size: 10 }))]
+            : []
           return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries } } }
         }
-        if (q.kind === 'file-content') return { ok: true, value: { ok: true, value: content(q.path) } }
+        if (q.kind === 'file-content') return { ok: true, value: { ok: true, value: inNested ? nestedContent(q.path) : content(q.path) } }
         if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'main', shortHash: '44638f7' }], remote: [] } } }
         if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
         if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
         if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 0, commits: [] } } }
-        if (q.kind === 'repo-list') return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: '/w', repos: [] } } }
+        if (q.kind === 'repo-list') {
+          const repos = ctl.dropNested ? [] : [{ path: 'nested', root: '/w/nested', name: 'nested', kind: 'nested' }]
+          return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: '/w', repos } } }
+        }
         if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
       }
-      if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+      if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: { ...fastSnap, detectCheckouts: !ctl.dropNested } } }
       if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '1.10.0', repositoryUrl: '', updateAvailable: false, checkedRemote: false } }
       return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
     } } }
@@ -491,5 +531,78 @@ assert.deepEqual(compactBar, { oneRow: true, save: '保存', cancel: '取消', o
 await phone.close()
 
 assert.deepEqual(errors.filter((e) => !e.includes('chunk load failed')), [], 'no console or page errors')
+
+// ── Detached draft: browse root moves away and disappears ─────────────────
+// The draft was read under the nested checkout; the browser then leaves that
+// root, and the root itself leaves the list (directory gone / probe off).
+// The draft must still save back into its own root — the write request is
+// tagged with the draft's selector, derived at send time.
+{
+  const dpage = await browser.newPage({ viewport: { width: 1000, height: 720 } })
+  watch(dpage)
+  await boot(dpage)
+  // Root the browser at the nested checkout through the address dropdown.
+  await dpage.click('.gp-files__status-path')
+  await dpage.waitForSelector('.gp-files__rootmenu')
+  await dpage.evaluate(() => [...document.querySelectorAll('.gp-files__rootmenu__item')]
+    .find((b) => (b.textContent ?? '').includes('nested'))?.click())
+  await dpage.waitForTimeout(400)
+  const statusPath = () => dpage.evaluate(() => document.querySelector('.gp-files__status-body')?.textContent ?? '')
+  assert.ok((await statusPath()).includes('nested'), 'the address shows the nested root after the pick')
+
+  await pick(dpage, 'inner.txt')
+  await dpage.click('.gp-files__edit')
+  await dpage.waitForSelector('.gp-files__editor .cm-content', { timeout: 10000 })
+  await dpage.keyboard.type('draft ')
+
+  // An unsaved draft blocks the root pick behind the discard confirm.
+  await dpage.click('.gp-files__status-path')
+  await dpage.waitForSelector('.gp-files__rootmenu')
+  await dpage.evaluate(() => [...document.querySelectorAll('.gp-files__rootmenu__item')]
+    .find((b) => (b.textContent ?? '').includes('项目根'))?.click())
+  await dpage.waitForTimeout(200)
+  assert.ok(await dpage.evaluate(() => (document.querySelector('.gp-modal')?.textContent ?? '').includes('放弃未保存的修改')), 'switching roots with an unsaved draft asks first')
+  await dpage.evaluate(() => [...document.querySelectorAll('.gp-modal .gp-btn')].find((b) => (b.textContent ?? '') === '取消')?.click())
+  await dpage.waitForTimeout(200)
+  assert.ok((await statusPath()).includes('nested'), 'cancelling keeps the nested root')
+
+  // Discard the dirty draft via the toolbar cancel (its own confirm), then
+  // re-edit the same file clean — the detach below must not pass through the
+  // root-pick guard at all: the nested checkout leaves the repo list.
+  await dpage.click('.gp-files__edit-cancel')
+  await dpage.waitForTimeout(200)
+  await dpage.evaluate(() => [...document.querySelectorAll('.gp-modal .gp-btn')].find((b) => (b.textContent ?? '') === '放弃修改')?.click())
+  await dpage.waitForTimeout(300)
+  await dpage.click('.gp-files__edit')
+  await dpage.waitForSelector('.gp-files__editor .cm-content', { timeout: 10000 })
+  await dpage.keyboard.type('detached ')
+  await dpage.evaluate(() => { window.__ctl.dropNested = true })
+  // Detach without the guard's involvement: the next poll's sample flips
+  // detectCheckouts off, which re-asks the repo list without the nested
+  // checkout, and the pinned root is repaired back to the project root.
+  await dpage.waitForTimeout(900)
+  const detached = await dpage.evaluate(() => ({
+    note: document.querySelector('.gp-files__edit-detached')?.textContent ?? '',
+    status: document.querySelector('.gp-files__status-body')?.textContent ?? '',
+    editor: document.querySelector('.gp-files__editor') !== null,
+  }))
+  assert.ok(detached.note.includes('inner.txt'), 'the detached note names the draft file')
+  assert.ok(!detached.status.includes('nested'), 'the browser fell back off the vanished root')
+  assert.equal(detached.editor, true, 'the draft stays on screen while detached')
+
+  // The save still lands in the draft's own root: tagged 'nested', content
+  // with the edit, and the preview is not re-read from the (wrong) root.
+  const writesBefore = await dpage.evaluate(() => window.__ctl.writes.length)
+  await dpage.click('.gp-files__edit-save')
+  await dpage.waitForTimeout(400)
+  const lastWrite = await dpage.evaluate((n) => (window.__ctl.writes.length > n ? window.__ctl.writes.at(-1) : null), writesBefore)
+  assert.ok(lastWrite !== null, 'the detached draft still saves')
+  assert.equal(lastWrite.repo, 'nested', 'the save is tagged with the draft root, derived at send time')
+  assert.equal(lastWrite.path, 'inner.txt')
+  assert.ok(lastWrite.content.startsWith('detached '), 'the edited text is what was written')
+  assert.equal(await dpage.evaluate(() => document.querySelector('.gp-files__editor')), null, 'a landed save leaves edit mode')
+  await dpage.close()
+}
+
 await browser.close()
 console.log('e2e files-edit.mjs: PASS')
