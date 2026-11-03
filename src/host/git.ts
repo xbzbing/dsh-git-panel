@@ -100,10 +100,15 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
             // Path arguments are work-tree paths from git's own output, never
             // patterns: with pathspec expansion on, a name containing glob
             // metacharacters (`app/[id].tsx`) or magic (`:/`) also matches other
-            // files, so a discard would rewrite them. Applied per command (see
-            // usesLiteralPathspecs): commands that consume pathspecs themselves
-            // (`check-ignore`, `stash -u`) reject or misread the literal flag.
-            ...(usesLiteralPathspecs(argv) ? { GIT_LITERAL_PATHSPECS: '1' } : {}),
+            // files, so a discard would rewrite them. Commands that consume
+            // pathspecs themselves (`check-ignore`, `stash -u`) reject or misread
+            // the literal flag. The opposite case is `log` / `rev-list`, whose
+            // pattern this plugin builds: a GIT_*PATHSPECS setting inherited from
+            // the shell would silently change that pattern (literal or no-glob
+            // finds nothing, glob stops `*` at a `/`), so their expansion mode is
+            // pinned as well. See pathspecEnv.
+            ...pathspecEnv(argv),
+            ...opts.env,
             ...opts.env,
           },
           stdio: {
@@ -151,17 +156,29 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
  * metacharacters, `app/[id].tsx`, must not match other files), and the list is
  * the guard: `git check-ignore` and `git stash push` consume pathspecs
  * themselves and go fatal under `GIT_LITERAL_PATHSPECS`, so adding a `--` to
- * either must not turn the flag on for them. Subcommands absent here keep the
- * default expansion whatever their argv looks like; for a `--` that only ends
- * an option list (`log`, `rev-list`) that is a no-op either way.
+ * either must not turn the flag on for them. Subcommands absent from both sets
+ * keep the inherited environment whatever their argv looks like.
  */
 const LITERAL_PATHSPEC_COMMANDS: ReadonlySet<string> = new Set([
   'add', 'commit', 'checkout', 'diff', 'ls-files', 'reset', 'restore', 'rm', 'show', 'update-index',
 ])
 
-function usesLiteralPathspecs(argv: readonly string[]): boolean {
+/** Subcommands whose pathspec pattern this plugin composes itself (the history
+ * search). Their expansion mode is pinned to git's default, because an inherited
+ * GIT_LITERAL_PATHSPECS / GIT_NOGLOB_PATHSPECS / GIT_GLOB_PATHSPECS would turn a
+ * correct pattern into a silent empty result. */
+const EXPANSIVE_PATHSPEC_COMMANDS: ReadonlySet<string> = new Set(['log', 'rev-list'])
+
+function pathspecEnv(argv: readonly string[]): Readonly<Record<string, string>> {
   const command = argv[1]
-  return command !== undefined && LITERAL_PATHSPEC_COMMANDS.has(command) && argv.includes('--')
+  if (command === undefined) return {}
+  if (LITERAL_PATHSPEC_COMMANDS.has(command) && argv.includes('--')) return { GIT_LITERAL_PATHSPECS: '1' }
+  if (EXPANSIVE_PATHSPEC_COMMANDS.has(command)) {
+    // '0' disables each mode, restoring git's default wildmatch on every
+    // supported version; leaving them unset would inherit the user's shell.
+    return { GIT_LITERAL_PATHSPECS: '0', GIT_NOGLOB_PATHSPECS: '0', GIT_GLOB_PATHSPECS: '0' }
+  }
+  return {}
 }
 
 /** Resolve stdout: the in-memory tail, or the spill file when the read was lossy. */

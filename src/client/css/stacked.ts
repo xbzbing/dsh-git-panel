@@ -60,8 +60,12 @@ export const CSS = `
  * dropdowns and the refresh button share the second, all visible (no more
  * chevron). */
 .gp-toolbar--stacked{gap:6px}
-.gp-toolbar--stacked .gp-search{flex:1 1 100%}
+.gp-toolbar--stacked .gp-history-search{flex:1 1 100%}
 .gp-toolbar--stacked .gp-select-trigger{flex:1 1 0;min-width:0}
+/* Undo the shared .gp-select-trigger flex:1 1 0 above for the scope trigger: it
+ * belongs to the search row, and stretching it there would squeeze the input it
+ * pairs with. */
+.gp-toolbar--stacked .gp-search-scope__trigger{flex:none}
 .gp-toolbar--stacked .gp-icon-btn{flex:none}
 
 /* The branch-list drawer. Tight stacked (≤ STACKED_TIGHT_BP): the band's left
@@ -85,7 +89,7 @@ export const CSS = `
 .gp-drawer__bar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-drawer__title{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-toolbar--drawer .gp-toolbar__row{display:flex;align-items:center;gap:6px;flex:1 1 100%;min-width:0}
-.gp-toolbar--drawer .gp-toolbar__row .gp-search{flex:1 1 auto;min-width:0}
+.gp-toolbar--drawer .gp-toolbar__row .gp-history-search{flex:1 1 auto;min-width:min-content}
 @media (prefers-reduced-motion:reduce){
   .gp-drawer{transition:none}
   .gp-drawer-backdrop{animation:none}

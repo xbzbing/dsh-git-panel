@@ -429,6 +429,9 @@ export interface GitActionRequest {
 
 // ── queries (read-only endpoint) ──────────────────────────────────────────
 
+/** Maximum history path-search length in JavaScript string code units. */
+export const HISTORY_PATH_SEARCH_MAX_LENGTH = 1024
+
 /**
  * True when a history `search` is a commit-hash prefix jump rather than a
  * message regex: 7–40 hex chars after trimming.
@@ -439,9 +442,10 @@ export function isHistoryHashSearch(search: string): boolean {
 
 /** Whether Git's effective content filters hide commits; hash jumps ignore them.
  * Shared with clients receiving history from a host that omits topology. */
-export function isHistoryFiltered(query: Pick<Extract<GitQuery, { kind: 'history' }>, 'search' | 'author' | 'since'>): boolean {
+export function isHistoryFiltered(query: Pick<Extract<GitQuery, { kind: 'history' }>, 'search' | 'author' | 'since' | 'pathSearch'>): boolean {
   const search = query.search?.trim() ?? ''
-  return !isHistoryHashSearch(search) && (search !== '' || (query.author ?? '') !== '' || (query.since ?? '') !== '')
+  const pathSearch = query.pathSearch?.trim() ?? ''
+  return pathSearch !== '' || (!isHistoryHashSearch(search) && (search !== '' || (query.author ?? '') !== '' || (query.since ?? '') !== ''))
 }
 
 /**
@@ -470,8 +474,10 @@ export interface GitRepoEntry {
   /** HEAD branch of this checkout from `git worktree list`; null = detached.
    * Absent = unknown (an older host, or a repository with no worktree data). */
   readonly branch?: string | null
-  /** Why the row cannot be chosen: `outside` = the directory sits outside the
-   * session cwd subtree, `stale` = its directory is gone. Absent = selectable. */
+  /** Why the row cannot be chosen: `outside` = the checkout sits outside the
+   * session cwd and is not its repository root (the root is always choosable,
+   * every other out-of-cwd checkout is one hop from it), `stale` = its directory
+   * is gone. Absent = selectable. */
   readonly disabled?: 'outside' | 'stale'
   /** git's `locked` flag on this worktree (display only). */
   readonly locked?: boolean
@@ -494,6 +500,8 @@ export type GitQuery =
     readonly ref?: string
     /** Text search: 7+ hex chars = hash prefix jump; else message regex (-i -E). */
     readonly search?: string
+    /** Historical Git path substring search, matched case-insensitively. */
+    readonly pathSearch?: string
     /** Author filter (--author). */
     readonly author?: string
     /** Date lower bound (--since). */
@@ -635,8 +643,10 @@ export type GitQueryResult =
     readonly kind: 'history'
     readonly commits: readonly GraphCommit[]
     readonly total: number
+    /** This host implements the history path substring filter. */
+    readonly pathSearchSupported?: true
     /** Raw ancestry for a filtered page: the page's commits plus the ancestors
-     * an effective search/author/since filter hid from the page itself. Absent
+     * an effective search/pathSearch/author/since filter hid from the page itself. Absent
      * when no effective filter is active (or on a hash jump); `[]` means the
      * bounded auxiliary walk failed, so the graph is incomplete. */
     readonly topology?: readonly GitGraphNode[]

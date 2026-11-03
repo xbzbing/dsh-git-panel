@@ -107,6 +107,25 @@ test('disabled rows count in the group but not as selectable', () => {
   assert.equal(repoDisabledKey(rows[0]), null, 'an ordinary row carries no reason')
 })
 
+test('the main checkout of a worktree session reads as family, not as a foreign repo', () => {
+  // A session that moved into a linked worktree gets the main work tree as a
+  // row with `role: 'main'`. It belongs to the same family, so it groups with
+  // the worktrees and is labelled by name with the relative path beneath — a
+  // `repo` kind would file it under the unrelated repositories instead.
+  const choices = repoChoices([
+    { path: '', root: '/r/.agents/worktrees/x', name: 'x', kind: 'workspace', role: 'linked', branch: 'feat/x' },
+    { path: '../../../..', root: '/r', name: 'r', kind: 'nested', role: 'main', branch: 'main' },
+  ])
+  assert.deepEqual(choices.map((c) => c.kind), ['workspace', 'worktree'])
+  const groups = repoGroups(choices)
+  assert.equal(groups.length, 1, 'one family means one group, no foreign header')
+  assert.equal(groups[0].key, 'own')
+  assert.equal(groups[0].selectable, 2, 'the main checkout outside the cwd is selectable')
+  assert.equal(repoLabel(choices[1]), 'r', 'the name leads')
+  assert.equal(repoDetail(choices[1]), '../../../..', 'and the relative path is the detail line')
+  assert.equal(repoDisabledKey(choices[1]), null, 'no reason to show')
+})
+
 test('the browse-root menu leads with the project root, then every checkout', () => {
   const rows = filesRootRows('/r', [
     { path: '', name: 'repo', kind: 'workspace', root: '/r' },

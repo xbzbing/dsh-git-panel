@@ -105,13 +105,13 @@ test('a worktree inside the cwd becomes a selectable relative row', async () => 
   assert.equal(rows[1].disabled, undefined)
 })
 
-test('a worktree outside the cwd stays visible but unchoosable', async () => {
+test('a sibling worktree outside the cwd stays visible but unchoosable', async () => {
   const fs = fsOf(new Map([
     ['/w/main', '/w/main'],
     ['/tmp/spike', '/tmp/spike'],
   ]))
   const rows = await worktreeCheckouts(fs, '/w/main', '/w/main', [info('/w/main'), info('/tmp/spike')])
-  assert.equal(rows[1].disabled, 'outside')
+  assert.equal(rows[1].disabled, 'outside', 'only the repository root escapes the cwd')
   assert.equal(rows[1].root, '/tmp/spike', 'the row still shows where it lives')
   assert.ok(rows[1].path.startsWith('../'), 'its selector path is inert: ../ never resolves to a repository')
   assert.equal(rows[1].role, 'linked')
@@ -143,15 +143,22 @@ test('cwd inside a linked worktree: that record is the workspace row, the primar
   const fs = fsOf(new Map([
     ['/w/main', '/w/main'],
     ['/w/main/.agents/worktrees/feat/x', '/w/main/.agents/worktrees/feat/x'],
+    ['/tmp/spike', '/tmp/spike'],
   ]))
   const rows = await worktreeCheckouts(
     fs,
     '/w/main/.agents/worktrees/feat/x',
     '/w/main/.agents/worktrees/feat/x',
-    [info('/w/main'), info('/w/main/.agents/worktrees/feat/x', { branch: 'feat/x' })],
+    [info('/w/main'), info('/w/main/.agents/worktrees/feat/x', { branch: 'feat/x' }), info('/tmp/spike')],
   )
   assert.equal(rows[1].path, '', 'the session checkout is whatever the selector resolves to')
   assert.equal(rows[1].role, 'linked', 'it is genuinely a linked worktree, not the primary')
-  assert.equal(rows[0].disabled, 'outside', 'the primary sits outside the cwd subtree')
+  // The primary is the one directory a selector may reach from outside the cwd,
+  // so a stranded worktree session always has a way back.
+  assert.equal(rows[0].disabled, undefined, 'the repository root is selectable')
+  assert.equal(rows[0].path, '../../../..', 'addressed by its relative path')
   assert.equal(rows[0].role, 'main')
+  // A sibling is not: the root is one hop away and lists it inside its own cwd.
+  assert.equal(rows[2].disabled, 'outside', 'a sibling checkout stays unchoosable here')
+  assert.equal(rows[2].role, 'linked')
 })

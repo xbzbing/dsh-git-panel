@@ -1,4 +1,4 @@
-# ADR-0026：变更列表的平铺 / 树形两种视图
+# ADR-0027：变更列表的平铺 / 树形两种视图
 
 - 状态：Accepted（2026-11-03）
 - 相关：issue #99、`src/client/changes-tree.ts`、`src/client/ChangesTab.tsx`、`src/client/changes-rows.tsx`、`src/client/ChangesToolbar.tsx`、`src/client/selection-keys.ts`、`src/host/parser.ts`（`parseStatus`）、ADR-0008 / 0012 / 0013 / 0016

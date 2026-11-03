@@ -26,7 +26,8 @@ export interface RepoChoice {
   readonly role?: 'main' | 'linked' | 'repo'
   /** HEAD branch of this checkout; null = detached, absent = unknown. */
   readonly branch?: string | null
-  /** Why the row cannot be chosen: outside the cwd, or its directory is gone. */
+  /** Why the row cannot be chosen: `outside` = outside the session cwd and not
+   * its repository root, or `stale` = its directory is gone. */
   readonly disabled?: 'outside' | 'stale'
   /** git's `locked` flag on this worktree. */
   readonly locked?: boolean
@@ -42,9 +43,12 @@ export function repoChoices(repos: readonly GitRepoEntry[]): readonly RepoChoice
     path: entry.path,
     name: entry.name,
     root: entry.root,
+    // A session inside a linked worktree sees the main checkout as a row too;
+    // it belongs to the same family (`role: 'main'`), so it groups with the
+    // worktrees rather than under the unrelated repositories.
     kind: entry.kind === 'workspace'
       ? 'workspace'
-      : entry.role === 'linked' ? 'worktree' : 'repo',
+      : entry.role === 'linked' || entry.role === 'main' ? 'worktree' : 'repo',
     ...(entry.role !== undefined ? { role: entry.role } : {}),
     ...(entry.branch !== undefined ? { branch: entry.branch } : {}),
     ...(entry.disabled !== undefined ? { disabled: entry.disabled } : {}),

@@ -18,7 +18,7 @@ function historyRemote(page) {
       const p = page(req.query)
       // Forward the optional field only when the scripted page sets it, so an
       // omitted topology models an unfiltered page or an older host.
-      return { ok: true, value: { kind: 'history', commits: p.commits, total: p.total, ...(p.topology !== undefined ? { topology: p.topology } : {}) } }
+      return { ok: true, value: { kind: 'history', commits: p.commits, total: p.total, ...(p.topology !== undefined ? { topology: p.topology } : {}), ...(p.pathSearchSupported === true ? { pathSearchSupported: true } : {}) } }
     },
   }
 }
@@ -178,6 +178,221 @@ test('useHistory cannot append the pending filter to retained rows after a faile
   await h.settle()
   assert.equal(calls.at(-1).skip, 1, 'successful page 0 restores pagination')
   h.unmount()
+})
+
+function controlledHistory() {
+  const requests = []
+  const remote = { query: (request) => new Promise((resolve, reject) => requests.push({ ...request, resolve, reject })) }
+  return { remote, requests }
+}
+
+function historyResult(commits = [], total = commits.length, capable = true, topology) {
+  return { ok: true, value: { kind: 'history', commits, total,
+    ...(capable ? { pathSearchSupported: true } : {}),
+    ...(topology !== undefined ? { topology } : {}),
+  } }
+}
+
+test('useHistory learns capability only from successful current queries, including empty histories', async (t) => {
+  const { remote, requests } = controlledHistory()
+  const props = { key: 0 }
+  const h = mount(() => useHistory(remote, 's', F, [props.key], () => {}))
+  t.after(() => h.unmount())
+  assert.equal(h.value.pathSearchSupport, 'unknown')
+  requests[0].resolve({ ok: false, error: { code: 'git-error' } })
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'unknown', 'failure does not identify an old host')
+  props.key++; h.rerender()
+  requests[1].resolve(historyResult([], 0, false))
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'unsupported')
+  assert.equal(h.value.pathSearchUnsupported, false, 'ordinary queries do not show a refused-path notice')
+  props.key++; h.rerender()
+  requests[2].resolve(historyResult())
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'supported', 'empty success declares support')
+  props.key++; h.rerender()
+  requests[3].reject(new Error('disconnected'))
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'supported', 'rejection preserves known capability')
+})
+
+test('useHistory reissues unchanged query on remote rebuild and drops old capability responses', async (t) => {
+  const old = controlledHistory(), fresh = controlledHistory()
+  const props = { remote: old.remote, key: 0 }
+  const h = mount(() => useHistory(props.remote, 's', F, [props.key], () => {}))
+  t.after(() => h.unmount())
+  old.requests[0].resolve(historyResult([{ hash: 'original' }], 5))
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'supported')
+  props.key++; h.rerender()
+  props.remote = fresh.remote; h.rerender()
+  assert.equal(fresh.requests.length, 1, 'remote identity must change the serialized request key')
+  assert.equal(h.value.pathSearchSupport, 'unknown', 'new remote has no inherited capability')
+  const previous = h.value.commits
+  old.requests[1].resolve(historyResult([{ hash: 'stale' }], 1, false))
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'unknown', 'old success cannot identify the new remote')
+  assert.equal(h.value.commits, previous)
+  assert.equal(h.value.loading, true, 'stale completion cannot release the new request guard')
+  fresh.requests[0].resolve(historyResult([], 0, false))
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'unsupported')
+  assert.deepEqual(h.value.commits, [])
+})
+
+for (const staleCapable of [false, true]) {
+  test(`useHistory ignores stale ${staleCapable ? 'supported' : 'unsupported'} capability after a newer response`, async (t) => {
+    const { remote, requests } = controlledHistory()
+    const props = { filter: F }
+    const h = mount(() => useHistory(remote, 's', props.filter, [0], () => {}))
+    t.after(() => h.unmount())
+    props.filter = { ...F, search: 'current' }; h.rerender()
+    requests[1].resolve(historyResult([{ hash: 'current' }], 1, !staleCapable))
+    await h.settle()
+    const expectedSupport = staleCapable ? 'unsupported' : 'supported'
+    assert.equal(h.value.pathSearchSupport, expectedSupport)
+    requests[0].resolve(historyResult([{ hash: 'stale' }], 1, staleCapable))
+    await h.settle()
+    assert.equal(h.value.pathSearchSupport, expectedSupport)
+    assert.deepEqual(h.value.commits.map((commit) => commit.hash), ['current'])
+    assert.equal(h.value.pathSearchUnsupported, false)
+  })
+}
+
+test('useHistory restarts at page zero on only pathSearch changes and forwards all filters to pagination', async (t) => {
+  const calls = []
+  const remote = { query: async (req) => {
+    calls.push(req.query)
+    return historyResult([{ hash: `${req.query.pathSearch}:${req.query.skip}`, parents: [] }], 3)
+  } }
+  const props = { filter: { ...F, ref: 'feature', pathSearch: 'src/', author: 'Tester', since: '2020-01-01' } }
+  let resets = 0
+  const h = mount(() => useHistory(remote, 's', props.filter, [0], () => { resets++ }))
+  t.after(() => h.unmount())
+  await h.settle()
+  h.value.loadMore(); await h.settle()
+  assert.deepEqual(calls.map((q) => [q.pathSearch, q.skip]), [['src/', 0], ['src/', 1]])
+  assert.equal(calls[1].search, undefined)
+  assert.equal(calls[1].ref, 'feature')
+  assert.equal(calls[1].author, 'Tester')
+  assert.equal(calls[1].since, '2020-01-01')
+  props.filter = { ...props.filter, pathSearch: 'abcdef1' }; h.rerender(); await h.settle()
+  assert.equal(calls.at(-1).skip, 0)
+  assert.equal(calls.at(-1).pathSearch, 'abcdef1', 'hex-shaped paths stay in the path field')
+  assert.equal(h.value.appliedFilter, props.filter)
+  assert.deepEqual(h.value.commits.map((c) => c.hash), ['abcdef1:0'])
+  assert.equal(resets, 1)
+  h.value.loadMore(); await h.settle()
+  assert.deepEqual(calls.at(-1), { kind: 'history', limit: 100, skip: 1, ref: 'feature', pathSearch: 'abcdef1', author: 'Tester', since: '2020-01-01' })
+})
+
+test('useHistory rejects every path response missing capability and blocks further pagination', async (t) => {
+  const { remote, requests } = controlledHistory()
+  const props = { filter: F, key: 0 }
+  const h = mount(() => useHistory(remote, 's', props.filter, [props.key], () => {}))
+  t.after(() => h.unmount())
+  requests[0].resolve(historyResult([{ hash: 'original', parents: [] }], 10))
+  await h.settle()
+  const previous = h.value
+  props.filter = { ...F, pathSearch: 'src/' }; h.rerender()
+  requests[1].resolve(historyResult([{ hash: 'unfiltered' }], 100, false))
+  await h.settle()
+  assert.equal(h.value.pathSearchSupport, 'unsupported')
+  assert.equal(h.value.pathSearchUnsupported, true)
+  assert.equal(h.value.listError, true)
+  assert.equal(h.value.commits, previous.commits)
+  assert.equal(h.value.appliedFilter, F)
+  assert.equal(h.value.total, previous.total)
+  assert.equal(h.value.hasMore, false)
+  h.value.loadMore(); await h.settle()
+  assert.equal(requests.length, 2)
+  props.key++; h.rerender()
+  requests[2].resolve(historyResult([{ hash: 'match', parents: [] }], 10, true, [{ hash: 'hidden', parents: [] }]))
+  await h.settle()
+  assert.equal(h.value.pathSearchUnsupported, false)
+  assert.equal(h.value.pathSearchSupport, 'supported')
+  const pathPage = h.value
+  h.value.loadMore()
+  requests[3].resolve(historyResult([{ hash: 'unfiltered-append' }], 100, false))
+  await h.settle()
+  assert.equal(h.value.commits, pathPage.commits)
+  assert.equal(h.value.topology, pathPage.topology)
+  assert.equal(h.value.total, pathPage.total)
+  assert.equal(h.value.appliedFilter, props.filter)
+  assert.equal(h.value.pathSearchUnsupported, true, 'every append also requires capability')
+  h.value.loadMore(); await h.settle()
+  assert.equal(requests.length, 4, 'missing capability revokes append readiness even after a valid page zero')
+})
+
+test('a capability refusal survives a poll whose reply is pending or has failed', async (t) => {
+  const { remote, requests } = controlledHistory()
+  const props = { filter: F, key: 0 }
+  const h = mount(() => useHistory(remote, 's', props.filter, [props.key], () => {}))
+  t.after(() => h.unmount())
+  requests[0].resolve(historyResult([{ hash: 'original', parents: [] }], 10))
+  await h.settle()
+  const retained = h.value.commits
+  props.filter = { ...F, pathSearch: 'src/' }; h.rerender()
+  requests[1].resolve(historyResult([], 100, false))
+  await h.settle()
+  assert.equal(h.value.pathSearchUnsupported, true)
+  props.key++; h.rerender()
+  await h.settle()
+  assert.equal(h.value.pathSearchUnsupported, true, 'the refusal stays while the same path query is retried')
+  requests[2].reject(new Error('transport'))
+  await h.settle()
+  assert.equal(h.value.pathSearchUnsupported, true, 'a failed retry must not drop the explanation')
+  assert.deepEqual(h.value.commits, retained, 'the retained rows stay on screen')
+  props.filter = { ...F }; props.key++; h.rerender()
+  requests[3].resolve(historyResult([], 0))
+  await h.settle()
+  assert.equal(h.value.pathSearchUnsupported, false, 'leaving path mode clears the refusal')
+})
+
+test('message filters never send a path field', async (t) => {
+  const { remote, requests } = controlledHistory()
+  const h = mount(() => useHistory(remote, 's', { ...F, search: 'needle', pathSearch: '' }, [0], () => {}))
+  t.after(() => h.unmount())
+  assert.equal(Object.hasOwn(requests[0].query, 'pathSearch'), false)
+  h.unmount()
+})
+
+test('useHistory publishes path filters atomically and rejects stale path pages and capability changes', async (t) => {
+  const { remote, requests } = controlledHistory()
+  const props = { filter: { ...F, pathSearch: 'old' } }
+  const publications = []
+  const h = mount(() => {
+    const result = useHistory(remote, 's', props.filter, [0], () => {})
+    publications.push({ commits: result.commits, topology: result.topology, filter: result.appliedFilter })
+    return result
+  }, { autoRender: true })
+  t.after(() => h.unmount())
+  const first = { hash: H('a'), parents: [] }
+  requests[0].resolve(historyResult([first], 5, true, [first]))
+  await h.settle()
+  h.value.loadMore()
+  props.filter = { ...F, pathSearch: 'new' }; h.rerender()
+  await h.settle()
+  assert.deepEqual(h.value.commits, [first])
+  assert.equal(h.value.appliedFilter.pathSearch, 'old')
+  requests[1].resolve(historyResult([{ hash: 'stale' }], 20, false))
+  await h.settle()
+  assert.equal(h.value.loading, true)
+  assert.equal(h.value.pathSearchSupport, 'supported')
+  assert.equal(h.value.pathSearchUnsupported, false)
+  const fresh = { hash: H('b'), parents: [] }
+  const start = publications.length
+  requests[2].resolve(historyResult([fresh], 1, true, [fresh]))
+  await h.settle()
+  for (const publication of publications.slice(start)) {
+    if (publication.commits[0]?.hash !== fresh.hash) continue
+    assert.equal(publication.filter, props.filter)
+    assert.deepEqual(publication.topology, [fresh])
+  }
+  assert.deepEqual(h.value.commits, [fresh])
+  assert.equal(h.value.appliedFilter, props.filter)
+  assert.equal(h.value.total, 1)
 })
 
 // ── filtered-graph topology ───────────────────────────────────────────────

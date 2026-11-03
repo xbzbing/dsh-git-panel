@@ -8,12 +8,16 @@
  * than the filesystem scan's depth ceiling, and because a worktree's `.git` is
  * a *file*, which makes the scanner read it as an unrelated nested repository.
  *
- * Trust boundary: a listed directory is selectable only when its realpath lies
- * inside the session cwd — the same containment the selector applies on the way
- * back in. Directories outside the cwd still appear as rows with
+ * Trust boundary: a listed directory is selectable when its realpath lies
+ * inside the session cwd — plus the one exception of the primary work tree, the
+ * repository root a session that moved into a linked worktree must be able to
+ * return to (admitted on the way back by `repoDirCertified` against git's own
+ * primary record). Every other directory outside the cwd keeps
  * `disabled: 'outside'` so the user can see why a checkout the repository owns
- * cannot be chosen; their `path` is a lexical relative string the selector
- * rejects on return (`isSafePath`), never a usable selector.
+ * cannot be chosen directly; its `path` is then only a lexical relative
+ * string the selector rejects on return. A row whose directory is gone
+ * (`prunable`, or unreadable) is marked `stale` instead: it cannot be entered,
+ * and saying so is the only honest state.
  */
 import { basename, relative, sep } from 'node:path'
 import { relativeRepoPath, samePath, type RepoFs } from './repos.js'
@@ -45,6 +49,8 @@ export interface WorktreeCheckout {
   readonly role: 'main' | 'linked'
   readonly branch: string | null
   readonly locked: boolean
+  /** Why the row cannot be chosen: outside the cwd (and not the repository
+   * root), or its directory is gone. */
   readonly disabled?: 'outside' | 'stale'
 }
 
@@ -83,9 +89,9 @@ export function parseWorktreePorcelain(stdout: string): WorktreeInfo[] {
   return rows
 }
 
-/** A relative path for a row that may sit anywhere (git printed it, so it is
- * outside the cwd by definition in the disabled cases); never resolved, never
- * used as a selector — the host rejects it on return. */
+/** A relative path for a checkout outside the cwd (git printed it, so it is a
+ * checkout of this repository). Returned verbatim to the selector and admitted
+ * on the way back only against the work-tree list. */
 function lexicalRelative(from: string, to: string): string {
   const rel = relative(from, to)
   if (rel === '') return basename(to)
@@ -143,7 +149,10 @@ export async function worktreeCheckouts(
       continue
     }
     const rel = relativeRepoPath(cwd, real)
-    if (rel === null) {
+    // The repository root escapes the cwd only for a session that moved into a
+    // linked worktree; every other checkout outside the cwd stays unchoosable
+    // (it is one hop away once the root is selected).
+    if (rel === null && role !== 'main') {
       out.push({
         path: lexicalRelative(cwd, real),
         root: real,
@@ -155,7 +164,14 @@ export async function worktreeCheckouts(
       })
       continue
     }
-    out.push({ path: rel, root: real, name: basename(real), role, branch: info.branch, locked: info.locked })
+    out.push({
+      path: rel ?? lexicalRelative(cwd, real),
+      root: real,
+      name: basename(real),
+      role,
+      branch: info.branch,
+      locked: info.locked,
+    })
   }
   return out
 }

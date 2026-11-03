@@ -574,7 +574,7 @@ const out = await page.evaluate(async (snap) => {
   // label reflects the current value. Asserted on observable DOM + RPC only.
   result.filterMenu = await (async () => {
     const toolbar = document.querySelector('.gp-history .gp-toolbar')
-    const triggers = [...(toolbar?.querySelectorAll('.gp-select-trigger') || [])]
+    const triggers = [...(toolbar?.querySelectorAll('.gp-select-trigger:not(.gp-search-scope__trigger)') || [])]
     const menu = () => document.querySelector('[role="menu"]')
     const itemWith = (text) => [...(menu()?.querySelectorAll('[role="menuitem"]') || [])]
       .find((b) => (b.textContent || '') === text) || null

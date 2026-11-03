@@ -41,7 +41,8 @@
 | [ADR-0023](0023-sidebar-three-mode-layout.md) | 侧边栏三模式布局（wide / stacked / compact） | UI |
 | [ADR-0024](0024-workspace-file-edit-boundary.md) | 工作区文件编辑的边界：白名单、2 MiB、比对写与原子替换 | 安全 |
 | [ADR-0025](0025-editor-codemirror-lazy-chunk.md) | 编辑器以 CodeMirror 6 懒加载 chunk 引入 | 构建 |
-| [ADR-0026](0026-changes-list-two-views.md) | 变更列表的平铺 / 树形两种视图 | UI |
+| [ADR-0026](0026-history-path-search-contract.md) | 历史文件 / 路径搜索：受控 pathspec 与响应能力门控 | 契约 |
+| [ADR-0027](0027-changes-list-two-views.md) | 变更列表的平铺 / 树形两种视图 | UI |
 
 ## 有效期
 
