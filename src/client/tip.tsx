@@ -206,7 +206,11 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
  */
 export function TipWrapper(props: {
   readonly tipProps: Record<string, unknown>
+  /** Extra class for the wrapper, so a caller can place it inside its own row
+   * (the wrapper is the flex item, not the control inside it). */
+  readonly className?: string
   readonly children?: JSX.Element | JSX.Element[]
 }): JSX.Element {
-  return h('span', { className: 'gp-tip-wrap', ...props.tipProps }, props.children)
+  const className = props.className === undefined ? 'gp-tip-wrap' : `gp-tip-wrap ${props.className}`
+  return h('span', { className, ...props.tipProps }, props.children)
 }

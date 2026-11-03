@@ -15,6 +15,9 @@ export function segButtons<T extends string>(
     h('button', {
       key: value, type: 'button',
       className: `gp-seg__btn${active === value ? ' gp-seg__btn--active' : ''}`,
+      // The active class is the visual state; the pressed state also has to be
+      // programmatic or a screen reader cannot tell which option is selected.
+      'aria-pressed': active === value,
       ...(disabled ? { disabled: true } : {}),
       onClick: () => onPick(value),
     }, labelFn(value)))

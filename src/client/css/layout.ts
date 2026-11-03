@@ -76,10 +76,6 @@ export const CSS = `
 /* Changes / Files: the single visible pane takes the full width. */
 .gp-changes--compact .gp-changes__left,
 .gp-changes--compact .gp-changes__right{flex:1 1 100%;min-width:0;width:100%}
-/* The changes view bar's controls grow to the compact touch height, like the
- * history toolbar's search field and segmented controls. */
-.gp-panel[data-layout="compact"] .gp-changes__filter{height:30px}
-.gp-panel[data-layout="compact"] .gp-changes__viewseg .gp-seg__btn{padding:8px 12px}
 .gp-files--compact .gp-files__tree-wrap,
 .gp-files--compact .gp-files__preview{flex:1 1 100%;min-width:0;width:100%}
 /* The commit message is the one layout that compresses the field: a phone
@@ -125,8 +121,6 @@ export const CSS = `
 @media (hover:none){
   .gp-file-row__actions{visibility:visible}
   .gp-dir-row__actions{visibility:visible}
-  /* The view bar's filter lines up with the grown icon buttons beside it. */
-  .gp-changes__filter{height:34px}
   .gp-icon-btn{width:34px;height:34px}
   .gp-btn{height:36px}
   /* The diff toolbar and the dialog bar size their icon controls with a

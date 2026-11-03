@@ -747,7 +747,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     const snapshot = view.snapshot
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, repositories: compact ? undefined : repositories, t })
+        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), onSetChangesView: (view) => writePanelConfigField(ctx, 'changesView', view), compact, stacked, cramped, repositories: compact ? undefined : repositories, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list

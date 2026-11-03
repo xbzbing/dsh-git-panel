@@ -1,10 +1,12 @@
 /**
  * Confirm dialog for the toolbar's "discard picked changes" batch action
- * (issue #40). Counts only — the dialog is a guard rail, not a file list —
- * with separate lines for picks that are out of scope (index-side) and for
- * untracked targets that will be deleted from disk for good. The untracked
- * count is derived here from `snapshot × targets` so `pickDiscardTargets`
- * keeps its pure key-only contract.
+ * (issue #40) and for a directory's own discard — same counts and warnings,
+ * the title names the subtree instead of the selection. Counts only — the
+ * dialog is a guard rail, not a file list — with separate lines for picks that
+ * are out of scope (index-side) and for untracked targets that will be deleted
+ * from disk for good. The untracked count is derived here from
+ * `snapshot × targets` so `pickDiscardTargets` keeps its pure key-only
+ * contract.
  */
 import { createElement as h, useMemo } from 'react'
 import type { JSX } from 'react'

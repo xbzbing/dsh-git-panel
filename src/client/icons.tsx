@@ -128,6 +128,16 @@ export function FilterIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M2 3h12l-4.5 5.5V13L6.5 11V8.5z' })], size)
 }
 
+/** Three level rows: the flat changes list (one row per file). */
+export function ListIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M2.5 4.5h11M2.5 8h11M2.5 11.5h11' })], size)
+}
+
+/** Indented rows: the tree view (rows nested under their directories). */
+export function TreeIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M2.5 4.5h11M5.5 8h8M8.5 11.5h5' })], size)
+}
+
 /** A stack of changes with a plus/minus for staging or unstaging all files. */
 export function StageAllIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'stack', d: 'M2 3h8M2 6h6M2 9h4' }), h('path', { key: 'plus', d: 'M11 8v6M8 11h6' })], size, true)
