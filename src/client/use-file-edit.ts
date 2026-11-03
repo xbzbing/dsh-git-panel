@@ -3,10 +3,12 @@
  * compare-and-swap save with its pre-save syntax check, the conflict and
  * failure notices, and the unsaved-change guards.
  *
- * A draft is bound to the remote face and root selector that were current
- * when editing started, so a save always lands in the browse root the file
- * was read from, even if the browser has moved on since (the draft is then
- * "detached" and says so).
+ * A draft is bound to the root selector that was current when editing started,
+ * so a save always lands in the browse root the file was read from, even if
+ * the browser has moved on since (the draft is then "detached" and says so).
+ * The tagged remote face for the write / reload requests is derived from that
+ * selector at use time, so a stale instance can never pin a save to a root
+ * that no longer resolves.
  *
  * One save runs at a time per draft. Leaving while it is in flight waits for
  * its answer: a landed save leaves at once, a failed one asks first. Each
@@ -27,8 +29,17 @@ import { opErrorText, renderConfirmModal } from './ops-modals.js'
 import { newDraftId, registerEditMount, restoreStashedDraft, type EditDraft, type EditMount } from './edit-store.js'
 import { renderDetachedNote, renderEditNotice, type EditNotice } from './edit-notice.js'
 import { useCopyFeedback } from './copy-feedback.js'
+import { withRepo } from './repo-select.js'
 
 type T = (key: GitKey, params?: Record<string, string | number>) => string
+
+/** A draft's requests keep the root it was started on, but the tagged remote
+ * is derived at use time: the stored face is the untagged base, so a browser
+ * root switch never leaves the draft holding a stale wrapper (whose frozen
+ * `repo` label might no longer resolve once the old root is gone). */
+function editRemote(draft: EditDraft): GitPanelRemote {
+  return withRepo(draft.remote, draft.rootKey)
+}
 
 type EditConfirm =
   | { readonly kind: 'discard'; readonly proceed: () => void }
@@ -65,6 +76,9 @@ export interface FileEditApi {
 }
 
 export function useFileEdit(options: {
+  /** The untagged panel remote face: the hook tags requests with the draft's
+   * own root selector at use time, so a stored draft never outlives its
+   * tagged wrapper. */
   readonly remote: GitPanelRemote
   readonly sessionId: string
   readonly file: FileState
@@ -173,12 +187,12 @@ export function useFileEdit(options: {
     const baseline = toEditBuffer(current.content)
     setNotice(null)
     setDraft({
-      id: newDraftId(), path: current.path, remote: live.current.remote,
+      id: newDraftId(), path: current.path, remote: options.remote,
       rootKey: live.current.rootKey, rootPath: live.current.rootPath,
       baseSha256: current.sha256, baseline, eol: current.edit.eol, bom: current.edit.bom, text: baseline, dirty: false,
     })
     setDirty(false)
-  }, [])
+  }, [options.remote])
 
   const start = useCallback(() => {
     const target = live.current.file
@@ -232,7 +246,7 @@ export function useFileEdit(options: {
     setNotice(null)
     let res: Awaited<ReturnType<GitPanelRemote['writeFile']>>
     try {
-      res = await current.remote.writeFile({ sessionId, path: current.path, content: text, baseSha256: base })
+      res = await editRemote(current).writeFile({ sessionId, path: current.path, content: text, baseSha256: base })
     } finally {
       savingRef.current = false
       setSaving(false)
@@ -269,7 +283,7 @@ export function useFileEdit(options: {
   const reload = useCallback(async () => {
     const current = draftRef.current
     if (current === null || savingRef.current) return
-    const res = await current.remote.query({ sessionId, query: { kind: 'file-content', path: current.path } })
+    const res = await editRemote(current).query({ sessionId, query: { kind: 'file-content', path: current.path } })
     const fc = queryAs(res, 'file-content')
     if (draftRef.current?.id !== current.id) return
     if (fc === null || fc.content === undefined || fc.sha256 === undefined || fc.edit === undefined || !fc.edit.ok) {

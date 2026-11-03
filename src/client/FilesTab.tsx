@@ -45,7 +45,11 @@ import { renderEditControls, useEditPreview } from './files-edit-ui.js'
 import { controllerFor } from './registry.js'
 
 interface FilesTabProps {
+  /** The tagged remote face for the browser's requests (`withRepo` wrapper). */
   readonly remote: GitPanelRemote
+  /** The untagged panel remote the edit hook derives per-draft tagged faces
+   * from; Panel's plain `remote`, not its tagged `filesRemote`. */
+  readonly editBaseRemote: GitPanelRemote
   readonly sessionId: string
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
@@ -138,7 +142,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -240,7 +244,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     setPane('tree')
   }, [])
   const fileEdit = useFileEdit({
-    remote, sessionId, file, rootKey, rootPath: browseRoot, allowEdit,
+    remote: editBaseRemote, sessionId, file, rootKey, rootPath: browseRoot, allowEdit,
     restoreSelected: init?.selected ?? null, onSaved, onWritten, onDetachedEnd, t,
   })
   // Edit mode follows the draft, not the latest read: a refresh that finds the

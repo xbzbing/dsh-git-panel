@@ -740,7 +740,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
       return filesVisited
-        ? h(FilesTab, { key: sessionId, remote: filesRemote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t })
+        ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t })
         : null
     }
     if (view.state !== 'ready') return null
@@ -755,7 +755,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // The sample describes the browser's files only when both sides sit on the
     // same checkout and it is not the previous one's mid-switch.
     const filesSnapshot = filesSelector === repo && !repoSwitching ? snapshot : null
-    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
   }
 
   // One panel per tab, so every tab's aria-controls resolves.
