@@ -4,7 +4,7 @@ Ein Git-Panel im IDE-Stil für den Konversations-Arbeitsbereich: Branches und Co
 
 ## Funktionen
 
-- **Übersicht**: Branch- und Tag-Liste, durchsuchbarer Commit-Verlaufsgraph und Commit-Details; ein Klick auf eine Datei zeigt ihren Diff in diesem Commit.
+- **Übersicht**: Branch- und Tag-Liste, Commit-Verlaufsgraph und Commit-Details; ein Klick auf eine Datei zeigt ihren Diff in diesem Commit. Die Historie kann nach „Nachricht / Hash“ oder „Datei / Pfad“ durchsucht werden. Die Datei-/Pfadsuche findet literale Teilzeichenfolgen in historischen Pfaden ohne Unterscheidung der Groß-/Kleinschreibung englischer Buchstaben, einschließlich Dateinamen und Verzeichnisfragmenten; Autor-, Datums- und Branch-Filter lassen sich weiter kombinieren. Sie durchsucht keine Codeinhalte; gelöschte Pfade bleiben auffindbar, Umbenennungen verfolgen den alten Namen nicht automatisch, Git kann Teile der Merge- und Seitenbranch-Historie vereinfachen, und die Commit-Details zeigen weiterhin die vollständige Dateiliste.
 - **Änderungen**: einzeln oder gesammelt stagen und verwerfen, Commit und **Amend**, Stash sowie Statistik der hinzugefügten·gelöschten Zeilen.
 - **Häufige Git-Aktionen**: Branch wechseln, Tags anlegen und löschen, Commits per revert / reset zurücknehmen; destruktive Aktionen verlangen eine Bestätigung, Änderungen bleiben im lokalen Repository und werden nicht automatisch gepusht.
 - **KI-generierte Commit-Nachrichten**: orientieren sich am Stil der vorhandenen Commits des Repositorys; das Modell folgt standardmäßig der aktuellen Sitzung und lässt sich auf der Detailseite festlegen. **Beim Generieren wird der Diff-Inhalt an den Anbieter des gewählten Modells gesendet.**
