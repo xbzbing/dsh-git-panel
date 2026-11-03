@@ -12,7 +12,7 @@ import { repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
 import { parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
 import type { WorktreeCheckout } from './worktrees.js'
 import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
-import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitRepoEntry, GitRepoList, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
+import type { ChangesViewMode, DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitRepoEntry, GitRepoList, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -38,6 +38,8 @@ export interface GitPanelConfig {
   readonly placement: GitPanelPlacement
   /** Default diff layout the views open with (user can switch per-diff). */
   readonly defaultDiffView: DiffViewMode
+  /** Changes-list presentation: flat rows or a directory tree. */
+  readonly changesView: ChangesViewMode
   /** Commit-graph line style (parallel = VSCode-like, compact = git log). */
   readonly graphStyle: GraphStyle
   /** Panel font-size step: -1 / 0 / +1. */
@@ -72,6 +74,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   showInputPill: true,
   placement: 'all',
   defaultDiffView: 'unified',
+  changesView: 'flat',
   graphStyle: 'parallel',
   fontDelta: 0,
   suggestEnabled: true,
@@ -125,6 +128,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     placement: readPlacement(c.placement, DEFAULT_CONFIG.placement),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
+    changesView: readChangesView(c.changesView, DEFAULT_CONFIG.changesView),
     graphStyle: readGraphStyle(c.graphStyle, DEFAULT_CONFIG.graphStyle),
     fontDelta: readFontDelta(c.fontDelta),
     suggestEnabled: readBool(c.suggestEnabled, DEFAULT_CONFIG.suggestEnabled),
@@ -159,6 +163,12 @@ export function readPlacement(value: unknown, fallback: GitPanelPlacement): GitP
 export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode {
   const raw = unwrapVolatile(value)
   return raw === 'unified' || raw === 'split' ? raw : fallback
+}
+
+/** Read the changes-list view field, unwrapping a schemastery volatile ref. */
+export function readChangesView(value: unknown, fallback: ChangesViewMode): ChangesViewMode {
+  const raw = unwrapVolatile(value)
+  return raw === 'flat' || raw === 'tree' ? raw : fallback
 }
 
 /** Read the commit-graph style field, unwrapping a schemastery volatile ref. */
@@ -855,6 +865,7 @@ export async function snapshotForSession(
     refreshIntervalMs: config.refreshIntervalMs,
     showInputPill: config.showInputPill,
     defaultDiffView: config.defaultDiffView,
+    changesView: config.changesView,
     graphStyle: config.graphStyle,
     fontDelta: config.fontDelta,
     suggestEnabled: config.suggestEnabled,

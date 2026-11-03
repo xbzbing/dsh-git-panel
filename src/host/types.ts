@@ -9,6 +9,10 @@
 /** Diff layout: `unified` = single inline column, `split` = side-by-side. */
 export type DiffViewMode = 'unified' | 'split'
 
+/** Changes-list presentation: `flat` = one row per file, `tree` = rows nested
+ * under directory nodes. */
+export type ChangesViewMode = 'flat' | 'tree'
+
 /** Commit-graph line style: `compact` = converge a shared ancestor into one
  * lane (git log --graph); `parallel` = keep each merge's first parent in its
  * own lane, converging only at the ancestor (VSCode / GUI tools). */
@@ -167,6 +171,9 @@ export interface GitSnapshot {
   readonly showInputPill: boolean
   /** Default diff layout the views open with (user preference). */
   readonly defaultDiffView: DiffViewMode
+  /** Changes-list presentation (user preference); absent on older hosts →
+   * flat, the behaviour they shipped with. */
+  readonly changesView?: ChangesViewMode
   /** Commit-graph line style (user preference). */
   readonly graphStyle: GraphStyle
   /** Panel font-size step (user preference). */
