@@ -486,7 +486,7 @@ const out = await page.evaluate(async (snap) => {
   result.zoomDiffPanesIndependent = panePct(0) !== panePctBefore[0] && panePct(1) === panePctBefore[1]
     && paneRendered(0) > paneRendered(1) && paneRendered(1) === paneWBefore
   result.imageHeads = [...document.querySelectorAll('.gp-imgcmp__head')].map((e) => e.textContent)
-  const afterBtn = [...document.querySelectorAll('.gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.after')
+  const afterBtn = document.querySelector('[data-diff-mode="after"]')
   if (afterBtn) { afterBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.imageSingle = document.querySelector('.gp-imgcmp--single') !== null
   result.imageSingleHead = document.querySelector('.gp-imgcmp__head')?.textContent ?? null
@@ -841,7 +841,7 @@ const out = await page.evaluate(async (snap) => {
     const btn = document.querySelector('.gp-modal .gp-diff__expand')
     if (btn === null) return null
     const cs = getComputedStyle(btn)
-    const seg = document.querySelector('.gp-modal__bar .gp-seg')
+    const modes = document.querySelector('.gp-modal__bar .gp-diff__modes')
     return {
       text: (btn.textContent ?? '').trim(),
       glyph: btn.querySelector('svg') !== null,
@@ -851,7 +851,7 @@ const out = await page.evaluate(async (snap) => {
       borderStyle: cs.borderTopStyle,
       radius: cs.borderTopLeftRadius,
       height: Math.round(btn.getBoundingClientRect().height),
-      segHeight: seg === null ? -1 : Math.round(seg.getBoundingClientRect().height),
+      modesHeight: modes === null ? -1 : Math.round(modes.getBoundingClientRect().height),
     }
   })()
   // This runner injects no --dsw-alias-* theme, so a themed `border` computes

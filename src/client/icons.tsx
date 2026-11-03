@@ -30,6 +30,24 @@ export function DiffIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2v8' }), h('path', { key: 'b', d: 'M2 4h4' }), h('circle', { key: 'c', cx: 4, cy: 12, r: 1.6 }), h('circle', { key: 'd', cx: 12, cy: 4, r: 1.6 }), h('path', { key: 'e', d: 'M12 6v4' }), h('path', { key: 'f', d: 'M10 12h4' })], size)
 }
 
+/** Single-side preview of the old file: a page whose left pane is filled. */
+export function BeforeIcon({ size, className }: IconProps): JSX.Element {
+  return svg([
+    h('rect', { key: 'f', x: 2.2, y: 2.8, width: 11.6, height: 10.4, rx: 1.5 }),
+    h('path', { key: 'd', d: 'M8 2.8v10.4' }),
+    h('path', { key: 'b', d: 'M3.4 4.1h3.3v7.8H3.4z', fill: 'currentColor', stroke: 'none' }),
+  ], size, true, className)
+}
+
+/** Single-side preview of the new file: the same page with its right pane filled. */
+export function AfterIcon({ size, className }: IconProps): JSX.Element {
+  return svg([
+    h('rect', { key: 'f', x: 2.2, y: 2.8, width: 11.6, height: 10.4, rx: 1.5 }),
+    h('path', { key: 'd', d: 'M8 2.8v10.4' }),
+    h('path', { key: 'b', d: 'M9.3 4.1h3.3v7.8H9.3z', fill: 'currentColor', stroke: 'none' }),
+  ], size, true, className)
+}
+
 export function BranchIcon({ size }: IconProps): JSX.Element {
   return svg([h('circle', { key: 'a', cx: 4, cy: 3, r: 1.6 }), h('circle', { key: 'b', cx: 4, cy: 13, r: 1.6 }), h('circle', { key: 'c', cx: 12, cy: 5, r: 1.6 }), h('path', { key: 'd', d: 'M4 4.6v6.8' }), h('path', { key: 'e', d: 'M12 6.6c0 3-4 2.4-8 4' })], size)
 }

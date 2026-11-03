@@ -135,12 +135,12 @@ const out = await page.evaluate(async ({ snap, diff }) => {
       live: mcopy?.querySelector('.gp-copy-live')?.textContent ?? null,
     }
     // The modal bar splits into two rows on compact: header row (icon, path,
-    // hash, stats, expand) and a controls row (mode seg + bordered close at
-    // its far right).
+    // hash, stats, expand) and a controls row (mode switches + bordered close
+    // at its far right).
     const rows = [...modal.querySelectorAll('.gp-modal__bar-row')]
     result.barRows = rows.length
     const ctrlRow = modal.querySelector('.gp-modal__bar-row--controls')
-    result.barCtrlRowHasSeg = ctrlRow?.querySelector('.gp-seg') !== null
+    result.barCtrlRowHasModes = ctrlRow?.querySelector('.gp-diff__modes') !== null
     result.barCtrlRowHasClose = ctrlRow?.querySelector('.gp-modal__close') !== null
     // The border uses the platform theme variable (undefined in the isolated
     // harness), which would invalidate the shorthand — define it first.
@@ -152,11 +152,11 @@ const out = await page.evaluate(async ({ snap, diff }) => {
       const closeRect = ctrlRow.querySelector('.gp-modal__close').getBoundingClientRect()
       const rowRect = ctrlRow.getBoundingClientRect()
       result.barCloseAtRowEnd = Math.abs(rowRect.right - closeRect.right) <= 2
-      const segBtns = [...ctrlRow.querySelectorAll('.gp-seg .gp-seg__btn')]
-      const tops = segBtns.map((b) => Math.round(b.getBoundingClientRect().top))
-      result.barSegOneLine = segBtns.length >= 2 && new Set(tops).size === 1
-      const widths = segBtns.map((b) => Math.round(b.getBoundingClientRect().width))
-      result.barSegEvenWidth = widths.length >= 2 && Math.max(...widths) - Math.min(...widths) <= 2
+      const modeBtns = [...ctrlRow.querySelectorAll('.gp-diff__modes .gp-diff__mode')]
+      const tops = modeBtns.map((b) => Math.round(b.getBoundingClientRect().top))
+      result.barModesOneLine = modeBtns.length === 2 && new Set(tops).size === 1
+      const widths = modeBtns.map((b) => Math.round(b.getBoundingClientRect().width))
+      result.barModesEvenWidth = widths.length === 2 && Math.max(...widths) - Math.min(...widths) <= 2
     }
   }
   return result
@@ -180,12 +180,12 @@ try {
   assert.equal(out.modalPathFeedback.name, 'a.txt', 'the filename stays on screen')
   assert.equal(out.modalPathFeedback.live, 'files.pathCopied', 'the phrase rides the live region')
   assert.equal(out.barRows, 2, 'the compact modal bar splits into two rows')
-  assert.equal(out.barCtrlRowHasSeg, true, 'the second row holds the mode seg')
+  assert.equal(out.barCtrlRowHasModes, true, 'the second row holds the mode switches')
   assert.equal(out.barCtrlRowHasClose, true, 'the second row holds the close button')
   assert.equal(out.barCloseBordered, true, 'the close button carries a border')
   assert.equal(out.barCloseAtRowEnd, true, 'the close button sits at the far right of the second row')
-  assert.equal(out.barSegOneLine, true, 'the seg buttons sit side by side on one line')
-  assert.equal(out.barSegEvenWidth, true, 'the seg buttons are evenly sized')
+  assert.equal(out.barModesOneLine, true, 'the mode switches sit side by side on one line')
+  assert.equal(out.barModesEvenWidth, true, 'the mode switches are evenly sized')
   console.log('e2e run4.mjs: PASS', JSON.stringify(out))
 } catch (e) {
   console.error('e2e run4.mjs: FAIL', e.message)

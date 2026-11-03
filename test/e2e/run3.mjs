@@ -374,38 +374,39 @@ const out = await page.evaluate(async (snap) => {
     && document.querySelector('.gp-changes--compact .gp-commitbar, .gp-changes--compact .gp-commitbox') === null
   result.chDiffHasBack = [...document.querySelectorAll('.gp-diff__toolbar .gp-subhead__back')].some((b) => (b.textContent || '').includes('changes.backToList'))
   result.chBackBtnHeight = Math.round(document.querySelector('.gp-diff__toolbar .gp-subhead__back').getBoundingClientRect().height)
-  // Compact drops the side-by-side mode button from the diff seg.
-  result.chNoSplitButton = [...document.querySelectorAll('.gp-diff__toolbar .gp-seg__btn')].every((b) => (b.textContent || '') !== 'diff.split')
+  // Compact drops the side-by-side switch from the diff toolbar.
+  result.chNoSplitButton = document.querySelector('.gp-diff__toolbar [data-diff-mode="split"]') === null
   // The fixture's defaultDiffView is 'split', so compact must fall back to
-  // rendering unified — button absence alone wouldn't prove the render mode.
+  // rendering unified — switch absence alone wouldn't prove the render mode.
   result.chUnifiedRender = document.querySelector('.gp-changes--compact .gp-diff__unified') !== null
   result.chNoSideRender = document.querySelector('.gp-changes--compact .gp-diff__side') === null
-  result.chUnifiedActive = [...document.querySelectorAll('.gp-diff__toolbar .gp-seg__btn--active')].some((b) => (b.textContent || '') === 'diff.unified')
+  // Unified has no switch of its own: it is the state where none is pressed.
+  result.chUnifiedActive = [...document.querySelectorAll('.gp-diff__toolbar .gp-diff__mode')]
+    .every((b) => b.getAttribute('aria-pressed') === 'false')
   // The compact toolbar splits into two rows: back/path/stats on top, the
-  // expand toggle + mode seg on their own row below (one row squeezed the seg
-  // buttons into a stacked wrap at phone widths).
+  // expand toggle + mode switches on their own row below.
   const tbRows = [...document.querySelectorAll('.gp-diff__toolbar .gp-diff__toolbar-row')]
   result.chToolbarRows = tbRows.length
   const ctrlRow = document.querySelector('.gp-diff__toolbar-row--controls')
   result.chControlsRowHasExpand = ctrlRow?.querySelector('.gp-diff__expand') !== null
-  result.chControlsRowHasSeg = ctrlRow?.querySelector('.gp-seg') !== null
+  result.chControlsRowHasModes = ctrlRow?.querySelector('.gp-diff__modes') !== null
   result.chBackOnFirstRow = tbRows[0]?.querySelector('.gp-subhead__back') !== null
   if (ctrlRow) {
-    // Seg buttons sit side by side on one line (equal width), not stacked.
-    const segBtns = [...ctrlRow.querySelectorAll('.gp-seg .gp-seg__btn')]
-    const tops = segBtns.map((b) => Math.round(b.getBoundingClientRect().top))
-    result.chSegOneLine = segBtns.length >= 2 && new Set(tops).size === 1
-    const widths = segBtns.map((b) => Math.round(b.getBoundingClientRect().width))
-    result.chSegEvenWidth = widths.length >= 2 && Math.max(...widths) - Math.min(...widths) <= 2
-    // The label itself must never wrap ("变更前" broke into 变更 / 前 when the
-    // equal-width buttons were allowed to shrink below their content).
-    result.chSegLabelsOneLine = segBtns.length >= 2
-      && segBtns.every((b) => b.getBoundingClientRect().height <= 28 && getComputedStyle(b).whiteSpace === 'nowrap')
-    // The whole track may wrap below the expand toggle, but never below itself.
-    result.chSegTrackFits = (() => {
-      const seg = ctrlRow.querySelector('.gp-seg')
+    // The two remaining switches sit side by side on one line, equal-sized.
+    const modeBtns = [...ctrlRow.querySelectorAll('.gp-diff__modes .gp-diff__mode')]
+    const tops = modeBtns.map((b) => Math.round(b.getBoundingClientRect().top))
+    result.chModesOneLine = modeBtns.length === 2 && new Set(tops).size === 1
+    const widths = modeBtns.map((b) => Math.round(b.getBoundingClientRect().width))
+    result.chModesEvenWidth = widths.length === 2 && Math.max(...widths) - Math.min(...widths) <= 2
+    // Icon-only: every switch carries its label on title/aria-label, never text.
+    result.chModesIconOnly = modeBtns.length === 2
+      && modeBtns.every((b) => (b.textContent || '') === ''
+        && (b.getAttribute('title') || '') !== ''
+        && (b.getAttribute('aria-label') || '') !== '')
+    result.chModesFit = (() => {
+      const modes = ctrlRow.querySelector('.gp-diff__modes')
       const row = ctrlRow.getBoundingClientRect()
-      const r = seg.getBoundingClientRect()
+      const r = modes.getBoundingClientRect()
       return r.left >= row.left - 1 && r.right <= row.right + 1
     })()
   }
@@ -670,15 +671,15 @@ try {
   assert.equal(out.chNoSplitButton, true, 'the compact diff drops the side-by-side mode')
   assert.equal(out.chUnifiedRender, true, 'the split default falls back to unified rendering')
   assert.equal(out.chNoSideRender, true, 'compact never renders the side-by-side diff layout')
-  assert.equal(out.chUnifiedActive, true, 'the unified seg button is the active one')
+  assert.equal(out.chUnifiedActive, true, 'no mode switch is pressed while unified renders')
   assert.equal(out.chToolbarRows, 2, 'the compact diff toolbar splits into two rows')
   assert.equal(out.chControlsRowHasExpand, true, 'the second row holds the expand toggle')
-  assert.equal(out.chControlsRowHasSeg, true, 'the second row holds the mode seg')
+  assert.equal(out.chControlsRowHasModes, true, 'the second row holds the mode switches')
   assert.equal(out.chBackOnFirstRow, true, 'the back button stays on the first row')
-  assert.equal(out.chSegOneLine, true, 'the seg buttons sit side by side on one line')
-  assert.equal(out.chSegEvenWidth, true, 'the seg buttons are evenly sized')
-  assert.equal(out.chSegLabelsOneLine, true, 'each mode label stays on one line')
-  assert.equal(out.chSegTrackFits, true, 'the wrapped seg track still fits inside its row')
+  assert.equal(out.chModesOneLine, true, 'the mode switches sit side by side on one line')
+  assert.equal(out.chModesEvenWidth, true, 'the mode switches are evenly sized')
+  assert.equal(out.chModesIconOnly, true, 'each switch is icon-only and carries its label on title/aria-label')
+  assert.equal(out.chModesFit, true, 'the mode switch group fits inside its row')
   assert.equal(out.ovfChangesDrill, true, 'the compact diff pane fits without horizontal overflow')
   assert.equal(out.chBackToList, true, 'back returns to the change list')
   assert.equal(out.ovToolbarEqualHeights, true, 'branch pill, search and more-toggle share one control height')
