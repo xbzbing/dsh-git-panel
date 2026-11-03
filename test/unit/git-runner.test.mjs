@@ -27,9 +27,9 @@ function recordingSubprocess() {
 
 const runner = (subprocess) => createGitRunner(subprocess, 5000, 1024)
 
-async function envFor(argv) {
+async function envFor(argv, opts) {
   const subprocess = recordingSubprocess()
-  await runner(subprocess).run(argv, { cwd: '/repo' })
+  await runner(subprocess).run(argv, { cwd: '/repo', ...opts })
   assert.equal(subprocess.specs.length, 1, `one spawn for ${argv.join(' ')}`)
   return subprocess.specs[0].env
 }
@@ -83,4 +83,10 @@ test('the prompt and optional-locks env is always on', async () => {
   const env = await envFor(['git', 'status', '--porcelain=v1', '-z'])
   assert.equal(env.GIT_TERMINAL_PROMPT, '0')
   assert.equal(env.GIT_OPTIONAL_LOCKS, '0')
+})
+
+test('caller-supplied env overrides the pinned pathspec mode', async () => {
+  // opts.env spreads last, so a caller can still force a mode the runner pins.
+  const env = await envFor(['git', 'log', '--format=%H'], { env: { GIT_LITERAL_PATHSPECS: '1' } })
+  assert.equal(env.GIT_LITERAL_PATHSPECS, '1')
 })
