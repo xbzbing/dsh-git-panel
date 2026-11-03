@@ -15,7 +15,7 @@ import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { gitRunner, runGit, subprocess } from './_git-fixture.mjs'
@@ -92,6 +92,31 @@ test('snapshot reports branch, dirty, and the change set', async () => {
   assert.equal(s.changes.find((c) => c.path === 'd.txt').status, 'untracked')
   assert.equal(s.showInputPill, true, 'pill preference defaults to shown')
   assert.match(s.stateFingerprint, /^[0-9a-f]{64}$/, 'final snapshot carries a SHA-256 business fingerprint')
+})
+
+test('snapshot carries the source path of a staged rename', async () => {
+  // Its own repository: the shared fixture's change set is asserted verbatim by
+  // the test above. This also pins the porcelain field order ("new\0old") that
+  // the parser reads, against real git output rather than a hand-written string.
+  const dir = mkdtempSync(join(tmpdir(), 'gp-rename-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await writeFile(join(dir, 'old.txt'), 'hello\n')
+    await runGit(dir, ['add', 'old.txt'])
+    await runGit(dir, ['commit', '-qm', 'init'])
+    await runGit(dir, ['mv', 'old.txt', 'renamed.txt'])
+    const res = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(res.ok, true)
+    const [change] = res.value.changes
+    assert.equal(change.path, 'renamed.txt')
+    assert.equal(change.status, 'renamed')
+    assert.equal(change.staged, true)
+    assert.equal(change.oldPath, 'old.txt', 'the rename source rides along for the row to show')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('snapshot business fingerprint is stable in a real unchanged repository and tracks preferences', async () => {

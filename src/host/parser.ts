@@ -39,7 +39,9 @@ function statusOf(code: string): GitChangeStatus {
 /**
  * Parse `git status --porcelain=v1 -z`. A mixed XY (both non-space, e.g. MM)
  * is split into a staged side (X) and an unstaged side (Y). Untracked (??) is
- * a single unstaged entry. Real conflicts (UU/AA/DD…) stay one entry.
+ * a single unstaged entry. Real conflicts (UU/AA/DD…) stay one entry. A rename
+ * or copy carries its source path (`new\0old`) onto the side whose column says
+ * R/C — the other side is an unrelated edit and names no source.
  *
  * `lossy` marks a read that lost the stream's head: the first NUL field is then
  * whatever fragment survived, and reading its first two characters as XY turns
@@ -56,7 +58,9 @@ export function parseStatus(stdout: string, opts?: { readonly lossy?: boolean })
     const y = rec[1]!
     let path = rec.slice(3)
     // Renames/copies encode "new\0old" — the old path is the next NUL field.
+    let oldPath: string | undefined
     if (x === 'R' || x === 'C' || y === 'R' || y === 'C') {
+      oldPath = records[i + 1]
       i++ // consume the old-path field
     }
     const isDirectory = path.endsWith('/')
@@ -69,11 +73,15 @@ export function parseStatus(stdout: string, opts?: { readonly lossy?: boolean })
       out.push({ path, status: 'conflicted', staged: false, isDirectory })
       continue
     }
+    // The source belongs to the renamed side only: `RM` is a rename in the
+    // index plus an unrelated edit in the work tree.
+    const renamed = (col: string): boolean => col === 'R' || col === 'C'
+    const source = (col: string): { oldPath?: string } => (oldPath !== undefined && renamed(col) ? { oldPath } : {})
     if (x !== ' ' && x !== '?') {
-      out.push({ path, status: statusOf(x), staged: true, isDirectory })
+      out.push({ path, status: statusOf(x), staged: true, isDirectory, ...source(x) })
     }
     if (y !== ' ' && y !== '?') {
-      out.push({ path, status: statusOf(y), staged: false, isDirectory })
+      out.push({ path, status: statusOf(y), staged: false, isDirectory, ...source(y) })
     }
   }
   return out

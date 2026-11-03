@@ -240,6 +240,12 @@ export interface GitChange {
   readonly status: GitChangeStatus
   readonly staged: boolean
   readonly isDirectory: boolean
+  /**
+   * Path the entry was renamed / copied from, on the side that carries the
+   * rename. Git only reports it for the index: an unstaged move arrives as a
+   * deletion plus an untracked file. Older hosts never set it.
+   */
+  readonly oldPath?: string
 }
 
 // ── actions (run endpoint) ────────────────────────────────────────────────
