@@ -230,32 +230,103 @@ test('a repository lists its family: workspace, worktrees inside, worktrees outs
   const listed = await listSessionRepos(depsAt(wtRepo), SID, true)
   assert.equal(listed.ok, true)
   const rows = listed.value.repos
+  // Selectable rows sort by path (the workspace row first), then the disabled
+  // ones, so the checkout above the cwd trails the one inside it.
   assert.deepEqual(rows.map((r) => r.path), ['', '.agents/worktrees/feat-a', '../wt-outside', 'vendor/lib'])
 
+  const byPath = new Map(rows.map((row) => [row.path, row]))
+
   // The workspace row carries the family identity git reported for it.
-  assert.equal(rows[0].kind, 'workspace')
-  assert.equal(rows[0].role, 'main')
-  assert.equal(rows[0].branch, 'main')
+  const workspaceRow = byPath.get('')
+  assert.equal(workspaceRow.kind, 'workspace')
+  assert.equal(workspaceRow.role, 'main')
+  assert.equal(workspaceRow.branch, 'main')
 
   // Inside the cwd: selectable, with the branch for free — the reason scenario
   // B does not depend on the filesystem scan's depth ceiling.
-  assert.equal(rows[1].kind, 'nested')
-  assert.equal(rows[1].role, 'linked')
-  assert.equal(rows[1].branch, 'wt-a')
-  assert.equal(rows[1].disabled, undefined)
+  const inside = byPath.get('.agents/worktrees/feat-a')
+  assert.equal(inside.kind, 'nested')
+  assert.equal(inside.role, 'linked')
+  assert.equal(inside.branch, 'wt-a')
+  assert.equal(inside.disabled, undefined)
 
-  // Outside the cwd subtree: visible so the user can see it exists, disabled so
-  // its selector (a ../ path) can never be sent, with the branch still shown.
-  assert.equal(rows[2].disabled, 'outside')
-  assert.equal(rows[2].role, 'linked')
-  assert.equal(rows[2].branch, 'wt-out')
-  assert.equal(rows[2].path, '../wt-outside')
+  // Outside the cwd: visible so the user can see it exists, disabled so its
+  // selector (a ../ path) can never be sent, with the branch still shown.
+  const outside = byPath.get('../wt-outside')
+  assert.equal(outside.disabled, 'outside')
+  assert.equal(outside.role, 'linked')
+  assert.equal(outside.branch, 'wt-out')
 
   // An unrelated repository below the cwd keeps the old behavior: kind nested,
   // no branch claim (nobody sampled it).
-  assert.equal(rows[3].kind, 'nested')
-  assert.equal(rows[3].role, 'repo')
-  assert.equal(rows[3].branch, undefined)
+  const foreign = byPath.get('vendor/lib')
+  assert.equal(foreign.kind, 'nested')
+  assert.equal(foreign.role, 'repo')
+  assert.equal(foreign.branch, undefined)
+})
+
+test('a worktree session lists the repository root as a choosable row', async () => {
+  // The session moved into the linked worktree, so the workspace row is the
+  // worktree itself and the main checkout sits above the cwd. That one row is
+  // what keeps the panel from being stranded; every other checkout outside the
+  // cwd stays unchoosable (it is one hop from the root).
+  const inWorktree = join(wtRepo, '.agents', 'worktrees', 'feat-a')
+  const listed = await listSessionRepos(depsAt(inWorktree), SID, true)
+  assert.equal(listed.ok, true)
+  const rows = listed.value.repos
+  assert.deepEqual(rows.map((r) => r.path), ['', '../../..', '../../../../wt-outside'])
+
+  const own = rows[0]
+  assert.equal(own.kind, 'workspace')
+  assert.equal(own.role, 'linked', 'the session checkout is the linked worktree')
+
+  const root = rows[1]
+  assert.equal(root.role, 'main')
+  assert.equal(root.name, 'wt-repo')
+  assert.equal(root.disabled, undefined, 'the repository root is choosable')
+
+  const sibling = rows[2]
+  assert.equal(sibling.role, 'linked')
+  assert.equal(sibling.disabled, 'outside', 'a sibling checkout needs the root first')
+})
+
+test('a selector may leave the cwd only for the repository root', async () => {
+  // The session's own checkout is the worktree; the primary work tree is its
+  // parent. Selecting it is what lets a worktree session go back — and it is
+  // the only directory a selector may reach from outside the cwd.
+  const inWorktree = join(wtRepo, '.agents', 'worktrees', 'feat-a')
+  const deps = depsAt(inWorktree)
+
+  const back = await resolveWorkspace(deps, SID, '../../..')
+  assert.equal(back.ok, true, 'the repository root is reachable from a linked worktree')
+  assert.equal(back.root, realpathSync.native(wtRepo))
+
+  // From the root the family is inside its cwd again — the way down needs no
+  // second door. The one checkout above the root stays unchoosable from there
+  // too: it is outside every cwd the panel ever holds.
+  const fromRoot = depsAt(wtRepo)
+  const down = await resolveWorkspace(fromRoot, SID, '.agents/worktrees/feat-a')
+  assert.equal(down.ok, true, 'a worktree below the root is an ordinary nested selector')
+  assert.equal(down.root, realpathSync.native(inWorktree))
+  const above = await resolveWorkspace(fromRoot, SID, '../wt-outside')
+  assert.equal(above.ok, false, 'a checkout above the root is still outside the cwd')
+  assert.equal(above.failure.error.code, 'invalid-repo')
+
+  // Everything else stays refused: a sibling checkout, an unrelated repository,
+  // the plain parent directory, an absolute path, and a traversal on nothing.
+  const outside = [
+    '../../../../wt-outside',       // a sibling worktree: reachable only via the root
+    '../../../../group',            // a plain directory above the repository
+    '../../../../../',              // the temp root
+    '../..',                        // the repository's own .agents directory
+    join(wtRepo),                   // absolute paths are not selectors
+    'missing',
+  ]
+  for (const bad of outside) {
+    const ws = await resolveWorkspace(deps, SID, bad)
+    assert.equal(ws.ok, false, 'must refuse ' + JSON.stringify(bad))
+    assert.equal(ws.failure.error.code, 'invalid-repo', JSON.stringify(bad))
+  }
 })
 
 test('a worktree directory is claimed once, never re-listed as a nested repository', async () => {
