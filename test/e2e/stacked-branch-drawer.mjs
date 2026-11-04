@@ -61,7 +61,10 @@ await page.addScriptTag({ path: resolve(E2E, 'client.js') })
 // the drawer's default — a pass through a non-tight width resets the overlay
 // state anyway (OverviewTab closes it when tight turns false).
 const boot = (width) => page.evaluate(async ({ snap, w }) => {
-  const { connection } = window.createGitPanelMock(snap)
+  const { fixture, connection } = window.createGitPanelMock(snap)
+  // The switch-confirm scenario below flips this to dirty: a clean work tree
+  // switches straight from the row button now, with no dialog above the drawer.
+  window.__gpFixture = fixture
   const ctl = { registered: {}, sidebarTypes: [], openedTabs: [] }
   window.__ctl = ctl
   const settings = {
@@ -301,9 +304,19 @@ out.closedByButton = await probe()
 assert.equal(out.closedByButton.drawer.open, 'false', 'the close button closes the drawer')
 assert.equal(out.closedByButton.toggle.focus, true, 'focus returns to the toggle again')
 
-// ── A confirm dialog above the drawer owns the first Escape. ──
+// ── A confirm dialog above the drawer owns the first Escape. The fixture
+//    turns dirty first (and a fetch delivers that snapshot): a clean work tree
+//    switches with no dialog at all. ──
+await page.evaluate(() => {
+  const fixture = window.__gpFixture
+  fixture.snapshot = { ...fixture.snapshot, dirty: true }
+})
 await page.click('.gp-toolbar__branches')
-await page.waitForTimeout(250)
+await settleDrawer(true)
+// The collapsed drawer is inert, so the fetch check rides the drawer's own
+// status bar (open now) to land the dirty snapshot in the controller.
+await page.click('.gp-drawer .gp-statusbar .gp-statusbar__btn')
+await page.waitForTimeout(400)
 await page.hover('.gp-drawer .gp-branch-row[title="feature"]')
 await page.click('.gp-branch-row[title="feature"] .gp-branch-row__switch')
 await page.waitForSelector('.gp-modal-backdrop', { timeout: 5000 })
@@ -341,6 +354,30 @@ assert.equal(out.bootTight.drawer.boxShadow, 'none', 'the first mount carries no
 assert.equal(out.bootTight.drawer.inert, true, 'and inert on its very first mount')
 assert.ok(out.bootTight.toggle !== null, 'the toolbar toggle mounts with it')
 assert.equal(out.bootTight.toggle.expanded, 'false', 'the toggle reports the collapsed state on the first mount too')
+
+// Clean-tree switch bypasses confirmation and exposes a visible in-flight state.
+// Two synchronous clicks must dispatch one checkout, even before React rerenders.
+await page.click('.gp-toolbar__branches')
+await settleDrawer(true)
+await page.evaluate(() => { window.__gpFixture.holdRun = { kind: 'branch-checkout' } })
+await page.locator('.gp-drawer .gp-branch-row[title="feature"] .gp-branch-row__switch').evaluate((button) => {
+  button.click()
+  button.click()
+})
+await page.waitForFunction(() => window.__gpFixture.releaseRun !== null)
+assert.equal(await page.locator('.gp-modal-backdrop').count(), 0, 'clean checkout opens no confirmation')
+assert.equal(await page.locator('.gp-drawer .gp-branch-row[title="feature"] .gp-branch-row__switch').isDisabled(), true, 'in-flight checkout disables branch switch')
+assert.equal(await page.locator('.gp-drawer .gp-branch-row[title="feature"] .gp-branch-row__switch').getAttribute('aria-busy'), 'true', 'branch button exposes aria-busy')
+assert.equal(await page.locator('.gp-drawer .gp-statusbar').getAttribute('aria-busy'), 'true', 'status bar exposes busy state')
+assert.match(await page.locator('.gp-drawer .gp-statusbar__state').textContent(), /切换分支中/, 'status reports switching progress')
+assert.equal(await page.evaluate(() => window.__gpFixture.actions.filter((a) => a.kind === 'branch-checkout').length), 1, 'synchronous double dispatch runs one checkout')
+await page.evaluate(() => {
+  window.__gpFixture.holdRun = null
+  window.__gpFixture.releaseRun()
+})
+await page.waitForFunction(() => window.__gpFixture.snapshot.branch === 'feature')
+await page.waitForFunction(() => document.querySelector('.gp-drawer .gp-statusbar')?.getAttribute('aria-busy') === 'false')
+assert.equal(await page.locator('.gp-modal-backdrop').count(), 0, 'checkout completes without a dialog')
 
 assert.deepEqual(errors, [], 'no console errors')
 console.log('e2e/stacked-branch-drawer: all assertions passed', JSON.stringify(out))

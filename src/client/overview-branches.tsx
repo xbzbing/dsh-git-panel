@@ -23,6 +23,7 @@ export interface BranchCbs {
   onFilter: (ref: string | null) => void
   /** Switch targets by row key; a row without one (current branch, tags) has no switch button. */
   switchOptions: ReadonlyMap<string, BranchOption>
+  switchBusy: boolean
   /** Opens the switch confirm; the row click itself stays the history filter. */
   onSwitch: (option: BranchOption) => void
   onToggle: (section: string) => void
@@ -110,7 +111,7 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       // Shown on hover (always on touch); stops propagation so switching
       // never also toggles the row's history filter.
       target === undefined ? null : h('button', {
-        key: 'sw', type: 'button', className: 'gp-branch-row__switch',
+        key: 'sw', type: 'button', className: 'gp-branch-row__switch', disabled: cb.switchBusy,
         title: cb.t(target.createFrom === undefined ? 'switch.rowTitle' : 'switch.rowTitleTrack', { name: target.name, ref: target.label }),
         onClick: (e: { stopPropagation: () => void }) => { e.stopPropagation(); cb.onSwitch(target) },
       }, cb.t('switch.action')),
