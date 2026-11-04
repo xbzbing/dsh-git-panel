@@ -525,7 +525,7 @@ const out = await page.evaluate(async (snap) => {
   result.statusNoPushWhenSynced = ![...(sbar?.querySelectorAll('.gp-statusbar__pull') || [])].some((b) => (b.textContent || '').includes('status.push'))
   // Flip the served snapshot to strictly-ahead and re-drive through the check
   // button (fetch → onAction → controller.accept): the push button appears, and
-  // confirming shows the outgoing scope preview.
+  // one click pushes straight away (fast-forward-only push, no confirm dialog).
   const clickCheck = async () => {
     const btn = document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__btn')
     if (btn) { btn.click(); await new Promise((r) => setTimeout(r, 300)) }
@@ -535,10 +535,16 @@ const out = await page.evaluate(async (snap) => {
   await clickCheck()
   const pushBtn = findBarBtn('status.push')
   result.statusAheadPushShown = pushBtn != null
-  if (pushBtn) { pushBtn.click(); await new Promise((r) => setTimeout(r, 250)) }
-  result.statusPushConfirmOpened = [...document.querySelectorAll('.gp-modal__path')].some((n) => (n.textContent || '').includes('status.pushConfirmTitle'))
-  result.statusPushScopeShown = (document.querySelector('.gp-modal .gp-pullscope')?.textContent || '').includes('status.pushScope')
-  document.querySelector('.gp-modal__close')?.click(); await new Promise((r) => setTimeout(r, 150))
+  const pushCount = () => fixture.actions.filter((a) => a.kind === 'push').length
+  const pushesBefore = pushCount()
+  if (pushBtn) { pushBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.statusPushDirect = pushCount() === pushesBefore + 1
+  result.statusPushNoDialog = document.querySelector('.gp-modal') === null
+  // A refused push surfaces in the status bar's error slot — no dialog exists
+  // to hold it anymore.
+  fixture.runFailure = { kind: 'push', code: 'push-rejected' }
+  if (pushBtn) { pushBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.statusPushErrorInBar = (document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state--warn')?.textContent || '').includes('error.pushRejected')
   // Flip to a no-upstream branch: the publish button replaces push, and its
   // confirm opens (the second reminder before `git push -u`).
   fixture.snapshot = { ...snap, ahead: 0, behind: 0, hasUpstream: false }

@@ -28,8 +28,8 @@ import { changeKey, pathOfKey, pickDiscardTargets, pickStageTargets, sideOf, tog
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
-import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
+import { canPush } from './push-policy.js'
 import { ChangesDiffPane } from './ChangesDiffPane.js'
 import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
@@ -84,14 +84,12 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [message, setMessage] = useState('')
   const [amend, setAmend] = useState(false)
   const [actionBusy, setBusy] = useState(false)
-  const [pushOpen, setPushOpen] = useState(false)
-  const [pushBusy, setPushBusy] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishBusy, setPublishBusy] = useState(false)
   // Expanding a truncated list is itself a snapshot flight: it locks the same
   // controls `busy` does so a pick cannot race the incoming full list.
   const [expanding, setExpanding] = useState(false)
-  const busy = actionBusy || pushBusy || publishBusy || expanding
+  const busy = actionBusy || publishBusy || expanding
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState<ReadonlySet<ChangeGroupKey>>(new Set())
   // The list's presentation: one row per file, or one per directory. It is an
@@ -400,6 +398,9 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     void onSetChangesView(next).then((ok) => { if (!ok) setViewMode(prev) })
   }
 
+  // Double-click window guard for the direct push: `run`'s `busy` state lags a
+  // synchronous second press by one paint, and two pushes must not both fire.
+  const pushInFlight = useRef(false)
   const run = async (action: GitAction): Promise<boolean> => {
     if (busy) return false
     setBusy(true)
@@ -733,7 +734,17 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       onDiscard: () => { setError(null); setDiscardPickedOpen(true) },
       onDiscardAll: () => { setError(null); setDiscardAllOpen(true) },
       onStash: () => { setError(null); setStashPushOpen(true) },
-      onPush: () => { hideTip(); setPushOpen(true) },
+      // Push runs straight from the toolbar: it is a fast-forward-only push
+      // (the host refuses otherwise), so `run`'s busy guard + inline error
+      // banner are all the ceremony it needs.
+      // The ref closes the double-click window before React paints `busy`:
+      // two synchronous presses must send exactly one push.
+      onPush: () => {
+        hideTip()
+        if (pushInFlight.current || !canPush(snapshot)) return
+        pushInFlight.current = true
+        void run({ kind: 'push' }).finally(() => { pushInFlight.current = false })
+      },
       onPublish: () => { hideTip(); setPublishOpen(true) },
       onRefresh, t,
     }),
@@ -834,7 +845,6 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     // dialog attributes use, so a compact back-navigation (which unmounts the
     // diff) cannot strand a backdrop over the panel.
     diffCard.visible ? h(DiffCardBackdrop, { key: 'diff-backdrop', onClose: diffCard.close }) : null,
-    pushOpen ? h(PushModal, { key: 'remote-push', remote, sessionId, snapshot, onAction, onClose: () => setPushOpen(false), onBusyChange: setPushBusy, t }) : null,
     publishOpen ? h(PublishModal, { key: 'remote-publish', snapshot, onAction, onClose: () => setPublishOpen(false), onBusyChange: setPublishBusy, t }) : null,
     stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,
     stashDrop !== null ? renderConfirmModal({

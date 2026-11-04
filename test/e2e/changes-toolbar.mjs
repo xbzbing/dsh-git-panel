@@ -1,7 +1,8 @@
 /**
  * Isolated Changes toolbar regression: icon geometry/accessibility, read-only
- * controller refresh (including an unchanged fingerprint), and shared push
- * confirmation, busy, refusal, and stale-scope behavior. Run setup.mjs first.
+ * controller refresh (including an unchanged fingerprint), and the direct
+ * push (no confirm dialog): one click, busy guard, refusal, and the shared
+ * Overview entry. Run setup.mjs first.
  */
 import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
@@ -19,8 +20,6 @@ const VIEW_SWITCH = '当前平铺，点击切换到树形'
 // Hover copy: stage-picked explains its scope (picked rows only) instead of
 // repeating the accessible name.
 const TIPS = ['暂存勾选文件在工作区的改动，未勾选的文件不受影响', ...LABELS.slice(1)]
-const AI_HINT = '提示：给 AI 多一点信任，你可以尝试让 AI 直接执行 Git 操作。'
-const SCOPE = '将推送 5 个提交 · 4 个文件 · +17 / −6 行'
 const THEME = `body{margin:0;font:13px system-ui,sans-serif;--dsh-composer-height:0px;
 --dsw-alias-bg-base:#fff;--dsw-alias-bg-layer-1:#fff;--dsw-alias-bg-layer-2:#fff;
 --dsw-alias-bg-layer-3:#fff;--dsw-alias-border-l1:#0000000a;--dsw-alias-border-l2:#0000001a;
@@ -75,7 +74,6 @@ async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewpor
     const { fixture, connection } = window.createGitPanelMock(snapshot)
     fixture.fingerprints = true
     fixture.pushCalls = 0
-    fixture.previewCalls = 0
     fixture.holdPush = false
     fixture.releasePush = null
     fixture.pushFailure = null
@@ -83,12 +81,6 @@ async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewpor
     const call = connection.rpc.call
     connection.rpc.call = async (channel, endpoint, payload) => {
       const request = payload?.args?.request
-      if (endpoint === 'gitPanel/query' && request?.query?.kind === 'push-preview') {
-        fixture.previewCalls++
-        return { ok: true, value: { ok: true, value: {
-          kind: 'push-preview', hasUpstream: true, commits: 5, files: 4, insertions: 17, deletions: 6,
-        } } }
-      }
       if (endpoint === 'gitPanel/run' && request?.action?.kind === 'push') {
         fixture.actions.push(request.action)
         fixture.pushCalls++
@@ -424,19 +416,14 @@ async function refreshScenario() {
   await page.close()
 }
 
-async function openPush(page) {
+async function pushFromChanges(page) {
   await page.locator('.gp-changes__push').click()
-  await page.locator('.gp-modal--sm').waitFor()
-  await page.waitForFunction(() => document.querySelector('.gp-pullscope:not(.gp-pullscope--loading)') !== null)
+  await flush(page)
 }
 
-async function modalCopy(page) {
-  return page.locator('.gp-modal--sm').evaluate((modal) => ({
-    title: modal.querySelector('.gp-modal__path').textContent,
-    body: modal.querySelector('.gp-modal__confirmtext').textContent,
-    scope: modal.querySelector('.gp-pullscope').textContent,
-    hint: modal.querySelector('.gp-modal__hint').textContent,
-    portaled: !document.getElementById('panel').contains(modal),
+async function pushBanner(page) {
+  return page.locator('.gp-changes__left .gp-feedback--dismissible').evaluate((banner) => ({
+    text: banner.querySelector('.gp-feedback__text').textContent,
   }))
 }
 
@@ -467,7 +454,8 @@ async function pushScenario() {
     assert.equal(await page.locator('.gp-changes__push').isDisabled(), !publishable, state + (publishable ? ': publish is offered' : ': upload is disabled'))
     if (!publishable) {
       await page.locator('.gp-changes__push').evaluate((button) => button.click())
-      assert.equal(await page.locator('.gp-modal--sm').count(), 0, state + ': native disabled blocks modal')
+      assert.equal(await page.locator('.gp-modal--sm').count(), 0, state + ': native disabled blocks the write')
+      assert.equal(await page.evaluate(() => window.__gpFixture.pushCalls), 0, state + ': no push RPC fires')
     }
   }
   // Back to a plain push: a strictly-ahead branch with an upstream.
@@ -477,92 +465,57 @@ async function pushScenario() {
   await refresh(page)
   assert.equal(await page.locator('.gp-changes__push').isEnabled(), true, 'strictly ahead snapshot enables push')
   assert.equal((await counts(page)).actions, 0, 'state checks and commit simulation have no write actions')
-  await openPush(page)
-  const copy = await modalCopy(page)
-  assert.equal(copy.title, '推送到远程')
-  assert.match(copy.body, /main.*5 个提交/)
-  assert.equal(copy.scope, SCOPE, 'custom outgoing range is shown')
-  assert.equal(copy.hint, AI_HINT, 'shared AI hint remains visible')
-  assert.equal(copy.portaled, true, 'push dialog is portaled')
-  await page.locator('.gp-modal__footer .gp-btn').first().click()
-  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
-  assert.deepEqual(await page.evaluate(() => window.__gpFixture.actions), [], 'cancel sends no push')
+  assert.equal(await page.locator('.gp-modal--sm').count(), 0, 'push runs with no confirm dialog')
+  await pushFromChanges(page)
+  await page.waitForFunction(() => window.__gpFixture.pushCalls === 1)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 0, 'success keeps it dialog-free')
+  assert.deepEqual(await page.evaluate(() => window.__gpFixture.actions), [{ kind: 'push' }], 'one click sends one ordinary push')
+  assert.equal(await page.evaluate(() => window.__gpFixture.snapshot.ahead), 0, 'successful push accepts synced snapshot')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'successful push disables the now-synced control')
 
-  // Overview must expose the same shared confirmation contract.
+  // Overview offers the same direct push with the same shared button state.
+  await page.evaluate((remote) => {
+    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'def5678', ahead: 2, behind: 0, hasUpstream: true, remote, unborn: false, branch: 'main' }
+  }, CLEAN.remote)
+  await refresh(page)
   await page.locator('[role="tab"]').nth(0).click()
+  const pushesBeforeOverview = await page.evaluate(() => window.__gpFixture.pushCalls)
   await page.locator('.gp-statusbar button[aria-label="推送本地提交到远程"]').click()
-  await page.waitForFunction(() => document.querySelector('.gp-pullscope:not(.gp-pullscope--loading)') !== null)
-  assert.deepEqual(await modalCopy(page), copy, 'Overview and Changes share the same push scope/body/hint')
-  await page.keyboard.press('Escape')
-  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  await page.waitForFunction((n) => window.__gpFixture.pushCalls === n + 1, pushesBeforeOverview)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 0, 'Overview push runs directly too')
   await page.locator('[role="tab"]').nth(1).click()
-  await openPush(page)
+  await page.close()
+}
+
+async function pushBusyAndFailureScenario() {
+  // In flight: the busy guard covers the whole toolbar, and one held push
+  // absorbs two synchronous clicks from the Changes entry.
+  const page = await openPanel(AHEAD)
   await page.evaluate(() => { window.__gpFixture.holdPush = true })
-  await page.locator('.gp-modal__footer .gp-btn--primary').evaluate((button) => { button.click(); button.click() })
+  await page.locator('.gp-changes__push').evaluate((button) => { button.click(); button.click() })
   await page.waitForFunction(() => window.__gpFixture.releasePush !== null)
-  await page.locator('.gp-modal__overlay').waitFor()
-  assert.equal(await page.locator('.gp-modal__overlay-label').textContent(), '推送中…')
-  assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isDisabled(), true, 'busy confirm disabled')
-  assert.equal(await page.locator('.gp-modal__close').isDisabled(), true, 'busy close disabled')
-  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'busy push opener disabled')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'push in flight disables itself')
   assert.equal(await page.locator('.gp-changes__toolbar button:disabled').count(), 8, 'push in flight disables the complete toolbar')
-  await page.keyboard.press('Escape')
-  await page.locator('.gp-modal-backdrop').click({ position: { x: 3, y: 3 } })
-  await page.locator('.gp-modal__footer .gp-btn').first().evaluate((button) => button.click())
-  await flush(page)
-  assert.equal(await page.locator('.gp-modal--sm').count(), 1, 'busy blocks Escape, backdrop, and cancellation')
-  assert.equal(await page.evaluate(() => window.__gpFixture.pushCalls), 1, 'busy guard prevents duplicate pushes')
   await page.evaluate(() => {
     window.__gpFixture.holdPush = false
     window.__gpFixture.releasePush()
   })
-  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
-  assert.deepEqual(await page.evaluate(() => window.__gpFixture.actions), [{ kind: 'push' }], 'confirm sends one ordinary push')
-  assert.equal(await page.evaluate(() => window.__gpFixture.snapshot.ahead), 0, 'successful push accepts synced snapshot')
-  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'successful push disables the now-synced control')
-  await page.close()
-}
-
-async function pushFailureAndStaleScenario() {
-  const page = await openPanel(AHEAD)
-  await openPush(page)
-  await page.evaluate(() => { window.__gpFixture.pushFailure = 'push-rejected' })
-  await page.locator('.gp-modal__footer .gp-btn--primary').click()
-  await page.waitForFunction(() => document.querySelector('.gp-modal--sm .gp-feedback') !== null)
-  assert.equal(await page.locator('.gp-modal--sm .gp-feedback').textContent(), '推送被拒绝：远程已有新提交，请先「检查同步」并拉取后再推送', 'push failure stays localized in the open modal')
-  assert.equal(await page.locator('.gp-modal__overlay').count(), 0, 'failed push unlocks modal')
-  assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isEnabled(), true, 'failed push can be retried')
-  await page.keyboard.press('Escape')
-  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  // The accepted synced snapshot lands: the toolbar re-enables except the push
+  // control itself, which retires with nothing left to push.
+  await page.waitForFunction(() => document.querySelector('.gp-changes__refresh')?.disabled === false)
+  assert.equal(await page.evaluate(() => window.__gpFixture.pushCalls), 1, 'one held push absorbed the double click')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'the synced snapshot retires the push control')
   await page.close()
 
-  for (const patch of [{ branch: 'feature/new-branch' }, { head: 'f00ba12' }]) {
-    const stale = await openPanel(AHEAD)
-    await openPush(stale)
-    const before = await counts(stale)
-    // The modal stays open while the held shared-controller refresh is pending;
-    // accepting another branch/HEAD must invalidate the old confirmation.
-    await stale.evaluate((patch) => {
-      const fixture = window.__gpFixture
-      fixture.snapshot = { ...fixture.snapshot, ...patch }
-      fixture.holdSnapshot = true
-      fixture.resetConnection()
-    }, patch)
-    await stale.waitForFunction(() => window.__gpFixture.releaseSnapshot !== null)
-    assert.equal(await stale.locator('.gp-modal--sm').count(), 1, 'pending sampling retains current dialog')
-    await stale.evaluate(() => {
-      window.__gpFixture.holdSnapshot = false
-      window.__gpFixture.releaseSnapshot()
-      window.__gpFixture.releaseSnapshot = null
-    })
-    await stale.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
-    assert.equal((await counts(stale)).actions, before.actions, 'changed branch/HEAD closes stale confirmation without push')
-    assert.equal(await stale.evaluate(() => window.__gpFixture.pushCalls), 0)
-    // A new explicit confirmation is still possible for the newly sampled scope.
-    await openPush(stale)
-    await stale.keyboard.press('Escape')
-    await stale.close()
-  }
+  // Refused (e.g. remote moved): the localized failure surfaces in the inline
+  // banner and the toolbar recovers; the next push can retry.
+  const refused = await openPanel(AHEAD)
+  await refused.evaluate(() => { window.__gpFixture.pushFailure = 'push-rejected' })
+  await refused.locator('.gp-changes__push').click()
+  await refused.locator('.gp-changes__left .gp-feedback--dismissible').waitFor()
+  assert.equal((await pushBanner(refused)).text, '推送被拒绝：远程已有新提交，请先「检查同步」并拉取后再推送', 'push failure stays localized in the inline banner')
+  assert.equal(await refused.locator('.gp-changes__push').isEnabled(), true, 'failed push can be retried')
+  await refused.close()
 }
 
 /**
@@ -726,7 +679,7 @@ try {
   await nothingToCommitScenario()
   await refreshScenario()
   await pushScenario()
-  await pushFailureAndStaleScenario()
+  await pushBusyAndFailureScenario()
   const touch = await touchHintScenario()
   assert.equal(touch.focused, true, 'the finger press leaves focus on the control, so the focus half is exercised')
   assert.equal(touch.afterFocus, 0, 'a touch press never raises a hover hint')

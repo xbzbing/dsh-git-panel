@@ -48,11 +48,6 @@ export const CSS = `
 .gp-modal--sm{width:min(460px,92vw);height:auto;max-height:min(560px,86vh)}
 .gp-modal__form{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
 .gp-modal__confirmtext{font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word}
-/* pull-scope line: highlighted + bold summary of the incoming fast-forward */
-.gp-pullscope{margin-top:10px;padding:8px 12px;font-size:13px;font-weight:600;line-height:1.5;color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent);border-radius:8px}
-.gp-pullscope--loading{font-weight:400;color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent);border-color:var(--dsw-alias-border-l2)}
-.gp-pullscope__add{color:var(--dsw-alias-state-success-primary)}
-.gp-pullscope__del{color:var(--dsw-alias-state-error-primary)}
 /* busy overlay (e.g. pull in flight): a scrim + spinner + indeterminate bar */
 .gp-modal__overlay{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 82%,transparent);backdrop-filter:blur(1.5px);border-radius:inherit;animation:gp-fade-in .12s ease}
 .gp-modal__overlay-label{font-size:12px;color:var(--dsw-alias-label-secondary)}

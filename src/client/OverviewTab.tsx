@@ -8,7 +8,7 @@
 import { createElement as h, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
-import { queryAs, type GitPanelRemote } from './rpc.js'
+import { type GitPanelRemote } from './rpc.js'
 import { selectTrigger } from './select-trigger.js'
 import { hasOverlay, overlayDepth } from './dialog-focus.js'
 import { renderBranchDrawer } from './overview-drawer.js'
@@ -32,9 +32,8 @@ import { runRemoteAction, runSnapshotAction } from './op-runner.js'
 import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
 import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
-import { pullScopeNode, renderStatusBar } from './overview-statusbar.js'
+import { renderStatusBar } from './overview-statusbar.js'
 import { RepoBar } from './overview-repobar.js'
-import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 import { useRowSlider } from './row-slider.js'
@@ -138,6 +137,12 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
 
 export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
+  // Latest snapshot for late replies: a direct status-bar write (pull / push /
+  // clean switch) has no dialog, so nothing else would stop its failure from
+  // landing in a checkout the user has moved to in the meantime. The guard
+  // below compares the reply against the full checkout scope.
+  const snapRef = useRef(snapshot)
+  snapRef.current = snapshot
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
   const [searchScope, setSearchScope] = useState<HistorySearchScope>('message')
@@ -182,18 +187,18 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const [opBusy, setOpBusy] = useState(false)
   const dismissedNotices = useDismissedNotices()
   // Left-column status bar: a sync check (fetch) and a fast-forward pull, each
-  // with its own in-flight guard; the pull is gated behind a confirm dialog.
+  // with its own in-flight guard. The pull runs straight from the button: its
+  // host side is `git pull --ff-only`, so a diverged branch refuses and a clean
+  // fast-forward touches no uncommitted work — there is nothing to confirm.
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [pullBusy, setPullBusy] = useState(false)
-  const [pullConfirm, setPullConfirm] = useState(false)
+  const pullInFlight = useRef(false)
+  // Double-click window guard for the direct status-bar push (see runPushDirect).
+  const pushInFlight = useRef(false)
   const [pushBusy, setPushBusy] = useState(false)
-  const [pushConfirm, setPushConfirm] = useState(false)
   const [publishBusy, setPublishBusy] = useState(false)
   const [publishConfirm, setPublishConfirm] = useState(false)
-  // Incoming fast-forward scope shown in the pull confirm: null = not loaded,
-  // 'loading' while the query runs, else the diffstat preview.
-  const [pullPreview, setPullPreview] = useState<'loading' | { commits: number; files: number; insertions: number; deletions: number } | null>(null)
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
   // Ignored by the wide layout, which renders both columns at once.
   const [pane, setPane] = useState<'list' | 'detail'>('list')
@@ -201,6 +206,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // guard (a checkout moves the whole work tree).
   const [switchTarget, setSwitchTarget] = useState<BranchOption | null>(null)
   const [switchBusy, setSwitchBusy] = useState(false)
+  const switchInFlight = useRef(false)
   // Compact branch/ref filter lives in a bottom sheet (a side column has no room
   // on a phone); the wide layout keeps the always-visible left column instead.
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -250,21 +256,6 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     if (!tight && !branchDrawer && drawerOpen) setDrawerOpen(false)
   }, [tight, branchDrawer, drawerOpen])
 
-  // When the pull confirm opens, load the incoming fast-forward scope (local
-  // diffstat HEAD..@{upstream}) so the dialog can show commits/files/±lines;
-  // closing the dialog clears it. A generation guard drops a stale response.
-  useEffect(() => {
-    if (!pullConfirm) { setPullPreview(null); return }
-    let alive = true
-    setPullPreview('loading')
-    void remote.query({ sessionId, query: { kind: 'pull-preview' } }).then((res) => {
-      if (!alive) return
-      const pv = queryAs(res, 'pull-preview')
-      setPullPreview(pv !== null && pv.hasUpstream ? { commits: pv.commits, files: pv.files, insertions: pv.insertions, deletions: pv.deletions } : null)
-    })
-    return () => { alive = false }
-  }, [pullConfirm, remote, sessionId])
-
   const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, overviewQueryKey, queryVisible)
   // Switch targets keyed like the branch rows (`local:<name>` / `remote:<ref>`);
   // only rows with a selectable target get a switch button.
@@ -295,7 +286,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       tags: buildBranchTree(tree?.tags ?? []),
     }
   }, [tree, remoteName])
-  const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
+  // A clean work tree switches straight away (git carries nothing across and
+  // has nothing to lose); a dirty one still opens the confirm so the user can
+  // pick between carrying the changes and stashing first.
+  const openSwitch = (option: BranchOption): void => {
+    setOpError(null)
+    if (!snapshot.dirty) { void runBranchSwitch(option, false); return }
+    setSwitchTarget(option)
+  }
   const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
   const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore, pathSearchSupport, pathSearchUnsupported } = useHistory(
     remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
@@ -306,11 +304,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // dsh AI sharing the checkout — can move HEAD while the dialog is open, and
   // the copy would then describe a commit on the *previous* branch. Rather than
   // re-target silently, the dialog closes: the user re-opens it on current state.
-  // Push/Publish already scope themselves this way.
+  // Publish already scopes itself this way.
   const opScope = `${snapshot.root}\u0000${snapshot.branch ?? ''}\u0000${snapshot.head ?? ''}`
+  const currentOpScope = (): string => `${snapRef.current.root}\u0000${snapRef.current.branch ?? ''}\u0000${snapRef.current.head ?? ''}`
+  const reportInStatus = (scope: string, message: string): void => {
+    if (currentOpScope() === scope) setSyncError(message)
+  }
   const opScopeRef = useRef<string | null>(null)
-  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || pullConfirm
-  const opInFlight = opBusy || pullBusy || switchBusy
+  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null
+  const opInFlight = opBusy || switchBusy
   useEffect(() => {
     if (!opDialogOpen) { opScopeRef.current = null; return }
     // An in-flight write keeps its dialog: the failure text renders only inside
@@ -326,7 +328,6 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     setResetTarget(null)
     setRevertTarget(null)
     setSwitchTarget(null)
-    setPullConfirm(false)
     setOpError(null)
   }, [opScope, opDialogOpen, opInFlight, opError])
 
@@ -490,27 +491,42 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Branch switch. It moves HEAD *and* the whole work tree, so it goes through
   // `onAction` (the fresh snapshot feeds the controller → query signal advances →
   // history, branch list, changes and Files caches all reload). `stash` is the
-  // user's explicit choice in the confirm dialog for a dirty work tree.
+  // user's explicit choice in the confirm dialog for a dirty work tree; a clean
+  // work tree calls this directly from the row button.
   // The new branch tracks a different upstream, and the ahead/behind counts are
   // only as fresh as the last fetch: check the remote state right away so the
   // status bar cannot keep claiming "up to date" from stale remote-tracking refs
   // (silent — the switch itself must not surface a network failure).
-  const runBranchSwitch = async (stash: boolean): Promise<void> => {
-    if (switchTarget === null || switchBusy) return
-    setOpError(null)
+  const runBranchSwitch = async (target: BranchOption, stash: boolean): Promise<void> => {
+    if (switchInFlight.current || switchBusy) return
+    switchInFlight.current = true
+    const startedScope = opScope
+    // A dialog-owned switch reports into the still-open dialog; a direct one
+    // (clean work tree, no dialog) lands its failure in the status bar's error
+    // slot, the one inline surface the overview offers — but only if the user
+    // has not moved to another checkout while the write was in flight.
+    const report = (message: string): void => {
+      if (target === switchTarget) setOpError(message)
+      else reportInStatus(startedScope, message)
+    }
     setSwitchBusy(true)
     try {
       const res = await onAction({
         kind: 'branch-checkout',
-        name: switchTarget.name,
-        ...(switchTarget.createFrom === undefined ? {} : { createFrom: switchTarget.createFrom }),
-        ...(stash ? { stashMessage: t('switch.stashMessage', { branch: switchTarget.name }) } : {}),
+        name: target.name,
+        ...(target.createFrom === undefined ? {} : { createFrom: target.createFrom }),
+        ...(stash ? { stashMessage: t('switch.stashMessage', { branch: target.name }) } : {}),
       })
       if (res.ok) {
         setSwitchTarget(null)
         void runCheckSync(true)
-      } else setOpError(res.error ?? t('error.generic'))
-    } finally { setSwitchBusy(false) }
+      } else report(res.error ?? t('error.generic'))
+    } catch (e) {
+      report(e instanceof Error ? e.message : t('error.generic'))
+    } finally {
+      switchInFlight.current = false
+      setSwitchBusy(false)
+    }
   }
 
   // Sync check = `git fetch` routed through onAction so the fresh snapshot
@@ -531,20 +547,53 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       if (!silent) setSyncError(e instanceof Error ? e.message : t('error.generic'))
     } finally { setSyncBusy(false) }
   }
-  const runPullFf = (): Promise<void> =>
-    runSnapshotAction(
-      { busy: pullBusy, setBusy: setPullBusy, setError: setOpError },
-      onAction,
-      { kind: 'pull-ff' },
-      () => setPullConfirm(false),
-      t('error.generic'),
-    )
+  // Pull = `git pull --ff-only`, straight from the status-bar button: the host
+  // side refuses anything but a clean fast-forward, so there is nothing the
+  // user could lose. Push is the mirror image (`push` with no force, offered
+  // only while strictly ahead). Both report failures into the status bar's
+  // error slot — no dialog exists to hold them anymore, so the slot is guarded
+  // by the checkout the write started in (a late reply must not paint an error
+  // on a repository the user has since switched to).
+  const runPullFf = async (): Promise<void> => {
+    // Ref prevents two synchronous events from dispatching duplicate pulls.
+    if (pullInFlight.current || pullBusy) return
+    pullInFlight.current = true
+    const startedScope = opScope
+    setPullBusy(true)
+    try {
+      const res = await onAction({ kind: 'pull-ff' })
+      if (!res.ok) reportInStatus(startedScope, res.error ?? t('error.generic'))
+    } catch (e) {
+      reportInStatus(startedScope, e instanceof Error ? e.message : t('error.generic'))
+    } finally {
+      pullInFlight.current = false
+      setPullBusy(false)
+    }
+  }
+  const runPushDirect = async (): Promise<void> => {
+    // The ref closes the double-click window before React paints `pushBusy`.
+    if (pushInFlight.current || !canPush(snapshot) || pushBusy) return
+    const startedScope = opScope
+    const report = (message: string): void => reportInStatus(startedScope, message)
+    pushInFlight.current = true
+    setSyncError(null)
+    setPushBusy(true)
+    try {
+      const res = await onAction({ kind: 'push' })
+      if (!res.ok) report(res.error ?? t('error.generic'))
+    } catch (e) {
+      report(e instanceof Error ? e.message : t('error.generic'))
+    } finally {
+      pushInFlight.current = false
+      setPushBusy(false)
+    }
+  }
   // One status-bar callback set, shared by the wide and compact placements.
   const statusCbs = {
-    syncBusy, syncError, pullBusy, pushBusy, publishBusy,
+    syncBusy, syncError, pullBusy, pushBusy, publishBusy, switchBusy,
     onCheck: () => void runCheckSync(),
-    onPull: () => { setOpError(null); setPullConfirm(true) },
-    onPush: () => { if (canPush(snapshot) && !pushBusy) setPushConfirm(true) },
+    onPull: () => { setSyncError(null); void runPullFf() },
+    onPush: () => { setSyncError(null); void runPushDirect() },
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
     t,
     // Narrow panels drop the repo link: the compact footer and the tight
@@ -625,29 +674,6 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onClose: () => setResetTarget(null),
       t,
     }) : null,
-    pullConfirm ? renderConfirmModal({
-      title: t('status.pullConfirmTitle'),
-      body: t('status.pullConfirmBody', { branch: snapshot.branch ?? 'HEAD', behind: snapshot.behind }),
-      extra: pullScopeNode(pullPreview, t),
-      confirmLabel: t('status.pullConfirm'),
-      danger: false,
-      error: opError,
-      confirmBusy: pullBusy,
-      busyLabel: t('status.pulling'),
-      onConfirm: () => void runPullFf(),
-      onClose: () => setPullConfirm(false),
-      t,
-    }) : null,
-    pushConfirm ? h(PushModal, {
-      key: 'push',
-      remote,
-      sessionId,
-      snapshot,
-      onAction,
-      onClose: () => setPushConfirm(false),
-      onBusyChange: setPushBusy,
-      t,
-    }) : null,
     publishConfirm ? h(PublishModal, {
       key: 'publish',
       snapshot,
@@ -663,7 +689,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       dirty: snapshot.dirty ? Math.max(1, snapshot.stats.fileCount) : 0,
       busy: switchBusy,
       error: opError,
-      onConfirm: (stash) => void runBranchSwitch(stash),
+      onConfirm: (stash) => void runBranchSwitch(switchTarget, stash),
       onClose: () => setSwitchTarget(null),
       t,
     }) : null,
@@ -944,6 +970,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     const branchList = h(BranchScroll, { key: 'scroll', tree, treeError, activeRef: filter.ref, closed: closedSections, cbs: {
       onFilter: (ref) => setRef(ref),
       switchOptions,
+      switchBusy,
       onSwitch: openSwitch,
       onToggle: toggleSection,
       onRetry: reloadTree,
@@ -1000,6 +1027,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
           h(BranchScroll, { key: 'scroll', tree, treeError, activeRef: filter.ref, closed: closedSections, cbs: {
             onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
             switchOptions,
+            switchBusy,
             onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
             onToggle: toggleSection,
             onRetry: reloadTree,
@@ -1026,6 +1054,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       sheetOpen ? renderBranchSheet(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
         switchOptions,
+        switchBusy,
         onSwitch: (option) => { setSheetOpen(false); openSwitch(option) },
         onToggle: toggleSection,
         onRetry: reloadTree,
@@ -1045,6 +1074,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       h(BranchScroll, { key: 'scroll', tree, treeError, activeRef: filter.ref, closed: closedSections, cbs: {
         onFilter: (ref) => setRef(ref),
         switchOptions,
+        switchBusy,
         onSwitch: openSwitch,
         onToggle: toggleSection,
         onRetry: reloadTree,

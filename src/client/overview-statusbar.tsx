@@ -1,5 +1,5 @@
 /**
- * Git overview left-column footer status bar and the sync-scope preview nodes.
+ * Git overview left-column footer status bar.
  * Split out of OverviewTab so the composition layer stays focused on data
  * wiring; this module owns the status-bar presentation only.
  */
@@ -9,42 +9,10 @@ import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
 import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
+import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { pushIntent as pushIntentOf } from './push-policy.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
-
-export type PullPreview = { commits: number; files: number; insertions: number; deletions: number }
-
-/** A fast-forward scope line (pull or push), highlighted + bold in the confirm.
- * The ±line counts are colored like a diffstat; the `+N / −N` token is split
- * out of the interpolated string (identical in every locale) so only the
- * numbers carry the add/del color. `keys` pick the direction's copy. */
-function scopeNode(preview: 'loading' | PullPreview | null, t: Translate, keys: { line: GitKey; loading: GitKey }): JSX.Element {
-  if (preview === 'loading' || preview === null) {
-    return h('div', { className: 'gp-pullscope gp-pullscope--loading' }, t(keys.loading))
-  }
-  const line = t(keys.line, { commits: preview.commits, files: preview.files, ins: preview.insertions, del: preview.deletions })
-  const m = line.match(/(\+\d+)\s*\/\s*([-−]\d+)/)
-  if (m === null) return h('div', { className: 'gp-pullscope' }, line)
-  const start = line.indexOf(m[0])
-  return h('div', { className: 'gp-pullscope' }, [
-    line.slice(0, start),
-    h('span', { key: 'add', className: 'gp-pullscope__add' }, m[1]),
-    ' / ',
-    h('span', { key: 'del', className: 'gp-pullscope__del' }, m[2]),
-    line.slice(start + m[0].length),
-  ])
-}
-
-/** Incoming fast-forward scope shown in the pull confirm. */
-export function pullScopeNode(preview: 'loading' | PullPreview | null, t: Translate): JSX.Element {
-  return scopeNode(preview, t, { line: 'status.pullScope', loading: 'status.pullScopeLoading' })
-}
-
-/** Outgoing scope shown in the push confirm. */
-export function pushScopeNode(preview: 'loading' | PullPreview | null, t: Translate): JSX.Element {
-  return scopeNode(preview, t, { line: 'status.pushScope', loading: 'status.pushScopeLoading' })
-}
 
 export interface StatusBarCbs {
   readonly syncBusy: boolean
@@ -52,6 +20,7 @@ export interface StatusBarCbs {
   readonly pullBusy: boolean
   readonly pushBusy: boolean
   readonly publishBusy: boolean
+  readonly switchBusy: boolean
   readonly onCheck: () => void
   readonly onPull: () => void
   readonly onPush: () => void
@@ -128,6 +97,13 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     else if (ahead > 0 && behind > 0) { text = t('status.diverged', { ahead, behind }); tone = ' gp-statusbar__state--warn' }
     else if (behind > 0) { text = t('status.behind', { n: behind }); tone = ' gp-statusbar__state--warn' }
     else { text = t('status.ahead', { n: ahead }) }
+    if (cb.switchBusy || cb.pullBusy || cb.pushBusy) {
+      const text = cb.switchBusy ? t('status.switching') : cb.pullBusy ? t('status.pulling') : t('status.pushing')
+      return h('span', { key: 'busy', className: 'gp-statusbar__state gp-statusbar__state--busy', role: 'status' }, [
+        h(StateDot, { key: 'dot', state: 'ongoing', size: 12 }),
+        h('span', { key: 'label', className: 'gp-statusbar__state-label' }, text),
+      ])
+    }
     if (cb.syncError !== null) {
       return h('span', { key: 'error', className: 'gp-statusbar__state gp-statusbar__state--warn', role: 'alert', title: cb.syncError }, cb.syncError)
     }
@@ -169,7 +145,7 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.publish')])) : null,
   ]
 
-  return h('div', { key: 'statusbar', className: `gp-statusbar${cb.syncBusy ? ' gp-statusbar--busy' : ''}` }, [
+  return h('div', { key: 'statusbar', className: `gp-statusbar${cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.switchBusy ? ' gp-statusbar--busy' : ''}`, 'aria-busy': cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.switchBusy }, [
     repoNode,
     h('div', { key: 'sync', className: 'gp-statusbar__sync' }, [stateNode, ...actions]),
     tipNode,

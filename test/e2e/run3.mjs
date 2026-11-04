@@ -75,7 +75,6 @@ const out = await page.evaluate(async (snap) => {
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: md ? '# Hello\n\nbody line\n' : 'const x = 1\n' + long, lines: md ? 3 : 2 } } }
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
-          if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
         }
         if (endpoint === 'gitPanel/run') {
           runActions.push(request?.action ?? {})
@@ -324,7 +323,8 @@ const out = await page.evaluate(async (snap) => {
 
   // Left-column status bar (compact renders it at the overview footer): the
   // GitHub repo link is dropped at this width (hideRepo = compact || tight),
-  // the branch is 2 behind, and the pull button opens a fast-forward confirm.
+  // the branch is 2 behind, and one click runs the fast-forward pull straight
+  // away (`--ff-only` needs no confirm dialog).
   const statusbar = document.querySelector('.gp-overview--compact .gp-statusbar')
   result.statusBarShown = statusbar !== null
   const repoLink = statusbar?.querySelector('a.gp-statusbar__repo')
@@ -333,32 +333,19 @@ const out = await page.evaluate(async (snap) => {
   result.statusBehindShown = (statusbar?.querySelector('.gp-statusbar__state')?.textContent || '').includes('status.behind')
   const pullBtn = statusbar?.querySelector('.gp-statusbar__pull')
   result.statusPullShown = pullBtn != null
+  const pullsBefore = runActions.filter((a) => a.kind === 'pull-ff').length
   pullBtn?.click()
-  await new Promise((r) => setTimeout(r, 150))
-  result.statusPullConfirmOpened = [...document.querySelectorAll('.gp-modal__path')].some((n) => (n.textContent || '').includes('status.pullConfirmTitle'))
-  // The confirm shows the resolved incoming scope (highlighted node, not loading).
-  result.statusPullScopeShown = (() => {
-    const el = document.querySelector('.gp-pullscope')
-    if (el == null) return false
-    const txt = el.textContent || ''
-    return txt.includes('status.pullScope') && !el.classList.contains('gp-pullscope--loading')
-  })()
-  // Click the confirm → the pull runs (mock delays 250ms): a busy overlay with a
-  // spinner covers the dialog mid-flight, then success closes the dialog.
-  const confirmBtn = [...document.querySelectorAll('.gp-modal__footer .gp-btn--primary')].find((b) => (b.textContent || '').includes('status.pullConfirm'))
-  confirmBtn?.click()
   await new Promise((r) => setTimeout(r, 90))
-  result.statusPullOverlayShown = document.querySelector('.gp-modal__overlay') !== null
-  result.statusPullSpinnerShown = document.querySelector('.gp-modal__overlay svg[data-state="ongoing"]') !== null
-  result.statusPullLabelShown = (document.querySelector('.gp-modal__overlay .gp-modal__overlay-label')?.textContent || '').includes('status.pulling')
-  // No progress bar — only a spinner + the "syncing" label (no real % to show).
-  result.statusPullNoProgressBar = document.querySelector('.gp-modal__overlay .gp-progress') === null
-  // Escape is swallowed while busy, so the dialog stays until the pull resolves.
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-  await new Promise((r) => setTimeout(r, 40))
-  result.statusPullOverlayKeptOnEscape = document.querySelector('.gp-modal__overlay') !== null
-  await new Promise((r) => setTimeout(r, 300))
-  result.statusPullConfirmClosed = [...document.querySelectorAll('.gp-modal__path')].every((n) => !(n.textContent || '').includes('status.pullConfirmTitle'))
+  // Mid-flight (mock delays 250ms): no dialog, the pull button disables.
+  result.statusPullNoDialog = document.querySelector('.gp-modal') === null
+  result.statusPullBusyDisabled = (() => {
+    const btn = document.querySelector('.gp-overview--compact .gp-statusbar__pull')
+    return btn !== null && btn.disabled === true
+  })()
+  await new Promise((r) => setTimeout(r, 400))
+  result.statusPullDirect = runActions.filter((a) => a.kind === 'pull-ff').length === pullsBefore + 1
+  // The accepted behind→0 snapshot retires the pull button.
+  result.statusPullRetired = document.querySelector('.gp-overview--compact .gp-statusbar__pull') === null
 
   // Changes compact: drill list → diff → back.
   tabByText('tab.changes')?.click()
@@ -654,14 +641,10 @@ try {
   assert.equal(out.statusRepoNewTab, false, 'so there is no repo link to open in a tab')
   assert.equal(out.statusBehindShown, true, 'the status bar reports the behind count')
   assert.equal(out.statusPullShown, true, 'a strictly-behind branch offers a pull button')
-  assert.equal(out.statusPullConfirmOpened, true, 'pull opens a fast-forward confirm dialog')
-  assert.equal(out.statusPullScopeShown, true, 'the confirm shows the incoming fast-forward scope')
-  assert.equal(out.statusPullOverlayShown, true, 'confirming pull shows a busy overlay over the dialog')
-  assert.equal(out.statusPullSpinnerShown, true, 'the busy overlay carries a spinner')
-  assert.equal(out.statusPullLabelShown, true, 'the busy overlay shows the syncing label')
-  assert.equal(out.statusPullNoProgressBar, true, 'the busy overlay has no progress bar (no real % available)')
-  assert.equal(out.statusPullOverlayKeptOnEscape, true, 'Escape does not dismiss the dialog while the pull is in flight')
-  assert.equal(out.statusPullConfirmClosed, true, 'a successful pull closes the confirm dialog')
+  assert.equal(out.statusPullNoDialog, true, 'one click on pull runs it without a confirm dialog')
+  assert.equal(out.statusPullBusyDisabled, true, 'the pull button disables while the pull is in flight')
+  assert.equal(out.statusPullDirect, true, 'the click fired exactly one fast-forward pull action')
+  assert.equal(out.statusPullRetired, true, 'the accepted behind→0 snapshot retires the pull button')
   assert.equal(out.chSingleColumn, true, 'changes collapses to a single compact column')
   assert.equal(out.chListShown, true, 'the compact changes list shows the commit box')
   assert.equal(out.ovfChangesList, true, 'the compact changes list fits without horizontal overflow')
