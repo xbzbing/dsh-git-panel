@@ -109,9 +109,11 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       // tech, so the chip is visual only.
       isCurrent ? h('span', { key: 'head', className: 'gp-branch-row__head', 'aria-hidden': 'true' }, 'HEAD') : null,
       // Shown on hover (always on touch); stops propagation so switching
-      // never also toggles the row's history filter.
+      // never also toggles the row's history filter. A clean work tree switches
+      // without a dialog, so the button itself carries the in-flight state.
       target === undefined ? null : h('button', {
-        key: 'sw', type: 'button', className: 'gp-branch-row__switch', disabled: cb.switchBusy,
+        key: 'sw', type: 'button', className: 'gp-branch-row__switch',
+        disabled: cb.switchBusy, 'aria-busy': cb.switchBusy,
         title: cb.t(target.createFrom === undefined ? 'switch.rowTitle' : 'switch.rowTitleTrack', { name: target.name, ref: target.label }),
         onClick: (e: { stopPropagation: () => void }) => { e.stopPropagation(); cb.onSwitch(target) },
       }, cb.t('switch.action')),
