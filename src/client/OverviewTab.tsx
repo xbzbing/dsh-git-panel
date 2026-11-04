@@ -192,6 +192,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // fast-forward touches no uncommitted work — there is nothing to confirm.
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const syncInFlight = useRef(false)
   const [pullBusy, setPullBusy] = useState(false)
   const pullInFlight = useRef(false)
   // Double-click window guard for the direct status-bar push (see runPushDirect).
@@ -307,8 +308,16 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Publish already scopes itself this way.
   const opScope = `${snapshot.root}\u0000${snapshot.branch ?? ''}\u0000${snapshot.head ?? ''}`
   const currentOpScope = (): string => `${snapRef.current.root}\u0000${snapRef.current.branch ?? ''}\u0000${snapRef.current.head ?? ''}`
-  const reportInStatus = (scope: string, message: string): void => {
-    if (currentOpScope() === scope) setSyncError(message)
+  // A direct write has no dialog to hold its failure, so it lands in the status
+  // bar's error slot. The slot is scoped to the checkout the write started in:
+  // a late reply must not paint an error on a repository the user has since
+  // moved to. A null clear is unconditional — the op is starting here and now.
+  const statusReporter = (): ((message: string | null) => void) => {
+    const scope = opScope
+    return (message) => {
+      if (message === null) setSyncError(null)
+      else if (currentOpScope() === scope) setSyncError(message)
+    }
   }
   const opScopeRef = useRef<string | null>(null)
   const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null
@@ -497,36 +506,26 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // only as fresh as the last fetch: check the remote state right away so the
   // status bar cannot keep claiming "up to date" from stale remote-tracking refs
   // (silent — the switch itself must not surface a network failure).
-  const runBranchSwitch = async (target: BranchOption, stash: boolean): Promise<void> => {
-    if (switchInFlight.current || switchBusy) return
-    switchInFlight.current = true
-    const startedScope = opScope
-    // A dialog-owned switch reports into the still-open dialog; a direct one
-    // (clean work tree, no dialog) lands its failure in the status bar's error
-    // slot, the one inline surface the overview offers — but only if the user
-    // has not moved to another checkout while the write was in flight.
-    const report = (message: string): void => {
-      if (target === switchTarget) setOpError(message)
-      else reportInStatus(startedScope, message)
-    }
-    setSwitchBusy(true)
-    try {
-      const res = await onAction({
+  const runBranchSwitch = (target: BranchOption, stash: boolean): Promise<void> => {
+    // A dialog-owned switch (dirty work tree) reports into the still-open
+    // dialog; a direct one has no dialog and uses the scoped status slot.
+    const inDialog = target === switchTarget
+    const status = statusReporter()
+    return runSnapshotAction(
+      {
+        busy: switchBusy, setBusy: setSwitchBusy, inFlight: switchInFlight,
+        setError: (message) => { if (inDialog) setOpError(message); else status(message) },
+      },
+      onAction,
+      {
         kind: 'branch-checkout',
         name: target.name,
         ...(target.createFrom === undefined ? {} : { createFrom: target.createFrom }),
         ...(stash ? { stashMessage: t('switch.stashMessage', { branch: target.name }) } : {}),
-      })
-      if (res.ok) {
-        setSwitchTarget(null)
-        void runCheckSync(true)
-      } else report(res.error ?? t('error.generic'))
-    } catch (e) {
-      report(e instanceof Error ? e.message : t('error.generic'))
-    } finally {
-      switchInFlight.current = false
-      setSwitchBusy(false)
-    }
+      },
+      () => { setSwitchTarget(null); void runCheckSync(true) },
+      t('error.generic'),
+    )
   }
 
   // Sync check = `git fetch` routed through onAction so the fresh snapshot
@@ -535,17 +534,18 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // `silent` (the automatic check after a branch switch) leaves the status bar's
   // error slot alone: a background check that fails must not put an alert in
   // front of the user, and the last known state stays valid.
-  const runCheckSync = async (silent = false): Promise<void> => {
-    if (syncBusy || snapshot.remote === null) return
-    if (!silent) setSyncError(null)
-    setSyncBusy(true)
-    try {
-      const res = await onAction({ kind: 'fetch' })
-      if (res.ok) setSyncError(null)
-      else if (!silent) setSyncError(res.error ?? t('error.generic'))
-    } catch (e) {
-      if (!silent) setSyncError(e instanceof Error ? e.message : t('error.generic'))
-    } finally { setSyncBusy(false) }
+  const runCheckSync = (silent = false): Promise<void> => {
+    if (snapshot.remote === null) return Promise.resolve()
+    // A silent check owns no error slot: its failure disappears into the last
+    // known state instead of putting an alert in front of the user.
+    const status = silent ? (): void => {} : statusReporter()
+    return runSnapshotAction(
+      { busy: syncBusy, setBusy: setSyncBusy, inFlight: syncInFlight, setError: status },
+      onAction,
+      { kind: 'fetch' },
+      () => setSyncError(null),
+      t('error.generic'),
+    )
   }
   // Pull = `git pull --ff-only`, straight from the status-bar button: the host
   // side refuses anything but a clean fast-forward, so there is nothing the
@@ -553,47 +553,34 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // only while strictly ahead). Both report failures into the status bar's
   // error slot — no dialog exists to hold them anymore, so the slot is guarded
   // by the checkout the write started in (a late reply must not paint an error
-  // on a repository the user has since switched to).
-  const runPullFf = async (): Promise<void> => {
-    // Ref prevents two synchronous events from dispatching duplicate pulls.
-    if (pullInFlight.current || pullBusy) return
-    pullInFlight.current = true
-    const startedScope = opScope
-    setPullBusy(true)
-    try {
-      const res = await onAction({ kind: 'pull-ff' })
-      if (!res.ok) reportInStatus(startedScope, res.error ?? t('error.generic'))
-    } catch (e) {
-      reportInStatus(startedScope, e instanceof Error ? e.message : t('error.generic'))
-    } finally {
-      pullInFlight.current = false
-      setPullBusy(false)
-    }
-  }
-  const runPushDirect = async (): Promise<void> => {
-    // The ref closes the double-click window before React paints `pushBusy`.
-    if (pushInFlight.current || !canPush(snapshot) || pushBusy) return
-    const startedScope = opScope
-    const report = (message: string): void => reportInStatus(startedScope, message)
-    pushInFlight.current = true
-    setSyncError(null)
-    setPushBusy(true)
-    try {
-      const res = await onAction({ kind: 'push' })
-      if (!res.ok) report(res.error ?? t('error.generic'))
-    } catch (e) {
-      report(e instanceof Error ? e.message : t('error.generic'))
-    } finally {
-      pushInFlight.current = false
-      setPushBusy(false)
-    }
+  // on a repository the user has since switched to). The shared envelope
+  // (`runSnapshotAction`) owns the same-task ref guard and the busy lifecycle.
+  const runPullFf = (): Promise<void> =>
+    runSnapshotAction(
+      { busy: pullBusy, setBusy: setPullBusy, inFlight: pullInFlight, setError: statusReporter() },
+      onAction,
+      { kind: 'pull-ff' },
+      () => {},
+      t('error.generic'),
+    )
+  const runPushDirect = (): Promise<void> => {
+    // Offered only while strictly ahead: a snapshot that moved between render
+    // and press must not send a push the host would refuse.
+    if (!canPush(snapshot)) return Promise.resolve()
+    return runSnapshotAction(
+      { busy: pushBusy, setBusy: setPushBusy, inFlight: pushInFlight, setError: statusReporter() },
+      onAction,
+      { kind: 'push' },
+      () => {},
+      t('error.generic'),
+    )
   }
   // One status-bar callback set, shared by the wide and compact placements.
   const statusCbs = {
     syncBusy, syncError, pullBusy, pushBusy, publishBusy, switchBusy,
     onCheck: () => void runCheckSync(),
-    onPull: () => { setSyncError(null); void runPullFf() },
-    onPush: () => { setSyncError(null); void runPushDirect() },
+    onPull: () => void runPullFf(),
+    onPush: () => void runPushDirect(),
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
     t,
     // Narrow panels drop the repo link: the compact footer and the tight

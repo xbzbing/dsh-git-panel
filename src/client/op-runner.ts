@@ -9,10 +9,27 @@ import type { GitAction } from './types.js'
 import type { GitPanelRemote } from './rpc.js'
 
 export interface OpEnv {
-  /** True while this dialog's op is in flight; a second press is a no-op. */
+  /** True while this op is in flight; a second press is a no-op. */
   readonly busy: boolean
   readonly setBusy: (busy: boolean) => void
   readonly setError: (message: string | null) => void
+  /** In-flight marker for a write that has no dialog to absorb a double press:
+   * React repaints `busy` one paint after the press, so two synchronous presses
+   * both read the stale `busy: false`. Writes owned by a dialog omit it. */
+  readonly inFlight?: { current: boolean } | undefined
+}
+
+/** Claim the op; false when an earlier press already holds it. */
+function claim(env: OpEnv): boolean {
+  if (env.inFlight?.current === true || env.busy) return false
+  if (env.inFlight !== undefined) env.inFlight.current = true
+  env.setBusy(true)
+  return true
+}
+
+function release(env: OpEnv): void {
+  if (env.inFlight !== undefined) env.inFlight.current = false
+  env.setBusy(false)
 }
 
 /** Per-path writes (`run`): nothing about the work tree changed yet on error. */
@@ -25,9 +42,8 @@ export async function runRemoteAction(
   describe: (code: string, message: string | undefined) => string,
   fallback: string,
 ): Promise<void> {
-  if (env.busy) return
+  if (!claim(env)) return
   env.setError(null)
-  env.setBusy(true)
   try {
     const res = await remote.run({ sessionId, action })
     if (res.ok) onOk()
@@ -35,7 +51,7 @@ export async function runRemoteAction(
   } catch (error) {
     env.setError(error instanceof Error ? error.message : fallback)
   } finally {
-    env.setBusy(false)
+    release(env)
   }
 }
 
@@ -48,9 +64,8 @@ export async function runSnapshotAction(
   onOk: () => void,
   fallback: string,
 ): Promise<void> {
-  if (env.busy) return
+  if (!claim(env)) return
   env.setError(null)
-  env.setBusy(true)
   try {
     const res = await run(action)
     if (res.ok) onOk()
@@ -58,6 +73,6 @@ export async function runSnapshotAction(
   } catch (error) {
     env.setError(error instanceof Error ? error.message : fallback)
   } finally {
-    env.setBusy(false)
+    release(env)
   }
 }

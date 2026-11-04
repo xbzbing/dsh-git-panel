@@ -545,6 +545,36 @@ const out = await page.evaluate(async (snap) => {
   fixture.runFailure = { kind: 'push', code: 'push-rejected' }
   if (pushBtn) { pushBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.statusPushErrorInBar = (document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state--warn')?.textContent || '').includes('error.pushRejected')
+  // A failure that lands after the checkout moved must not paint on the new
+  // scope: hold the push, land another branch/HEAD, then let it fail.
+  const until = async (pred, budget = 4000) => {
+    const started = Date.now()
+    while (!pred()) {
+      if (Date.now() - started > budget) return false
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    return true
+  }
+  fixture.runFailure = null
+  fixture.holdRun = { kind: 'push' }
+  findBarBtn('status.push')?.click()
+  const pushParked = await until(() => fixture.releaseRun !== null)
+  fixture.runFailure = { kind: 'push', code: 'push-rejected' }
+  fixture.snapshot = { ...snap, ahead: 0, behind: 0, branch: 'other', head: 'f00ba12' }
+  fixture.holdSnapshot = true
+  fixture.resetConnection?.()
+  const snapshotParked = await until(() => fixture.releaseSnapshot !== null)
+  fixture.holdSnapshot = false
+  fixture.releaseSnapshot?.()
+  fixture.releaseSnapshot = null
+  await new Promise((r) => setTimeout(r, 150))
+  fixture.holdRun = null
+  fixture.releaseRun?.()
+  fixture.releaseRun = null
+  await new Promise((r) => setTimeout(r, 300))
+  result.statusLateErrorSetup = pushParked && snapshotParked
+  result.statusLateErrorSuppressed = document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state--warn') === null
+  result.statusLateErrorNewScope = (document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state')?.textContent || '').includes('status.synced')
   // Flip to a no-upstream branch: the publish button replaces push, and its
   // confirm opens (the second reminder before `git push -u`).
   fixture.snapshot = { ...snap, ahead: 0, behind: 0, hasUpstream: false }
