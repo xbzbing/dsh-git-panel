@@ -51,6 +51,8 @@ export function useGapExpander(
     const my = ++gen.current
     const queryAt = (start: number, end: number): GitQuery => base === 'commit' && commit !== undefined
       ? { kind: 'file-lines', path, base: 'commit', commit, start, end }
+      : base === 'rev'
+        ? { kind: 'file-lines', path, base: 'worktree', start, end }
       : base === 'staged'
         ? { kind: 'file-lines', path, base: 'staged', start, end }
         : { kind: 'file-lines', path, base: 'worktree', start, end }

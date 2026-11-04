@@ -33,6 +33,7 @@ function owner(service, browseRoot = '/work/repo') {
   return panelMenuOwner({
     env: () => ({ t, menus: service }),
     browseRoot: () => browseRoot,
+    identity: () => ({ sessionId: 's', repo: '' }),
     observe: () => [],
   })
 }
@@ -43,14 +44,6 @@ test('a file row asks the platform for the absolute path', async () => {
   const { service, asked } = recorder()
   await owner(service).actionsFor(MENU_KIND.file, { ...identity, path: 'src/a.ts', root: null, ignored: false }, new AbortController().signal)
   assert.deepEqual(asked[0], { kind: 'file', value: { sessionId: 's', path: '/work/repo/src/a.ts' } })
-})
-
-test('a nested root wins over the panel browse root', async () => {
-  const { service, asked } = recorder()
-  await owner(service).actionsFor(
-    MENU_KIND.file, { ...identity, path: 'a.ts', root: '/work/repo/packages/x', ignored: false }, new AbortController().signal,
-  )
-  assert.equal(asked[0].value.path, '/work/repo/packages/x/a.ts')
 })
 
 test('a directory row asks the directory family', async () => {
@@ -91,5 +84,58 @@ test('a value of the wrong family resolves to no actions instead of a wrong menu
   const { service } = recorder()
   // An image value captured under the file kind: no root to resolve against.
   const actions = await owner(service).actionsFor(MENU_KIND.file, { ...identity, url: 'data:,' }, new AbortController().signal)
+  assert.deepEqual(actions, [])
+})
+
+test('a repository switch under an open menu resolves to nothing', async () => {
+  const { service, asked } = recorder()
+  const switched = panelMenuOwner({
+    env: () => ({ t, menus: service }),
+    browseRoot: () => '/work/repo',
+    identity: () => ({ sessionId: 's', repo: 'other-repo' }),
+    observe: () => [],
+  })
+  const actions = await switched.actionsFor(
+    MENU_KIND.file, { ...identity, repo: '', path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
+  )
+  assert.deepEqual(actions, [])
+  assert.deepEqual(asked, [], 'the platform is never even asked')
+})
+
+test('a browse-root switch under an open menu resolves to nothing', async () => {
+  const { service, asked } = recorder()
+  const moved = panelMenuOwner({
+    env: () => ({ t, menus: service }),
+    browseRoot: () => '/work/other',
+    identity: () => ({ sessionId: 's', repo: '' }),
+    observe: () => [],
+  })
+  const actions = await moved.actionsFor(
+    MENU_KIND.file, { ...identity, path: 'a.ts', root: '/work/repo', ignored: false }, new AbortController().signal,
+  )
+  assert.deepEqual(actions, [])
+  assert.deepEqual(asked, [])
+})
+
+test('an unresolved root (null) still resolves: the tree may not know its root yet', async () => {
+  const { service, asked } = recorder()
+  const actions = await owner(service).actionsFor(
+    MENU_KIND.file, { ...identity, path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
+  )
+  assert.ok(actions.length > 0)
+  assert.equal(asked.length, 1)
+})
+
+test('a session switch under an open menu resolves to nothing', async () => {
+  const { service } = recorder()
+  const other = panelMenuOwner({
+    env: () => ({ t, menus: service }),
+    browseRoot: () => '/work/repo',
+    identity: () => ({ sessionId: 'other-session', repo: '' }),
+    observe: () => [],
+  })
+  const actions = await other.actionsFor(
+    MENU_KIND.file, { ...identity, path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
+  )
   assert.deepEqual(actions, [])
 })

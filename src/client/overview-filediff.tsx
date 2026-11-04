@@ -39,11 +39,18 @@ export interface FileDiffModalCbs {
 /** Centered dialog showing a commit's file diff. Portaled to document.body so
  * it floats above the whole panel; Esc / backdrop click / the close button
  * dismiss it (Esc is wired by the caller). */
+/** What a file-diff overlay compares: a commit against its first parent, or a
+ * revision against the work tree (the "compare with" flow). */
+export type FileDiffTarget =
+  | { readonly path: string; readonly hash: string; readonly shortHash: string }
+  | { readonly path: string; readonly rev: string; readonly label: string }
+
 export function renderFileDiffModal(
-  fileDiff: { path: string; hash: string; shortHash: string } | null,
+  fileDiff: FileDiffTarget | null,
   cb: FileDiffModalCbs,
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
+  const commitSide = 'hash' in fileDiff
   const { visible, data, error, mode, onMode, expanded, onExpand, onClose, pathFeedback, onCopyPath, remote, sessionId, compact, t } = cb
   // Compact drops the side-by-side mode (no room on a phone) and renders split
   // as unified instead; the preference itself is left untouched.
@@ -77,7 +84,7 @@ export function renderFileDiffModal(
   const barHead = [
     h('span', { key: 'fileicon', className: 'gp-modal__fileicon' }, h(FileIcon, { size: 15 })),
     pathEl,
-    h('span', { key: 'hash', className: 'gp-modal__hash' }, fileDiff.shortHash),
+    h('span', { key: 'hash', className: 'gp-modal__hash' }, commitSide ? fileDiff.shortHash : fileDiff.label),
     sumEl,
     expandEl,
   ]
@@ -101,7 +108,11 @@ export function renderFileDiffModal(
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       data === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : h(DiffView, { key: 'diff', visible, text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId, base: 'commit', commit: fileDiff.hash, expanded, truncated: data.truncated === true, newLines: data.newLines, t })),
+        : h(DiffView, {
+          key: 'diff', visible, text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId,
+          expanded, truncated: data.truncated === true, newLines: data.newLines, t,
+          ...(commitSide ? { base: 'commit' as const, commit: fileDiff.hash } : { base: 'rev' as const, rev: fileDiff.rev }),
+        })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }

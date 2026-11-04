@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { absPath, baseName, platformPathFor, revisionName } from '../../lib/testkit.mjs'
+import { absPath, baseName, imageSideLabel, platformPathFor, revisionName } from '../../lib/testkit.mjs'
 
 test('absPath joins a POSIX root and a relative path', () => {
   assert.equal(absPath('/work/repo', 'src/a.ts'), '/work/repo/src/a.ts')
@@ -55,4 +55,13 @@ test('revisionName inserts the side label before the extension', () => {
   // A dotfile has no extension to keep behind the suffix.
   assert.equal(revisionName('.env', 'HEAD'), '.env@HEAD')
   assert.equal(revisionName('src/Makefile', 'staged'), 'Makefile@staged')
+})
+
+test('imageSideLabel names the old side per base', () => {
+  assert.equal(imageSideLabel('commit', 'a1b2c3d4e5f6', undefined), 'a1b2c3d')
+  assert.equal(imageSideLabel('staged', undefined, undefined), 'staged')
+  assert.equal(imageSideLabel('rev', undefined, 'refs/heads/feature/x'), 'x', 'the rev tail, not the whole ref')
+  assert.equal(imageSideLabel('rev', undefined, 'v1.2.0'), 'v1.2.0')
+  assert.equal(imageSideLabel('worktree', undefined, undefined), 'HEAD')
+  assert.equal(imageSideLabel(undefined, undefined, undefined), undefined)
 })

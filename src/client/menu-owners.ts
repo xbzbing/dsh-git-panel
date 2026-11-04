@@ -21,8 +21,9 @@ export interface MenuOwner {
 }
 
 /** Base every captured target carries: which panel, which session, which
- * checkout. All three are compared against the owner's live state before an
- * action runs (menu-guard.ts). */
+ * checkout. Resolution compares session and repository against the owner's live
+ * state and resolves to nothing when they disagree (menu-panel.ts); a tree value
+ * is also checked against the browse root it was captured under. */
 export interface MenuIdentity {
   readonly sessionId: string
   readonly owner: string
@@ -76,10 +77,7 @@ export function isTreeTarget(value: GitMenuValue): value is TreeTargetValue {
   return 'root' in value
 }
 
-/** The identity fields every captured target shares. */
-export function menuIdentity(value: GitMenuValue): MenuIdentity {
-  return { sessionId: value.sessionId, owner: value.owner, repo: value.repo }
-}
+
 
 const owners = new Map<string, MenuOwner>()
 

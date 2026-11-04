@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { DIFF_EXPAND_CONTEXT, type GitBranch, type GitCommit, type GitDiffPayload, type GitFileStat, type GitGraphNode, type GraphCommit, type DiffViewMode } from './types.js'
 import type { DiffMode } from './DiffView.js'
+import type { FileDiffTarget } from './overview-filediff.js'
 import { useVisibleRequest } from './use-visible-request.js'
 import { pageVisibility } from './visibility.js'
 import type { QueryKey } from './query-key.js'
@@ -323,7 +324,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
    *  without refetching detail; no-op unless the hash matches the selection. */
   resyncSelected: (commit: GraphCommit) => void
   clearSelection: () => void
-  fileDiff: { path: string; hash: string; shortHash: string } | null
+  fileDiff: FileDiffTarget | null
   /** Diff text + its new-side line count (one query result; the gap logic
    * needs both, so they are stored and cleared together). */
   fileDiffData: GitDiffPayload | null
@@ -332,6 +333,9 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   setFileDiffMode: (m: DiffMode) => void
   fileDiffExpanded: boolean
   openFileDiff: (path: string, hash: string, shortHash: string, expand?: boolean) => void
+  /** Open the "compare with a revision" overlay: `<rev>` (old side) against the
+   * work tree. `label` names the old side in the header. */
+  openRevDiff: (path: string, rev: string, label: string, expand?: boolean) => void
   closeFileDiff: () => void
   hover: { commit: GraphCommit; x: number; y: number } | null
   hoverBody: string | null
@@ -341,7 +345,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   const [selected, setSelected] = useState<GraphCommit | null>(null)
   const [detail, setDetail] = useState<CommitDetail | null>(null)
   const [detailError, setDetailError] = useState(false)
-  const [fileDiff, setFileDiff] = useState<{ path: string; hash: string; shortHash: string } | null>(null)
+  const [fileDiff, setFileDiff] = useState<FileDiffTarget | null>(null)
   const [fileDiffData, setFileDiffData] = useState<GitDiffPayload | null>(null)
   const [fileDiffError, setFileDiffError] = useState(false)
   const [fileDiffMode, setFileDiffMode] = useState<DiffMode>(defaultDiffView)
@@ -415,6 +419,19 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     else setFileDiffError(true)
   }, [remote, sessionId])
 
+  const openRevDiff = useCallback(async (path: string, rev: string, label: string, expand = false) => {
+    const seq = ++fileDiffSeq.current
+    setFileDiff({ path, rev, label })
+    setFileDiffData(null)
+    setFileDiffError(false)
+    setFileDiffExpanded(expand)
+    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'rev', rev, ...(expand ? { context: DIFF_EXPAND_CONTEXT } : {}) } })
+    if (seq !== fileDiffSeq.current) return
+    const diff = queryAs(res, 'diff')
+    if (diff !== null) setFileDiffData({ text: diff.text, newLines: diff.newLines, truncated: diff.truncated })
+    else setFileDiffError(true)
+  }, [remote, sessionId])
+
   const closeFileDiff = useCallback(() => {
     fileDiffSeq.current += 1
     setFileDiff(null)
@@ -472,7 +489,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
 
   return {
     selected, detail, detailError, select, resyncSelected, clearSelection,
-    fileDiff, fileDiffData, fileDiffError, fileDiffMode, setFileDiffMode, fileDiffExpanded, openFileDiff, closeFileDiff,
+    fileDiff, fileDiffData, fileDiffError, fileDiffMode, setFileDiffMode, fileDiffExpanded, openFileDiff, openRevDiff, closeFileDiff,
     hover, hoverBody, onHoverEnter, onHoverLeave,
   }
 }

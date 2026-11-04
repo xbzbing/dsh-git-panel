@@ -1,0 +1,82 @@
+/**
+ * The panel's context-menu wiring, kept out of `Panel` (which is already the
+ * largest surface in the plugin).
+ *
+ * Two rules shape it:
+ *
+ *  - **The captured value is built when the gesture runs**, not when the row
+ *    rendered. The platform accepts a thunk target, so a row may pass a path and
+ *    let this module fill in the identity at click time — a browse root or
+ *    repository picked after the row rendered is then never read stale.
+ *  - **The owner re-checks before acting.** Resolution compares the captured
+ *    identity with the panel's live state (session, repository, browse root) and
+ *    resolves to nothing when they disagree, because a menu can outlive the
+ *    surface that raised it: switching the repository or the browse root under an
+ *    open menu must not turn "reveal this file" into "reveal a path that no
+ *    longer exists under the root the panel shows now".
+ */
+import { useEffect, useId, useMemo, useRef } from 'react'
+import { hasSession, type ClientCtx } from './rpc.js'
+import { menuTriggerFactory, type PanelMenu } from './menu-bindings.js'
+import { MENU_KIND, registerMenuOwner } from './menu-owners.js'
+import { panelMenuOwner } from './menu-panel.js'
+import { contextMenusOf } from './menu-register.js'
+import type { GitKey } from './locales.js'
+import type { MenuSource, UseContextMenu } from './menu-types.js'
+
+/** What the panel hands the hook. */
+export interface PanelMenuInputs {
+  readonly ctx: ClientCtx
+  readonly t: (key: GitKey, params?: Record<string, string | number>) => string
+  readonly sessionId: string | undefined
+  /** Repository tag the panel currently shows (read at resolve time). */
+  readonly repo: string
+  /** Absolute browse root the browser shows, read at gesture time. */
+  readonly browseRoot: () => string | null
+  /** The slot's injected factory; absent on hosts without the menu package. */
+  readonly useContextMenu: UseContextMenu | undefined
+  /** Inputs an open menu follows (the session snapshot). */
+  readonly observe: () => readonly MenuSource[]
+}
+
+/**
+ * Publish the panel's menu face and register its owner.
+ * @param inputs - live accessors into the panel.
+ * @returns the facade its subtree reads (see menu-context.ts).
+ */
+export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
+  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe } = inputs
+  const factory = useMemo(() => menuTriggerFactory(useContextMenu), [useContextMenu])
+  const ownerId = useId()
+  // Repository is compared at resolve time, so the thunk reads it through a ref
+  // instead of the closure's render-time value.
+  const repoRef = useRef(repo)
+  repoRef.current = repo
+
+  const facade = useMemo<PanelMenu>(() => ({
+    row: (path, kind, ignored, handlers) => {
+      if (!hasSession(sessionId)) return handlers ?? {}
+      return factory.bind(kind, () => ({
+        sessionId, owner: ownerId, repo: repoRef.current, path, root: browseRoot(), ignored,
+      }), handlers)
+    },
+    image: (image, handlers) => {
+      if (!hasSession(sessionId)) return handlers ?? {}
+      return factory.bind(MENU_KIND.image, () => ({
+        sessionId, owner: ownerId, repo: repoRef.current, ...image,
+      }), handlers)
+    },
+  }), [factory, sessionId, ownerId, browseRoot])
+
+  useEffect(() => {
+    if (!hasSession(sessionId)) return
+    return registerMenuOwner(ownerId, panelMenuOwner({
+      env: () => ({ t, menus: contextMenusOf(ctx) }),
+      browseRoot,
+      identity: () => ({ sessionId, repo: repoRef.current }),
+      observe,
+    }))
+  }, [ctx, ownerId, sessionId, t, browseRoot, observe])
+
+  return facade
+}

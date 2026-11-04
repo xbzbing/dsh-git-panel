@@ -50,6 +50,23 @@ export function revisionName(path: string, revision: string): string {
   return `${name.slice(0, dot)}@${revision}${name.slice(dot)}`
 }
 
+/**
+ * The old side's label for an image diff, used as the download suffix: the short
+ * hash of a commit, `staged` for the index, `HEAD` for a work-tree comparison,
+ * and the revision's own tail for a revision comparison.
+ * @param base - the diff base.
+ * @param commit - the commit hash when `base` is `commit`.
+ * @param rev - the revision when `base` is `rev`.
+ * @returns the label, or undefined when the base names no old side.
+ */
+export function imageSideLabel(base: string | undefined, commit: string | undefined, rev: string | undefined): string | undefined {
+  if (base === 'commit' && commit !== undefined) return commit.slice(0, 7)
+  if (base === 'staged') return 'staged'
+  if (base === 'rev' && rev !== undefined) return rev.split('/').pop()
+  if (base === undefined) return undefined
+  return 'HEAD'
+}
+
 /** The platform target value for a tree entry: the browser's relative path
  * resolved to an absolute one, which is what the platform's actions operate on
  * (a nested checkout or worktree would otherwise resolve against the session

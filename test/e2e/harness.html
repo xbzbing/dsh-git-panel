@@ -279,14 +279,25 @@
         return [
           { id: 'open-in-app.file/sidebar', label: 'sidebar' },
           { id: 'open-in-app.file/float', label: 'float' },
+          { id: 'open-in-app.file/reveal', label: 'reveal' },
+          { id: 'open-in-app.file/open', label: 'open' },
           { id: 'open-in-app.file/copyPath', label: 'copyPath' },
+          { id: 'file-actions.file/copyImage', label: 'copyImage' },
           { id: 'file-actions.file/download', label: 'download' },
+          { id: 'file-actions.file/saveAs', label: 'saveAs' },
         ]
       }
       if (kind === 'directory') {
         return [
           { id: 'open-in-app.directory/reveal', label: 'reveal' },
           { id: 'open-in-app.directory/copyPath', label: 'copyPath' },
+        ]
+      }
+      if (kind === 'image') {
+        return [
+          { id: 'file-actions.image/copy', label: 'copy' },
+          { id: 'file-actions.image/download', label: 'download' },
+          { id: 'file-actions.image/saveAs', label: 'saveAs' },
         ]
       }
       return []
@@ -316,6 +327,7 @@
       },
       close: function () {},
     }
+    service.__viewsFor = platformViews
     window.__contextMenusStub = service
     window.__useContextMenuStub = function () {
       return {

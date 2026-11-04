@@ -209,7 +209,7 @@ test('a pending binary diff completed hidden cannot start its image-diff stage',
     const data = useChangesData(remote, 's', initial, visible, () => assert.fail('stash failed'), [1])
     const ready = data.diffData !== null && data.diffPath !== null
     const image = useImageDiff(ready ? remote : undefined, ready ? 's' : undefined,
-      ready ? data.diffPath.path : undefined, ready ? data.diffPath.base : undefined, undefined, visible)
+      ready ? data.diffPath.path : undefined, ready ? data.diffPath.base : undefined, undefined, undefined, visible)
     return { ...data, image }
   })
   h.value.showDiff('img.png', 'worktree'); h.rerender()
@@ -227,7 +227,7 @@ test('image results retain the current image on hide/restore and reject stale pa
   const old = deferred()
   let path = 'old.png', visible = true
   const remote = { query: async ({ query: q }) => q.path === 'old.png' ? old.promise : queryResult(q) }
-  const h = mount(() => useImageDiff(remote, 's', path, 'worktree', undefined, visible))
+  const h = mount(() => useImageDiff(remote, 's', path, 'worktree', undefined, undefined, visible))
   path = 'new.png'; h.rerender(); await h.settle()
   old.resolve(queryResult({ kind: 'image-diff', path: 'old.png' }))
   await h.settle()

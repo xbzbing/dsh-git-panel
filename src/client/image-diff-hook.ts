@@ -16,9 +16,10 @@ export function useImageDiff(
   path: string | undefined,
   base: DiffBase | undefined,
   commit: string | undefined,
+  rev: string | undefined,
   visible: boolean,
 ): ImageState {
-  const queryKey: QueryKey = [sessionId, path, base, commit]
+  const queryKey: QueryKey = [sessionId, path, base, commit, rev]
   const [saved, setSaved] = useState<{ queryKey: QueryKey; value: ImageState }>({ queryKey, value: { kind: 'idle' } })
   const matches = (key: QueryKey): boolean => key.length === queryKey.length && key.every((part, index) => part === queryKey[index])
   useVisibleRequest(queryKey, visible && remote !== undefined && sessionId !== undefined && path !== undefined && base !== undefined, async (isCurrent) => {
@@ -26,7 +27,9 @@ export function useImageDiff(
     setSaved((prev) => matches(prev.queryKey) && prev.value.kind === 'ready' ? prev : { queryKey, value: { kind: 'loading' } })
     const query: GitQuery = base === 'commit' && commit !== undefined
       ? { kind: 'image-diff', path, base: 'commit', commit }
-      : base === 'staged' ? { kind: 'image-diff', path, base: 'staged' } : { kind: 'image-diff', path, base: 'worktree' }
+      : base === 'rev' && rev !== undefined
+        ? { kind: 'image-diff', path, base: 'rev', rev }
+        : base === 'staged' ? { kind: 'image-diff', path, base: 'staged' } : { kind: 'image-diff', path, base: 'worktree' }
     const res = await remote.query({ sessionId, query })
     if (!isCurrent()) return
     const image = queryAs(res, 'image-diff')

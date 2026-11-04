@@ -13,12 +13,21 @@ import { directoryMenuActions, fileMenuActions, type MenuEnv } from './menu-acti
 import { platformPathFor } from './menu-paths.js'
 import type { MenuAction, MenuSource, MenuTrigger } from './menu-types.js'
 
+/** The panel's identity as it stands *now*, compared against the captured one
+ * before any action is offered. */
+export interface PanelIdentity {
+  readonly sessionId: string
+  readonly repo: string
+}
+
 /** What the panel hands the owner once, reading its state through accessors. */
 export interface PanelMenuOptions {
   /** Read live: the menu service may arrive after the panel mounts. */
   readonly env: () => MenuEnv
   /** Absolute root the browser's relative paths hang off, when it has one. */
   readonly browseRoot: () => string | null
+  /** Session and repository the panel shows right now. */
+  readonly identity: () => PanelIdentity
   /** Inputs an open menu should follow (the session snapshot). */
   readonly observe: () => readonly MenuSource[]
 }
@@ -37,6 +46,14 @@ export function panelMenuOwner(options: PanelMenuOptions): MenuOwner {
 async function actionsFor(
   kind: MenuKind, value: GitMenuValue, signal: AbortSignal, options: PanelMenuOptions,
 ): Promise<MenuAction[]> {
+  // A menu can outlive the surface that raised it. Every action here names a
+  // resource by a captured path or ref, so the panel must still be showing the
+  // same session, repository and browse root before anything is offered —
+  // otherwise "reveal" or "copy path" would act on a path that no longer exists
+  // where the panel now points.
+  const live = options.identity()
+  if (value.sessionId !== live.sessionId || value.repo !== live.repo) return []
+  if (isTreeTarget(value) && value.root !== null && value.root !== options.browseRoot()) return []
   const env = options.env()
   if (kind === MENU_KIND.image) {
     return imageActions(value as ImageTargetValue, env, signal)

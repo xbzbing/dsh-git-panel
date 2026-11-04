@@ -34,12 +34,10 @@ import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
-import { menuTriggerFactory, MENU_KIND, type PanelMenu, type RowMenuBinder } from './menu-bindings.js'
 import { PanelMenuContext } from './menu-context.js'
-import { registerMenuOwner, type MenuOwner } from './menu-owners.js'
-import { panelMenuOwner } from './menu-panel.js'
-import { contextMenusOf } from './menu-register.js'
+import { usePanelMenu } from './use-panel-menu.js'
 import type { UseContextMenu } from './menu-types.js'
+import type { MenuSource } from './menu-types.js'
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -542,42 +540,20 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       : repoList.find((c) => c.path === filesSelector)?.root ?? null
 
   // ── context menus ─────────────────────────────────────────────────────
-  // Rows bind their menu through the platform's injected trigger factory. The
-  // captured target carries this panel's instance id, so an action always runs
-  // against the copy that raised the gesture (menu-owners.ts), and the file
-  // browser's relative paths are resolved against the root this panel shows,
-  // not against whatever the browser component received. Without the platform's
-  // menu package the factory is NO_MENU: rows keep the native menu.
-  const menu = useMemo(() => menuTriggerFactory(useContextMenu), [useContextMenu])
-  const ownerId = useId()
+  // Rows publish their menu through the panel's facade (use-panel-menu.ts):
+  // the captured target carries this instance's id, so an action runs against
+  // the copy that raised the gesture, and the browse root is read when the
+  // gesture happens rather than when the row rendered.
   const filesRootRef = useRef<string | null>(null)
   filesRootRef.current = filesRoot
-  const bindMenu = useCallback<RowMenuBinder>((path, kind, ignored, handlers) => {
-    if (!hasSession(sessionId)) return handlers ?? {}
-    return menu.bind(kind, {
-      sessionId, owner: ownerId, repo, path, root: filesRootRef.current, ignored,
-    }, handlers)
-  }, [menu, sessionId, ownerId, repo])
-  // The image panes sit deep in the diff tree; they read this instead of
-  // threading a binder through four components (menu-context.ts).
-  const panelMenu = useMemo<PanelMenu>(() => ({
-    row: bindMenu,
-    image: (image, handlers) => {
-      if (!hasSession(sessionId)) return handlers ?? {}
-      return menu.bind(MENU_KIND.image, {
-        sessionId, owner: ownerId, repo, ...image,
-      }, handlers)
-    },
-  }), [bindMenu, menu, sessionId, ownerId, repo])
-  useEffect(() => {
-    if (!hasSession(sessionId)) return
-    const owner: MenuOwner = panelMenuOwner({
-      env: () => ({ t, menus: contextMenusOf(ctx) }),
-      browseRoot: () => filesRootRef.current,
-      observe: () => [controllerFor(sessionId)],
-    })
-    return registerMenuOwner(ownerId, owner)
-  }, [ctx, ownerId, sessionId, t])
+  const browseRootOf = useCallback((): string | null => filesRootRef.current, [])
+  const menuSources = useCallback(
+    (): readonly MenuSource[] => (hasSession(sessionId) ? [controllerFor(sessionId)] : []),
+    [sessionId],
+  )
+  const panelMenu = usePanelMenu({
+    ctx, t, sessionId, repo, browseRoot: browseRootOf, useContextMenu, observe: menuSources,
+  })
   // The browse-root dropdown exists whenever the list offers a second root,
   // follow config on or off: the config sets the session default, but the
   // dropdown is where a session opts the other way (park at a root while the

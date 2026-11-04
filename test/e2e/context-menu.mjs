@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
+import { DIRECTORY_VIEWS, FILE_VIEWS, IMAGE_VIEWS } from '../../lib/testkit.mjs'
 
 const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
@@ -28,7 +29,7 @@ const SNAP = {
   defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 
-const TREE = { '': [['docs', true], ['README.md', false]], docs: [['notes.md', false]] }
+const TREE = { '': [['docs', true], ['README.md', false], ['logo.png', false]], docs: [['notes.md', false]] }
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
@@ -55,7 +56,15 @@ await page.evaluate(async ({ snap, tree }) => {
             const entries = (tree[q.path] || []).map(([name, dir]) => (dir ? { name, dir } : { name, dir, size: 12 }))
             return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries } } }
           }
-          if (q.kind === 'file-content') return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# hi\n', lines: 1 } } }
+          if (q.kind === 'file-content') {
+            if (/\.png$/i.test(q.path)) {
+              return { ok: true, value: { ok: true, value: {
+                kind: 'file-content', path: q.path, variant: 'image',
+                dataUrl: 'data:image/png;base64,iVBORw0KGgo=', size: 8,
+              } } }
+            }
+            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# hi\n', lines: 1 } } }
+          }
           if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'main', shortHash: '44638f7' }], remote: [] } } }
           if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
           if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
@@ -119,8 +128,12 @@ assert.ok(typeof target.value.owner === 'string' && target.value.owner.length > 
 const offered = await page.evaluate(() => window.__menuStub.state.offered)
 assert.deepEqual(offered.map((a) => a.id), [
   'open-in-app.file/float',
+  'open-in-app.file/reveal',
+  'open-in-app.file/open',
   'open-in-app.file/copyPath',
+  'file-actions.file/copyImage',
   'file-actions.file/download',
+  'file-actions.file/saveAs',
   'copy-relative-path',
 ], 'platform group first (the sidebar entry is whitelisted out), then the browser entry')
 assert.ok(!offered.some((a) => a.id === 'open-in-app.file/sidebar'), 'no "open in sidebar" entry')
@@ -146,6 +159,36 @@ await page.evaluate(() => window.__menuStub.invoke('file-actions.file/download')
 const selected = await page.evaluate(() => window.__menuStub.state.selected)
 assert.deepEqual(selected.map((s) => s.id), ['file-actions.file/download'])
 assert.equal(selected[0].target.value.path, ROOT + '/README.md')
+
+// A picture in the preview carries the *file* menu (it is a workspace file, so
+// the platform group can reveal it) — not the diff panes' image family.
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-files__tree .gp-files__entry', { hasText: 'logo.png' }).click()
+await page.waitForSelector('.gp-files__image img', { timeout: 5000 })
+await page.locator('.gp-files__image img').click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+const imageTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.equal(imageTarget.kind, 'gitPanel.file', 'the preview picture is a file, not an image-diff side')
+assert.equal(imageTarget.value.path, 'logo.png')
+const imageAsk = await page.evaluate(() => window.__platformAsk)
+assert.equal(imageAsk.kind, 'file')
+assert.equal(imageAsk.value.path, ROOT + '/logo.png')
+
+// The stub's platform answers must stay in lockstep with the plugin's whitelist:
+// the fixture fails loudly when either side drifts. The whitelist is the built
+// constant, so a rename in the plugin (or a stub edit that "fixes" a failing id
+// by copying the new name) cannot make both lists agree by accident — the
+// sidebar entry is here to prove the filter drops something.
+const lockstep = await page.evaluate(() => ({
+  file: window.__contextMenusStub.__viewsFor('file').map((v) => v.id),
+  directory: window.__contextMenusStub.__viewsFor('directory').map((v) => v.id),
+  image: window.__contextMenusStub.__viewsFor('image').map((v) => v.id),
+}))
+for (const [kind, views] of Object.entries({ file: FILE_VIEWS, directory: DIRECTORY_VIEWS, image: IMAGE_VIEWS })) {
+  const offered = lockstep[kind]
+  for (const id of views) assert.ok(offered.includes(id), `the platform stub offers ${id}`)
+}
+assert.ok(!FILE_VIEWS.includes('open-in-app.file/sidebar'), 'the sidebar entry stays out of the whitelist')
 
 // A directory row is its own family: Finder + copy path, no file entries.
 const dirRow = page.locator('.gp-files__tree .gp-files__entry--dir', { hasText: 'docs' })

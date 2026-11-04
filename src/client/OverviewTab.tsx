@@ -600,7 +600,12 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     mode: detail.fileDiffMode,
     onMode: detail.setFileDiffMode,
     expanded: detail.fileDiffExpanded,
-    onExpand: (expand) => { if (detail.fileDiff !== null) detail.openFileDiff(detail.fileDiff.path, detail.fileDiff.hash, detail.fileDiff.shortHash, expand) },
+    onExpand: (expand) => {
+      const target = detail.fileDiff
+      if (target === null) return
+      if ('hash' in target) detail.openFileDiff(target.path, target.hash, target.shortHash, expand)
+      else detail.openRevDiff(target.path, target.rev, target.label, expand)
+    },
     onClose: detail.closeFileDiff,
     pathFeedback: pathCopy.feedback,
     onCopyPath: pathCopy.copy,

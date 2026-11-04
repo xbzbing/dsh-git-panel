@@ -52,7 +52,9 @@ export type MenuTriggerHandlers = Pick<HTMLAttributes<HTMLElement>, 'onContextMe
 
 /** The bindings the platform injects into every slot component. */
 export interface MenuBindings {
-  /** Ordinary function (no hooks): safe to call per row inside a render loop. */
+  /** Ordinary function (no hooks): safe to call per row inside a render loop.
+   * A thunk target is captured when the gesture runs, not when the row
+   * rendered — the value is then current even if the row's props are stale. */
   getTriggerProps: (
     target: MenuTrigger | (() => MenuTrigger) | undefined, handlers?: MenuTriggerHandlers,
   ) => MenuTriggerHandlers

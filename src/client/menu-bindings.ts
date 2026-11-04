@@ -9,13 +9,17 @@
  * menu without knowing whether one is available, and so the react-hooks rules
  * never see a call that looks like a conditional hook.
  */
-import { MENU_KIND } from './menu-owners.js'
 import type { GitMenuValue, MenuKind } from './menu-owners.js'
 import type { MenuBindings, MenuTriggerHandlers } from './menu-types.js'
 
-/** A stable factory one panel holds for its lifetime. */
+export { MENU_KIND } from './menu-owners.js'
+
+/** A stable factory one panel holds for its lifetime. The value may be a thunk:
+ * the platform evaluates it when the gesture runs, so the captured identity is
+ * the panel's state at that moment (a root or repository picked since the row
+ * rendered is not read stale). */
 export type MenuTriggerFactory = {
-  bind: (kind: MenuKind, value: GitMenuValue, handlers?: MenuTriggerHandlers) => MenuTriggerHandlers
+  bind: (kind: MenuKind, value: GitMenuValue | (() => GitMenuValue), handlers?: MenuTriggerHandlers) => MenuTriggerHandlers
 }
 
 /** The no-menu fallback: rows keep their own handlers, native menu stays. */
@@ -64,5 +68,3 @@ export function menuTriggerFactory(useContextMenu: (() => MenuBindings) | undefi
   }
 }
 
-export { MENU_KIND }
-export type { GitMenuValue, MenuKind } from './menu-owners.js'

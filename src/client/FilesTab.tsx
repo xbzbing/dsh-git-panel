@@ -27,6 +27,7 @@ import { formatBytes } from './bytes.js'
 import { renderModalShell } from './ops-modals.js'
 import { usePanelMenu } from './menu-context.js'
 import { MENU_KIND } from './menu-owners.js'
+import { entryIgnored } from './files-types.js'
 import type { MenuTriggerHandlers } from './menu-types.js'
 import { NoticeBar } from './notice.js'
 import { inertAttr } from './inert.js'
@@ -162,10 +163,13 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
   const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
   // The preview's picture is a workspace file: its menu is the file row's
   // (absolute path included), bound through the same face.
-  const previewMenu = useMemo<MenuTriggerHandlers | undefined>(
-    () => (selected === null || menu === undefined ? undefined : menu.row(selected, MENU_KIND.file, false, { tabIndex: -1 })),
-    [menu, selected],
-  )
+  // The preview's picture is a workspace file: its menu is the file row's
+  // (absolute path included), bound through the same face. The entry's ignored
+  // flag gates the later Git group; the tree computes it per entry.
+  const previewMenu = useMemo<MenuTriggerHandlers | undefined>(() => {
+    if (selected === null || menu === undefined) return undefined
+    return menu.row(selected, MENU_KIND.file, entryIgnored(dirs, selected), { tabIndex: -1 })
+  }, [menu, selected, dirs])
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
   // The preview bar describes the file that is actually on screen. A read in
   // flight blanks the body, so the bar keeps the last settled shape: taking its
