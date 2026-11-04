@@ -115,6 +115,8 @@ src/
 
 感谢 [@QianYI-Yan](https://github.com/QianYI-Yan) 为工作区多仓库支持打下的基础（#83）：扫描工作区子目录里的独立仓库、RPC 请求带可选 `repo` 字段切换工作树、切换仓库时旧内容压暗等第一批实现都来自他的 PR（#85）；本版的 worktree 识别与文件浏览根都构建在这之上。
 
+感谢 [@homily707](https://github.com/homily707) 为减少高频操作的打断所做的改进（#109）：快进拉取、快进推送和干净工作树下的切分支不再弹确认，直接执行；操作发起后才失败时，错误按发起时的仓库归属显示。PushModal 与 pull / push 的弹窗文案、预览查询也随之移除。
+
 ## 许可证
 
 本项目采用 [MIT License](https://github.com/xbzbing/dsh-git-panel/blob/main/LICENSE)。

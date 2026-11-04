@@ -115,6 +115,8 @@ Thanks to [@ivanant](https://github.com/ivanant) for the many optimization sugge
 
 Thanks to [@QianYI-Yan](https://github.com/QianYI-Yan) for the foundation of workspace multi-repo support (#83): scanning the workspace's subdirectories for independent repositories, carrying an optional `repo` field on every RPC request to switch work trees, and dimming the old contents while a switch is in flight — his PR (#85) was the first implementation of all three, and this release's worktree detection and file-browser roots are built on top of it.
 
+Thanks to [@homily707](https://github.com/homily707) for removing the confirmation prompts from high-frequency operations (#109): fast-forward pull, fast-forward push, and switching branches on a clean worktree now run immediately; when an operation fails after it starts, the error is reported against the repository it came from. PushModal, the pull / push dialog copy, and their preview queries are gone as well.
+
 ## License
 
 [MIT License](https://github.com/xbzbing/dsh-git-panel/blob/main/LICENSE).
