@@ -99,7 +99,10 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     else { text = t('status.ahead', { n: ahead }) }
     if (cb.switchBusy || cb.pullBusy || cb.pushBusy) {
       const text = cb.switchBusy ? t('status.switching') : cb.pullBusy ? t('status.pulling') : t('status.pushing')
-      return h('span', { key: 'busy', className: 'gp-statusbar__state', role: 'status' }, [h(StateDot, { key: 'dot', state: 'ongoing' }), text])
+      return h('span', { key: 'busy', className: 'gp-statusbar__state gp-statusbar__state--busy', role: 'status' }, [
+        h(StateDot, { key: 'dot', state: 'ongoing', size: 12 }),
+        h('span', { key: 'label', className: 'gp-statusbar__state-label' }, text),
+      ])
     }
     if (cb.syncError !== null) {
       return h('span', { key: 'error', className: 'gp-statusbar__state gp-statusbar__state--warn', role: 'alert', title: cb.syncError }, cb.syncError)
