@@ -71,3 +71,14 @@ export function historyPathspec(keyword: string): string {
   const escaped = keyword.replace(/[\\*?\[\]]/g, '\\$&')
   return `:(top,icase)*${escaped}*`
 }
+
+/**
+ * The pathspec for one exact file: `:(top,literal)` anchors it at the
+ * repository root and turns off glob magic, so a file named `*.ts` (or one whose
+ * name contains `*`, `?`, `[`) selects itself and nothing else. The path is
+ * repository-relative, matching what the change list and the file browser use.
+ * @param path - repository-relative path (already validated by isSafePath).
+ */
+export function exactPathspec(path: string): string {
+  return `:(top,literal)${path}`
+}

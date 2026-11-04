@@ -3056,3 +3056,142 @@ test('a remote URL never carries its credential into the snapshot', async () => 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// ── compare with a revision, and file history (context-menu feature) ───────
+
+/**
+ * A repository of this test's own. The shared fixtures are mutated by earlier
+ * tests (a stage→commit round trip commits `a.txt`), so a test that asserts on
+ * "committed vs working" content must own its history.
+ */
+async function scratchRepo(files) {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-scratch-'))
+  await runGit(dir, ['init', '-q'])
+  await runGit(dir, ['config', 'user.email', 't@t.co'])
+  await runGit(dir, ['config', 'user.name', 'Tester'])
+  const { writeFileSync } = await import('node:fs')
+  for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content)
+  await runGit(dir, ['add', '-A'])
+  await runGit(dir, ['commit', '-qm', 'base'])
+  return dir
+}
+
+test('diff base rev compares a stored revision against the work tree', async () => {
+  const { writeFileSync, rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'line1\nline10\n', 'kept.txt': 'kept\n' })
+  try {
+    const d = depsAt(dir)
+    const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+    writeFileSync(join(dir, 'a.txt'), 'line1\nline10-changed\n')
+    const rev = await query({ kind: 'diff', path: 'a.txt', base: 'rev', rev: 'HEAD' })
+    assert.equal(rev.ok, true)
+    // Old side is the committed text, new side the working file — the same
+    // content a commit diff shows, but read against the work tree.
+    assert.match(rev.value.text, /^-line10$/m)
+    assert.match(rev.value.text, /^\+line10-changed$/m)
+    assert.equal(rev.value.newLines, 2, 'the new side is the working file')
+
+    // A file the revision does not contain but the work tree has is synthesized
+    // as all-new, like the work-tree base does.
+    writeFileSync(join(dir, 'fresh.txt'), 'new\n')
+    const untracked = await query({ kind: 'diff', path: 'fresh.txt', base: 'rev', rev: 'HEAD' })
+    assert.equal(untracked.ok, true)
+    assert.match(untracked.value.text, /^\+new$/m)
+    assert.equal(untracked.value.newLines, 1)
+
+    // Present in the revision, gone from the work tree: a deletion, not an
+    // empty diff, and no trailing control (newLines 0).
+    rmSync(join(dir, 'kept.txt'))
+    const deleted = await query({ kind: 'diff', path: 'kept.txt', base: 'rev', rev: 'HEAD' })
+    assert.equal(deleted.ok, true)
+    assert.match(deleted.value.text, /^-kept$/m)
+    assert.equal(deleted.value.newLines, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('diff base rev guards: unsafe rev, unknown base, unsafe path', async () => {
+  const d = deps()
+  const bad = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'rev', rev: '--output=/tmp/x' } })
+  assert.equal(bad.ok, false)
+  assert.equal(bad.error.code, 'invalid-name')
+  const meta = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'rev', rev: 'a..b' } })
+  assert.equal(meta.ok, false)
+  // An unknown base must be rejected, not silently answered as a work-tree diff.
+  const unknown = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'nonsense' } })
+  assert.equal(unknown.ok, false)
+  assert.equal(unknown.error.code, 'invalid-name')
+  const escape = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: '../x', base: 'rev', rev: 'HEAD' } })
+  assert.equal(escape.ok, false)
+  assert.equal(escape.error.code, 'invalid-path')
+})
+
+test('image-diff base rev compares the stored picture against the work tree', async () => {
+  const { writeFileSync, rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'img.png': Buffer.from('PNG-v1-bytes') })
+  try {
+    const d = depsAt(dir)
+    const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+    const b64 = (s) => Buffer.from(s).toString('base64')
+    const url = (s) => `data:image/png;base64,${b64(s)}`
+    writeFileSync(join(dir, 'img.png'), Buffer.from('PNG-v2-bytes'))
+    const rev = await query({ kind: 'image-diff', path: 'img.png', base: 'rev', rev: 'HEAD' })
+    assert.equal(rev.ok, true)
+    assert.equal(rev.value.old, url('PNG-v1-bytes'))
+    assert.equal(rev.value.new, url('PNG-v2-bytes'))
+    const bad = await query({ kind: 'image-diff', path: 'img.png', base: 'rev', rev: '-x' })
+    assert.equal(bad.ok, false)
+    assert.equal(bad.error.code, 'invalid-name')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('history exactPath selects only the commits that touch that file', async () => {
+  const { writeFileSync, rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'a\n' })
+  try {
+    const d = depsAt(dir)
+    const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+    writeFileSync(join(dir, 'ab.txt'), 'sibling\n')
+    await runGit(dir, ['add', 'ab.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: add ab'])
+    writeFileSync(join(dir, 'star*.txt'), 'glob\n')
+    await runGit(dir, ['add', 'star*.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: add star'])
+
+    const mine = await query({ kind: 'history', limit: 20, skip: 0, exactPath: 'a.txt' })
+    assert.equal(mine.ok, true)
+    assert.deepEqual(mine.value.commits.map((c) => c.subject), ['base'], 'exact match, not a substring')
+    // A filtered page carries the ancestry walk, so the graph is not half-empty
+    // behind the filter.
+    assert.ok(Array.isArray(mine.value.topology), 'a filtered page carries its ancestry')
+
+    // Literal pathspec: a name with glob metacharacters selects itself.
+    const literal = await query({ kind: 'history', limit: 20, skip: 0, exactPath: 'star*.txt' })
+    assert.deepEqual(literal.value.commits.map((c) => c.subject), ['feat: add star'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('history exactPath guards: exclusive with other filters, safe path only', async () => {
+  const d = deps()
+  const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+  const both = await query({ kind: 'history', limit: 5, skip: 0, exactPath: 'a.txt', search: 'add' })
+  assert.equal(both.ok, false)
+  assert.equal(both.error.code, 'invalid-name')
+  const withSearch = await query({ kind: 'history', limit: 5, skip: 0, exactPath: 'a.txt', pathSearch: 'a' })
+  assert.equal(withSearch.ok, false)
+  const escape = await query({ kind: 'history', limit: 5, skip: 0, exactPath: '../etc/passwd' })
+  assert.equal(escape.ok, false)
+  const empty = await query({ kind: 'history', limit: 5, skip: 0, exactPath: '' })
+  assert.equal(empty.ok, false)
+})
+
+test('the snapshot declares the compare/history capabilities', async () => {
+  const res = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.value.capabilities, { revDiff: true, pathHistory: true })
+})

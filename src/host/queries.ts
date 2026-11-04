@@ -5,7 +5,7 @@
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { listSessionRepos, mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
-import { historyPathspec, isSafePath, isSafeRev, validateHistoryPathSearch } from './validate.js'
+import { exactPathspec, historyPathspec, isSafePath, isSafeRev, validateHistoryPathSearch } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
@@ -130,8 +130,22 @@ async function queryHistory(
   if (search !== '' && pathSearch !== '') {
     return { ok: false, error: { code: 'invalid-name', message: 'history search fields are mutually exclusive' } }
   }
-  const hexJump = pathSearch === '' && isHistoryHashSearch(search)
-  const filtered = isHistoryFiltered({ ...q, pathSearch })
+  // The file-history filter names one exact repository path. It is exclusive
+  // with every other filter: the substring search answers "which commits touch
+  // something like this", the exact path answers "what happened to this file",
+  // and a menu that asks the second never wants the first misread.
+  let exactPath: string | null = null
+  if (q.exactPath !== undefined) {
+    if (typeof q.exactPath !== 'string' || !isSafePath(q.exactPath) || /[\x00-\x1f\x7f-\x9f]/.test(q.exactPath)) {
+      return { ok: false, error: { code: 'invalid-name', message: `unsafe exact path: ${q.exactPath}` } }
+    }
+    if (q.exactPath === '' || pathSearch !== '' || search !== '' || q.author !== undefined || q.since !== undefined) {
+      return { ok: false, error: { code: 'invalid-name', message: 'history search fields are mutually exclusive' } }
+    }
+    exactPath = q.exactPath
+  }
+  const hexJump = pathSearch === '' && exactPath === null && isHistoryHashSearch(search)
+  const filtered = isHistoryFiltered({ ...q, pathSearch: pathSearch || (exactPath !== null ? exactPath : undefined) })
   // Exactly the flags pushed below (one source, so they can never disagree). An
   // effective filter hides commits — and therefore parents — from the page
   // itself, which is what makes the raw-ancestry walk necessary; a ref-only walk
@@ -166,6 +180,7 @@ async function queryHistory(
     }
     filters.push('--')
     if (pathSearch !== '') filters.push(historyPathspec(pathSearch))
+    else if (exactPath !== null) filters.push(exactPathspec(exactPath))
     args.push(...filters)
     countArgs.push(...filters)
   } else {
@@ -242,9 +257,21 @@ async function queryDiff(
   } else if (q.base === 'commit') {
     if (!isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
     args = ['git', 'show', unified, FIRST_PARENT_DIFF, '--end-of-options', q.commit, '--', q.path]
-  } else {
+  } else if (q.base === 'rev') {
+    // "Compare with a revision": old side `<rev>`, new side the working file.
+    // Full refs (refs/heads/x, refs/remotes/o/x, refs/tags/x) ride in the
+    // caller's value; a bare name stays bare — `--end-of-options` plus the
+    // trailing `--` keep it an operand either way.
+    if (!isSafeRev(q.rev)) return { ok: false, error: { code: 'invalid-name', message: `unsafe rev: ${q.rev}` } }
+    args = ['git', 'diff', unified, '--end-of-options', q.rev, '--', q.path]
+  } else if (q.base === 'worktree') {
     // worktree: unstaged diff; for untracked files use --no-index against /dev/null.
     args = ['git', 'diff', unified, '--', q.path]
+  } else {
+    // An unknown base must not silently become a work-tree diff: the caller
+    // asked for a comparison against something this host does not model, and
+    // the work-tree answer would read as the right shape with wrong content.
+    return { ok: false, error: { code: 'invalid-name', message: `unknown diff base` } }
   }
   const res = await runCommand(deps.run, args, root, 'diff', deps.signal)
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
@@ -264,7 +291,7 @@ async function queryDiff(
   // A truly untracked file produces no `git diff` output; synthesize one with
   // --no-index. Gate on the file being untracked (ls-files --error-unmatch
   // fails for it) so a clean *tracked* path isn't rendered as an all-new file.
-  if (q.base === 'worktree' && text.trim() === '') {
+  if ((q.base === 'worktree' || q.base === 'rev') && text.trim() === '') {
     const tracked = await runCommand(deps.run, ['git', 'ls-files', '--error-unmatch', '--', q.path], root, 'diff-tracked-probe', deps.signal)
     const isUntracked = !('run' in tracked) || tracked.run.exitCode !== 0
     if (isUntracked) {
@@ -298,6 +325,17 @@ async function queryDiff(
  * DIFF_COUNT_READ_MAX): the view then hides the trailing expand control rather
  * than offering one that could not reveal anything.
  */
+/** The version a diff's new side comes from: the work tree for a work-tree or
+ * revision comparison (a revision is the OLD side), the index for staged, the
+ * commit for a stored diff. `file-lines` and the line count read through this,
+ * so neither can describe a different file than the diff did. */
+function newSideQuery(
+  q: Extract<GitQueryRequest['query'], { kind: 'diff' }>,
+): Extract<GitQueryRequest['query'], { kind: 'diff' }> {
+  if (q.base !== 'rev') return q
+  return { kind: 'diff', path: q.path, base: 'worktree', ...(q.context === undefined ? {} : { context: q.context }) }
+}
+
 async function countNewSideLines(
   deps: SnapshotDeps,
   root: string,
@@ -309,7 +347,7 @@ async function countNewSideLines(
   if (!diffText.includes('@@')) return 0
   // The working file is read by us, uncapped by the runner: bound the read that
   // only feeds this count (file-lines, the expansion path, stays uncapped).
-  const side = await readNewSide(deps, root, q, { worktreeMaxBytes: DIFF_COUNT_READ_MAX })
+  const side = await readNewSide(deps, root, newSideQuery(q), { worktreeMaxBytes: DIFF_COUNT_READ_MAX })
   if (!side.ok || side.text === null) return 0
   return countLines(side.text)
 }
@@ -398,6 +436,9 @@ async function readNewSide(
     return { ok: true, text: 'text' in read ? read.text : null }
   }
   if (q.base === 'commit' && !isSafeRev(q.commit)) return { ok: false, code: 'invalid-name', message: `unsafe commit: ${q.commit}` }
+  // A revision comparison's new side is the work tree; reading the index here
+  // would reveal stale lines. Callers map the base before asking (newSideQuery).
+  if (q.base === 'rev') return { ok: false, code: 'invalid-name', message: 'rev base has no stored new side' }
   const spec = q.base === 'commit' ? `${q.commit}:${q.path}` : `:${q.path}`
   const res = await runCommand(deps.run, ['git', 'show', '--end-of-options', spec], root, 'new-side', deps.signal)
   if (!('run' in res)) return { ok: false, code: 'git-unavailable', message: 'git unavailable' }
@@ -508,10 +549,15 @@ async function queryImageDiff(
 ): Promise<GitQueryResponse> {
   if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   if (q.base === 'commit' && !isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
+  if (q.base === 'rev' && !isSafeRev(q.rev)) return { ok: false, error: { code: 'invalid-name', message: `unsafe rev: ${q.rev}` } }
   const mime = imageMimeFor(q.path)
   if (mime === null) return { ok: true, value: { kind: 'image-diff', path: q.path, mime } }
 
-  const oldSpec = q.base === 'staged' ? `HEAD:${q.path}` : q.base === 'commit' ? `${q.commit}^1:${q.path}` : `:${q.path}`
+  // Old side: the stored version being compared against; the work tree for a
+  // revision comparison, whose picture is read from disk like the work-tree case.
+  const oldSpec = q.base === 'staged'
+    ? `HEAD:${q.path}`
+    : q.base === 'commit' ? `${q.commit}^1:${q.path}` : q.base === 'rev' ? `${q.rev}:${q.path}` : `:${q.path}`
   const newSpec = q.base === 'staged' ? `:${q.path}` : q.base === 'commit' ? `${q.commit}:${q.path}` : null
   const [oldOid, newOid] = await Promise.all([
     resolveOid(deps, root, oldSpec),
@@ -524,7 +570,7 @@ async function queryImageDiff(
     oldOid === undefined ? Promise.resolve(undefined) : blobSide(deps, gitDir, oldOid, cap),
     newOid !== undefined
       ? blobSide(deps, gitDir, newOid, cap)
-      : q.base === 'worktree' ? worktreeSide(deps, root, q.path, cap) : Promise.resolve(undefined),
+      : q.base === 'worktree' || q.base === 'rev' ? worktreeSide(deps, root, q.path, cap) : Promise.resolve(undefined),
   ])
   const sides = [oldSide, newSide]
   if (sides.some((s) => s !== undefined && 'tooLarge' in s)) {

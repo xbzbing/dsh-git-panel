@@ -844,6 +844,7 @@ export async function snapshotForSession(
     filesFollowRepo: config.filesFollowRepo,
     collapseReposOnPick: config.collapseReposOnPick,
     allowFileEdit: config.allowFileEdit,
+    capabilities: { revDiff: true, pathHistory: true },
     checkedAt: Date.now(),
   }
   return { ok: true, value: { ...snapshot, stateFingerprint: snapshotFingerprint(snapshot) } }
