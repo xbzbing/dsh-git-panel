@@ -10,7 +10,7 @@
  * checkout pick, the file browser's root selector, and the switch between
  * checkouts.
  */
-import { createElement as h, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createElement as h, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { inertAttr } from './inert.js'
 import type { JSX } from 'react'
 import { SegmentedTabs, StateDot, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -34,6 +34,11 @@ import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
+import { menuTriggerFactory, type RowMenuBinder } from './menu-bindings.js'
+import { registerMenuOwner, type MenuOwner } from './menu-owners.js'
+import { panelMenuOwner } from './menu-panel.js'
+import { contextMenusOf } from './menu-register.js'
+import type { UseContextMenu } from './menu-types.js'
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -53,9 +58,12 @@ interface PanelProps {
   /** Whether the mounting surface is currently on screen. The sidebar reports
    * its own tab's visibility, so a hidden tab starts no queries. */
   readonly visible?: boolean
+  /** The slot's injected menu bindings (dsh ≥ 0.2.2-alpha.3); absent on older
+   * hosts, where rows keep the native context menu. */
+  readonly useContextMenu?: UseContextMenu
 }
 
-export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: PanelProps): JSX.Element {
+export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useContextMenu }: PanelProps): JSX.Element {
   const pageVisible = usePageVisibility()
   const [fontPending, setFontPending] = useState<FontDelta | null>(null)
   // Monotonic token for the latest font write: a slow host set for an older
@@ -531,6 +539,33 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     : filesSelector === ''
       ? projectRoot ?? (repo === '' && view.state === 'ready' ? view.snapshot.root : null)
       : repoList.find((c) => c.path === filesSelector)?.root ?? null
+
+  // ── context menus ─────────────────────────────────────────────────────
+  // Rows bind their menu through the platform's injected trigger factory. The
+  // captured target carries this panel's instance id, so an action always runs
+  // against the copy that raised the gesture (menu-owners.ts), and the file
+  // browser's relative paths are resolved against the root this panel shows,
+  // not against whatever the browser component received. Without the platform's
+  // menu package the factory is NO_MENU: rows keep the native menu.
+  const menu = useMemo(() => menuTriggerFactory(useContextMenu), [useContextMenu])
+  const ownerId = useId()
+  const filesRootRef = useRef<string | null>(null)
+  filesRootRef.current = filesRoot
+  const bindMenu = useCallback<RowMenuBinder>((path, kind, ignored, handlers) => {
+    if (!hasSession(sessionId)) return handlers ?? {}
+    return menu.bind(kind, {
+      sessionId, owner: ownerId, repo, path, root: filesRootRef.current, ignored,
+    }, handlers)
+  }, [menu, sessionId, ownerId, repo])
+  useEffect(() => {
+    if (!hasSession(sessionId)) return
+    const owner: MenuOwner = panelMenuOwner({
+      env: () => ({ t, menus: contextMenusOf(ctx) }),
+      browseRoot: () => filesRootRef.current,
+      observe: () => [controllerFor(sessionId)],
+    })
+    return registerMenuOwner(ownerId, owner)
+  }, [ctx, ownerId, sessionId, t])
   // The browse-root dropdown exists whenever the list offers a second root,
   // follow config on or off: the config sets the session default, but the
   // dropdown is where a session opts the other way (park at a root while the
@@ -713,7 +748,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
       return filesVisited
-        ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t })
+        ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, bindMenu, t })
         : null
     }
     if (view.state !== 'ready') return null
@@ -728,7 +763,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // The sample describes the browser's files only when both sides sit on the
     // same checkout and it is not the previous one's mid-switch.
     const filesSnapshot = filesSelector === repo && !repoSwitching ? snapshot : null
-    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, bindMenu, t }) : null
   }
 
   // One panel per tab, so every tab's aria-controls resolves.

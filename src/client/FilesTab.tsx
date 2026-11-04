@@ -25,6 +25,7 @@ import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 import { formatBytes } from './bytes.js'
 import { renderModalShell } from './ops-modals.js'
+import type { RowMenuBinder } from './menu-bindings.js'
 import { NoticeBar } from './notice.js'
 import { inertAttr } from './inert.js'
 import { useRowSlider } from './row-slider.js'
@@ -80,6 +81,8 @@ interface FilesTabProps {
   /** Root a picked selector ('' = the project root), or null to resume
    * following the switched repository. */
   readonly onPickRoot?: (selector: string | null) => void
+  /** Right-click binding for a tree row (absent on hosts without a menu). */
+  readonly bindMenu?: RowMenuBinder
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -143,7 +146,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, bindMenu, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -493,7 +496,10 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
     if (init !== null && init.selected !== null && file.kind === 'idle') openFile(init.selected)
   }, [init, file.kind, openFile])
 
-  const treeRows = useMemo(() => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t }), [dirs, open, selected, toggleDir, selectFile, t])
+  const treeRows = useMemo(
+    () => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t, ...(bindMenu === undefined ? {} : { bindMenu }) }),
+    [dirs, open, selected, toggleDir, selectFile, t, bindMenu],
+  )
 
   // Both copy actions go through the platform helper (inside useCopyFeedback):
   // its async Clipboard path is unavailable on a remote plain-HTTP origin

@@ -505,4 +505,7 @@ export const ja: Record<GitKey, string> = {
   'cfg.fileEditToggle': 'ファイルブラウザーで設定・ドキュメントファイルの編集を許可',
   'cfg.fileEditHint': 'オンにすると、ファイルプレビューに編集ボタンが表示され、{exts} ファイル、{names}、および .env.local などの .env.* 変体を編集できます。対象は 2 MiB 以下、UTF-8、改行形式が統一されたファイルです。保存時にはファイルの版を照合するため、編集中に AI や他のプログラムが加えた変更を黙って上書きすることはありません。保存した変更はすぐに反映されます。',
   'cfg.saveFailed': '保存に失敗しました。再試行してください',
+  'menu.copyRelativePath': '相対パスをコピー',
+  'menu.copied': 'コピーしました',
+  'menu.copyFailed': 'コピーに失敗しました',
 }

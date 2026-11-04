@@ -261,6 +261,111 @@
       },
     },
   };
+  // ── context-menu stubs (dsh >= 0.2.2-alpha.3) ────────────────────────────
+  // The platform's menu package is external to the plugin bundle, so the
+  // harness supplies the two faces the plugin consumes: the `contextMenus`
+  // service (registration + embedded resolution) and the injected
+  // `useContextMenu` factory. Both record what the rows captured, and the
+  // stub's platform resolutions answer with the platform's own action ids so a
+  // runner can assert which of them the whitelist kept.
+  (function () {
+    var contributions = []
+    var state = {
+      last: null, offered: [], actions: [], pending: null, selected: [],
+      notices: [], lastNotice: null,
+    }
+    function platformViews(kind) {
+      if (kind === 'file') {
+        return [
+          { id: 'open-in-app.file/sidebar', label: 'sidebar' },
+          { id: 'open-in-app.file/float', label: 'float' },
+          { id: 'open-in-app.file/copyPath', label: 'copyPath' },
+          { id: 'file-actions.file/download', label: 'download' },
+        ]
+      }
+      if (kind === 'directory') {
+        return [
+          { id: 'open-in-app.directory/reveal', label: 'reveal' },
+          { id: 'open-in-app.directory/copyPath', label: 'copyPath' },
+        ]
+      }
+      return []
+    }
+    var service = {
+      active: { subscribe: function () { return function () {} }, getSnapshot: function () { return null } },
+      register: function (contribution) {
+        contributions.push(contribution)
+        return function () {
+          var at = contributions.indexOf(contribution)
+          if (at !== -1) contributions.splice(at, 1)
+        }
+      },
+      resolve: function (target) {
+        window.__platformAsk = target
+        var views = platformViews(target.kind)
+        return {
+          source: { getSnapshot: function () { return views } },
+          ready: Promise.resolve(),
+          select: function (id) { state.selected.push({ id: id, target: target }) },
+          dispose: function () {},
+        }
+      },
+      notify: function (text, success, action) {
+        var notice = { text: text, success: success, action: action }
+        state.notices.push(notice); state.lastNotice = notice
+      },
+      close: function () {},
+    }
+    window.__contextMenusStub = service
+    window.__useContextMenuStub = function () {
+      return {
+        getTriggerProps: function (target, handlers) {
+          var merged = {}
+          for (var key in handlers || {}) merged[key] = handlers[key]
+          merged.onContextMenu = function (event) {
+            if (handlers && handlers.onContextMenu) handlers.onContextMenu(event)
+            event.preventDefault()
+            event.stopPropagation()
+            window.__menuStub.capture(target)
+          }
+          if (merged.tabIndex === undefined) merged.tabIndex = 0
+          return merged
+        },
+      }
+    }
+    window.__menuStub = {
+      state: state,
+      contributions: contributions,
+      capture: function (target) {
+        state.last = target
+        state.offered = []
+        state.actions = []
+        state.pending = this.collect(target)
+      },
+      collect: async function (target) {
+        var merged = []
+        for (var i = 0; i < contributions.length; i++) {
+          var contribution = contributions[i]
+          if (contribution.target !== target.kind) continue
+          var list = await contribution.resolve(target.value, new AbortController().signal)
+          for (var j = 0; j < list.length; j++) merged.push(list[j])
+        }
+        state.actions = merged
+        state.offered = merged.map(function (action) { return { id: action.id, label: action.label } })
+        return merged
+      },
+      resolvePending: function () { return state.pending },
+      invoke: async function (id) {
+        var action = null
+        for (var i = 0; i < state.actions.length; i++) if (state.actions[i].id === id) action = state.actions[i]
+        if (action === null) throw new Error('no offered action ' + id)
+        await action.run()
+        return 'ok'
+      },
+      clear: function () { state.last = null; state.offered = []; state.actions = []; state.pending = null },
+      clearNotices: function () { state.notices = []; state.lastNotice = null },
+    }
+  })();
   var LOADED = null;
   // Real package-local chunks loaded by <script> (the editor chunk is the
   // shipped CodeMirror bundle, not a stand-in): chunk name -> exports, and the

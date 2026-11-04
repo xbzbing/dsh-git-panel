@@ -506,4 +506,7 @@ export const fr: Record<GitKey, string> = {
   'cfg.fileEditToggle': 'Autoriser la modification des fichiers de configuration et de documentation',
   'cfg.fileEditHint': 'Activé, l’aperçu propose un bouton de modification pour les fichiers {exts} ainsi que {names} et les variantes .env.* comme .env.local, jusqu’à 2 Mio, en UTF-8 et avec un seul style de fin de ligne. L’enregistrement vérifie d’abord la version du fichier : un changement fait entre-temps par l’IA ou un autre programme n’est jamais écrasé en silence. Les modifications enregistrées s’appliquent immédiatement.',
   'cfg.saveFailed': 'Échec de l’enregistrement, veuillez réessayer',
+  'menu.copyRelativePath': 'Copier le chemin relatif',
+  'menu.copied': 'Copié',
+  'menu.copyFailed': 'Échec de la copie',
 }

@@ -33,6 +33,7 @@ const RUNNERS = [
   // park, so a stale or in-flight pack is a real race rather than a sleep.
   'html-preview-lifecycle',
   'overview-detail-scroll',
+  'context-menu',
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
   // The change list's flat / tree views (issue #99): directory rows and counts,
   // folding, directory-level stage and discard, the path filter, remembered view.

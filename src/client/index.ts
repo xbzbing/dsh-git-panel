@@ -23,11 +23,14 @@ import { Panel } from './Panel.js'
 import { GitPill } from './GitPill.js'
 import { PillConfig } from './PillConfig.js'
 import { registerSidebarTab, sidebarRegistry } from './sidebar.js'
+import { mountGitMenus } from './menu-register.js'
+import { disposeMenuOwners } from './menu-owners.js'
 import { mountState } from './placement.js'
 import { setChosenPlacement, setSidebarAvailable, effectivePlacement } from './placement-state.js'
 import { readPlacementFromConfig, watchPlacement } from './placement-config.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
+import type { UseContextMenu } from './menu-types.js'
 
 /**
  * `plugins.bundle.config` keys: the bundle identity is the install dep key —
@@ -44,6 +47,10 @@ const name = 'dsh-git-panel'
 function apply(ctx: ClientCtx): void {
   ensureStyles()
   bindContext(ctx)
+  // Context menus are registered once for the plugin, not per panel: the
+  // captured target names the panel instance that raised the gesture, and the
+  // owner registry (menu-owners.ts) resolves back to it.
+  mountGitMenus(ctx)
 
   ctx.effect(() => ctx.locale.register(NS, DICTIONARIES) ?? undefined, 'dsh-git-panel: dictionaries')
   const t = ctx.locale.bind(NS) as (key: GitKey, params?: Record<string, string | number>) => string
@@ -67,7 +74,9 @@ function apply(ctx: ClientCtx): void {
     // Main panel tab beside Chat (0) / Trajectory (10).
     const handle = ctx.slots.inject('conversation.view', () => ctx.slots.register(
       { name: 'conversation.view', id: 'git-panel', order: 30, locale: NS, label: () => t('panel.tab') },
-      (props: { sessionId?: string }) => h(Panel, { ctx, sessionId: props.sessionId, t }),
+      (props: { sessionId?: string; useContextMenu?: UseContextMenu }) => h(Panel, {
+        ctx, sessionId: props.sessionId, t, useContextMenu: props.useContextMenu,
+      }),
     ))
     // The platform returns an idempotent disposer. A non-function means that
     // contract broke; saying so is better than faking a release, which would
@@ -160,6 +169,7 @@ function apply(ctx: ClientCtx): void {
       unmountSidebar()
       for (const d of disposers.splice(0)) { try { d() } catch { /* ignore */ } }
       disposeAll()
+      disposeMenuOwners()
     }
   }, 'dsh-git-panel: lifecycle')
 }

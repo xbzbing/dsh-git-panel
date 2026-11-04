@@ -531,6 +531,9 @@ export const zh = {
   'cfg.fileEditToggle': '允许在文件浏览中编辑配置与文档文件',
   'cfg.fileEditHint': '开启后，文件浏览预览栏出现编辑按钮，可编辑 {exts} 文件、{names} 以及 .env.local 等 .env.* 变体，单个文件不超过 2 MiB、UTF-8 编码、换行风格统一。保存前会比对文件版本，编辑期间文件被 AI 或其他程序改过时不会直接覆盖。保存后立即生效。',
   'cfg.saveFailed': '保存失败，请重试',
+  'menu.copyRelativePath': '复制相对路径',
+  'menu.copied': '已复制',
+  'menu.copyFailed': '复制失败',
 }
 
 export type GitKey = keyof typeof zh
@@ -1039,4 +1042,7 @@ export const en: Record<GitKey, string> = {
   'cfg.fileEditToggle': 'Allow editing config and document files in the file browser',
   'cfg.fileEditHint': 'When on, the file preview offers an edit button for {exts} files, {names} and .env.* variants such as .env.local, up to 2 MiB, UTF-8, with one line-ending style. A save first checks the file version, so a change made meanwhile by the AI or another program is never silently overwritten. Saved changes apply immediately.',
   'cfg.saveFailed': 'Save failed, please retry',
+  'menu.copyRelativePath': 'Copy relative path',
+  'menu.copied': 'Copied',
+  'menu.copyFailed': 'Copy failed',
 }

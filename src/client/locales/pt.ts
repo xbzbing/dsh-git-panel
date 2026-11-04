@@ -506,4 +506,7 @@ export const pt: Record<GitKey, string> = {
   'cfg.fileEditToggle': 'Permitir editar arquivos de configuração e documentos no navegador de arquivos',
   'cfg.fileEditHint': 'Quando ativado, a pré-visualização oferece um botão de edição para arquivos {exts}, além de {names} e das variantes .env.*, como .env.local, de até 2 MiB, em UTF-8 e com um único estilo de fim de linha. Ao salvar, a versão do arquivo é verificada antes, então uma alteração feita nesse meio-tempo pela IA ou por outro programa nunca é sobrescrita sem aviso. As alterações salvas entram em vigor imediatamente.',
   'cfg.saveFailed': 'Falha ao salvar, tente novamente',
+  'menu.copyRelativePath': 'Copiar caminho relativo',
+  'menu.copied': 'Copiado',
+  'menu.copyFailed': 'Falha ao copiar',
 }

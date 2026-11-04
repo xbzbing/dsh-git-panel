@@ -7,6 +7,8 @@ import type { JSX } from 'react'
 import type { GitKey } from './locales.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Loaded } from './files-types.js'
+import type { RowMenuBinder } from './menu-bindings.js'
+import { MENU_KIND } from './menu-owners.js'
 
 export interface TreeCbs {
   dirs: ReadonlyMap<string, Loaded>
@@ -15,6 +17,8 @@ export interface TreeCbs {
   toggleDir: (path: string) => void
   selectFile: (path: string) => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
+  /** Right-click binding for a row; absent when the host has no menu package. */
+  bindMenu?: RowMenuBinder
 }
 
 /** Recursively render the expanded tree from the per-directory cache. */
@@ -45,6 +49,7 @@ export function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Ele
         style: { paddingLeft: 8 + depth * 16 }, 'aria-expanded': isOpen,
         'aria-label': entry.ignored ? `${entry.name} (${cb.t('files.ignored')})` : entry.name,
         onClick: () => cb.toggleDir(path),
+        ...cb.bindMenu?.(path, MENU_KIND.directory, entry.ignored === true),
       }, [
         // The official file lists mark expansion with the folder glyph itself
         // instead of a separate chevron.
@@ -61,6 +66,7 @@ export function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Ele
         style: { paddingLeft: 8 + depth * 16 }, 'aria-current': active ? 'true' : undefined,
         'aria-label': entry.ignored ? `${entry.name} (${cb.t('files.ignored')})` : entry.name,
         onClick: () => cb.selectFile(path),
+        ...cb.bindMenu?.(path, MENU_KIND.file, entry.ignored === true),
       }, [
         h('span', { key: 'i', className: 'gp-tree-ic' }, h(FileTypeIcon, { path, size: 16 })),
         h('span', { key: 'n', className: 'gp-tree-name' }, entry.name),
