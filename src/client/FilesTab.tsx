@@ -42,6 +42,7 @@ import type { GitQueryResult } from './types.js'
 import { useFileEdit } from './use-file-edit.js'
 import { hasStashedUnsavedEdit, stashDraft } from './edit-store.js'
 import { renderEditControls, useEditPreview } from './files-edit-ui.js'
+import { editAvailability } from './edit-buffer.js'
 import { controllerFor } from './registry.js'
 
 interface FilesTabProps {
@@ -153,6 +154,13 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
   const [open, setOpen] = useState<ReadonlySet<string>>(() => init?.open ?? new Set(['']))
   const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
+  // The preview bar describes the file that is actually on screen. A read in
+  // flight blanks the body, so the bar keeps the last settled shape: taking its
+  // controls from the loading state would unmount the mode switch and the
+  // content actions for that frame. The path still follows the selection.
+  const settled = useRef<FileState>(file)
+  if (file.kind !== 'loading') settled.current = file
+  const barFile = file.kind === 'loading' ? settled.current : file
   const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
   const [wrap, setWrap] = useState(() => init?.wrap ?? true)
   // Copy feedback comes from the shared hook, so the toolbar's confirmation
@@ -662,16 +670,19 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
     h('div', { key: 'tree', className: 'gp-files__tree', ref: treeSlider.ref }, [treeSlider.slider, treeRows]),
   ])
 
-  const richPreview = file.kind === 'text' && isRichPath(file.path)
+  const richPreview = barFile.kind === 'text' && isRichPath(barFile.path)
   // An SVG is a picture and also markup, so it renders by default and offers a
   // source face — the same split the diff view uses for these files.
-  const svgSource = file.kind === 'image' && file.content !== undefined && isSvgPath(file.path)
+  const svgSource = barFile.kind === 'image' && barFile.content !== undefined && isSvgPath(barFile.path)
   const modeSwitchable = richPreview || svgSource
   // One definition per toolbar control; the compact and wide bars compose the
-  // same nodes so a new mode / action cannot land on only one layout.
+  // same nodes so a new mode / action cannot land on only one layout. The edit
+  // entry keeps the shape of the settled file too; its click already no-ops
+  // while the next read is in flight (start() rejects a non-text file).
+  const barAvailability = allowEdit ? editAvailability(barFile) : { state: 'hidden' as const }
   const isMarkdownEdit = editing && fileEdit.draft !== null && isMarkdownPath(fileEdit.draft.path)
   const { editButton, editActions, editWrapButton, editModeSeg } = renderEditControls({
-    fileEdit, editing, markdown: isMarkdownEdit, preview: editPreview,
+    fileEdit, editing, markdown: isMarkdownEdit, preview: editPreview, availability: barAvailability,
     wrap, toggleWrap: () => setWrap((w) => !w), tipProps, hideTip, modeId, t,
   })
   const modeSeg = editing
@@ -692,34 +703,36 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       onChange: (next: string) => htmlPreview.changeView(next === 'render'),
     })
     : null
-  const fullscreenButton = file.kind === 'text'
+  // The click guards keep a press that lands mid-read from opening the reader
+  // (or flipping script permission) for a file that is not on screen yet.
+  const fullscreenButton = barFile.kind === 'text'
     ? h('button', {
       key: 'full', ref: fsTriggerRef, type: 'button', className: 'gp-files__props',
       title: t('files.fullscreen'), 'aria-label': t('files.fullscreen'),
-      onClick: () => setFullscreen(true),
+      onClick: () => { if (file.kind === 'text') setFullscreen(true) },
     }, h(FullscreenIcon, { size: 14 }))
     : null
   // Script permission exists only for the rendered HTML view: on by default,
   // and this button is the only way to turn it off (static preview).
-  const scriptToggle = file.kind === 'text' && isHtmlPath(file.path) && renderMarkdown
+  const scriptToggle = barFile.kind === 'text' && isHtmlPath(barFile.path) && renderMarkdown
     ? h('button', {
       key: 'scripts', type: 'button', className: 'gp-files__props gp-files__scripts',
       title: htmlPreview.mode === 'interactive' ? t('files.scriptsOn') : t('files.scriptsOff'),
       'aria-label': t('files.runScripts'),
       'aria-pressed': htmlPreview.mode === 'interactive',
-      onClick: htmlPreview.toggleScripts,
+      onClick: () => { if (file.kind === 'text') htmlPreview.toggleScripts() },
     }, 'JS')
     : null
   // Word wrap only affects the source/code body (rendered Markdown already wraps).
   // Over the wrap cap the toggle stays visible but disabled — hiding it would
   // discard the preference with no explanation (the body falls back to nowrap).
-  const isTextSource = file.kind === 'text'
+  const isTextSource = barFile.kind === 'text'
     ? (richPreview ? !renderMarkdown : true)
     : svgSource && !renderMarkdown
-  const sourceText = file.kind === 'text'
-    ? { content: file.content, lines: file.lines }
-    : file.kind === 'image' && file.content !== undefined
-      ? { content: file.content, lines: file.lines ?? 0 }
+  const sourceText = barFile.kind === 'text'
+    ? { content: barFile.content, lines: barFile.lines }
+    : barFile.kind === 'image' && barFile.content !== undefined
+      ? { content: barFile.content, lines: barFile.lines ?? 0 }
       : null
   const capOk = sourceText === null ? false : wrapCapOk(sourceText.content, sourceText.lines)
   const wrapButton = isTextSource
@@ -732,10 +745,14 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       onClick: () => setWrap((w) => !w),
     }, h(WrapIcon, { size: 14 }))
     : null
+  // The read in flight has no stats to show; dimming the entry for that frame
+  // would change the bar's look without telling the user anything, so it keeps
+  // its settled look and the click is ignored until the file is there.
   const propsButton = h('button', {
     key: 'props', type: 'button', className: 'gp-files__props',
     title: t('files.propsTitle'), 'aria-label': t('files.propsTitle'),
-    disabled: propsInput === null, onClick: () => setShowProps(true),
+    disabled: propsInput === null && file.kind !== 'loading',
+    onClick: () => { if (propsInput !== null) setShowProps(true) },
   }, h(InfoIcon, { size: 14 }))
   // The filename is the copy control: clicking it copies the relative path, in
   // the same shape and on the same feedback clock as the two diff headers
@@ -755,7 +772,7 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
   // Icon-only: the label rides aria-label, the outcome rides the hover tip (the
   // live region is screen-reader only, so a sighted user needs the tip to say
   // which of the two happened) and the check glyph on success.
-  const copyContentButton = canCopyContent(file)
+  const copyContentButton = canCopyContent(barFile)
     ? h('button', {
       key: 'copy-content', type: 'button',
       className: `gp-files__copy-path gp-files__copy-icon${contentCopy.feedback === 'copied' ? ' gp-files__copy-path--copied' : contentCopy.feedback === 'error' ? ' gp-files__copy-path--error' : ''}`,

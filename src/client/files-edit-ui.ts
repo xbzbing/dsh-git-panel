@@ -10,6 +10,7 @@ import type { JSX } from 'react'
 import { SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitKey } from './locales.js'
 import type { FileEditApi } from './use-file-edit.js'
+import type { EditAvailability } from './edit-buffer.js'
 import { EditIcon, WrapIcon } from './icons.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 
@@ -49,6 +50,10 @@ export interface EditControls {
 export function renderEditControls(o: {
   readonly fileEdit: FileEditApi
   readonly editing: boolean
+  /** Availability of the file the bar describes. The caller passes the
+   * settled file's answer while the next read is in flight, so the entry does
+   * not blink out of the bar between two documents. */
+  readonly availability?: EditAvailability
   readonly markdown: boolean
   readonly preview: { readonly text: string | null; readonly set: (text: string | null) => void }
   readonly wrap: boolean
@@ -60,7 +65,7 @@ export function renderEditControls(o: {
   readonly t: T
 }): EditControls {
   const { fileEdit, editing, preview, t } = o
-  const avail = fileEdit.availability
+  const avail = o.availability ?? fileEdit.availability
   // Shown for allow-listed files, disabled with the reason in its tip when
   // the host says this one cannot be edited without loss.
   const editButton = editing || avail.state === 'hidden'

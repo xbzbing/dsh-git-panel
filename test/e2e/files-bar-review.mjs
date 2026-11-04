@@ -61,12 +61,17 @@ await page.evaluate(async (snap) => {
           if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
           if (q.kind === 'dir-list') {
             return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: q.path === ''
-              ? [{ name: 'README.md', dir: false, size: 24 }, { name: 'a.txt', dir: false, size: 12 }]
+              ? [{ name: 'README.md', dir: false, size: 24 }, { name: 'b.md', dir: false, size: 24 }, { name: 'a.txt', dir: false, size: 12 }]
               : [] } } }
           }
           if (q.kind === 'file-content') {
+            // The switch-stability scenario parks this read to make the loading
+            // state observable; every other read answers at once.
+            const delay = window.__fileContentDelay || 0
+            if (delay > 0) await new Promise((r) => setTimeout(r, delay))
             const md = typeof q.path === 'string' && q.path.endsWith('.md')
-            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: md ? '# Hello\n\nbody line\n' : 'const x = 1\n', lines: md ? 3 : 1 } } }
+            const content = md ? `# ${q.path}\n\nbody line\n` : 'const x = 1\n'
+            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines: md ? 3 : 1 } } }
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
         }
@@ -179,6 +184,59 @@ for (const [width, keys] of Object.entries(report)) {
 // source/render switcher on row one and drops the whole cluster below it.
 assert.notEqual(report[640].rich.end, null, 'the wide bar wraps its buttons as one group')
 assert.equal(report[640].rich.rows, 2, 'at 640 the cluster wraps to its own row under the switcher')
+
+// ── Switch stability ──────────────────────────────────────────────────────
+// A document switch blanks the body to its loading state; the bar must keep
+// the settled file's shape while the read is parked: the mode switch and the
+// content actions must not unmount for the loading frame and come back with
+// the content.
+const switchStability = await page.evaluate(async () => {
+  window.__panelHost.style.width = '900px'
+  await new Promise((r) => setTimeout(r, 300))
+  // The width loop ends in the compact drill-in: return to the tree first.
+  document.querySelector('.gp-files__bar--compact .gp-subhead__back')?.click()
+  await new Promise((r) => setTimeout(r, 250))
+  const row = (name) => [...document.querySelectorAll('.gp-files__tree .gp-tree-row')]
+    .find((r) => (r.textContent || '').includes(name))
+  row('README.md')?.click()
+  await new Promise((r) => setTimeout(r, 400))
+  const shape = () => {
+    const bar = document.querySelector('.gp-files__bar')
+    const end = bar?.querySelector('.gp-files__bar-end') ?? null
+    const endButtons = end === null ? [] : [...end.querySelectorAll('button')]
+    const seg = bar?.querySelector('.gp-files__mode-seg') ?? null
+    return {
+      height: bar === null ? 0 : Math.round(bar.getBoundingClientRect().height),
+      buttons: endButtons.map((b) => b.getAttribute('aria-label') || b.textContent || '').join('|'),
+      seg: seg !== null,
+      segWidth: seg === null ? 0 : Math.round(seg.getBoundingClientRect().width),
+      endWidth: end === null ? 0 : Math.round(end.getBoundingClientRect().width),
+      path: (bar?.querySelector('.gp-files__path')?.textContent || '').trim(),
+      propsDisabled: endButtons.length === 0 ? null : endButtons[endButtons.length - 1].disabled,
+      body: (document.querySelector('.gp-files__preview-content')?.textContent || '').trim().slice(0, 24),
+    }
+  }
+  const before = shape()
+  window.__fileContentDelay = 500
+  row('b.md')?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  const during = shape()
+  await new Promise((r) => setTimeout(r, 700))
+  const after = shape()
+  window.__fileContentDelay = 0
+  return { before, during, after }
+})
+assert.equal(switchStability.during.path, 'b.md', 'the bar follows the new path at once')
+assert.match(switchStability.during.body, /加载中/, 'the parked read still shows the loading state in the body')
+assert.equal(switchStability.during.height, switchStability.before.height, 'the bar keeps its height while the read is in flight')
+assert.deepEqual(switchStability.during.buttons, switchStability.before.buttons, 'the content actions stay mounted while the read is in flight')
+assert.equal(switchStability.during.seg, switchStability.before.seg, 'the mode switch stays mounted while the read is in flight')
+assert.equal(switchStability.during.segWidth, switchStability.before.segWidth, 'the mode switch keeps its width while the read is in flight')
+assert.equal(switchStability.during.endWidth, switchStability.before.endWidth, 'the trailing cluster keeps its width while the read is in flight')
+assert.equal(switchStability.during.propsDisabled, false, 'the properties entry does not dim for the loading frame')
+assert.equal(switchStability.after.height, switchStability.before.height, 'the bar height is unchanged once the document lands')
+assert.deepEqual(switchStability.after.buttons, switchStability.before.buttons, 'the content actions are unchanged once the document lands')
+assert.match(switchStability.after.body, /b\.md/, 'the new document replaces the loading placeholder')
 
 await browser.close()
 console.log('e2e files-bar-review.mjs: PASS')
