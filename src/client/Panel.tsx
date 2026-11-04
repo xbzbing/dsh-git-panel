@@ -34,7 +34,8 @@ import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
-import { menuTriggerFactory, type RowMenuBinder } from './menu-bindings.js'
+import { menuTriggerFactory, MENU_KIND, type PanelMenu, type RowMenuBinder } from './menu-bindings.js'
+import { PanelMenuContext } from './menu-context.js'
 import { registerMenuOwner, type MenuOwner } from './menu-owners.js'
 import { panelMenuOwner } from './menu-panel.js'
 import { contextMenusOf } from './menu-register.js'
@@ -557,6 +558,17 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       sessionId, owner: ownerId, repo, path, root: filesRootRef.current, ignored,
     }, handlers)
   }, [menu, sessionId, ownerId, repo])
+  // The image panes sit deep in the diff tree; they read this instead of
+  // threading a binder through four components (menu-context.ts).
+  const panelMenu = useMemo<PanelMenu>(() => ({
+    row: bindMenu,
+    image: (image, handlers) => {
+      if (!hasSession(sessionId)) return handlers ?? {}
+      return menu.bind(MENU_KIND.image, {
+        sessionId, owner: ownerId, repo, ...image,
+      }, handlers)
+    },
+  }), [bindMenu, menu, sessionId, ownerId, repo])
   useEffect(() => {
     if (!hasSession(sessionId)) return
     const owner: MenuOwner = panelMenuOwner({
@@ -748,7 +760,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
       return filesVisited
-        ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, bindMenu, t })
+        ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t })
         : null
     }
     if (view.state !== 'ready') return null
@@ -763,7 +775,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // The sample describes the browser's files only when both sides sit on the
     // same checkout and it is not the previous one's mid-switch.
     const filesSnapshot = filesSelector === repo && !repoSwitching ? snapshot : null
-    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, bindMenu, t }) : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
   }
 
   // One panel per tab, so every tab's aria-controls resolves.
@@ -850,6 +862,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // Inert while a switch is in flight: the panes still show the previous
     // checkout, but every request is tagged with the next one, so a stage or a
     // discard clicked on the old list would land on the new work tree.
-    h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) }, body),
+    h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) },
+      h(PanelMenuContext.Provider, { value: panelMenu }, body)),
   ])
 }

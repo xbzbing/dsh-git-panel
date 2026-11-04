@@ -30,6 +30,21 @@ export type RowMenuBinder = (
   handlers?: MenuTriggerHandlers,
 ) => MenuTriggerHandlers
 
+/** What an image pane calls: the picture it shows, plus the name a download
+ * should carry (the old side of a diff names its revision). */
+export type ImageMenuBinder = (
+  image: { readonly url: string; readonly name?: string; readonly mediaType?: string },
+  handlers?: MenuTriggerHandlers,
+) => MenuTriggerHandlers
+
+/** One panel's menu face, as the surfaces inside it see it. Rows get `row`;
+ * pictures deep in the diff tree get `image`, so neither has to thread the
+ * binder through the components between them. */
+export interface PanelMenu {
+  readonly row: RowMenuBinder
+  readonly image: ImageMenuBinder
+}
+
 /**
  * Build the panel's trigger factory.
  * @param useContextMenu - the injected slot prop, when the host provides one.

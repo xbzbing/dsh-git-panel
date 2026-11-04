@@ -39,8 +39,22 @@ export interface TreeTargetValue extends MenuIdentity {
   readonly ignored: boolean
 }
 
+/** A diff picture: the two panes of a binary image diff hold data URLs, and the
+ * old side is not a file in the work tree at all. `path` is left out on purpose
+ * — with it the platform would point "reveal" at a file that is not what the
+ * pane shows. */
+export interface ImageTargetValue {
+  readonly sessionId: string
+  readonly owner: string
+  readonly repo: string
+  readonly url: string
+  /** Suggested download name (the old side carries a revision suffix). */
+  readonly name?: string
+  readonly mediaType?: string
+}
+
 /** Everything a captured target value can be. */
-export type GitMenuValue = TreeTargetValue
+export type GitMenuValue = TreeTargetValue | ImageTargetValue
 
 /** Target kind names. Each is a distinct family in the platform registry, so
  * our contributions never mix with the platform's `file` / `directory` ones —
@@ -48,12 +62,24 @@ export type GitMenuValue = TreeTargetValue
 export const MENU_KIND = {
   file: 'gitPanel.file',
   directory: 'gitPanel.directory',
+  image: 'gitPanel.image',
 } as const
 
 export type MenuKind = typeof MENU_KIND[keyof typeof MENU_KIND]
 
 /** The kinds this build contributes menus for. */
-export const MENU_KINDS: readonly MenuKind[] = [MENU_KIND.file, MENU_KIND.directory]
+export const MENU_KINDS: readonly MenuKind[] = [MENU_KIND.file, MENU_KIND.directory, MENU_KIND.image]
+
+/** Narrow a captured value to a browser entry (file or directory). The two
+ * families differ by the root they hang off; an image target has none. */
+export function isTreeTarget(value: GitMenuValue): value is TreeTargetValue {
+  return 'root' in value
+}
+
+/** The identity fields every captured target shares. */
+export function menuIdentity(value: GitMenuValue): MenuIdentity {
+  return { sessionId: value.sessionId, owner: value.owner, repo: value.repo }
+}
 
 const owners = new Map<string, MenuOwner>()
 

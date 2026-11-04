@@ -25,7 +25,9 @@ import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 import { formatBytes } from './bytes.js'
 import { renderModalShell } from './ops-modals.js'
-import type { RowMenuBinder } from './menu-bindings.js'
+import { usePanelMenu } from './menu-context.js'
+import { MENU_KIND } from './menu-owners.js'
+import type { MenuTriggerHandlers } from './menu-types.js'
 import { NoticeBar } from './notice.js'
 import { inertAttr } from './inert.js'
 import { useRowSlider } from './row-slider.js'
@@ -81,8 +83,6 @@ interface FilesTabProps {
   /** Root a picked selector ('' = the project root), or null to resume
    * following the switched repository. */
   readonly onPickRoot?: (selector: string | null) => void
-  /** Right-click binding for a tree row (absent on hosts without a menu). */
-  readonly bindMenu?: RowMenuBinder
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -146,7 +146,11 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, bindMenu, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
+  // The panel publishes its menu face through context; the tree renderer is a
+  // plain function, so the binder is read here and passed down as a value.
+  const menu = usePanelMenu()
+  const bindMenu = menu?.row
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -156,6 +160,12 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
   const [dirs, setDirs] = useState<ReadonlyMap<string, Loaded>>(() => init?.dirs ?? new Map())
   const [open, setOpen] = useState<ReadonlySet<string>>(() => init?.open ?? new Set(['']))
   const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
+  // The preview's picture is a workspace file: its menu is the file row's
+  // (absolute path included), bound through the same face.
+  const previewMenu = useMemo<MenuTriggerHandlers | undefined>(
+    () => (selected === null || menu === undefined ? undefined : menu.row(selected, MENU_KIND.file, false, { tabIndex: -1 })),
+    [menu, selected],
+  )
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
   // The preview bar describes the file that is actually on screen. A read in
   // flight blanks the body, so the bar keeps the last settled shape: taking its
@@ -847,7 +857,7 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       h('div', {
         key: 'pv', ...tabPanel('preview'),
         style: editPreview.text === null ? { display: 'none' } : { display: 'contents' },
-      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, t)),
+      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, t, previewMenu)),
     ]
     : editing
     ? fileEdit.editorNode(wrap, false)
@@ -856,13 +866,13 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       h('div', {
         key: 'src', ...tabPanel('source'),
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu)),
       h('div', {
         key: 'rnd', ...tabPanel('render'),
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu) : null),
     ]
-    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu)
 
   // A heavy document asks in a modal before its frame is mounted: the choice
   // is about a page that can freeze the whole app while it paints, so it must
@@ -992,10 +1002,11 @@ function renderContent(
   htmlHint: { readonly run: () => void } | undefined,
   htmlStop: (() => void) | undefined,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
+  imageMenu?: MenuTriggerHandlers,
 ): JSX.Element {
   // An SVG has both faces in hand: the picture, or its markup as source.
   if (file.kind === 'image' && file.content !== undefined) {
-    return renderMarkdown ? renderPreview(file, wrap, t) : h(CodePreview, { content: file.content, path: file.path, wrap, t })
+    return renderMarkdown ? renderPreview(file, wrap, t, imageMenu) : h(CodePreview, { content: file.content, path: file.path, wrap, t })
   }
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
     const markdownProps = { labels: markdownLabels, variant: 'body' as const, ...(pathImages !== undefined ? { pathImages } : {}) }
@@ -1013,7 +1024,7 @@ function renderContent(
   if (file.kind === 'text' && htmlFrame !== undefined) {
     // The pack is in flight: hold the source preview instead of flashing an
     // unstyled page (the pack resolves in a few local RPC round-trips).
-    if (htmlFrame === null) return renderPreview(file, wrap, t)
+    if (htmlFrame === null) return renderPreview(file, wrap, t, imageMenu)
     // A static preview is handed no script permission at all and carries a CSP
     // that blocks the network; the interactive one opts into allow-scripts.
     return h('div', { className: 'gp-files__html-wrap' }, [
@@ -1032,7 +1043,7 @@ function renderContent(
       h(HtmlFrame, { key: `frame:${htmlFrame.kind}:${htmlFrame.kind === 'interactive' ? htmlFrame.src : ''}`, frame: htmlFrame, title: file.path, t, ...(htmlStop !== undefined ? { onStop: htmlStop } : {}) }),
     ])
   }
-  return renderPreview(file, wrap, t)
+  return renderPreview(file, wrap, t, imageMenu)
 }
 
 

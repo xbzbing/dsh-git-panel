@@ -11,6 +11,7 @@ import type { FileEditInfo, GitQueryResult } from './types.js'
 import { languageForPath, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
 import { ZoomableImage } from './ImageZoom.js'
+import type { MenuTriggerHandlers } from './menu-types.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { wrapCapOk } from './wrap-cap.js'
@@ -70,7 +71,10 @@ export function fileStateOf(path: string, fc: Extract<GitQueryResult, { kind: 'f
   return { kind: 'binary', path, ...stat }
 }
 
-export function renderPreview(file: FileState, wrap: boolean, t: (key: GitKey, params?: Record<string, string | number>) => string): JSX.Element {
+export function renderPreview(
+  file: FileState, wrap: boolean, t: (key: GitKey, params?: Record<string, string | number>) => string,
+  menuProps?: MenuTriggerHandlers,
+): JSX.Element {
   switch (file.kind) {
     case 'idle': return h('div', { className: 'gp-empty' }, t('files.selectFile'))
     case 'loading': return h('div', { className: 'gp-empty' }, t('common.loading'))
@@ -78,7 +82,9 @@ export function renderPreview(file: FileState, wrap: boolean, t: (key: GitKey, p
     case 'tooLarge': return h('div', { className: 'gp-empty' }, t('files.tooLarge'))
     case 'binary': return h('div', { className: 'gp-empty' }, t('files.binary'))
     case 'image':
-      return h(ZoomableImage, { src: file.dataUrl, alt: file.path, t, viewportClass: 'gp-files__image' })
+      // The preview's picture is a workspace file, so it carries the file row's
+      // menu (absolute path included) rather than the diff panes' image target.
+      return h(ZoomableImage, { src: file.dataUrl, alt: file.path, t, viewportClass: 'gp-files__image', menuProps })
     case 'text':
       return h(CodePreview, { content: file.content, path: file.path, wrap, t })
   }

@@ -66,7 +66,7 @@ test('cordis.patch.yml config matches DEFAULT_CONFIG', () => {
 /** One React/react-dom stub, shared by every client-factory test. */
 function sandboxRequire() {
   return (spec) => {
-    if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, memo: (c) => c, Fragment: 'fragment' }
+    if (spec === 'react') return { createElement: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useRef: () => ({ current: null }), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {}, memo: (c) => c, Fragment: 'fragment', createContext: (value) => ({ _value: value, Provider: 'provider' }), useContext: () => undefined }
     if (spec === 'react-dom') return { createPortal: () => ({}) }
     if (spec === 'react/jsx-runtime') return { jsx: () => ({}), jsxs: () => ({}), Fragment: 'fragment' }
     if (spec === '@deepseek-ai/dsh-client-ui-primitives') return { MarkdownText: () => ({}) }

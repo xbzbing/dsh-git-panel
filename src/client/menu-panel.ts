@@ -7,8 +7,8 @@
  * state at resolve time, so an open menu follows a repository switch or a
  * finished write (the contribution lists the panel's snapshot in `observe`).
  */
-import { MENU_KIND, type GitMenuValue, type MenuKind, type MenuOwner } from './menu-owners.js'
-import { DIRECTORY_VIEWS, FILE_VIEWS, platformActions } from './menu-proxy.js'
+import { MENU_KIND, isTreeTarget, type GitMenuValue, type ImageTargetValue, type MenuKind, type MenuOwner } from './menu-owners.js'
+import { DIRECTORY_VIEWS, FILE_VIEWS, IMAGE_VIEWS, platformActions } from './menu-proxy.js'
 import { directoryMenuActions, fileMenuActions, type MenuEnv } from './menu-actions.js'
 import { platformPathFor } from './menu-paths.js'
 import type { MenuAction, MenuSource, MenuTrigger } from './menu-types.js'
@@ -38,14 +38,41 @@ async function actionsFor(
   kind: MenuKind, value: GitMenuValue, signal: AbortSignal, options: PanelMenuOptions,
 ): Promise<MenuAction[]> {
   const env = options.env()
-  const menus = env.menus
+  if (kind === MENU_KIND.image) {
+    return imageActions(value as ImageTargetValue, env, signal)
+  }
+  if (!isTreeTarget(value)) return []
   const path = platformPathFor(value, options.browseRoot())
   if (kind === MENU_KIND.directory) {
-    const platform = menus === undefined ? [] : await platformActions(menus, target('directory', value, path), DIRECTORY_VIEWS, signal)
+    const platform = env.menus === undefined
+      ? []
+      : await platformActions(env.menus, target('directory', value, path), DIRECTORY_VIEWS, signal)
     return directoryMenuActions(value, env, platform)
   }
-  const platform = menus === undefined ? [] : await platformActions(menus, target('file', value, path), FILE_VIEWS, signal)
+  const platform = env.menus === undefined
+    ? []
+    : await platformActions(env.menus, target('file', value, path), FILE_VIEWS, signal)
   return fileMenuActions(value, env, platform)
+}
+
+/**
+ * The diff panes' pictures: the platform's own image actions (copy, download,
+ * save as) applied to the data URL the pane shows. No path is passed, so nothing
+ * can claim to reveal a file the picture did not come from.
+ */
+async function imageActions(
+  value: ImageTargetValue, env: MenuEnv, signal: AbortSignal,
+): Promise<MenuAction[]> {
+  if (env.menus === undefined) return []
+  const platformTarget: MenuTrigger = {
+    kind: 'image',
+    value: {
+      url: value.url,
+      ...(value.name === undefined ? {} : { name: value.name }),
+      ...(value.mediaType === undefined ? {} : { mediaType: value.mediaType }),
+    },
+  }
+  return platformActions(env.menus, platformTarget, IMAGE_VIEWS, signal)
 }
 
 /** The platform target for one tree entry. Directory and file targets differ

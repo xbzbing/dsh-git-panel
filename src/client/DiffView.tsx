@@ -302,7 +302,16 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
         const res = image.res
         if (res.tooLarge === true) return h('div', { className: 'gp-empty' }, t('diff.tooLarge'))
         if (res.mime !== null && (res.old !== undefined || res.new !== undefined)) {
-          return h(ImageCompare, { oldUrl: res.old, newUrl: res.new, mode, t })
+          // The old side's download name names its revision: `HEAD` for a
+          // work-tree diff, `staged` for the index, the short hash for a commit.
+          const oldLabel = base === 'commit' && commit !== undefined
+            ? commit.slice(0, 7)
+            : base === 'staged' ? 'staged' : base === undefined ? undefined : 'HEAD'
+          return h(ImageCompare, {
+            oldUrl: res.old, newUrl: res.new, mode, t,
+            ...(path === undefined ? {} : { path }),
+            ...(oldLabel === undefined ? {} : { oldLabel }),
+          })
         }
       }
       // failed / unsupported / no sides.

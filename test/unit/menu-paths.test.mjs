@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { absPath, baseName, platformPathFor } from '../../lib/testkit.mjs'
+import { absPath, baseName, platformPathFor, revisionName } from '../../lib/testkit.mjs'
 
 test('absPath joins a POSIX root and a relative path', () => {
   assert.equal(absPath('/work/repo', 'src/a.ts'), '/work/repo/src/a.ts')
@@ -47,4 +47,12 @@ test('platformPathFor prefers the captured root over the panel browse root', () 
   const value = { sessionId: 's', owner: 'o', repo: '', path: 'src/a.ts', root: '/nested/repo', ignored: false }
   assert.equal(platformPathFor(value, '/session/cwd'), '/nested/repo/src/a.ts')
   assert.equal(platformPathFor({ ...value, root: null }, '/session/cwd'), '/session/cwd/src/a.ts')
+})
+
+test('revisionName inserts the side label before the extension', () => {
+  assert.equal(revisionName('src/logo.png', 'a1b2c3d'), 'logo@a1b2c3d.png')
+  assert.equal(revisionName('C:\\art\\logo.svg', 'HEAD'), 'logo@HEAD.svg')
+  // A dotfile has no extension to keep behind the suffix.
+  assert.equal(revisionName('.env', 'HEAD'), '.env@HEAD')
+  assert.equal(revisionName('src/Makefile', 'staged'), 'Makefile@staged')
 })

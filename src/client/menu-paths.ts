@@ -36,6 +36,20 @@ export function baseName(path: string): string {
   return cut === -1 ? path : path.slice(cut + 1)
 }
 
+/**
+ * A download name for one side of a diff: the file's own name with the revision
+ * inserted before the extension, so two panes of the same file do not collide in
+ * the download folder (`logo@a1b2c3d.png`, `logo@HEAD.png`).
+ * @param path - the file's path.
+ * @param revision - short label of the side (short hash, `HEAD`, `staged`).
+ */
+export function revisionName(path: string, revision: string): string {
+  const name = baseName(path)
+  const dot = name.lastIndexOf('.')
+  if (dot <= 0) return `${name}@${revision}`
+  return `${name.slice(0, dot)}@${revision}${name.slice(dot)}`
+}
+
 /** The platform target value for a tree entry: the browser's relative path
  * resolved to an absolute one, which is what the platform's actions operate on
  * (a nested checkout or worktree would otherwise resolve against the session
