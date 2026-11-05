@@ -30,9 +30,15 @@ function basename(path: string): string {
 }
 
 /** The shell phase of the conversation around `from`; `hero` is the blank,
- * pre-first-message state whose view-tab row is not rendered. */
+ * pre-first-message state whose view-tab row is not rendered. The main pane
+ * carries `data-phase`; the right sidebar's embedded chat carries the phase
+ * on its content body instead. */
 function isHeroPane(from: Element | null): boolean {
-  return from?.closest('[data-phase]')?.getAttribute('data-phase') === 'hero'
+  const phase = from?.closest('[data-phase]')?.getAttribute('data-phase')
+  if (phase !== undefined) return phase === 'hero'
+  const chat = from?.closest('[data-sidebar-chat]') ?? null
+  if (chat === null) return false
+  return from?.closest('[data-conversation-content]')?.getAttribute('data-content-phase') === 'hero'
 }
 
 /** Whether a click can reach the sidebar's Git page type: the placement keeps

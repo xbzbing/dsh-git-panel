@@ -547,6 +547,59 @@ try {
     await page.close()
   }
 
+  // ── an embedded sidebar chat never drives the main pane's Git tab ─────
+  // The shell's second conversation is the right-sidebar chat. It has no
+  // data-phase root and no tab row of its own; its wrapper is
+  // data-sidebar-chat. The lookup must stop there, not climb to the main
+  // pane's tab row.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: true })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+
+      const main = document.createElement('div')
+      main.setAttribute('data-phase', 'active')
+      const tabs = document.createElement('div')
+      tabs.setAttribute('data-conversation-tabs', '')
+      const chat = document.createElement('button')
+      chat.setAttribute('role', 'tab')
+      chat.setAttribute('aria-selected', 'true')
+      chat.textContent = 'chat'
+      const git = document.createElement('button')
+      git.setAttribute('role', 'tab')
+      git.setAttribute('aria-selected', 'false')
+      git.textContent = 'panel.tab'
+      let clicked = false
+      git.addEventListener('click', () => {
+        clicked = true
+        git.setAttribute('aria-selected', 'true')
+      })
+      tabs.append(chat, git)
+      main.appendChild(tabs)
+      document.body.appendChild(main)
+
+      const embedded = document.createElement('aside')
+      embedded.setAttribute('data-sidebar-chat', '')
+      const body = document.createElement('div')
+      body.setAttribute('data-conversation-content', '')
+      body.setAttribute('data-content-phase', 'hero')
+      body.appendChild(host)
+      embedded.appendChild(body)
+      document.body.appendChild(embedded)
+
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return { clicked, opened: window.__ctl.openedTabs.slice() }
+    })
+    assert.equal(out.clicked, false, 'an embedded chat never clicks the main pane’s Git tab')
+    assert.deepEqual(out.opened, ['dsh-git-panel'], 'the embedded chat opens the sidebar page')
+    await page.close()
+  }
+
   // ── the sidebar body renders the panel ────────────────────────────────
   {
     const page = await browser.newPage()

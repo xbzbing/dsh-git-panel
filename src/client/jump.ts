@@ -74,14 +74,17 @@ export function recentSubTab(sessionId: string): SubTab | null {
 
 /**
  * The shell's conversation pane root around `from`, when the shell marks one.
- * The root wraps both the header (the view-tab row) and the content (the
- * composer holding the pill); a blank session renders no tab row at all, so
- * scoping the lookup here keeps an ancestor walk from reaching another pane's
- * tab row in a multi-pane shell. Older shells without the marker fall back to
- * the nearest-tablist walk below.
+ * The main occurrence marks its root with `data-phase`; the right sidebar's
+ * embedded chat has no view-tab row and is bounded by `data-sidebar-chat`.
+ * Scoping here keeps an ancestor walk from reaching another pane's tab row in
+ * a multi-pane shell. Older shells without these markers fall back to the
+ * nearest-tablist walk below.
  */
 function paneRoot(from?: Element | null): Element | null {
-  return from?.closest<HTMLElement>('[data-phase]') ?? from?.closest<HTMLElement>('[data-slot="main.conversation"]') ?? null
+  return from?.closest<HTMLElement>('[data-phase]')
+    ?? from?.closest<HTMLElement>('[data-slot="main.conversation"]')
+    ?? from?.closest<HTMLElement>('[data-sidebar-chat]')
+    ?? null
 }
 
 /**
