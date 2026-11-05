@@ -38,8 +38,10 @@ const COMMITS = [
   { hash: 'b'.repeat(40), shortHash: 'bbbbbbb', subject: 'second commit', author: 'A', email: 'a@x', date: '2026-01-02T00:00:00Z', parents: ['a'.repeat(40)], refs: [] },
 ]
 
-/** Boot one panel; `capabilities` decides whether the Git entries exist. */
-async function boot(page, capabilities, history) {
+/** Boot one panel; `capabilities` decides whether the Git entries exist, and
+ * `snap` overrides the snapshot (a dirty one lands on the changes tab, so the
+ * overview only mounts later). */
+async function boot(page, capabilities, history, snap = SNAP) {
   await page.evaluate(async ({ snap, tree, commits, capabilities, history }) => {
     document.getElementById('panel').innerHTML = ''
     window.__menuStub.contributions.splice(0)
@@ -135,7 +137,7 @@ async function boot(page, capabilities, history) {
       .find((t) => (t.textContent || '').includes('文件'))
     tab?.click()
     await new Promise((r) => setTimeout(r, 500))
-  }, { snap: SNAP, tree: TREE, commits: COMMITS, capabilities, history })
+  }, { snap, tree: TREE, commits: COMMITS, capabilities, history })
 }
 
 /** Right-click a tree row and run one of its entries. */

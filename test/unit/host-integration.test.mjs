@@ -3179,6 +3179,28 @@ test('an untracked file in a linked worktree compares against the revision', asy
   }
 })
 
+test('a staged deletion still compares against the revision', async () => {
+  const { rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'v1\n' })
+  try {
+    const d = depsAt(dir)
+    const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+    // `git rm` stages the deletion and removes the file: the path is gone from
+    // both the index and the working tree, but HEAD still has it. The answer is
+    // a deletion hunk — not an empty diff (the synthesized side has nothing to
+    // compare against, and an empty reply would read as "no changes").
+    await runGit(dir, ['rm', '-q', 'a.txt'])
+    const res = await query({ kind: 'diff', path: 'a.txt', base: 'rev', rev: 'HEAD' })
+    assert.equal(res.ok, true)
+    assert.match(res.value.text, /^-v1$/m, 'the revision content appears as a deletion')
+    assert.equal(res.value.newLines, 0, 'no new side to expand')
+    const worktree = await query({ kind: 'diff', path: 'a.txt', base: 'worktree' })
+    assert.equal(worktree.value.text.trim(), '', 'the work-tree comparison is empty, as it must be')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('diff base rev refuses a directory: it is a single-file comparison', async () => {
   const { writeFileSync, rmSync, mkdirSync } = await import('node:fs')
   const dir = await scratchRepo({ 'x.txt': 'x\n' })

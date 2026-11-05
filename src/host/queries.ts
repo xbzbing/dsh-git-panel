@@ -388,9 +388,16 @@ async function revBlobAgainstWorktree(
     return null
   }
   try {
+    // The path may be gone from the working tree (a staged `git rm`): `--no-index`
+    // then compares against nothing, exits non-zero and prints nothing. That is
+    // not "no changes" — the revision still has content and the answer is a
+    // deletion, which the caller's own `git diff <rev> -- path` already
+    // described, so hand the question back instead of serving an empty diff.
+    const stat = await deps.fs.stat(join(root, q.path)).catch(() => null)
+    if (stat === null) return null
     const rel = relative(root, scratch)
     const res = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', rel, q.path], root, 'diff-untracked', deps.signal)
-    if (!('run' in res)) return null
+    if (!('run' in res) || res.run.stdout.trim() === '') return null
     return { text: res.run.stdout, truncated: res.run.stdoutLossy }
   } finally {
     // A leftover scratch file inside .git is invisible but wrong to leave

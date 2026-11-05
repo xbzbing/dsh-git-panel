@@ -67,67 +67,30 @@ export async function platformActions(
   budgetMs: number = PLATFORM_BUDGET_MS,
 ): Promise<MenuAction[]> {
   const occurrence = menus.resolve(target)
-  let released = false
-  const release = (): void => {
-    if (released) return
-    released = true
-    try { occurrence.dispose() } catch { /* the platform may have dropped it */ }
-  }
-  // The occurrence lives as long as the menu that shows it: a click reuses it
-  // instead of resolving the whole platform face again (another workspace stat
-  // and another application probe, and a second budget it could miss).
-  signal.addEventListener('abort', release, { once: true })
   try {
     await settle(occurrence.ready, budgetMs)
     if (signal.aborted) return []
-    return project(occurrence.source.getSnapshot(), allow, {
-      menus,
-      target,
-      select: (id) => {
-        if (released) return false
-        occurrence.select(id)
-        // Dispatched; the occurrence has nothing left to do. A macrotask keeps
-        // it alive through whatever the platform scheduled from `select`.
-        setTimeout(release, 0)
-        return true
-      },
-    })
+    return project(occurrence.source.getSnapshot(), allow, menus, target)
   } catch {
     return []
   } finally {
-    // A list nobody opened must not hold the occurrence; the list that is shown
-    // keeps it through `select` above.
-    if (!signal.aborted) setTimeout(release, OCCURRENCE_IDLE_MS)
-    else release()
+    occurrence.dispose()
   }
-}
-
-/** How long an unused occurrence is kept. The menu it belongs to is dismissed
- * long before this, and the abort listener above is the normal path. */
-const OCCURRENCE_IDLE_MS = 30_000
-
-/** How one projected action reaches the platform: through the occurrence that
- * built the list while it is still alive, else by resolving again. */
-interface RunFace {
-  readonly menus: ContextMenusService
-  readonly target: MenuTrigger
-  /** Dispatches through the live occurrence; false once it was released. */
-  readonly select?: (id: string) => boolean
 }
 
 /**
  * Forward one platform action id to the platform.
  *
- * The occurrence that built the list is reused when it is still alive, so a
- * click is one dispatch rather than a second full resolution (which could also
- * miss the platform's budget and report a failure for a menu that was built
- * fine). When it is gone — the menu outlived its signal — the id is resolved
- * again, so an action the platform has since withdrawn still reports a failure
- * instead of running something else.
+ * The occurrence is re-resolved instead of reusing the one that built the menu.
+ * The platform runs a chosen action only after disposing the occurrence it
+ * resolved for that contribution — which aborts the signal this module was
+ * handed — so an occurrence kept from the menu's own resolution is already dead
+ * by the time `run` executes. Re-resolving also means the action list the click
+ * lands on is the current one: an id the platform has since withdrawn reports a
+ * failure instead of running something else.
  */
-async function runPlatformAction(run: RunFace, id: string): Promise<void> {
-  if (run.select !== undefined && run.select(id)) return
-  const occurrence = run.menus.resolve(run.target)
+async function runPlatformAction(menus: ContextMenusService, target: MenuTrigger, id: string): Promise<void> {
+  const occurrence = menus.resolve(target)
   try {
     await settle(occurrence.ready, PLATFORM_BUDGET_MS)
     const view = findView(occurrence.source.getSnapshot(), id)
@@ -160,7 +123,7 @@ function findView(views: readonly MenuActionView[], id: string): MenuActionView 
 }
 
 function project(
-  views: readonly MenuActionView[], allow: readonly string[] | null, run: RunFace,
+  views: readonly MenuActionView[], allow: readonly string[] | null, menus: ContextMenusService, target: MenuTrigger,
 ): MenuAction[] {
   const actions: MenuAction[] = []
   for (const view of views) {
@@ -168,12 +131,12 @@ function project(
     // whole submenu: the platform grouped those entries itself, and filtering
     // inside one would leave a heading with entries missing.
     if (allow !== null && !allow.includes(view.id)) continue
-    const children = view.children === undefined ? undefined : project(view.children, null, run)
+    const children = view.children === undefined ? undefined : project(view.children, null, menus, target)
     actions.push({
       ...presentation(view),
       ...(children === undefined ? {} : { children }),
       // A parent with a submenu opens it; only leaves execute.
-      ...(children === undefined ? { run: () => runPlatformAction(run, view.id) } : {}),
+      ...(children === undefined ? { run: () => runPlatformAction(menus, target, view.id) } : {}),
     })
   }
   return actions

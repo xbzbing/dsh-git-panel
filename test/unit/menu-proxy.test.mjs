@@ -65,42 +65,33 @@ test('platformActions copies the label, icon, disabled and danger flags', async 
   assert.deepEqual(action.icon, { key: 'open-in-app.application', src: 'data:image/png;base64,AA' })
 })
 
-test('a click dispatches through the occurrence that built the menu', async () => {
-  const controller = new AbortController()
+test('a click forwards the id to a fresh resolution and disposes both occurrences', async () => {
   const { service, calls } = fakeService([{ id: 'open-in-app.file/float', label: 'Float' }])
-  const [action] = await platformActions(service, target, FILE_VIEWS, controller.signal)
+  const [action] = await platformActions(service, target, FILE_VIEWS, new AbortController().signal)
   await action.run()
   assert.deepEqual(calls.select.map((s) => s.id), ['open-in-app.file/float'])
-  // One resolution for the menu and none for the click: the platform's whole
-  // face (workspace stat, application probe) is not asked twice.
-  assert.equal(calls.resolve, 1)
-  // The occurrence is released once the click has been dispatched.
-  await new Promise((r) => setTimeout(r, 5))
-  assert.equal(calls.dispose, 1)
+  // One resolution for the menu, one for the click. The menu's own occurrence
+  // cannot be reused: the platform disposes it (aborting this signal) before it
+  // runs the chosen action.
+  assert.equal(calls.resolve, 2)
+  assert.equal(calls.dispose, 2)
 })
 
-test('a click after the menu is gone resolves again and reports a withdrawn id', async () => {
-  const controller = new AbortController()
+test('a click on an id the platform no longer offers rejects instead of running another action', async () => {
   let n = 0
-  const { service, calls } = fakeService(() => (++n === 1 ? [{ id: 'open-in-app.file/float', label: 'Float' }] : []))
-  const [action] = await platformActions(service, target, FILE_VIEWS, controller.signal)
-  controller.abort()
+  const { service } = fakeService(() => (++n === 1 ? [{ id: 'open-in-app.file/float', label: 'Float' }] : []))
+  const [action] = await platformActions(service, target, FILE_VIEWS, new AbortController().signal)
   await assert.rejects(() => action.run(), /menu action unavailable/)
-  assert.equal(calls.resolve, 2, 'the released occurrence is replaced for the click')
 })
 
 test('platformActions returns what is ready when the platform misses the budget', async () => {
   const never = new Promise(() => {})
-  const aborted = new AbortController()
   const { service, calls } = fakeService([], { ready: never })
   const started = Date.now()
-  const actions = await platformActions(service, target, FILE_VIEWS, aborted.signal, 20)
+  const actions = await platformActions(service, target, FILE_VIEWS, new AbortController().signal, 20)
   assert.deepEqual(actions, [])
   assert.ok(Date.now() - started < 500, 'the budget bounds the wait')
-  // The occurrence is held for a possible click and released with the menu; a
-  // list nobody opens must not leak one.
-  aborted.abort()
-  assert.equal(calls.dispose, 1, 'the released occurrence is disposed with the menu')
+  assert.equal(calls.dispose, 1, 'the abandoned occurrence is disposed')
 })
 
 test('an aborted lifetime returns no actions', async () => {

@@ -24,6 +24,7 @@ import { buildBranchTree, buildLocalBranchSection, pinPrimaryFirst, primaryBranc
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime } from './time.js'
 import { useBranchTree, useCommitDetail, useHistory, type HistoryFilter } from './overview-hooks.js'
+import { searchPublish } from './history-filter.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
@@ -170,6 +171,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // sequence is what makes a repeat meaningful: asking for the same file twice
   // closes the chip in between, and a path alone would not change.
   const appliedChipSeq = useRef<number | undefined>(undefined)
+  // The panel withdraws the request when the checkout changes or a control takes
+  // over. The local filter has to follow: the chip names a path in one checkout,
+  // and leaving it set would filter the next one by a path it never had.
+  useEffect(() => {
+    if (exactPath !== undefined || appliedChipSeq.current === undefined) return
+    appliedChipSeq.current = undefined
+    setFilter((prev) => (prev.exactPath === undefined ? prev : { ...prev, exactPath: undefined }))
+  }, [exactPath])
   useEffect(() => {
     // Apply once per request. Clearing the request from the panel's side (a
     // control took over, or the repository switched) must not re-apply an old
@@ -446,12 +455,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     const timer = setTimeout(() => {
       const search = searchScope === 'message' ? searchInput : ''
       const pathSearch = searchScope === 'path' ? searchInput : ''
-      if (filterRef.current.exactPath !== undefined) clearChip()
-      setFilter((prev) => {
-        const unchip = prev.exactPath === undefined ? prev : { ...prev, exactPath: undefined }
-        return unchip.search === search && (unchip.pathSearch ?? '') === pathSearch
-          ? unchip : { ...unchip, search, pathSearch }
-      })
+      // Nothing new to publish: the first tick after a mount lands here, and it
+      // must not take a file-history chip down with it (see history-filter.ts).
+      const next = searchPublish(filterRef.current, search, pathSearch)
+      if (next === null) return
+      if (next.dropsChip) clearChip()
+      setFilter((current) => ({
+        ...current, ...(current.exactPath === undefined ? {} : { exactPath: undefined }), search: next.search, pathSearch: next.pathSearch,
+      }))
     }, 300)
     return () => clearTimeout(timer)
   }, [searchInput, searchScope, clearChip])

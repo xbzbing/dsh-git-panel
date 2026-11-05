@@ -60,14 +60,14 @@ test('registerGitMenus contributes one own entry per kind, plus the borrowed gro
   release()
 })
 
-test('only the stateful families follow the panel snapshot', () => {
+test('the own groups follow the panel snapshot, the borrowed ones do not', () => {
   reset()
   const registered = []
   registerGitMenus({ register: (c) => { registered.push(c); return () => {} } })
-  const withObserve = registered.filter((c) => c.observe !== undefined).map((c) => c.target).sort()
-  assert.deepEqual(withObserve, [
-    MENU_KIND.branch, MENU_KIND.change, MENU_KIND.changeDir, MENU_KIND.commit,
-  ].concat([MENU_KIND.pill, MENU_KIND.stash]).sort(), 'a tree row does not re-resolve on a poll')
+  const own = registered.filter((c) => c.id === MENU_CONTRIBUTION_IDS[c.target])
+  assert.deepEqual(own.filter((c) => c.observe === undefined), [], 'a tree row can gain or lose its Git group when the root turns into a checkout')
+  const borrowed = registered.filter((c) => c.id !== MENU_CONTRIBUTION_IDS[c.target])
+  assert.deepEqual(borrowed.filter((c) => c.observe !== undefined), [], 'the borrowed group has no snapshot input to follow')
 })
 
 test('resolve walks the captured owner id back to its panel', async () => {

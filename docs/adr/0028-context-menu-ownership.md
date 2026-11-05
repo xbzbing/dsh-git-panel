@@ -19,9 +19,9 @@ dsh 0.2.2 起，client 侧有了共享的右键菜单系统（`ui-context-menu`�
 
 **1. 自有目标族。** 插件注册自己的目标类别 `gitPanel.file` / `gitPanel.directory` / `gitPanel.image`（声明合并进平台的 `ContextMenuTargetMap`），不直接绑定平台的同名族。目标值只放可 JSON 序列化的身份：`sessionId`、面板实例 id（React `useId`）、仓库标签、相对路径 / 捕获时的 browse root / 忽略标记（树目标），或 data URL 与建议文件名（图片目标）。
 
-**2. 平台动作按白名单借用。** 需要借用的族（file / directory / image / repos）除自有贡献外再注册一份异步贡献：resolve 时调用 `contextMenus.resolve(平台目标)` 取得一个嵌入式实例（不弹窗），从 `source` 读取平台已解析的动作，只保留白名单内的 view id（`open-in-app.file/float|reveal|open|copyPath`、`file-actions.file/copyImage|download|saveAs` 等）。两份贡献 `order` 相同，借用组按 id（`git-panel.borrow.<family>` < `git-panel.<family>`）排在前面，合并顺序与单份时一致。准备限时 800 ms，超出时返回已就绪的部分结果而非失败；**自有组是同步解析的**，平台慢或超时不会把它一起带走。`run` 优先用构建菜单的那个嵌入式实例 `select(viewId)`，实例已释放时才重新 resolve。白名单按动作 id 而非文件类型区分：普通文件与图片都保留下载 / 另存为，对齐 dsh 侧边栏的官方行为；`sidebar` 一项被白名单排除。「在侧栏打开」的 view id 或平台包缺失时，平台组整体不显示，Git 组不受影响。
+**2. 平台动作按白名单借用。** 需要借用的族（file / directory / image / repos）除自有贡献外再注册一份异步贡献：resolve 时调用 `contextMenus.resolve(平台目标)` 取得一个嵌入式实例（不弹窗），从 `source` 读取平台已解析的动作，只保留白名单内的 view id（`open-in-app.file/float|reveal|open|copyPath`、`file-actions.file/copyImage|download|saveAs` 等）。两份贡献 `order` 相同，借用组按 id（`git-panel.borrow.<family>` < `git-panel.<family>`）排在前面，合并顺序与单份时一致。准备限时 800 ms，超出时返回已就绪的部分结果而非失败；**自有组是同步解析的**，平台慢或超时不会把它一起带走。`run` **重新 resolve** 一次并 `select(viewId)`：平台在运行选中的动作前会先 dispose 该贡献的实例（同步中止 `resolve` 拿到的 signal），所以菜单打开时那个实例在点击时已经失效；重新解析也保证点击落在当前的动作清单上——被平台撤回的 id 会报失败，而不是执行别的。白名单按动作 id 而非文件类型区分：普通文件与图片都保留下载 / 另存为，对齐 dsh 侧边栏的官方行为；`sidebar` 一项被白名单排除。「在侧栏打开」的 view id 或平台包缺失时，平台组整体不显示，Git 组不受影响。
 
-**3. 动作回到发起面板。** 目标携带的面板实例 id 经模块级 owner 登记表（`menu-owners.ts`）解析回面板实例；resolve 时由该实例按最新快照生成动作。**`observe` 只给条目真的随状态变化的族**（分支 / 提交 / 变更 / 目录变更 / 贮藏 / pill，busy 与勾选集会影响它们）：树行、图片与仓库行的条目与快照无关，让它们重解只会在平台返回前把菜单清空一次。运行前复核：目标的 `sessionId` 与仓库标签必须等于面板当前值，树目标的 browse root 必须等于面板当前 root，否则该贡献解析为空（不做任何动作，也不报错）——菜单可以活得比它的表面更久，切仓库 / 换根后旧目标上的「在 Finder 中显示」绝不能指到新根下的同名路径。右键不改变选中、active 行与 row slider。
+**3. 动作回到发起面板。** 目标携带的面板实例 id 经模块级 owner 登记表（`menu-owners.ts`）解析回面板实例；resolve 时由该实例按最新快照生成动作。**`observe` 挂在自有组上，借用组不挂。** 自有组是同步解析的，重解只是一次纯函数调用，所以它可以让整张菜单跟着快照更新（busy、勾选集、根是否成为仓库、仓库是否采样到 remote）；借用组不依赖快照，给它挂 `observe` 只会在每次平台往返期间把那一组清空一次。运行前复核：目标的 `sessionId` 与仓库标签必须等于面板当前值，树目标的 browse root 必须等于面板当前 root，否则该贡献解析为空（不做任何动作，也不报错）——菜单可以活得比它的表面更久，切仓库 / 换根后旧目标上的「在 Finder 中显示」绝不能指到新根下的同名路径。右键不改变选中、active 行与 row slider。
 
 兼容门控沿用既有模式：`useContextMenu` 缺失（dsh < 0.2.2-alpha.3）时行绑定退化为 `NO_MENU`（保留浏览器原生菜单），`contextMenus` 服务缺失时不注册贡献，两者都经延迟注入等待，不阻塞插件其余部分。目标以 thunk 形式传给 `getTriggerProps`，身份在手势发生时构建，行渲染后的状态变化不会被读旧。
 
@@ -29,6 +29,6 @@ dsh 0.2.2 起，client 侧有了共享的右键菜单系统（`ui-context-menu`�
 
 - 平台动作的行为、图标与失败提示与平台完全一致，零复制；代价是依赖平台 view id 的拼写（`<contribution>/<action>`，两端均 percent-encode）。单测与 e2e 桩双侧钉住这份清单；平台改名只会少显示几项，不会误执行。
 - 同一会话的两份面板互不串台；面板卸载后其目标解析为空。
-- 借用引入一次额外的嵌入式 resolve（每次菜单打开），在 800 ms 预算内；平台超时与失败提示不会误伤 Git 组，点击走同一个实例而不是重新 resolve。
+- 借用引入嵌入式 resolve（每次菜单打开 + 每次点击），在 800 ms 预算内；平台超时与失败提示不会误伤 Git 组。点击那一次无法复用菜单打开的实例（平台运行动作前就把它 dispose 了）。
 - 菜单不再绑定平台 `file` / `image` 族，平台未来对这些族的新动作不会自动出现在 Git 面板里；需要时扩充白名单即可。
 - 后续 Git 组（与修订版本比较、显示 Git 历史）以快照中的 `capabilities` 声明门控（见 ADR-0026 的能力标记模式），旧 host 上不显示对应菜单项。
