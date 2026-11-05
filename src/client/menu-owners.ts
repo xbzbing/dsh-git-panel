@@ -15,9 +15,12 @@ import type { MenuAction, MenuSource } from './menu-types.js'
 export interface MenuOwner {
   /** Reactive input for an open menu: the session snapshot the panel renders. */
   observe(): readonly MenuSource[]
-  /** Actions for one captured target, built from the panel's latest state.
-   * `signal` aborts with the popup, so a proxied platform query stops too. */
-  actionsFor(kind: MenuKind, value: GitMenuValue, signal: AbortSignal): readonly MenuAction[] | Promise<readonly MenuAction[]>
+  /** The panel's own entries: synchronous, so a slow platform never takes them
+   * down with it. */
+  own(kind: MenuKind, value: GitMenuValue): readonly MenuAction[]
+  /** The platform entries borrowed for this target. `signal` aborts with the
+   * popup, so a proxied platform query stops with it. */
+  borrowed(kind: MenuKind, value: GitMenuValue, signal: AbortSignal): Promise<readonly MenuAction[]>
 }
 
 /** Base every captured target carries: which panel, which session, which

@@ -236,6 +236,31 @@ assert.equal(await page.evaluate(() => window.__menuStub.invoke('quote-path')), 
 assert.deepEqual(await page.evaluate(() => window.__quotes), ['README.md'], 'the file path lands in the composer')
 assert.equal(await page.evaluate(() => window.__quoteFocus), 1, 'the composer takes the keyboard back')
 
+// ── a platform that answers late does not take the plugin's entries ───────
+// The borrowed group is a contribution of its own, so the browser's entries are
+// resolved and offered without waiting for it; a single combined contribution
+// would lose both when the platform misses the budget.
+await page.evaluate(() => { window.__platformReadyDelay = 5000 })
+await page.evaluate(() => { window.__menuStub.clear() })
+await row.click({ button: 'right' })
+const pendingOwn = await page.evaluate(async () => {
+  // Read what the plugin's own contribution offers before the platform answers.
+  const contributions = window.__menuStub.contributions.filter((c) => c.target === 'gitPanel.file')
+  const value = window.__menuStub.state.last.value
+  const own = contributions.find((c) => !c.id.includes('borrow'))
+  const borrowed = contributions.find((c) => c.id.includes('borrow'))
+  return {
+    own: (await own.resolve(value, new AbortController().signal)).map((a) => a.id),
+    borrowing: borrowed !== undefined,
+  }
+})
+assert.equal(pendingOwn.borrowing, true, 'the borrowed group is its own contribution')
+assert.ok(pendingOwn.own.includes('copy-relative-path'), 'the plugin entries resolve without the platform')
+assert.ok(!pendingOwn.own.some((id) => id.startsWith('open-in-app.')), 'and they do not carry the platform entries')
+await page.evaluate(() => { window.__platformReadyDelay = 0 })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.evaluate(() => { window.__menuStub.clear() })
+
 // ── The overview's branch and commit rows (issue #107) ───────────────────
 // These rows reach the same panel face as the browser's, through a prop the
 // tab receives from the panel. A panel that forgets to pass it leaves every

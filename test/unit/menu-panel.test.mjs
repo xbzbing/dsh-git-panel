@@ -65,22 +65,32 @@ function panel(service, { sessionId = 's', repo = '', browseRoot = '/work/repo',
 
 const identity = { sessionId: 's', owner: 'p', repo: '' }
 
+/**
+ * The two groups as the platform merges them: the borrowed (platform) entries
+ * first, then the plugin's own. Both are contributions in their own right, which
+ * is what keeps a slow platform from taking the plugin's entries with it.
+ */
+async function merged(owner, kind, value) {
+  const signal = new AbortController().signal
+  return [...await owner.borrowed(kind, value, signal), ...owner.own(kind, value)]
+}
+
 test('a file row asks the platform for the absolute path', async () => {
   const { service, asked } = recorder()
-  await owner(service).actionsFor(MENU_KIND.file, { ...identity, path: 'src/a.ts', root: null, ignored: false }, new AbortController().signal)
+  await merged(owner(service), MENU_KIND.file, { ...identity, path: 'src/a.ts', root: null, ignored: false }, new AbortController().signal)
   assert.deepEqual(asked[0], { kind: 'file', value: { sessionId: 's', path: '/work/repo/src/a.ts' } })
 })
 
 test('a directory row asks the directory family', async () => {
   const { service, asked } = recorder()
-  await owner(service).actionsFor(MENU_KIND.directory, { ...identity, path: 'src', root: null, ignored: false }, new AbortController().signal)
+  await merged(owner(service), MENU_KIND.directory, { ...identity, path: 'src', root: null, ignored: false }, new AbortController().signal)
   assert.equal(asked[0].kind, 'directory')
   assert.equal(asked[0].value.path, '/work/repo/src')
 })
 
 test('an image pane asks the image family with the data URL and no path', async () => {
   const { service, asked } = recorder()
-  const actions = await owner(service).actionsFor(MENU_KIND.image, {
+  const actions = await merged(owner(service), MENU_KIND.image, {
     ...identity, url: 'data:image/png;base64,AA', name: 'logo@a1b2c3d.png', mediaType: 'image/png',
   }, new AbortController().signal)
   assert.deepEqual(asked[0], {
@@ -92,14 +102,14 @@ test('an image pane asks the image family with the data URL and no path', async 
 })
 
 test('without the menu service a tree row still yields the in-panel entries', async () => {
-  const actions = await owner(undefined).actionsFor(
+  const actions = await merged(owner(undefined), 
     MENU_KIND.file, { ...identity, path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
   )
   assert.deepEqual(actions.map((a) => a.id), ['copy-relative-path'])
 })
 
 test('an image shows nothing without the menu service (its only group is the platform one)', async () => {
-  const actions = await owner(undefined).actionsFor(
+  const actions = await merged(owner(undefined), 
     MENU_KIND.image, { ...identity, url: 'data:image/png;base64,AA' }, new AbortController().signal,
   )
   assert.deepEqual(actions, [])
@@ -108,7 +118,7 @@ test('an image shows nothing without the menu service (its only group is the pla
 test('a value of the wrong family resolves to no actions instead of a wrong menu', async () => {
   const { service } = recorder()
   // An image value captured under the file kind: no root to resolve against.
-  const actions = await owner(service).actionsFor(MENU_KIND.file, { ...identity, url: 'data:,' }, new AbortController().signal)
+  const actions = await merged(owner(service), MENU_KIND.file, { ...identity, url: 'data:,' }, new AbortController().signal)
   assert.deepEqual(actions, [])
 })
 
@@ -121,7 +131,7 @@ test('a repository switch under an open menu resolves to nothing', async () => {
     callbacks: () => CALLBACKS,
     observe: () => [],
   })
-  const actions = await switched.actionsFor(
+  const actions = await merged(switched, 
     MENU_KIND.file, { ...identity, repo: '', path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
   )
   assert.deepEqual(actions, [])
@@ -137,7 +147,7 @@ test('a browse-root switch under an open menu resolves to nothing', async () => 
     callbacks: () => CALLBACKS,
     observe: () => [],
   })
-  const actions = await moved.actionsFor(
+  const actions = await merged(moved, 
     MENU_KIND.file, { ...identity, path: 'a.ts', root: '/work/repo', ignored: false }, new AbortController().signal,
   )
   assert.deepEqual(actions, [])
@@ -146,7 +156,7 @@ test('a browse-root switch under an open menu resolves to nothing', async () => 
 
 test('an unresolved root (null) still resolves: the tree may not know its root yet', async () => {
   const { service, asked } = recorder()
-  const actions = await owner(service).actionsFor(
+  const actions = await merged(owner(service), 
     MENU_KIND.file, { ...identity, path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
   )
   assert.ok(actions.length > 0)
@@ -162,7 +172,7 @@ test('a session switch under an open menu resolves to nothing', async () => {
     callbacks: () => CALLBACKS,
     observe: () => [],
   })
-  const actions = await other.actionsFor(
+  const actions = await merged(other, 
     MENU_KIND.file, { ...identity, path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
   )
   assert.deepEqual(actions, [])
@@ -170,7 +180,7 @@ test('a session switch under an open menu resolves to nothing', async () => {
 
 test('a repository row asks the platform for the row\'s own absolute root', async () => {
   const { service, asked } = recorder()
-  const actions = await owner(service).actionsFor(
+  const actions = await merged(owner(service), 
     MENU_KIND.repos, { ...identity, repo: 'apps/cli', root: '/work/apps/cli' }, new AbortController().signal,
   )
   assert.deepEqual(asked[0], {
@@ -187,7 +197,7 @@ test('a repository row survives a repository pick inside the panel', async () =>
   // The panel moved to another checkout after the row was captured: a chooser
   // row still names its own root, so its menu stays valid.
   const switched = panel(service, { repo: 'other' })
-  const actions = await switched.actionsFor(
+  const actions = await merged(switched, 
     MENU_KIND.repos, { ...identity, repo: 'apps/cli', root: '/work/apps/cli' }, new AbortController().signal,
   )
   assert.equal(asked.length, 1)
@@ -196,7 +206,7 @@ test('a repository row survives a repository pick inside the panel', async () =>
 
 test('a repository row without a root resolves to nothing', async () => {
   const { service, asked } = recorder()
-  const actions = await owner(service).actionsFor(
+  const actions = await merged(owner(service), 
     MENU_KIND.repos, { ...identity, repo: '', root: '' }, new AbortController().signal,
   )
   assert.deepEqual(actions, [])
@@ -205,7 +215,7 @@ test('a repository row without a root resolves to nothing', async () => {
 
 test('a session switch still empties a repository row', async () => {
   const { service } = recorder()
-  const actions = await panel(service, { sessionId: 'other' }).actionsFor(
+  const actions = await merged(panel(service, { sessionId: 'other' }), 
     MENU_KIND.repos, { ...identity, repo: 'apps/cli', root: '/work/apps/cli' }, new AbortController().signal,
   )
   assert.deepEqual(actions, [])

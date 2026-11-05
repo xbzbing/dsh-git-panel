@@ -104,8 +104,7 @@ export function usePillMenu(inputs: PillMenuInputs): Record<string, unknown> {
         const controller = controllerFor(live)
         return controller.getSnapshot().state === 'ready' ? [controller] : []
       },
-      actionsFor: (_kind, value, signal): MenuAction[] => {
-        if (signal.aborted) return []
+      own: (_kind, value): readonly MenuAction[] => {
         const shown = sampleRef.current
         const target = value as PillTargetValue
         // The menu must speak for the checkout the pill is showing now: a
@@ -129,6 +128,8 @@ export function usePillMenu(inputs: PillMenuInputs): Record<string, unknown> {
           facts: { isGit: true, revDiff: false, pathHistory: false },
         }, commands, { canFetch: shown.remote })
       },
+      // The pill is its own family: there is no platform group to borrow.
+      borrowed: async (): Promise<readonly MenuAction[]> => [],
     })
   }, [ctx, ownerId, sessionId])
 

@@ -314,9 +314,12 @@
       resolve: function (target) {
         window.__platformAsk = target
         var views = platformViews(target.kind)
+        // A platform that answers late (or never, with Infinity): the plugin's
+        // own group must survive its absence rather than go down with it.
+        var delay = window.__platformReadyDelay || 0
         return {
           source: { getSnapshot: function () { return views } },
-          ready: Promise.resolve(),
+          ready: delay === 0 ? Promise.resolve() : new Promise(function (resolve) { setTimeout(resolve, delay) }),
           select: function (id) { state.selected.push({ id: id, target: target }) },
           dispose: function () {},
         }
@@ -382,9 +385,13 @@
       },
       collect: async function (target) {
         var merged = []
-        for (var i = 0; i < contributions.length; i++) {
-          var contribution = contributions[i]
-          if (contribution.target !== target.kind) continue
+        // The platform merges providers by `order`, then by contribution id —
+        // not by registration order. Mirroring that is what makes an id-only
+        // reordering (a second contribution for the same family) visible here.
+        var mine = contributions.filter(function (c) { return c.target === target.kind })
+        mine.sort(function (a, b) { return (a.order - b.order) || a.id.localeCompare(b.id) })
+        for (var i = 0; i < mine.length; i++) {
+          var contribution = mine[i]
           var list = await contribution.resolve(target.value, new AbortController().signal)
           for (var j = 0; j < list.length; j++) merged.push(list[j])
         }
