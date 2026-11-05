@@ -61,7 +61,7 @@ test('a busy overview offers the writes but disabled', () => {
 
 test('a commit row copies its identities, quotes it, then the write dialogs', () => {
   const log = []
-  const actions = commitMenuActions(commit, env(true), commands(log), { busy: false })
+  const actions = commitMenuActions(commit, env(true), commands(log), { busy: false, commitCheckout: true })
   assert.deepEqual(actions.map((a) => a.id), [
     'copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'checkout', 'revert', 'reset',
   ])
@@ -79,7 +79,7 @@ test('a commit row copies its identities, quotes it, then the write dialogs', ()
 })
 
 test('the commit HEAD already points at offers no checkout', () => {
-  const actions = commitMenuActions(commit, env(true), commands([]), { busy: false, head: 'a1b2c3d4e5' })
+  const actions = commitMenuActions(commit, env(true), commands([]), { busy: false, head: 'a1b2c3d4e5', commitCheckout: true })
   assert.ok(!actions.some((a) => a.id === 'checkout'), 'detaching a HEAD that is already there is a no-op')
   assert.ok(actions.some((a) => a.id === 'reset'), 'the other entries stay')
 })

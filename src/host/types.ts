@@ -197,6 +197,9 @@ export interface GitSnapshot {
   readonly capabilities?: {
     readonly revDiff?: true
     readonly pathHistory?: true
+    /** `commit-checkout` runs here. An older host has no such action, so the
+     * client does not offer the entry rather than sending it and failing. */
+    readonly commitCheckout?: true
   }
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */

@@ -167,7 +167,7 @@ await page.goto(harness)
 await page.addScriptTag({ path: resolve(DIR, 'client.js') })
 await page.evaluate((root) => { window.__fixtureRoot = root }, ROOT)
 
-const CAPS = { revDiff: true, pathHistory: true }
+const CAPS = { revDiff: true, pathHistory: true, commitCheckout: true }
 
 // ── the ref picker ────────────────────────────────────────────────────────
 await boot(page, CAPS, COMMITS.length)
@@ -268,6 +268,7 @@ const oldHostOffered = await oldPage.evaluate(() => window.__menuStub.state.offe
 assert.ok(!oldHostOffered.includes('compare-ref'), 'no ref comparison on a host without the capability')
 assert.ok(!oldHostOffered.includes('compare-revision'), 'no revision comparison either')
 assert.ok(!oldHostOffered.includes('show-history'), 'no file history either')
+
 assert.ok(oldHostOffered.includes('quote-path'), 'the browser entries stay')
 await oldPage.close()
 

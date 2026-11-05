@@ -3368,8 +3368,8 @@ test('history exactPath guards: exclusive with other filters, safe path only', a
   assert.equal(empty.ok, false)
 })
 
-test('the snapshot declares the compare/history capabilities', async () => {
+test('the snapshot declares the menu capabilities', async () => {
   const res = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
   assert.equal(res.ok, true)
-  assert.deepEqual(res.value.capabilities, { revDiff: true, pathHistory: true })
+  assert.deepEqual(res.value.capabilities, { revDiff: true, pathHistory: true, commitCheckout: true })
 })

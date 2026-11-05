@@ -320,8 +320,8 @@ assert.equal(commitTarget.value.shortHash, 'aaaaaaa')
 assert.equal(commitTarget.value.subject, 'first commit')
 assert.deepEqual(
   await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
-  ['copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'checkout', 'revert', 'reset'],
-  'copies and the composer first, then the dialogs (checkout keeps the work tree, the rewrites sit behind a separator)',
+  ['copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'revert', 'reset'],
+  'copies and the composer first, then the write dialogs (this fixture declares no capabilities, so the checkout entry is gated out)',
 )
 
 // A destructive entry opens the existing confirmation instead of acting: no

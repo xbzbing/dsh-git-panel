@@ -42,6 +42,8 @@ export interface OverviewMenuFacts {
   readonly head?: string | null
   /** The host declared `capabilities.revDiff`; compare entries are gated on it. */
   readonly revDiff?: boolean
+  /** The host declared `capabilities.commitCheckout`. */
+  readonly commitCheckout?: boolean
 }
 
 /** Branch-row entries: switch, history filter, copy, and the compare entry when
@@ -120,7 +122,7 @@ export function commitMenuActions(
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.openTagCreate(value),
     },
-    ...(facts.head === value.hash ? [] : [{
+    ...(facts.head === value.hash || facts.commitCheckout !== true ? [] : [{
       id: 'checkout',
       label: env.t('menu.checkoutCommit'),
       icon: menuIcon('checkout'),
