@@ -35,6 +35,8 @@ export const fr: Record<GitKey, string> = {
   'pill.synced': 'Tout est validé',
   'pill.dirty': 'Modifications non validées',
   'pill.opensSidebar': 'Cliquez pour ouvrir le panneau Git dans la barre latérale droite',
+  'pill.blankUnavailable': 'Le panneau Git sera disponible après le premier message',
+  'pill.openFailed': 'Impossible d’ouvrir le panneau Git',
   'sidebar.guideDescription': 'Consulter les commits, les modifications et les fichiers de l’espace de travail',
   'common.loading': 'Chargement…',
   'common.retry': 'Réessayer',

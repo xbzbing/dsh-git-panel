@@ -73,15 +73,30 @@ export function recentSubTab(sessionId: string): SubTab | null {
 }
 
 /**
+ * The shell's conversation pane root around `from`, when the shell marks one.
+ * The root wraps both the header (the view-tab row) and the content (the
+ * composer holding the pill); a blank session renders no tab row at all, so
+ * scoping the lookup here keeps an ancestor walk from reaching another pane's
+ * tab row in a multi-pane shell. Older shells without the marker fall back to
+ * the nearest-tablist walk below.
+ */
+function paneRoot(from?: Element | null): Element | null {
+  return from?.closest<HTMLElement>('[data-phase]') ?? from?.closest<HTMLElement>('[data-slot="main.conversation"]') ?? null
+}
+
+/**
  * The shell's view tabs nearest to `from` (the pill's own conversation in a
  * multi-pane shell; the document otherwise). A narrow conversation — a phone —
  * shows only the leading tabs; the rest, Git included, sit behind the tab row's
  * "more views" menu button, which lives beside the tablist rather than in it.
  */
 function shellTabs(from?: Element | null): { readonly root: ParentNode; readonly tabs: HTMLButtonElement[]; readonly more: HTMLButtonElement | null } {
-  let root: ParentNode = document
-  for (let el = from ?? null; el !== null; el = el.parentElement) {
-    if (el.querySelector(SHELL_TABLIST_SELECTOR) !== null) { root = el; break }
+  const pane = paneRoot(from)
+  let root: ParentNode = pane ?? document
+  if (pane === null) {
+    for (let el = from ?? null; el !== null; el = el.parentElement) {
+      if (el.querySelector(SHELL_TABLIST_SELECTOR) !== null) { root = el; break }
+    }
   }
   const tablist = root.querySelector<HTMLElement>(SHELL_TABLIST_SELECTOR)
   const tabs = [...root.querySelectorAll<HTMLButtonElement>(SHELL_TAB_SELECTOR)]

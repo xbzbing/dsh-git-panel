@@ -35,6 +35,8 @@ export const es: Record<GitKey, string> = {
   'pill.synced': 'Todo confirmado',
   'pill.dirty': 'Cambios sin confirmar',
   'pill.opensSidebar': 'Haga clic para abrir el panel Git en la barra lateral derecha',
+  'pill.blankUnavailable': 'El panel Git estará disponible después del primer mensaje',
+  'pill.openFailed': 'No se pudo abrir el panel Git',
   'sidebar.guideDescription': 'Revise confirmaciones, cambios y archivos del área de trabajo',
   'common.loading': 'Cargando…',
   'common.retry': 'Reintentar',

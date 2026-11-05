@@ -35,6 +35,8 @@ export const de: Record<GitKey, string> = {
   'pill.synced': 'Alles committet',
   'pill.dirty': 'Nicht committete Änderungen',
   'pill.opensSidebar': 'Klicken, um das Git-Panel in der rechten Seitenleiste zu öffnen',
+  'pill.blankUnavailable': 'Das Git-Panel ist nach der ersten Nachricht verfügbar',
+  'pill.openFailed': 'Das Git-Panel konnte nicht geöffnet werden',
   'sidebar.guideDescription': 'Commits, Änderungen und Dateien im Arbeitsbereich ansehen',
   'common.loading': 'Wird geladen…',
   'common.retry': 'Wiederholen',

@@ -412,6 +412,141 @@ try {
     await page.close()
   }
 
+  // ── a blank pane falls back to the sidebar ───────────────────────────
+  // The shell renders no view-tab row in a blank session. The pill's tab
+  // path has no target, so it must open the sidebar's page type instead of
+  // ending in a silent no-op.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: true })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      // The shell wraps both the header (view tabs) and content (the pill)
+      // in the conversation pane root; a blank pane is data-phase="hero"
+      // and has no [data-conversation-tabs].
+      const pane = document.createElement('div')
+      pane.setAttribute('data-phase', 'hero')
+      host.parentElement.insertBefore(pane, host)
+      pane.appendChild(host)
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return {
+        opened: window.__ctl.openedTabs.slice(),
+        notice: document.querySelector('.gp-tip')?.textContent ?? null,
+      }
+    })
+    assert.deepEqual(out.opened, ['dsh-git-panel'], 'a blank pane opens the sidebar page type')
+    assert.equal(out.notice, null, 'a successful fallback shows no notice')
+    await page.close()
+  }
+
+  // ── a blank pane with no sidebar route explains the wait ─────────────
+  // Tab-only has no sidebar page type to open; the click must say why rather
+  // than looking broken.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'tab', withSidebar: true })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      const pane = document.createElement('div')
+      pane.setAttribute('data-phase', 'hero')
+      host.parentElement.insertBefore(pane, host)
+      pane.appendChild(host)
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return {
+        opened: window.__ctl.openedTabs.slice(),
+        notice: document.querySelector('.gp-tip')?.textContent ?? null,
+      }
+    })
+    assert.deepEqual(out.opened, [], 'tab-only does not open a sidebar page')
+    assert.ok(
+      out.notice?.includes('pill.blankUnavailable'),
+      `the notice explains the blank state (got ${out.notice})`,
+    )
+    await page.close()
+  }
+
+  // ── a host without a sidebar also explains the wait ───────────────────
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: false })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      const pane = document.createElement('div')
+      pane.setAttribute('data-phase', 'hero')
+      host.parentElement.insertBefore(pane, host)
+      pane.appendChild(host)
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return {
+        opened: window.__ctl.openedTabs.slice(),
+        notice: document.querySelector('.gp-tip')?.textContent ?? null,
+      }
+    })
+    assert.deepEqual(out.opened, [], 'no sidebar page is opened on a host without one')
+    assert.ok(
+      out.notice?.includes('pill.blankUnavailable'),
+      `the notice explains the blank state (got ${out.notice})`,
+    )
+    await page.close()
+  }
+
+  // ── a blank pane never activates another pane's Git tab ──────────────
+  // Without a pane boundary the ancestor walk reaches the frame and finds
+  // the *other* pane's tab row; the blank pill must not switch that pane.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: true })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      const blank = document.createElement('div')
+      blank.setAttribute('data-phase', 'hero')
+      host.parentElement.insertBefore(blank, host)
+      blank.appendChild(host)
+
+      const active = document.createElement('div')
+      active.setAttribute('data-phase', 'active')
+      const tabs = document.createElement('div')
+      tabs.setAttribute('data-conversation-tabs', '')
+      const chat = document.createElement('button')
+      chat.setAttribute('role', 'tab')
+      chat.setAttribute('aria-selected', 'true')
+      chat.textContent = 'chat'
+      const git = document.createElement('button')
+      git.setAttribute('role', 'tab')
+      git.setAttribute('aria-selected', 'false')
+      git.textContent = 'panel.tab'
+      let clicked = false
+      git.addEventListener('click', () => {
+        clicked = true
+        git.setAttribute('aria-selected', 'true')
+      })
+      tabs.append(chat, git)
+      active.appendChild(tabs)
+      document.body.appendChild(active)
+
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return { clicked, opened: window.__ctl.openedTabs.slice() }
+    })
+    assert.equal(out.clicked, false, 'a blank pane never clicks another pane’s Git tab')
+    assert.deepEqual(out.opened, ['dsh-git-panel'], 'the blank pane falls back to its sidebar page instead')
+    await page.close()
+  }
+
   // ── the sidebar body renders the panel ────────────────────────────────
   {
     const page = await browser.newPage()
