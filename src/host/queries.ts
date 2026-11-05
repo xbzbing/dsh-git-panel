@@ -2,7 +2,7 @@
  * Read-only query endpoint: history / diff / image-diff / show / branches /
  * tags / authors / last-commit-message / worktree-stats.
  */
-import { join, sep } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { listSessionRepos, mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
 import { exactPathspec, historyPathspec, isSafePath, isSafeRev, validateHistoryPathSearch } from './validate.js'
@@ -263,6 +263,14 @@ async function queryDiff(
     // caller's value; a bare name stays bare — `--end-of-options` plus the
     // trailing `--` keep it an operand either way.
     if (!isSafeRev(q.rev)) return { ok: false, error: { code: 'invalid-name', message: `unsafe rev: ${q.rev}` } }
+    // A revision comparison is one file. A directory path answers with a
+    // multi-file diff, which this single-pane reply cannot express: the view
+    // would draw the second file's headers as a changed line. Reject it here so
+    // a caller that offers the entry anyway gets an error instead of nonsense.
+    const stat = await deps.fs.stat(join(root, q.path)).catch(() => null)
+    if (stat !== null && stat.isDirectory()) {
+      return { ok: false, error: { code: 'invalid-path', message: `not a file: ${q.path}` } }
+    }
     args = ['git', 'diff', unified, '--end-of-options', q.rev, '--', q.path]
   } else if (q.base === 'worktree') {
     // worktree: unstaged diff; for untracked files use --no-index against /dev/null.
@@ -291,14 +299,25 @@ async function queryDiff(
   // A truly untracked file produces no `git diff` output; synthesize one with
   // --no-index. Gate on the file being untracked (ls-files --error-unmatch
   // fails for it) so a clean *tracked* path isn't rendered as an all-new file.
-  if ((q.base === 'worktree' || q.base === 'rev') && text.trim() === '') {
+  if (q.base === 'worktree' || q.base === 'rev') {
     const tracked = await runCommand(deps.run, ['git', 'ls-files', '--error-unmatch', '--', q.path], root, 'diff-tracked-probe', deps.signal)
     const isUntracked = !('run' in tracked) || tracked.run.exitCode !== 0
     if (isUntracked) {
-      const noIndex = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
-      if ('run' in noIndex) {
-        truncated = truncated || noIndex.run.stdoutLossy
-        text = noIndex.run.stdout
+      // A revision comparison of an untracked path is the case `git diff <rev>`
+      // cannot answer: it compares the rev's tree with the *index*, so the path
+      // reads as a deletion of the rev's blob and the working file never shows.
+      // Compose that one by hand; it falls back to the empty-side form below
+      // when the rev has no such path either.
+      const synthesized = q.base === 'rev' ? await revBlobAgainstWorktree(deps, root, q, unified) : null
+      if (synthesized !== null) {
+        truncated = truncated || synthesized.truncated
+        text = synthesized.text
+      } else if (text.trim() === '') {
+        const noIndex = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
+        if ('run' in noIndex) {
+          truncated = truncated || noIndex.run.stdoutLossy
+          text = noIndex.run.stdout
+        }
       }
     }
   }
@@ -309,6 +328,55 @@ async function queryDiff(
       newLines: await countNewSideLines(deps, root, q, text),
       ...(truncated ? { truncated: true as const } : {}),
     },
+  }
+}
+
+/** A scratch name for the synthesized old side; unique per call so two panels
+ * comparing at once cannot collide, and inside `.git` so it never shows up as a
+ * working-tree change. */
+let compareScratchSeq = 0
+function compareScratchPath(root: string, path: string): string {
+  compareScratchSeq += 1
+  const leaf = path.replace(/[\\/]+/g, '-').replace(/[^A-Za-z0-9._-]/g, '_').slice(-60)
+  return join(root, '.git', `gp-compare-${process.pid}-${compareScratchSeq}-${leaf}`)
+}
+
+/**
+ * The old side of a revision comparison when the working path is untracked:
+ * `git diff <rev> -- <path>` compares the rev's tree against the index and
+ * reports the path as deleted, which is true about the index and wrong about
+ * what the user asked for. Write the rev's blob to a scratch file and let
+ * `--no-index` compare it with the working file, so both sides are real.
+ * @returns the diff, or null when the rev has no such path (the caller then
+ *   renders it as an all-new file) or the scratch write is impossible.
+ */
+async function revBlobAgainstWorktree(
+  deps: SnapshotDeps,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'diff'; base: 'rev' }>,
+  unified: string,
+): Promise<{ readonly text: string; readonly truncated: boolean } | null> {
+  if (!isSafeRev(q.rev)) return null
+  const spec = `${q.rev}:${q.path}`
+  const blob = await runCommand(deps.run, ['git', 'cat-file', '-e', '--end-of-options', spec], root, 'rev-old-probe', deps.signal)
+  if (!('run' in blob) || blob.run.exitCode !== 0) return null
+  const old = await runCommand(deps.run, ['git', 'show', '--end-of-options', spec], root, 'rev-old-side', deps.signal)
+  if (!('run' in old) || old.run.exitCode !== 0 || old.run.stdoutLossy) return null
+  const scratch = compareScratchPath(root, q.path)
+  try {
+    await deps.fs.writeExclusive(scratch, Buffer.from(old.run.stdout, 'utf8'), 0o600)
+  } catch {
+    return null
+  }
+  try {
+    const rel = relative(root, scratch)
+    const res = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', rel, q.path], root, 'diff-untracked', deps.signal)
+    if (!('run' in res)) return null
+    return { text: res.run.stdout, truncated: res.run.stdoutLossy }
+  } finally {
+    // A leftover scratch file inside .git is invisible but wrong to leave
+    // behind; a failed unlink must not turn a served diff into an error.
+    await deps.fs.unlink(scratch).catch(() => {})
   }
 }
 
@@ -913,7 +981,9 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
 }
 
 async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
-  const fmt = '--format=%(refname:short)%00%(objectname:short)%00%(upstream:track)'
+  // The full ref rides along: the short name is ambiguous for a branch and tag
+  // that share a name, and a remote-tracking HEAD spells as its remote.
+  const fmt = '--format=%(refname:short)%00%(objectname:short)%00%(upstream:track)%00%(refname)'
   const [localRes, remoteRes, currentRes, defaultRes] = await Promise.all([
     runCommand(deps.run, ['git', 'for-each-ref', '--sort=-committerdate', fmt, 'refs/heads'], root, 'branches-local', deps.signal),
     runCommand(deps.run, ['git', 'for-each-ref', '--sort=-committerdate', fmt, 'refs/remotes'], root, 'branches-remote', deps.signal),
@@ -922,7 +992,7 @@ async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQuery
   ])
   const local: GitBranch[] = 'run' in localRes && localRes.run.exitCode === 0 ? parseBranches(localRes.run.stdout) : []
   const remote: GitBranch[] = 'run' in remoteRes && remoteRes.run.exitCode === 0
-    ? parseBranches(remoteRes.run.stdout).filter((b) => !b.name.endsWith('/HEAD'))
+    ? parseBranches(remoteRes.run.stdout).filter((b) => !(b.ref ?? b.name).endsWith('/HEAD') && b.name !== 'HEAD')
     : []
   const current = 'run' in currentRes && currentRes.run.exitCode === 0 ? currentRes.run.stdout.trim() || null : null
   let defaultBranch: string | null = null
@@ -934,7 +1004,7 @@ async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQuery
 }
 
 async function queryTags(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
-  const res = await runCommand(deps.run, ['git', 'for-each-ref', '--sort=-creatordate', '--format=%(refname:short)%00%(objectname:short)', 'refs/tags'], root, 'tags', deps.signal)
+  const res = await runCommand(deps.run, ['git', 'for-each-ref', '--sort=-creatordate', '--format=%(refname:short)%00%(objectname:short)%00%(refname)', 'refs/tags'], root, 'tags', deps.signal)
   const tags: GitBranch[] = 'run' in res && res.run.exitCode === 0 ? parseTags(res.run.stdout) : []
   return { ok: true, value: { kind: 'tags', tags } }
 }

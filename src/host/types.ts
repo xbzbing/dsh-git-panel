@@ -582,6 +582,14 @@ export interface GitBranch {
   readonly shortHash: string | null
   readonly ahead?: number
   readonly behind?: number
+  /**
+   * Full ref name (`refs/heads/x`, `refs/remotes/o/x`, `refs/tags/x`). Absent
+   * on hosts that predate it. The short name is ambiguous once a branch and a
+   * tag share it (git spells those `heads/foo` / `tags/foo`), and a
+   * remote-tracking HEAD spells as its remote, so anything that needs to name
+   * the ref again reads this field.
+   */
+  readonly ref?: string
 }
 
 /** One entry in the stash stack (`git stash list`). */
