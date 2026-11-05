@@ -194,7 +194,7 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
   const snap = view.snapshot
   if (snap.showInputPill === false) return null
   const repo = basename(snap.root)
-  const branch = snap.branch ?? `(${t('pill.detached')})`
+  const branch = snap.branch ?? t('pill.detached')
   const dirty = snap.dirty
   const gitClass = dirty ? 'gp-pill--dirty' : 'gp-pill--synced'
 

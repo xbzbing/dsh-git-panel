@@ -10,12 +10,13 @@ export const CSS = `
  * orange when dirty. Fully-rounded (999px) to match the dsh-openviking-manager
  * input-bar toggle pill. */
 .gp-pill-wrap{display:inline-flex}
-.gp-pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:12px;line-height:16px;cursor:pointer;white-space:nowrap;max-width:280px;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-weight:600}
+.gp-pill{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:12px;line-height:16px;cursor:pointer;white-space:nowrap;max-width:280px;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-weight:600}
 .gp-pill:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-pill__dot{display:none;flex:none;width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}
 .gp-pill__repo{color:var(--dsw-alias-state-business-primary,#5ac8fa);flex:none;overflow:hidden;text-overflow:ellipsis}
 /* Spacing between the repo name and the branch group comes from the pill's own
- * flex gap — an extra margin here would double it (12px rendered). */
+ * flex gap — an extra margin here would double it. The gap is a tight single
+ * interval, not a full character, so the two labels read as one marker. */
 .gp-pill__git{display:inline-flex;align-items:center;min-width:0}
 .gp-pill--synced .gp-pill__git{color:var(--dsw-alias-state-success-primary,#3fb950)}
 .gp-pill--dirty .gp-pill__git{color:var(--dsw-alias-state-warn-primary,#e0982e)}

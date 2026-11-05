@@ -237,7 +237,37 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   await new Promise((r) => setTimeout(r, 300))
   result.expandsWhenWide = host.querySelector('.gp-pill')?.classList.contains('gp-pill--compact') === false
 
-  // Case 5: every visible sub-tab owns a resolvable, correctly-labelled
+  // Case 5: a detached HEAD has no branch name, and `pill.detached` is the
+  // label without parentheses. The pill owns the one visible pair, so the
+  // fallback must not bring its own; the repo→branch gap stays one tight
+  // interval instead of reading as two spaces.
+  const detachedSnap = { ...snap, branch: null, dirty: false }
+  const detachedConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
+    ? { ok: true, value: { ok: true, value: detachedSnap } }
+    : { ok: true, value: { ok: true, value: { kind: 'branches', current: null, defaultBranch: null, local: [], remote: [] } } } } }
+  entry.apply(mkCtx(detachedConn))
+  const detachedRegion = document.createElement('div')
+  detachedRegion.setAttribute('data-conversation-region', '')
+  detachedRegion.style.width = '1000px'
+  document.body.appendChild(detachedRegion)
+  const detachedHost = document.createElement('div')
+  detachedRegion.appendChild(detachedHost)
+  const detachedRoot = ReactDOM.createRoot(detachedHost)
+  detachedRoot.render(registered['conversation.input.left'].component({ sessionId: 's-detached' }))
+  await new Promise((r) => setTimeout(r, 300))
+  const detachedPill = detachedHost.querySelector('.gp-pill')
+  const detachedRepo = detachedPill?.querySelector('.gp-pill__repo')
+  const detachedGit = detachedPill?.querySelector('.gp-pill__git')
+  result.detachedText = detachedPill?.textContent ?? ''
+  result.detachedSinglePair = detachedPill?.querySelectorAll('.gp-pill__git')?.length === 1
+    && result.detachedText === 'fixture-repo(pill.detached)'
+  result.pillGap = detachedRepo && detachedGit
+    ? Math.round((detachedGit.getBoundingClientRect().left - detachedRepo.getBoundingClientRect().right) * 100) / 100
+    : -1
+  detachedRoot.unmount()
+  detachedRegion.remove()
+
+  // Case 6: every visible sub-tab owns a resolvable, correctly-labelled
   // role=tabpanel in every view state (ready / loading / no-cwd / error /
   // files-only / no-session) — never a dangling aria-controls. Runs last: it
   // applies its own contexts and leaves its scenario roots mounted.
@@ -273,6 +303,9 @@ try {
   assert.equal(out.compactKeepsStatus, true, 'the collapsed marker keeps its git status class')
   assert.equal(out.compactDotShown, true, 'the status dot is visible when collapsed')
   assert.equal(out.expandsWhenWide, true, 'widening the workspace expands the marker again')
+  assert.equal(out.detachedSinglePair, true,
+    `detached HEAD gets exactly one parenthesis pair (got ${JSON.stringify(out.detachedText)})`)
+  assert.ok(Math.abs(out.pillGap - 4) < 0.5, `the repo→branch gap is tight (got ${out.pillGap}px)`)
   // Sub-tab ARIA: a tab's aria-controls must resolve to its own labelled
   // tabpanel in every view state, with exactly one selected/shown pane.
   const aria = out.panelAria
