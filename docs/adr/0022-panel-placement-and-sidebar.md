@@ -101,6 +101,7 @@ pill 读的是**模块级**的 `effective`（`placement-state.ts`），不是 Re
 - 两条路都不可用时，pill 用同一条 tooltip 槽位显示「发送第一条消息后可打开 Git 面板」，不再静默；侧边栏存在但打开抛错时显示「Git 面板暂时无法打开」。
 - **页签查找限定在 pill 自己的会话面板**：主会话以最近的 `[data-phase]` 根为边界；右侧边栏里的嵌入式对话以 `[data-sidebar-chat]` 为边界。只有这些都找不到时才回退到旧的祖先遍历。多 pane 同屏时，空白 pane 没有自己的标签栏，旧遍历可能走到另一个 pane 的 Git 页签并误点。
 - 空白 pane 且侧边栏可达时，tooltip 增加「点击在右侧边栏打开」——与「仅侧边栏」模式的提示一致。
+- 侧边栏已展开且其中只有 Git 页时，pill 再次点击折叠该列；若还有其它页，点击只聚焦 Git 页，不关闭整列——避免把用户并排打开的页面一起藏掉。tooltip 相应改为「点击关闭右侧边栏」。
 
 ### 范围
 
@@ -108,6 +109,6 @@ pill 读的是**模块级**的 `effective`（`placement-state.ts`），不是 Re
 
 ### 验证
 
-`test/e2e/sidebar-tab.mjs` 覆盖五种情形：空白 pane + `all` + 侧边栏可用 → 打开侧边栏页签；空白 pane + `tab` → 只出现提示；空白 pane + `all` + 无侧边栏 → 只出现提示；空白 pane 与另一个 active pane 同屏 → 不点击 active pane 的页签，改开侧边栏；嵌入在右侧边栏的对话（`[data-sidebar-chat]`，无标签栏）与 active 主 pane 同屏 → 不点击主 pane 的页签，改开侧边栏。
+`test/e2e/sidebar-tab.mjs` 覆盖五种情形：空白 pane + `all` + 侧边栏可用 → 打开侧边栏页签；空白 pane + `tab` → 只出现提示；空白 pane + `all` + 无侧边栏 → 只出现提示；空白 pane 与另一个 active pane 同屏 → 不点击 active pane 的页签，改开侧边栏；嵌入在右侧边栏的对话（`[data-sidebar-chat]`，无标签栏）与 active 主 pane 同屏 → 不点击主 pane 的页签，改开侧边栏。另覆盖：侧边栏只有 Git 页时再次点击折叠、折叠后再次打开、还有其它页时只聚焦不折叠。
 
 本补充不改变 wire 类型、配置字段或既有挂载规则；`sidebar` placement 仍走原有分支，`all` 只在页签不可用时才回退。

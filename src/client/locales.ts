@@ -40,6 +40,7 @@ export const zh = {
   'pill.synced': '本地已同步',
   'pill.dirty': '有待提交的变更',
   'pill.opensSidebar': '点击在右侧边栏打开 Git 面板',
+  'pill.closesSidebar': '点击关闭右侧边栏',
   'pill.blankUnavailable': '发送第一条消息后可打开 Git 面板',
   'pill.openFailed': 'Git 面板暂时无法打开',
   // right sidebar
@@ -568,6 +569,7 @@ export const en: Record<GitKey, string> = {
   'pill.synced': 'Everything committed',
   'pill.dirty': 'Uncommitted changes',
   'pill.opensSidebar': 'Click to open the Git panel in the right sidebar',
+  'pill.closesSidebar': 'Click to close the right sidebar',
   'pill.blankUnavailable': 'The Git panel is available after the first message',
   'pill.openFailed': 'The Git panel could not be opened',
   'sidebar.guideDescription': 'Review commits, changes and workspace files',

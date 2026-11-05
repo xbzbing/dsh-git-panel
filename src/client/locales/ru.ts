@@ -35,6 +35,7 @@ export const ru: Record<GitKey, string> = {
   'pill.synced': 'Всё зафиксировано',
   'pill.dirty': 'Есть незафиксированные изменения',
   'pill.opensSidebar': 'Нажмите, чтобы открыть панель Git на правой боковой панели',
+  'pill.closesSidebar': 'Нажмите, чтобы закрыть правую боковую панель',
   'pill.blankUnavailable': 'Панель Git станет доступна после первого сообщения',
   'pill.openFailed': 'Не удалось открыть панель Git',
   'sidebar.guideDescription': 'Просмотр фиксаций, изменений и файлов рабочей области',
