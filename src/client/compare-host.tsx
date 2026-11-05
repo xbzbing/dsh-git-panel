@@ -18,7 +18,8 @@ import type { DiffMode } from './DiffView.js'
 import { renderFileDiffModal } from './overview-filediff.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { DIFF_EXPAND_CONTEXT } from './types.js'
-import { ComparePicker, loadCompareCandidates, revisionCandidates, type CompareRef } from './compare-flow.js'
+import { ComparePicker } from './compare-flow.js'
+import { loadCompareCandidates, revisionCandidates, type CompareRef } from './compare-refs.js'
 
 /** The history page size of the revisions picker; its cap is the picker's own
  * "load more" affordance rather than an unbounded walk. */

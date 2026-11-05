@@ -9,78 +9,13 @@
  */
 import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import type { GitPanelRemote } from './rpc.js'
-import { queryAs } from './rpc.js'
-import type { GitBranch } from './types.js'
 import type { GitKey } from './locales.js'
 import { renderModalShell, type ModalShellProps } from './ops-modals.js'
+import {
+  COMPARE_ROW_H, compareRows, filterCandidates, type CompareRef,
+} from './compare-refs.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
-
-/** One candidate ref. */
-export interface CompareRef {
-  /** The revision handed to the host (a full ref name, so a branch and a tag
-   * spelled the same never collide). */
-  readonly rev: string
-  /** The name shown, without the `refs/…` prefix. */
-  readonly label: string
-  readonly group: 'local' | 'remote' | 'tag'
-}
-
-/** Display order of the three groups. */
-export const COMPARE_GROUPS = ['local', 'remote', 'tag'] as const
-
-/**
- * The candidates a repository offers: every local branch, every remote-tracking
- * branch and every tag. Full ref names are used on the wire; the labels are the
- * short ones the rest of the panel shows.
- * @param branches - the `branches` query result.
- * @param tags - the `tags` query result.
- */
-export function compareCandidates(
-  branches: Extract<import('./types.js').GitQueryResult, { kind: 'branches' }>,
-  tags: Extract<import('./types.js').GitQueryResult, { kind: 'tags' }>,
-): readonly CompareRef[] {
-  return [
-    ...branches.local.map((b: GitBranch) => ({ rev: `refs/heads/${b.name}`, label: b.name, group: 'local' as const })),
-    ...branches.remote.map((b: GitBranch) => ({ rev: `refs/remotes/${b.name}`, label: b.name, group: 'remote' as const })),
-    ...tags.tags.map((tag: GitBranch) => ({ rev: `refs/tags/${tag.name}`, label: tag.name, group: 'tag' as const })),
-  ]
-}
-
-/** Case-insensitive substring filter over the displayed label. */
-export function filterCandidates(candidates: readonly CompareRef[], needle: string): readonly CompareRef[] {
-  const query = needle.trim().toLowerCase()
-  if (query === '') return candidates
-  return candidates.filter((ref) => ref.label.toLowerCase().includes(query))
-}
-
-/** Rows to draw: each group's first candidate carries its heading. */
-export interface CompareRow {
-  readonly ref: CompareRef
-  readonly heading: GitKey | null
-}
-
-/** Flatten candidates into rows, one heading per non-empty group. */
-export function compareRows(candidates: readonly CompareRef[]): readonly CompareRow[] {
-  const rows: CompareRow[] = []
-  let last: CompareRef['group'] | null = null
-  for (const ref of candidates) {
-    const heading = ref.group === last ? null : GROUP_LABEL[ref.group]
-    rows.push({ ref, heading })
-    last = ref.group
-  }
-  return rows
-}
-
-const GROUP_LABEL: Readonly<Record<CompareRef['group'], GitKey>> = {
-  local: 'overview.local',
-  remote: 'overview.remote',
-  tag: 'overview.tags',
-}
-
-/** Row height, matching `.gp-compare__row`. */
-export const COMPARE_ROW_H = 30
 
 export interface ComparePickerProps {
   /** Bar title, either picker's own. */
@@ -166,34 +101,4 @@ export function ComparePicker({ title, path, candidates, loading, failed, footer
     t,
   }
   return renderModalShell(props)
-}
-
-/** The revisions picker's rows: one row per commit of this file's history. The
- * heading is suppressed (a single group), and the label carries the short hash
- * next to the subject so two same-titled commits stay distinguishable. */
-export function revisionCandidates(commits: readonly import('./types.js').GraphCommit[]): readonly CompareRef[] {
-  return commits.map((commit) => ({
-    rev: commit.hash,
-    label: `${commit.shortHash}  ${commit.subject}`,
-    group: 'local' as const,
-  }))
-}
-
-/** A commit its own revision comparison: the label shown in the overlay bar. */
-export function revisionLabel(commit: { shortHash: string }): string {
-  return commit.shortHash
-}
-
-/** Read the candidates for one session; null while loading or after a failure. */
-export async function loadCompareCandidates(
-  remote: GitPanelRemote, sessionId: string,
-): Promise<readonly CompareRef[] | null> {
-  const [branchesRes, tagsRes] = await Promise.all([
-    remote.query({ sessionId, query: { kind: 'branches' } }),
-    remote.query({ sessionId, query: { kind: 'tags' } }),
-  ])
-  const branches = queryAs(branchesRes, 'branches')
-  const tags = queryAs(tagsRes, 'tags')
-  if (branches === null || tags === null) return null
-  return compareCandidates(branches, tags)
 }

@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon } from './icons.js'
-import { OVERLAY_ATTR, useDialogFocus } from './dialog-focus.js'
+import { isTopOverlay, OVERLAY_ATTR, useDialogFocus } from './dialog-focus.js'
 import type { GitKey } from './locales.js'
 
 export type OpT = (key: GitKey, params?: Record<string, string | number>) => string
@@ -141,6 +141,7 @@ function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, 
   // also pass a label, and inferring from it left reset/revert/tag-delete
   // dismissible mid-flight (their error line then had no dialog to render in).
   const busy = busyProp === true
+  const backdropRef = useRef<HTMLDivElement | null>(null)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   // Escape stays with this shell (it knows about `busy`) unless it traps focus:
@@ -160,12 +161,20 @@ function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, 
   useEffect(() => {
     // A focus-trapping shell gets Escape from `useDialogFocus` instead.
     if (trapFocus === true) return undefined
-    // While an op runs, swallow Escape so the dialog can't be dismissed mid-flight.
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !busy) onClose() }
+    // While an op runs, swallow Escape so the dialog can't be dismissed
+    // mid-flight; while another overlay is stacked above (the comparison overlay
+    // on top of its picker), the key belongs to that one — both listeners are on
+    // `document`, so without this check one keystroke closes both layers.
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || busy) return
+      if (!isTopOverlay(backdropRef.current)) return
+      onClose()
+    }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose, busy, trapFocus])
   const modal = h('div', {
+    ref: backdropRef,
     className: 'gp-modal-backdrop',
     // Declares this dialog as an overlay above the page, so a lower layer's
     // Escape handler (the branch drawer) can yield the keystroke to it.

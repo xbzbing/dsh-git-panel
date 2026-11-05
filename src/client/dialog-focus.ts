@@ -57,6 +57,17 @@ export function overlayDepth(): number {
   return typeof document === 'undefined' ? 0 : document.querySelectorAll(`[${OVERLAY_ATTR}]`).length
 }
 
+/**
+ * Whether `node` is the topmost mounted overlay. Portaled overlays are appended
+ * in mount order, so document order is stacking order — the same assumption
+ * `overlayDepth` already makes for the ones that yield.
+ */
+export function isTopOverlay(node: Element | null): boolean {
+  if (typeof document === 'undefined' || node === null) return true
+  const all = [...document.querySelectorAll(`[${OVERLAY_ATTR}]`)]
+  return all.length === 0 || all[all.length - 1] === node
+}
+
 export function useDialogFocus(
   containerRef: RefObject<HTMLElement | null>,
   onClose: () => void,

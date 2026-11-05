@@ -614,16 +614,25 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // request lives here so the picker reuses this panel's remote (and therefore
   // its repository tag), while compare-host.tsx owns the picker and overlay.
   const [compare, setCompare] = useState<CompareRequest | null>(null)
-  const [historyPath, setHistoryPath] = useState<string | null>(null)
+  // A one-shot request, not a filter: the sequence makes a repeat of the same
+  // path a new request, and `repo` scopes it to the checkout it was raised on.
+  const [historyRequest, setHistoryRequest] = useState<{ path: string; seq: number; repo: string } | null>(null)
+  const historySeq = useRef(0)
   const openCompare = useCallback((mode: CompareRequest['mode'], value: TreeTargetValue): void => {
     setCompare({ mode, path: value.path })
   }, [])
   const showHistory = useCallback((value: TreeTargetValue): void => {
     // The history filter replaces the page, so the overview must be the visible
     // sub-tab before the chip can mean anything.
-    setHistoryPath(value.path)
+    historySeq.current += 1
+    setHistoryRequest({ path: value.path, seq: historySeq.current, repo })
     if (hasSession(sessionId)) setSelection({ sessionId, tab: 'overview' })
-  }, [sessionId])
+  }, [sessionId, repo])
+  // A comparison names a path inside one checkout. Switching repository (or
+  // session) under an open picker must close it: the picker would otherwise
+  // re-query the new checkout with the old path and show a diff that belongs to
+  // neither.
+  useEffect(() => { setCompare(null) }, [sessionId, repo])
   const isGitRoot = useCallback((): boolean => filesRootRef.current !== null && viewRootIsGit.current, [])
   const capabilities = useCallback((): { revDiff: boolean; pathHistory: boolean } => capabilitiesRef.current, [])
   // The overview's own runs and busy flag are published by the tab into this
@@ -873,7 +882,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       tight: stackedTight,
       phone: layout.phone ?? false,
       repositories,
-      exactPath: historyPath,
+      // Only the checkout the request was raised on may consume it: a
+      // repository switch drops the request instead of filtering the new tree by
+      // a path from the old one.
+      exactPath: historyRequest !== null && historyRequest.repo === repo ? historyRequest.path : undefined,
+      exactPathSeq: historyRequest !== null && historyRequest.repo === repo ? historyRequest.seq : undefined,
+      onClearExactPath: () => setHistoryRequest(null),
       panelMenu,
       menuCommandsRef: overviewCommandsRef,
       menuFactsRef: overviewStateRef,
@@ -1000,7 +1014,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // discard clicked on the old list would land on the new work tree.
     compare !== null && sessionId !== undefined
       ? h(CompareHost, {
-        key: 'compare', remote: repoRemote, sessionId, request: compare,
+        // Re-keyed on the checkout so a switch tears the flow down even when the
+        // effect above has not run yet.
+        key: `compare:${sessionId}:${repo}`, remote: repoRemote, sessionId, request: compare,
         compact, defaultDiffView: view.state === 'ready' ? view.snapshot.defaultDiffView : 'unified',
         onClose: () => setCompare(null), t,
       })

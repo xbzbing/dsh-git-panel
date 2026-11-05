@@ -49,15 +49,17 @@ export interface MenuEnv {
 export function fileMenuActions(
   value: TreeTargetValue, env: MenuEnv, platform: readonly MenuAction[],
 ): MenuAction[] {
-  return [...platform, ...gitGroup(value, env), ...browserGroup(value, env)]
+  return [...platform, ...gitGroup(value, env, 'file'), ...browserGroup(value, env)]
 }
 
 /** Directory row / status-bar root: the same shape, without the file-only
- * entries. A directory's history covers every path below it. */
+ * entries. A directory's history covers every path below it, but a revision
+ * comparison does not: it is a single-file pane, and a directory answers with a
+ * multi-file diff the pane cannot render. */
 export function directoryMenuActions(
   value: TreeTargetValue, env: MenuEnv, platform: readonly MenuAction[],
 ): MenuAction[] {
-  return [...platform, ...gitGroup(value, env), ...browserGroup(value, env)]
+  return [...platform, ...gitGroup(value, env, 'directory'), ...browserGroup(value, env)]
 }
 
 /**
@@ -66,10 +68,10 @@ export function directoryMenuActions(
  * declare the capability: an old host reads an unknown `base` as a work-tree
  * diff and would answer with the wrong content rather than fail.
  */
-function gitGroup(value: TreeTargetValue, env: MenuEnv): MenuAction[] {
+function gitGroup(value: TreeTargetValue, env: MenuEnv, target: 'file' | 'directory'): MenuAction[] {
   if (!env.facts.isGit || value.ignored || value.path === '') return []
   const group: MenuAction[] = []
-  if (env.facts.revDiff) {
+  if (env.facts.revDiff && target === 'file') {
     group.push(
       { id: 'compare-revision', label: env.t('menu.compareRevision'), run: () => env.callbacks?.compareRevision(value) },
       { id: 'compare-ref', label: env.t('menu.compareRef'), run: () => env.callbacks?.compareRef(value) },

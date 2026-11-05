@@ -94,7 +94,12 @@ interface OverviewProps {
   readonly repositories?: RepositoriesHost
   /** A file whose history is being shown (the "show Git history" entry): the
    * history is filtered to this exact path until the chip is dismissed. */
-  readonly exactPath?: string | null
+  readonly exactPath?: string
+  /** Changes on every "show Git history" request, including a repeat of the
+   * same path: the chip is a one-shot request, not a sticky filter. */
+  readonly exactPathSeq?: number
+  /** The panel drops its request when another filter takes over. */
+  readonly onClearExactPath?: () => void | null
   /** The panel's menu face; branch and commit rows bind through it. */
   readonly panelMenu?: PanelMenu
   /** Refs the panel owns: the tab publishes its runs and busy flag into them
@@ -150,7 +155,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, panelMenu, menuCommandsRef, menuFactsRef, onQuote, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, exactPathSeq, onClearExactPath, panelMenu, menuCommandsRef, menuFactsRef, onQuote, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   // Latest snapshot for late replies: a direct status-bar write (pull / push /
   // clean switch) has no dialog, so nothing else would stop its failure from
@@ -161,14 +166,36 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   // The file-history chip rides the same filter object: exactPath excludes every
   // other filter on the wire, so setting it clears the rest (and vice versa —
-  // any other filter write drops the chip).
+  // any other filter write drops the chip; see writeFilter below). The request
+  // sequence is what makes a repeat meaningful: asking for the same file twice
+  // closes the chip in between, and a path alone would not change.
+  const appliedChipSeq = useRef<number | undefined>(undefined)
   useEffect(() => {
-    setFilter((prev) => (prev.exactPath === exactPath ? prev : {
-      ...prev,
-      exactPath: exactPath ?? undefined,
-      ...(exactPath ? { ref: null, search: '', author: '', since: '' } : {}),
-    }))
-  }, [exactPath])
+    // Apply once per request. Clearing the request from the panel's side (a
+    // control took over, or the repository switched) must not re-apply an old
+    // chip: the local filter was already cleared by whoever did the clearing,
+    // and re-running here would race that write and put the chip back.
+    if (exactPath === undefined || exactPathSeq === undefined) return
+    if (appliedChipSeq.current === exactPathSeq) return
+    appliedChipSeq.current = exactPathSeq
+    setFilter((prev) => ({ ...prev, exactPath, ref: null, search: '', pathSearch: '', author: '', since: '' }))
+  }, [exactPath, exactPathSeq])
+  // The debounce below runs in a timer, outside the render phase, so it reads
+  // the current chip state through a ref instead of taking it as a dependency
+  // (a dependency would restart the timer on every filter write).
+  const filterRef = useRef(filter)
+  filterRef.current = filter
+  const clearChipRef = useRef<(() => void) | undefined>(onClearExactPath)
+  clearChipRef.current = onClearExactPath
+  /** Drop the file-history chip: the panel's request goes with it, so a new
+   * request for the same path is a new request. */
+  const clearChip = useCallback((): void => { clearChipRef.current?.() }, [])
+  /** Write a filter from a control. The chip is exclusive with every other
+   * filter on the wire (the host rejects the combination), so the write drops it. */
+  const writeFilter = useCallback((patch: Partial<HistoryFilter>): void => {
+    if (filterRef.current.exactPath !== undefined) clearChip()
+    setFilter((prev) => ({ ...prev, ...patch, ...(prev.exactPath === undefined ? {} : { exactPath: undefined }) }))
+  }, [clearChip])
   const [searchInput, setSearchInput] = useState('')
   const [searchScope, setSearchScope] = useState<HistorySearchScope>('message')
   /** Menu open state per filter: Menu is controlled and never closes itself. */
@@ -416,14 +443,18 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // One debounce publishes the scope and text together, so the request never
   // combines a previous message filter with the new path filter.
   useEffect(() => {
-    const timer = setTimeout(() => setFilter((prev) => {
+    const timer = setTimeout(() => {
       const search = searchScope === 'message' ? searchInput : ''
       const pathSearch = searchScope === 'path' ? searchInput : ''
-      return prev.search === search && (prev.pathSearch ?? '') === pathSearch
-        ? prev : { ...prev, search, pathSearch }
-    }), 300)
+      if (filterRef.current.exactPath !== undefined) clearChip()
+      setFilter((prev) => {
+        const unchip = prev.exactPath === undefined ? prev : { ...prev, exactPath: undefined }
+        return unchip.search === search && (unchip.pathSearch ?? '') === pathSearch
+          ? unchip : { ...unchip, search, pathSearch }
+      })
+    }, 300)
     return () => clearTimeout(timer)
-  }, [searchInput, searchScope])
+  }, [searchInput, searchScope, clearChip])
 
   // The published topology signals projection mode. An older host may omit it;
   // use the shared query predicate as a conservative fallback for those rows.
@@ -505,7 +536,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // ignores the value. The split is shared across the three stacked surfaces.
   const split = useStackedSplit(t('resizer.resetHeight'))
 
-  const setRef = (ref: string | null): void => setFilter((prev) => ({ ...prev, ref }))
+  const setRef = (ref: string | null): void => writeFilter({ ref })
 
   // Tag write ops go straight through `run` (the work tree is untouched, so no
   // snapshot is needed); afterTagOp reloads the history graph + branch/tag list.
@@ -779,7 +810,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     selectedId: filter.author,
     onSelect: (id: string) => {
       setAuthorOpen(false)
-      setFilter((prev) => ({ ...prev, author: id }))
+      writeFilter({ author: id })
     },
     align: 'start',
     portal: true,
@@ -794,7 +825,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     selectedId: filter.since,
     onSelect: (id: string) => {
       setSinceOpen(false)
-      setFilter((prev) => ({ ...prev, since: id }))
+      writeFilter({ since: id })
     },
     align: 'start',
     portal: true,
@@ -822,7 +853,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       key: 'filepath', type: 'button', className: 'gp-chip gp-chip--filter',
       title: `${t('menu.clearFileHistory')} · ${t('menu.noRenameNote')}`,
       'aria-label': `${t('menu.fileHistory')} ${filter.exactPath} · ${t('menu.clearFileHistory')} · ${t('menu.noRenameNote')}`,
-      onClick: () => { setFilter((prev) => ({ ...prev, exactPath: undefined })); detail.clearSelection() },
+      onClick: () => { clearChip(); setFilter((prev) => ({ ...prev, exactPath: undefined })); detail.clearSelection() },
     }, [
       h('span', { key: 'k', className: 'gp-chip__key' }, t('menu.fileHistory')),
       h('span', { key: 'v', className: 'gp-chip__value' }, filter.exactPath),
