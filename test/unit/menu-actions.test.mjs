@@ -9,21 +9,18 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { NO_MENU, menuTriggerFactory, fileMenuActions, directoryMenuActions } from '../../lib/testkit.mjs'
 
-function stubNavigator() {
+/** A clipboard supplier the panel supplies in the real wiring. */
+function stubClipboard(result = true) {
   const writes = []
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { clipboard: { writeText: async (text) => { writes.push(text) } } },
-    configurable: true,
-    writable: true,
-  })
-  return writes
+  const write = async (text) => { writes.push(text); return result }
+  return { writes, write }
 }
 
 const t = (key) => key
 
 const FACTS = { isGit: false, revDiff: false, pathHistory: false }
 const CALLBACKS = { compareRevision: () => {}, compareRef: () => {}, showHistory: () => {}, quote: () => {} }
-const envWith = (menus, facts = FACTS) => ({ t, menus, facts, callbacks: CALLBACKS })
+const envWith = (menus, facts = FACTS, writeClipboard = stubClipboard().write) => ({ t, menus, facts, callbacks: CALLBACKS, writeClipboard })
 
 function value(overrides = {}) {
   return { sessionId: 's', owner: 'o', repo: '', path: 'src/a.ts', root: '/work', ignored: false, ...overrides }
@@ -48,25 +45,23 @@ test('a directory row offers its relative path', () => {
 })
 
 test('copying the relative path writes the tree path and confirms through the toast', async () => {
-  const writes = stubNavigator()
+  const clipboard = stubClipboard()
   const notices = []
   const menus = { notify: (text, success) => { notices.push({ text, success }) } }
-  const actions = fileMenuActions(value(), envWith(menus), [])
+  const actions = fileMenuActions(value(), envWith(menus, FACTS, clipboard.write), [])
   await actions[0].run()
-  assert.deepEqual(writes, ['src/a.ts'])
+  assert.deepEqual(clipboard.writes, ['src/a.ts'])
   assert.deepEqual(notices, [{ text: 'menu.copied', success: true }])
 })
 
-test('a rejected copy surfaces through the action failure label', async () => {
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { clipboard: { writeText: async () => { throw new Error('denied') } } },
-    configurable: true,
-    writable: true,
-  })
-  const actions = fileMenuActions(value(), envWith(undefined), [])
-  assert.equal(actions[0].failureLabel, 'menu.copyFailed')
-  await assert.rejects(() => actions[0].run(), /denied/)
+test('a blocked copy reports failure instead of claiming success', async () => {
+  const notices = []
+  const menus = { notify: (text, success) => { notices.push({ text, success }) } }
+  const actions = fileMenuActions(value(), envWith(menus, FACTS, stubClipboard(false).write), [])
+  await actions[0].run()
+  assert.deepEqual(notices, [{ text: 'menu.copyFailed', success: false }])
 })
+
 
 test('NO_MENU hands the row its own handlers back untouched', () => {
   const onClick = () => {}

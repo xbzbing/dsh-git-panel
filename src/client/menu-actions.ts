@@ -37,6 +37,10 @@ export interface MenuEnv {
   /** Absent only if the host withdrew the service between registration and use. */
   readonly menus: ContextMenusService | undefined
   readonly facts: MenuFacts
+  /** Writes text to the clipboard and reports whether it landed. Supplied by
+   * the client half, which owns the platform's clipboard helper — the raw
+   * `navigator.clipboard` is missing outside a secure context. */
+  readonly writeClipboard: (text: string) => Promise<boolean>
   /** Present once the panel registered its runs (menu-panel.ts fills it). */
   readonly callbacks?: MenuCallbacks
 }
@@ -101,9 +105,15 @@ function browserGroup(value: TreeTargetValue, env: MenuEnv): MenuAction[] {
   return group
 }
 
-/** Write to the clipboard and report through the platform's toast, which
- * outlives the dismissed popup. Shared by every group that copies. */
-export async function copyText(env: Pick<MenuEnv, 't' | 'menus'> & Partial<Pick<MenuEnv, 'facts'>>, text: string): Promise<void> {
-  await navigator.clipboard.writeText(text)
-  env.menus?.notify(env.t('menu.copied'), true)
+/**
+ * Write to the clipboard and report through the platform's toast, which
+ * outlives the dismissed popup. Shared by every group that copies.
+ *
+ * The write goes through the platform helper rather than `navigator.clipboard`
+ * directly: the raw API is absent outside a secure context, and a hosted GUI is
+ * not always served over HTTPS, where every copy entry would then fail silently.
+ */
+export async function copyText(env: MenuEnv, text: string): Promise<void> {
+  const ok = await env.writeClipboard(text)
+  env.menus?.notify(ok ? env.t('menu.copied') : env.t('menu.copyFailed'), ok)
 }

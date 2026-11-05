@@ -13,6 +13,7 @@
  *    a page the pill may not have open.
  */
 import { useEffect, useId, useMemo, useRef } from 'react'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { controllerFor } from './registry.js'
 import { gitPanelRemoteOf, hasSession, type ClientCtx } from './rpc.js'
 import { withRepo } from './repo-select.js'
@@ -112,7 +113,11 @@ export function usePillMenu(inputs: PillMenuInputs): Record<string, unknown> {
         // "copy branch" for a branch that is no longer checked out. A pill with
         // no sample (the view went cold) captures the empty root, so that case
         // is checked first — two empty strings would otherwise compare equal.
+        // Session and repository are re-checked as well: the root alone would
+        // pass for a pane that re-attached to a different session showing the
+        // same checkout.
         if (shown === null || shown.root === '' || target.root !== shown.root) return []
+        if (target.sessionId !== live || target.repo !== controllerFor(live).getRepo()) return []
         const commands: PillMenuCommands = {
           openTab: (tab) => openTabRef.current(tab),
           fetch: (repoTag) => fetchOf(repoTag),
@@ -120,6 +125,7 @@ export function usePillMenu(inputs: PillMenuInputs): Record<string, unknown> {
         return pillMenuActions(target, {
           t: tRef.current,
           menus: contextMenusOf(ctx),
+          writeClipboard,
           facts: { isGit: true, revDiff: false, pathHistory: false },
         }, commands, { canFetch: shown.remote })
       },

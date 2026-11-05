@@ -66,18 +66,28 @@ await page.evaluate(async ({ snap, tree }) => {
             }
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# hi\n', lines: 1 } } }
           }
-          if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'main', shortHash: '44638f7' }], remote: [] } } }
+          if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [
+            { name: 'main', shortHash: '44638f7' },
+            { name: 'feature/x', shortHash: 'aaaaaaa' },
+          ], remote: [] } } }
           if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
           if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
-          if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 0, commits: [] } } }
+          if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 2, commits: [
+            { hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 'first commit', author: 'A', email: 'a@x', date: '2026-01-01T00:00:00Z', parents: [], refs: [] },
+            { hash: 'b'.repeat(40), shortHash: 'bbbbbbb', subject: 'second commit', author: 'A', email: 'a@x', date: '2026-01-02T00:00:00Z', parents: ['a'.repeat(40)], refs: [] },
+          ] } } }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
         }
-        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+        if (endpoint === 'gitPanel/run') {
+          window.__runs.push({ repo: request.repo, action: request.action })
+          return { ok: true, value: { ok: true, snapshot: snap } }
+        }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
     },
   }
+  window.__runs = []
   const registered = {}
   const dictionaries = {}
   const ctx = {
@@ -225,6 +235,76 @@ assert.deepEqual(quoteOffered.slice(-2), ['copy-relative-path', 'quote-path'], '
 assert.equal(await page.evaluate(() => window.__menuStub.invoke('quote-path')), 'ok')
 assert.deepEqual(await page.evaluate(() => window.__quotes), ['README.md'], 'the file path lands in the composer')
 assert.equal(await page.evaluate(() => window.__quoteFocus), 1, 'the composer takes the keyboard back')
+
+// ── The overview's branch and commit rows (issue #107) ───────────────────
+// These rows reach the same panel face as the browser's, through a prop the
+// tab receives from the panel. A panel that forgets to pass it leaves every
+// branch and commit without a right-click — invisible to typecheck (the prop
+// is optional) and to the pure builder tests, so this section is the guard.
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-tabbar [role="tab"]', { hasText: '总览' }).click()
+await page.waitForSelector('.gp-branch-row', { timeout: 5000 })
+
+// A slash-named branch renders as a nested folder row; the leaf carries the
+// full name in `title`.
+const featureRow = page.locator('.gp-branch-row[title="feature/x"]')
+await featureRow.click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+const branchTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.ok(branchTarget, 'the branch row binds a context menu')
+assert.equal(branchTarget.kind, 'gitPanel.branch')
+assert.equal(branchTarget.value.name, 'feature/x')
+assert.equal(branchTarget.value.isCurrent, false)
+assert.equal(branchTarget.value.sessionId, 'sess-menu')
+assert.ok(typeof branchTarget.value.owner === 'string' && branchTarget.value.owner.length > 0, 'the branch row names its panel instance')
+assert.deepEqual(
+  await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
+  ['switch-branch', 'show-history', 'copy-branch'],
+  'switching away from the current branch, then this branch\'s history, then its name',
+)
+
+// The copy goes through the panel's clipboard supplier.
+await page.evaluate(() => { window.__clipboard = null })
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('copy-branch')), 'ok')
+assert.equal(await page.evaluate(() => window.__clipboard), 'feature/x')
+
+// The runs are published by the *tab*, whose render happens after the panel's.
+// Reading them at resolve time is what makes the session's first menu work; a
+// copied snapshot of them would still hold the empty stand-ins, and this
+// switch would quietly do nothing.
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('switch-branch')), 'ok')
+await page.waitForTimeout(200)
+const switched = await page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'branch-checkout'))
+assert.equal(switched.length, 1, 'the menu switch reaches the host')
+assert.equal(switched[0].action.name, 'feature/x')
+
+// A commit row carries the copy entries, the composer entry and the three
+// write dialogs.
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-commit-row').first().click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+const commitTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.ok(commitTarget, 'the commit row binds a context menu')
+assert.equal(commitTarget.kind, 'gitPanel.commit')
+assert.equal(commitTarget.value.hash, 'a'.repeat(40))
+assert.equal(commitTarget.value.shortHash, 'aaaaaaa')
+assert.equal(commitTarget.value.subject, 'first commit')
+assert.deepEqual(
+  await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
+  ['copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'revert', 'reset'],
+  'copies and the composer first, then the dialogs',
+)
+
+// A destructive entry opens the existing confirmation instead of acting: no
+// run reaches the host until the dialog is answered.
+const runsBefore = await page.evaluate(() => window.__runs.length)
+await page.evaluate(() => window.__menuStub.invoke('reset'))
+await page.waitForSelector('[data-gp-overlay]', { timeout: 3000 })
+assert.equal(await page.evaluate(() => window.__runs.length), runsBefore, 'the reset entry only opens the dialog')
+await page.keyboard.press('Escape')
+await page.waitForTimeout(150)
 
 // ── P8: the repository selector's rows ────────────────────────────────────
 // The repo list needs two choices and a ready snapshot (ReposSection hides

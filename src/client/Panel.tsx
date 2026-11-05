@@ -874,6 +874,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       phone: layout.phone ?? false,
       repositories,
       exactPath: historyPath,
+      panelMenu,
       menuCommandsRef: overviewCommandsRef,
       menuFactsRef: overviewStateRef,
       onQuote: quoteRun,

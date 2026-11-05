@@ -16,6 +16,7 @@
  *    longer exists under the root the panel shows now".
  */
 import { useEffect, useId, useMemo, useRef } from 'react'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { hasSession, type ClientCtx } from './rpc.js'
 import { menuTriggerFactory, type PanelMenu } from './menu-bindings.js'
 import { MENU_KIND, registerMenuOwner, type GitMenuValue, type MenuValueSeed } from './menu-owners.js'
@@ -109,30 +110,32 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
 
   const callbacksRef = useRef<MenuCallbacks>({ compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory, quote: onQuote })
   callbacksRef.current = { compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory, quote: onQuote }
-  const overviewCommandsRef = useRef(overviewCommands())
-  overviewCommandsRef.current = overviewCommands()
-  const changesCommandsRef = useRef(changesCommands())
-  changesCommandsRef.current = changesCommands()
+
   useEffect(() => {
     if (!hasSession(sessionId)) return
     return registerMenuOwner(ownerId, panelMenuOwner({
       env: () => ({
-        t, menus: contextMenusOf(ctx),
+        t, menus: contextMenusOf(ctx), writeClipboard,
         facts: { isGit: isGit(), ...capabilities(), canQuote: hasSession(sessionId) && quoteAvailable(ctx, sessionId) },
       }),
       browseRoot,
       identity: () => ({ sessionId, repo: repoRef.current }),
       callbacks: () => callbacksRef.current,
-      overview: () => ({ commands: overviewCommandsRef.current, facts: overviewFacts }),
+      // The tabs publish their runs into the panel's refs during *their* render,
+      // which is later than the panel's. Reading them through the accessors at
+      // resolve time therefore sees the current closures; copying the values
+      // here would pin whatever the previous panel render found (an empty stash
+      // list, a stale dirty flag).
+      overview: () => ({ commands: overviewCommands(), facts: overviewFacts }),
       changes: () => ({
-        commands: changesCommandsRef.current,
+        commands: changesCommands(),
         facts: changesFacts,
         pick: changesPick,
       }),
       repos: () => ({ commands: reposCommands(), facts: reposFacts }),
       observe,
     }))
-  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities, overviewFacts, changesFacts, changesPick, reposCommands, reposFacts])
+  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities, overviewCommands, overviewFacts, changesCommands, changesFacts, changesPick, reposCommands, reposFacts])
 
   return facade
 }
