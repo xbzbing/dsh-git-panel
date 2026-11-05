@@ -348,6 +348,29 @@
         },
       }
     }
+    // The conversation's composer face, as the plugin probes it structurally:
+    // sessions.scope(id).get('conversation').input.for(scope).insertQuote(text).
+    window.__quotes = []
+    window.__quoteFocus = 0
+    window.__sessionsStub = {
+      scope: function () {
+        return {
+          get: function (key) {
+            if (key !== 'conversation') return undefined
+            return {
+              input: {
+                for: function () {
+                  return {
+                    insertQuote: function (text) { window.__quotes.push(text); return true },
+                    focus: function () { window.__quoteFocus += 1 },
+                  }
+                },
+              },
+            }
+          },
+        }
+      },
+    }
     window.__menuStub = {
       state: state,
       contributions: contributions,

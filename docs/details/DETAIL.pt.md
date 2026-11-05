@@ -14,6 +14,7 @@ Um painel Git no estilo IDE no espaço de trabalho da conversa: branches e hist�
 - **Diferenças e código-fonte**: visualizações unificada / lado a lado / antes / depois com realce de sintaxe, destaque por palavra, expansão de contexto sob demanda e busca no local com <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>.
 - **Painel estreito / celular**: o layout se adapta ao tamanho do painel e funciona na barra lateral e no celular.
 - **Idiomas**: a interface segue o idioma do sistema do DSH: Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский e Português.
+- **Menús de contexto** — clique direito em arquivos, diretórios, imagens, ramos, commits, alterações e stashes para copiar caminhos, revelar no gerenciador de arquivos, baixar / salvar como, aplicar ao índice ou descartar, trocar de ramo, criar tags, reverter ou redefinir, citar no compositor ou verificar o remoto; ações destrutivas pedem confirmação.
 
 ## Repositório
 

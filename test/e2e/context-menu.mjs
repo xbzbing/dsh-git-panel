@@ -81,7 +81,7 @@ await page.evaluate(async ({ snap, tree }) => {
   const registered = {}
   const dictionaries = {}
   const ctx = {
-    get: (key) => ({ connection, contextMenus: window.__contextMenusStub })[key],
+    get: (key) => ({ connection, contextMenus: window.__contextMenusStub, sessions: window.__sessionsStub })[key],
     effect: (cb) => { try { cb() } catch { /* ignore */ } },
     on: () => () => {},
     inject: (_deps, cb) => cb(ctx),
@@ -139,7 +139,8 @@ assert.deepEqual(offered.map((a) => a.id), [
   'file-actions.file/download',
   'file-actions.file/saveAs',
   'copy-relative-path',
-], 'platform group first (the sidebar entry is whitelisted out), then the browser entry')
+  'quote-path',
+], 'platform group first (the sidebar entry is whitelisted out), then the browser entries')
 assert.ok(!offered.some((a) => a.id === 'open-in-app.file/sidebar'), 'no "open in sidebar" entry')
 
 // The platform group is asked for the absolute path, so a nested root resolves.
@@ -208,7 +209,22 @@ assert.deepEqual(dirOffered.map((a) => a.id), [
   'open-in-app.directory/reveal',
   'open-in-app.directory/copyPath',
   'copy-relative-path',
-], 'the directory row adds its relative path after the platform group')
+  'quote-path',
+], 'the directory row adds its relative path and the composer entry after the platform group')
+
+// ── P9: reference into the composer ───────────────────────────────────────
+// A file row carries the quote entry (the harness exposes a composer face);
+// invoking it writes the relative path and hands the keyboard back.
+await page.evaluate(() => { window.__menuStub.clear(); window.__quotes = []; window.__quoteFocus = 0 })
+await row.click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(100)
+const quoteOffered = await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id))
+assert.ok(quoteOffered.includes('quote-path'), 'the file row offers the composer entry')
+assert.deepEqual(quoteOffered.slice(-2), ['copy-relative-path', 'quote-path'], 'the quote follows the path copy')
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('quote-path')), 'ok')
+assert.deepEqual(await page.evaluate(() => window.__quotes), ['README.md'], 'the file path lands in the composer')
+assert.equal(await page.evaluate(() => window.__quoteFocus), 1, 'the composer takes the keyboard back')
 
 // ── P8: the repository selector's rows ────────────────────────────────────
 // The repo list needs two choices and a ready snapshot (ReposSection hides
@@ -252,7 +268,7 @@ await page.evaluate(async ({ snap }) => {
   const registered = {}
   const dictionaries = {}
   const ctx = {
-    get: (key) => ({ connection, contextMenus: window.__contextMenusStub })[key],
+    get: (key) => ({ connection, contextMenus: window.__contextMenusStub, sessions: window.__sessionsStub })[key],
     effect: (cb) => { try { cb() } catch { /* ignore */ } },
     on: () => () => {},
     inject: (_deps, cb) => cb(ctx),

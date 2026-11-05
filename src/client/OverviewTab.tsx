@@ -101,6 +101,9 @@ interface OverviewProps {
    * each render, and the menu owner reads them at resolve time. */
   readonly menuCommandsRef?: { current: OverviewMenuCommands | null }
   readonly menuFactsRef?: { current: OverviewMenuFacts }
+  /** The panel's quote run (composer first, clipboard fallback) — the commit
+   * row's menu entry uses it; the tab has no composer of its own. */
+  readonly onQuote?: (text: string) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -147,7 +150,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, panelMenu, menuCommandsRef, menuFactsRef, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, panelMenu, menuCommandsRef, menuFactsRef, onQuote, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   // Latest snapshot for late replies: a direct status-bar write (pull / push /
   // clean switch) has no dialog, so nothing else would stop its failure from
@@ -369,6 +372,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     openTagCreate: (value) => { setOpError(null); setTagForm({ hash: value.hash, shortHash: value.shortHash }) },
     openRevert: (value) => { setOpError(null); setRevertTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     openReset: (value) => { setOpError(null); setResetTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
+    quote: onQuote ?? (() => {}),
   }
   // Publish the overview's runs and busy flag for the menu owner. A fresh object
   // each render is the contract: the owner reads the published one at resolve

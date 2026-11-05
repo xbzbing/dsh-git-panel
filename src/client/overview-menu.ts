@@ -11,6 +11,7 @@ import type { BranchTargetValue, CommitTargetValue } from './menu-owners.js'
 import type { MenuAction } from './menu-types.js'
 import type { GitKey } from './locales.js'
 import { copyText } from './menu-actions.js'
+import { commitQuote } from './quote.js'
 import type { MenuEnv } from './menu-actions.js'
 
 /** What the overview's own entries need to run. */
@@ -26,6 +27,8 @@ export interface OverviewMenuCommands {
   readonly openRevert: (value: CommitTargetValue) => void
   /** Open the reset confirmation for one commit (three modes). */
   readonly openReset: (value: CommitTargetValue) => void
+  /** Put the commit's reference into the session's composer (quote.ts). */
+  readonly quote: (text: string) => void
 }
 
 /** Whether a write is in flight: switching, resetting and reverting all move the
@@ -88,6 +91,16 @@ export function commitMenuActions(
       failureLabel: env.t('menu.copyFailed'),
       run: () => copyText(env, value.subject),
     },
+    // Offered only where a composer exists to take it (the panel probes the
+    // session's conversation service); elsewhere the row keeps its copies.
+    ...(env.facts.canQuote === true
+      ? [{
+          id: 'quote-commit',
+          label: env.t('menu.quoteCommit'),
+          failureLabel: env.t('menu.copyFailed'),
+          run: () => cmds.quote(commitQuote(value.shortHash, value.subject)),
+        }]
+      : []),
     {
       id: 'create-tag',
       label: env.t('menu.createTagHere'),
@@ -116,6 +129,7 @@ export function commitMenuActions(
 /** Labels are read through the panel's translate; this keeps the keys in one
  * place for the locale test to see. */
 export const OVERVIEW_MENU_LABELS = {
+  quoteCommit: 'menu.quoteCommit',
   switchBranch: 'menu.switchBranch',
   switchToTracking: 'menu.switchToTracking',
   showHistory: 'menu.showHistory',

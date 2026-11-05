@@ -38,6 +38,7 @@ import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, has
 import { PanelMenuContext } from './menu-context.js'
 import { usePanelMenu } from './use-panel-menu.js'
 import { contextMenusOf } from './menu-register.js'
+import { insertSessionQuote } from './quote.js'
 import { CompareHost, type CompareRequest } from './compare-host.js'
 import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
 import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
@@ -55,6 +56,7 @@ const EMPTY_OVERVIEW_COMMANDS: OverviewMenuCommands = {
   openTagCreate: () => {},
   openRevert: () => {},
   openReset: () => {},
+  quote: () => {},
 }
 
 /** No changes tab mounted: its rows do not exist, so nothing can reach these. */
@@ -590,6 +592,19 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     }
   }
   const browseRootOf = useCallback((): string | null => filesRootRef.current, [])
+  // Quote to the composer; a composer that is not there falls back to the
+  // clipboard so the gesture never drops the text on the floor.
+  const quoteRun = useCallback((text: string): void => {
+    if (!hasSession(sessionId)) return
+    if (insertSessionQuote(ctx, sessionId, text)) return
+    // The composer is gone (unmounted, another session took it, an old host):
+    // keep the text and say where it went instead of failing silently.
+    const menus = contextMenusOf(ctx)
+    void navigator.clipboard.writeText(text).then(
+      () => menus?.notify(t('menu.quoteFailed'), false),
+      () => menus?.notify(t('menu.copyFailed'), false),
+    )
+  }, [ctx, sessionId, t])
   const menuSources = useCallback(
     (): readonly MenuSource[] => (hasSession(sessionId) ? [controllerFor(sessionId)] : []),
     [sessionId],
@@ -680,6 +695,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     onCompareRevision: useCallback((value: TreeTargetValue) => openCompare('revision', value), [openCompare]),
     onCompareRef: useCallback((value: TreeTargetValue) => openCompare('ref', value), [openCompare]),
     onShowHistory: showHistory,
+    onQuote: quoteRun,
   })
   // The browse-root dropdown exists whenever the list offers a second root,
   // follow config on or off: the config sets the session default, but the
@@ -856,6 +872,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       exactPath: historyPath,
       menuCommandsRef: overviewCommandsRef,
       menuFactsRef: overviewStateRef,
+      onQuote: quoteRun,
       t,
       })
       : undefined

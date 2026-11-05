@@ -22,8 +22,8 @@ function stubNavigator() {
 const t = (key) => key
 
 const FACTS = { isGit: false, revDiff: false, pathHistory: false }
-const CALLBACKS = { compareRevision: () => {}, compareRef: () => {}, showHistory: () => {} }
-const envWith = (menus) => ({ t, menus, facts: FACTS, callbacks: CALLBACKS })
+const CALLBACKS = { compareRevision: () => {}, compareRef: () => {}, showHistory: () => {}, quote: () => {} }
+const envWith = (menus, facts = FACTS) => ({ t, menus, facts, callbacks: CALLBACKS })
 
 function value(overrides = {}) {
   return { sessionId: 's', owner: 'o', repo: '', path: 'src/a.ts', root: '/work', ignored: false, ...overrides }
@@ -106,4 +106,25 @@ test('a thunk value is handed to the platform as a function target', () => {
     kind: 'gitPanel.file',
     value: { sessionId: 's', owner: 'o', repo: '', path: 'a.ts', root: null, ignored: false },
   })
+})
+
+test('a composer on the host adds the quote entry after the path copy', () => {
+  const quoted = []
+  const env = envWith(undefined, { ...FACTS, canQuote: true })
+  env.callbacks = { ...CALLBACKS, quote: (text) => quoted.push(text) }
+  const actions = fileMenuActions(value(), env, platform)
+  assert.deepEqual(actions.map((a) => a.id), ['open-in-app.file/float', 'copy-relative-path', 'quote-path'])
+  void actions[2].run()
+  assert.deepEqual(quoted, ['src/a.ts'])
+})
+
+test('without a composer the quote entry is absent (not disabled)', () => {
+  const actions = fileMenuActions(value(), envWith(undefined), platform)
+  assert.ok(!actions.some((a) => a.id === 'quote-path'))
+})
+
+test('the root row quotes nothing: it has no path', () => {
+  const env = envWith(undefined, { ...FACTS, canQuote: true })
+  const actions = directoryMenuActions(value({ path: '' }), env, [])
+  assert.deepEqual(actions, [])
 })

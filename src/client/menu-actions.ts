@@ -17,6 +17,8 @@ export interface MenuFacts {
   /** The host declared `capabilities.revDiff` / `capabilities.pathHistory`. */
   readonly revDiff: boolean
   readonly pathHistory: boolean
+  /** The session has a composer the menu may quote into (quote.ts). */
+  readonly canQuote?: boolean
 }
 
 /** What the Git group's entries run; the panel supplies them. */
@@ -24,6 +26,9 @@ export interface MenuCallbacks {
   readonly compareRevision: (value: TreeTargetValue) => void
   readonly compareRef: (value: TreeTargetValue) => void
   readonly showHistory: (value: TreeTargetValue) => void
+  /** Put one reference into the session's composer (falls back to the
+   * clipboard when the composer is gone; see quote.ts). */
+  readonly quote: (text: string) => void
 }
 
 /** Everything the browser's menus need from the panel. */
@@ -76,18 +81,29 @@ function gitGroup(value: TreeTargetValue, env: MenuEnv): MenuAction[] {
  * copy (it *is* the root), so it omits that one. */
 function browserGroup(value: TreeTargetValue, env: MenuEnv): MenuAction[] {
   const group: MenuAction[] = []
-  if (value.path !== '') group.push({
-    id: 'copy-relative-path',
-    label: env.t('menu.copyRelativePath'),
-    failureLabel: env.t('menu.copyFailed'),
-    run: () => copyText(env, value.path),
-  })
+  if (value.path !== '') {
+    group.push({
+      id: 'copy-relative-path',
+      label: env.t('menu.copyRelativePath'),
+      failureLabel: env.t('menu.copyFailed'),
+      run: () => copyText(env, value.path),
+    })
+    // The root row has no path of its own, so there is nothing to quote either.
+    if (env.facts.canQuote === true) {
+      group.push({
+        id: 'quote-path',
+        label: env.t('menu.quotePath'),
+        failureLabel: env.t('menu.copyFailed'),
+        run: () => env.callbacks?.quote(value.path),
+      })
+    }
+  }
   return group
 }
 
 /** Write to the clipboard and report through the platform's toast, which
  * outlives the dismissed popup. Shared by every group that copies. */
-export async function copyText(env: Pick<MenuEnv, 't' | 'menus'>, text: string): Promise<void> {
+export async function copyText(env: Pick<MenuEnv, 't' | 'menus'> & Partial<Pick<MenuEnv, 'facts'>>, text: string): Promise<void> {
   await navigator.clipboard.writeText(text)
   env.menus?.notify(env.t('menu.copied'), true)
 }

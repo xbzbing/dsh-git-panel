@@ -22,6 +22,7 @@ import { MENU_KIND, registerMenuOwner, type GitMenuValue, type MenuValueSeed } f
 import type { TreeTargetValue } from './menu-owners.js'
 import { panelMenuOwner } from './menu-panel.js'
 import { contextMenusOf } from './menu-register.js'
+import { quoteAvailable } from './quote.js'
 import type { GitKey } from './locales.js'
 import type { MenuCallbacks } from './menu-actions.js'
 import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
@@ -50,6 +51,8 @@ export interface PanelMenuInputs {
   readonly onCompareRevision: (value: TreeTargetValue) => void
   readonly onCompareRef: (value: TreeTargetValue) => void
   readonly onShowHistory: (value: TreeTargetValue) => void
+  /** Put a reference into the session's composer (falls back to the clipboard). */
+  readonly onQuote: (text: string) => void
   /** The overview's runs and busy flag (branch / commit rows). */
   readonly overviewCommands: () => OverviewMenuCommands
   readonly overviewFacts: () => OverviewMenuFacts
@@ -69,7 +72,7 @@ export interface PanelMenuInputs {
  * @returns the facade its subtree reads (see menu-context.ts).
  */
 export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
-  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory, overviewCommands, overviewFacts, changesCommands, changesFacts, changesPick, reposCommands, reposFacts } = inputs
+  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory, onQuote, overviewCommands, overviewFacts, changesCommands, changesFacts, changesPick, reposCommands, reposFacts } = inputs
   const factory = useMemo(() => menuTriggerFactory(useContextMenu), [useContextMenu])
   const ownerId = useId()
   // Repository is compared at resolve time, so the thunk reads it through a ref
@@ -104,8 +107,8 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
     },
   }), [factory, sessionId, ownerId, browseRoot])
 
-  const callbacksRef = useRef<MenuCallbacks>({ compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory })
-  callbacksRef.current = { compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory }
+  const callbacksRef = useRef<MenuCallbacks>({ compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory, quote: onQuote })
+  callbacksRef.current = { compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory, quote: onQuote }
   const overviewCommandsRef = useRef(overviewCommands())
   overviewCommandsRef.current = overviewCommands()
   const changesCommandsRef = useRef(changesCommands())
@@ -115,7 +118,7 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
     return registerMenuOwner(ownerId, panelMenuOwner({
       env: () => ({
         t, menus: contextMenusOf(ctx),
-        facts: { isGit: isGit(), ...capabilities() },
+        facts: { isGit: isGit(), ...capabilities(), canQuote: hasSession(sessionId) && quoteAvailable(ctx, sessionId) },
       }),
       browseRoot,
       identity: () => ({ sessionId, repo: repoRef.current }),
