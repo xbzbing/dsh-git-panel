@@ -51,20 +51,22 @@ export function revisionName(path: string, revision: string): string {
 }
 
 /**
- * The old side's label for an image diff, used as the download suffix: the short
- * hash of a commit, `staged` for the index, `HEAD` for a work-tree comparison,
- * and the revision's own tail for a revision comparison.
+ * The old side's label for an image diff, used as the download suffix. Each base
+ * names a different *version* on the left, not the comparison it belongs to:
+ * `worktree` compares the index, `staged` compares HEAD, `commit` compares the
+ * commit's parent, `rev` compares the revision. The name says which one, so two
+ * downloads of the same picture cannot pass for each other.
  * @param base - the diff base.
  * @param commit - the commit hash when `base` is `commit`.
  * @param rev - the revision when `base` is `rev`.
  * @returns the label, or undefined when the base names no old side.
  */
 export function imageSideLabel(base: string | undefined, commit: string | undefined, rev: string | undefined): string | undefined {
-  if (base === 'commit' && commit !== undefined) return commit.slice(0, 7)
-  if (base === 'staged') return 'staged'
+  if (base === 'commit' && commit !== undefined) return `${commit.slice(0, 7)}^`
+  if (base === 'staged') return 'HEAD'
   if (base === 'rev' && rev !== undefined) return rev.split('/').pop()
   if (base === undefined) return undefined
-  return 'HEAD'
+  return 'index'
 }
 
 /** The platform target value for a tree entry: the browser's relative path

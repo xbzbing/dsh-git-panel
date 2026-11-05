@@ -57,11 +57,14 @@ test('revisionName inserts the side label before the extension', () => {
   assert.equal(revisionName('src/Makefile', 'staged'), 'Makefile@staged')
 })
 
-test('imageSideLabel names the old side per base', () => {
-  assert.equal(imageSideLabel('commit', 'a1b2c3d4e5f6', undefined), 'a1b2c3d')
-  assert.equal(imageSideLabel('staged', undefined, undefined), 'staged')
+test('imageSideLabel names the version each base compares against', () => {
+  // The label names the *old side's version*, not the comparison: a staged diff
+  // compares HEAD, a work-tree diff compares the index, and a commit diff
+  // compares the commit's parent.
+  assert.equal(imageSideLabel('commit', 'a1b2c3d4e5f6', undefined), 'a1b2c3d^')
+  assert.equal(imageSideLabel('staged', undefined, undefined), 'HEAD')
   assert.equal(imageSideLabel('rev', undefined, 'refs/heads/feature/x'), 'x', 'the rev tail, not the whole ref')
   assert.equal(imageSideLabel('rev', undefined, 'v1.2.0'), 'v1.2.0')
-  assert.equal(imageSideLabel('worktree', undefined, undefined), 'HEAD')
+  assert.equal(imageSideLabel('worktree', undefined, undefined), 'index')
   assert.equal(imageSideLabel(undefined, undefined, undefined), undefined)
 })

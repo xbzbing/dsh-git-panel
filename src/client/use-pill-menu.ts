@@ -15,13 +15,12 @@
 import { useEffect, useId, useMemo, useRef } from 'react'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { controllerFor } from './registry.js'
-import { gitPanelRemoteOf, hasSession, type ClientCtx } from './rpc.js'
-import { withRepo } from './repo-select.js'
+import { runRemoteFetch } from './fetch-report.js'
+import { hasSession, type ClientCtx } from './rpc.js'
 import { contextMenusOf } from './menu-register.js'
 import { MENU_KIND, registerMenuOwner } from './menu-owners.js'
 import { menuTriggerFactory, NO_MENU } from './menu-bindings.js'
 import { pillMenuActions, type PillMenuCommands } from './pill-menu.js'
-import { opErrorText } from './ops-modals.js'
 import type { GitKey } from './locales.js'
 import type { MenuAction, MenuSource, UseContextMenu } from './menu-types.js'
 import type { PillTargetValue } from './menu-owners.js'
@@ -71,32 +70,7 @@ export function usePillMenu(inputs: PillMenuInputs): Record<string, unknown> {
   useEffect(() => {
     if (!hasSession(sessionId)) return undefined
     const live = sessionId
-    const fetchOf = (repoTag: string): void => {
-      if (claims.current.has(repoTag)) return
-      claims.current.add(repoTag)
-      void (async () => {
-        const notify = (text: string, success: boolean): void => { contextMenusOf(ctx)?.notify(text, success) }
-        try {
-          const result = await withRepo(gitPanelRemoteOf(ctx), repoTag).run({ sessionId: live, action: { kind: 'fetch' } })
-          if (!result.ok) {
-            notify(opErrorText(result.error.code, result.error.message, tRef.current), false)
-            return
-          }
-          // The reply carries the sample of the checkout the fetch ran in; only
-          // that checkout's controller may publish it.
-          const controller = controllerFor(live)
-          if (controller.getRepo() === repoTag) controller.accept(result.snapshot)
-          const snap = result.snapshot
-          if (snap.remote === null) notify(tRef.current('menu.fetchNoRemote'), true)
-          else if (!snap.hasUpstream) notify(tRef.current('menu.fetchNoUpstream'), true)
-          else notify(tRef.current('menu.fetchDone', { ahead: snap.ahead, behind: snap.behind }), true)
-        } catch (error) {
-          notify(error instanceof Error ? error.message : tRef.current('common.operationFailed'), false)
-        } finally {
-          claims.current.delete(repoTag)
-        }
-      })()
-    }
+    const fetchOf = (repoTag: string): void => { runRemoteFetch(ctx, tRef.current, live, repoTag, claims.current) }
     return registerMenuOwner(ownerId, {
       observe: (): readonly MenuSource[] => {
         // The pill mirrors the session's controller, so an open menu follows the

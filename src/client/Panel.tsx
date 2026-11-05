@@ -40,6 +40,7 @@ import { usePanelMenu } from './use-panel-menu.js'
 import { contextMenusOf } from './menu-register.js'
 import { insertSessionQuote } from './quote.js'
 import { CompareHost, type CompareRequest } from './compare-host.js'
+import { runRemoteFetch } from './fetch-report.js'
 import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
 import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
 import type { ReposMenuCommands, ReposMenuFacts } from './repos-menu.js'
@@ -655,31 +656,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // and a row nobody sampled has to answer for itself (a failed fetch says so).
   const fetchClaimsRef = useRef<Set<string>>(new Set())
   const runRepoFetch = useCallback((live: string, repoTag: string): void => {
-    const claims = fetchClaimsRef.current
-    if (claims.has(repoTag)) return
-    claims.add(repoTag)
-    void (async () => {
-      try {
-        const result = await withRepo(gitPanelRemoteOf(ctx), repoTag).run({ sessionId: live, action: { kind: 'fetch' } })
-        const menus = contextMenusOf(ctx)
-        if (!result.ok) {
-          menus?.notify(opErrorText(result.error.code, result.error.message, t), false)
-          return
-        }
-        // The reply carries the sample of the checkout the fetch ran in; only
-        // that checkout's controller sample may publish it.
-        const controller = controllerFor(live)
-        if (controller.getRepo() === repoTag) controller.accept(result.snapshot)
-        const snap = result.snapshot
-        if (snap.remote === null) menus?.notify(t('menu.fetchNoRemote'), true)
-        else if (!snap.hasUpstream) menus?.notify(t('menu.fetchNoUpstream'), true)
-        else menus?.notify(t('menu.fetchDone', { ahead: snap.ahead, behind: snap.behind }), true)
-      } catch (error) {
-        contextMenusOf(ctx)?.notify(error instanceof Error ? error.message : t('common.operationFailed'), false)
-      } finally {
-        claims.delete(repoTag)
-      }
-    })()
+    runRemoteFetch(ctx, t, live, repoTag, fetchClaimsRef.current)
   }, [ctx, t])
   // Read through primitives so the menu owner is not re-registered on every
   // poll: the sample object changes identity each snapshot, its two facts do not.
