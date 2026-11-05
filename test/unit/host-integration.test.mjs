@@ -3151,6 +3151,34 @@ test('diff base rev compares a stored revision against the work tree', async () 
   }
 })
 
+test('an untracked file in a linked worktree compares against the revision', async () => {
+  const { writeFileSync, rmSync, mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const dir = await scratchRepo({ 'a.txt': 'v1\n' })
+  // `.git` is a *file* in a linked worktree, so a scratch file written under it
+  // would fail; the synthesis has to ask git for the real directory.
+  const wt = join(mkdtempSync(join(tmpdir(), 'gp-wt-')), 'linked')
+  try {
+    await runGit(dir, ['worktree', 'add', '-q', wt, '-b', 'side'])
+    const d = depsAt(wt)
+    const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+    // Tracked on the branch, dropped from the index in the worktree: the file is
+    // untracked here but exists in HEAD, the exact case that reads as a deletion.
+    await runGit(wt, ['rm', '--cached', '-qf', 'a.txt'])
+    writeFileSync(join(wt, 'a.txt'), 'v2\n')
+    const res = await query({ kind: 'diff', path: 'a.txt', base: 'rev', rev: 'HEAD' })
+    assert.equal(res.ok, true)
+    assert.match(res.value.text, /^-v1$/m, 'the old side is the revision')
+    assert.match(res.value.text, /^\+v2$/m, 'the new side is the working file')
+    assert.doesNotMatch(res.value.text, /^deleted file mode/m)
+    // Nothing was left behind in the worktree or the shared git directory.
+    const leftovers = execFileSync('git', ['status', '--porcelain'], { cwd: wt, encoding: 'utf8' })
+    assert.doesNotMatch(leftovers, /gp-compare/, 'the scratch file is not a working-tree entry')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('diff base rev refuses a directory: it is a single-file comparison', async () => {
   const { writeFileSync, rmSync, mkdirSync } = await import('node:fs')
   const dir = await scratchRepo({ 'x.txt': 'x\n' })
@@ -3166,6 +3194,12 @@ test('diff base rev refuses a directory: it is a single-file comparison', async 
     const asDir = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'd', base: 'rev', rev: 'HEAD' } })
     assert.equal(asDir.ok, false)
     assert.equal(asDir.error.code, 'invalid-path')
+    // Gone from the working tree but still a tree in the revision: the working
+    // path cannot be stat'ed, so the revision is asked what its entry is.
+    rmSync(join(dir, 'd'), { recursive: true, force: true })
+    const goneInWorktree = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'd', base: 'rev', rev: 'HEAD' } })
+    assert.equal(goneInWorktree.ok, false)
+    assert.equal(goneInWorktree.error.code, 'invalid-path')
     // A file inside it still works.
     const asFile = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'd/x.txt', base: 'rev', rev: 'HEAD' } })
     assert.equal(asFile.ok, true)

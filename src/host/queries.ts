@@ -2,7 +2,7 @@
  * Read-only query endpoint: history / diff / image-diff / show / branches /
  * tags / authors / last-commit-message / worktree-stats.
  */
-import { join, relative, sep } from 'node:path'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { listSessionRepos, mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
 import { exactPathspec, historyPathspec, isSafePath, isSafeRev, validateHistoryPathSearch } from './validate.js'
@@ -271,6 +271,12 @@ async function queryDiff(
     if (stat !== null && stat.isDirectory()) {
       return { ok: false, error: { code: 'invalid-path', message: `not a file: ${q.path}` } }
     }
+    // The working path may be gone (a directory deleted here, still present in
+    // the revision): ask the revision what its own entry is.
+    const type = await runCommand(deps.run, ['git', 'cat-file', '-t', '--end-of-options', `${q.rev}:${q.path}`], root, 'rev-side-type', deps.signal)
+    if ('run' in type && type.run.exitCode === 0 && type.run.stdout.trim() === 'tree') {
+      return { ok: false, error: { code: 'invalid-path', message: `not a file in ${q.rev}: ${q.path}` } }
+    }
     args = ['git', 'diff', unified, '--end-of-options', q.rev, '--', q.path]
   } else if (q.base === 'worktree') {
     // worktree: unstaged diff; for untracked files use --no-index against /dev/null.
@@ -331,14 +337,26 @@ async function queryDiff(
   }
 }
 
-/** A scratch name for the synthesized old side; unique per call so two panels
- * comparing at once cannot collide, and inside `.git` so it never shows up as a
- * working-tree change. */
+/**
+ * A scratch name for the synthesized old side: unique per call, so two panels
+ * comparing at once cannot collide. It lives in the repository's own git
+ * directory — `<root>/.git` is a *file* in a linked worktree or submodule, and
+ * writing there would fail — which also keeps it out of the working tree, so it
+ * can never show up as an untracked change of the very repository being
+ * compared.
+ */
 let compareScratchSeq = 0
-function compareScratchPath(root: string, path: string): string {
+async function compareScratchPath(deps: SnapshotDeps, root: string, path: string): Promise<string | null> {
+  const res = await runCommand(deps.run, ['git', 'rev-parse', '--git-path', '.'], root, 'compare-scratch-dir', deps.signal)
+  if (!('run' in res) || res.run.exitCode !== 0) return null
+  const dir = res.run.stdout.trim()
+  if (dir === '') return null
+  // A linked worktree answers with an absolute path under the main checkout's
+  // git directory; a plain repository answers `.git`.
+  const base = isAbsolute(dir) ? dir : join(root, dir)
   compareScratchSeq += 1
   const leaf = path.replace(/[\\/]+/g, '-').replace(/[^A-Za-z0-9._-]/g, '_').slice(-60)
-  return join(root, '.git', `gp-compare-${process.pid}-${compareScratchSeq}-${leaf}`)
+  return join(base, `gp-compare-${process.pid}-${compareScratchSeq}-${leaf}`)
 }
 
 /**
@@ -362,7 +380,8 @@ async function revBlobAgainstWorktree(
   if (!('run' in blob) || blob.run.exitCode !== 0) return null
   const old = await runCommand(deps.run, ['git', 'show', '--end-of-options', spec], root, 'rev-old-side', deps.signal)
   if (!('run' in old) || old.run.exitCode !== 0 || old.run.stdoutLossy) return null
-  const scratch = compareScratchPath(root, q.path)
+  const scratch = await compareScratchPath(deps, root, q.path)
+  if (scratch === null) return null
   try {
     await deps.fs.writeExclusive(scratch, Buffer.from(old.run.stdout, 'utf8'), 0o600)
   } catch {
