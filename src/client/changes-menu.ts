@@ -12,6 +12,7 @@ import type { ChangeDirTargetValue, ChangeTargetValue, StashTargetValue } from '
 import type { MenuAction } from './menu-types.js'
 import type { GitKey } from './locales.js'
 import { copyText } from './menu-actions.js'
+import { menuIcon } from './menu-icons.js'
 import type { MenuEnv } from './menu-actions.js'
 import { changeKey, pickDiscardTargets, pickStageTargets, pickUnstageTargets } from './selection-keys.js'
 
@@ -58,12 +59,14 @@ export function changeMenuActions(
     {
       id: 'open-diff',
       label: env.t('menu.openDiff'),
+      icon: menuIcon('changes'),
       failureLabel: env.t('overview.diffFailed'),
       run: () => cmds.openDiff(value.path, value.staged),
     },
     {
       id: 'stage',
       label: groupLabel(value.staged ? 'menu.unstagePicked' : 'menu.stagePicked'),
+      icon: menuIcon('stage'),
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.stage(paths, value.staged),
@@ -73,6 +76,9 @@ export function changeMenuActions(
     ...(value.staged || discardPaths.length === 0 ? [] : [{
       id: 'discard',
       label: env.t('menu.discardPicked', { n: discardPaths.length }),
+      icon: menuIcon('discard'),
+      // Destructive: separated from the entries above it.
+      separatorBefore: true,
       danger: true,
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),
@@ -90,6 +96,7 @@ export function changeDirMenuActions(
     {
       id: 'stage-dir',
       label: env.t(value.staged ? 'menu.unstagePicked' : 'menu.stagePicked', { n: value.paths.length }),
+      icon: menuIcon('stage'),
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.stage(value.paths, value.staged),
@@ -97,6 +104,8 @@ export function changeDirMenuActions(
     ...(value.discardable.length === 0 ? [] : [{
       id: 'discard-dir',
       label: env.t('menu.discardPicked', { n: value.discardable.length }),
+      icon: menuIcon('discard'),
+      separatorBefore: true,
       danger: true,
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),
@@ -110,9 +119,11 @@ export function stashMenuActions(
   value: StashTargetValue, env: MenuEnv, cmds: ChangesMenuCommands, facts: ChangesMenuFacts,
 ): MenuAction[] {
   return [
-    { id: 'stash-apply', label: env.t('menu.stashApply'), disabled: facts.busy, failureLabel: env.t('common.operationFailed'), run: () => cmds.stashApply(value.sha) },
-    { id: 'stash-pop', label: env.t('menu.stashPop'), disabled: facts.busy, failureLabel: env.t('common.operationFailed'), run: () => cmds.stashPop(value.sha) },
-    { id: 'stash-drop', label: env.t('menu.stashDrop'), danger: true, disabled: facts.busy, failureLabel: env.t('common.operationFailed'), run: () => cmds.openStashDrop(value.sha, value.label) },
-    { id: 'copy-message', label: env.t('menu.copySubject'), failureLabel: env.t('menu.copyFailed'), run: () => copyText(env, value.label) },
+    { id: 'stash-apply', label: env.t('menu.stashApply'), icon: menuIcon('stash'), disabled: facts.busy, failureLabel: env.t('common.operationFailed'), run: () => cmds.stashApply(value.sha) },
+    { id: 'stash-pop', label: env.t('menu.stashPop'), icon: menuIcon('stash'), disabled: facts.busy, failureLabel: env.t('common.operationFailed'), run: () => cmds.stashPop(value.sha) },
+    { id: 'copy-message', label: env.t('menu.copySubject'), icon: menuIcon('copy'), failureLabel: env.t('menu.copyFailed'), run: () => copyText(env, value.label) },
+    // Last and behind a separator: the other entries never sit next to a
+    // destructive one, where a slip costs the stash.
+    { id: 'stash-drop', label: env.t('menu.stashDrop'), icon: menuIcon('discard'), separatorBefore: true, danger: true, disabled: facts.busy, failureLabel: env.t('common.operationFailed'), run: () => cmds.openStashDrop(value.sha, value.label) },
   ]
 }

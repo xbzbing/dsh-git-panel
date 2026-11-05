@@ -23,6 +23,7 @@ function commands(log) {
     openTagCreate: (value) => log.push(['tag', value.hash]),
     openRevert: (value) => log.push(['revert', value.hash]),
     openReset: (value) => log.push(['reset', value.hash]),
+    openCheckout: (value) => log.push(['checkout', value.hash]),
     quote: (text) => log.push(['quote', text]),
   }
 }
@@ -62,16 +63,25 @@ test('a commit row copies its identities, quotes it, then the write dialogs', ()
   const log = []
   const actions = commitMenuActions(commit, env(true), commands(log), { busy: false })
   assert.deepEqual(actions.map((a) => a.id), [
-    'copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'revert', 'reset',
+    'copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'checkout', 'revert', 'reset',
   ])
   void actions[3].run()
   assert.deepEqual(log, [['quote', 'a1b2c3d fix: the thing']], 'the quote carries the short hash and subject')
-  // The destructive entries open dialogs, they never act on the row.
+  // The dialog entries open dialogs, they never act on the row.
   void actions[5].run()
   void actions[6].run()
-  assert.deepEqual(log.slice(1), [['revert', 'a1b2c3d4e5'], ['reset', 'a1b2c3d4e5']])
-  assert.equal(actions[5].danger, true)
+  void actions[7].run()
+  assert.deepEqual(log.slice(1), [['checkout', 'a1b2c3d4e5'], ['revert', 'a1b2c3d4e5'], ['reset', 'a1b2c3d4e5']])
+  assert.equal(actions[5].danger, undefined, 'checking a commit out keeps the work tree')
   assert.equal(actions[6].danger, true)
+  assert.equal(actions[7].danger, true)
+  assert.equal(actions[6].separatorBefore, true, 'the rewrites sit below one separator')
+})
+
+test('the commit HEAD already points at offers no checkout', () => {
+  const actions = commitMenuActions(commit, env(true), commands([]), { busy: false, head: 'a1b2c3d4e5' })
+  assert.ok(!actions.some((a) => a.id === 'checkout'), 'detaching a HEAD that is already there is a no-op')
+  assert.ok(actions.some((a) => a.id === 'reset'), 'the other entries stay')
 })
 
 test('without a composer the commit row offers no quote entry', () => {

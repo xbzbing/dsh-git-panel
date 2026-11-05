@@ -10,6 +10,7 @@
 import type { BranchTargetValue, CommitTargetValue } from './menu-owners.js'
 import type { MenuAction } from './menu-types.js'
 import { copyText } from './menu-actions.js'
+import { menuIcon } from './menu-icons.js'
 import { commitQuote } from './quote.js'
 import type { MenuEnv } from './menu-actions.js'
 
@@ -26,6 +27,8 @@ export interface OverviewMenuCommands {
   readonly openRevert: (value: CommitTargetValue) => void
   /** Open the reset confirmation for one commit (three modes). */
   readonly openReset: (value: CommitTargetValue) => void
+  /** Open the "detach HEAD here" confirmation for one commit. */
+  readonly openCheckout: (value: CommitTargetValue) => void
   /** Put the commit's reference into the session's composer (quote.ts). */
   readonly quote: (text: string) => void
 }
@@ -34,6 +37,9 @@ export interface OverviewMenuCommands {
  * work tree or HEAD, so they are offered but disabled while busy. */
 export interface OverviewMenuFacts {
   readonly busy: boolean
+  /** HEAD's commit: checking it out would detach a HEAD that is already there,
+   * so the entry is not offered for it. */
+  readonly head?: string | null
   /** The host declared `capabilities.revDiff`; compare entries are gated on it. */
   readonly revDiff?: boolean
 }
@@ -48,6 +54,7 @@ export function branchMenuActions(
     group.push({
       id: 'switch-branch',
       label: env.t(value.isRemote ? 'menu.switchToTracking' : 'menu.switchBranch'),
+      icon: menuIcon('branch'),
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.switchBranch(value),
@@ -56,11 +63,13 @@ export function branchMenuActions(
   group.push({
     id: 'show-history',
     label: env.t(value.isCurrent ? 'menu.showHistory' : 'menu.showThisHistory'),
+    icon: menuIcon('history'),
     run: () => cmds.filterRef(value.name),
   })
   group.push({
     id: 'copy-branch',
     label: env.t('menu.copyBranchName'),
+    icon: menuIcon('copy'),
     failureLabel: env.t('menu.copyFailed'),
     run: () => copyText(env, value.name),
   })
@@ -75,18 +84,21 @@ export function commitMenuActions(
     {
       id: 'copy-hash',
       label: env.t('menu.copyHash'),
+      icon: menuIcon('copy'),
       failureLabel: env.t('menu.copyFailed'),
       run: () => copyText(env, value.hash),
     },
     {
       id: 'copy-short-hash',
       label: env.t('menu.copyShortHash'),
+      icon: menuIcon('copy'),
       failureLabel: env.t('menu.copyFailed'),
       run: () => copyText(env, value.shortHash),
     },
     {
       id: 'copy-subject',
       label: env.t('menu.copySubject'),
+      icon: menuIcon('copy'),
       failureLabel: env.t('menu.copyFailed'),
       run: () => copyText(env, value.subject),
     },
@@ -96,6 +108,7 @@ export function commitMenuActions(
       ? [{
           id: 'quote-commit',
           label: env.t('menu.quoteCommit'),
+          icon: menuIcon('quote'),
           failureLabel: env.t('menu.copyFailed'),
           run: () => cmds.quote(commitQuote(value.shortHash, value.subject)),
         }]
@@ -103,12 +116,25 @@ export function commitMenuActions(
     {
       id: 'create-tag',
       label: env.t('menu.createTagHere'),
+      icon: menuIcon('tag'),
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.openTagCreate(value),
     },
+    ...(facts.head === value.hash ? [] : [{
+      id: 'checkout',
+      label: env.t('menu.checkoutCommit'),
+      icon: menuIcon('checkout'),
+      disabled: facts.busy,
+      failureLabel: env.t('common.operationFailed'),
+      run: () => cmds.openCheckout(value),
+    }]),
     {
       id: 'revert',
       label: env.t('menu.revertCommit'),
+      icon: menuIcon('revert'),
+      // Revert and reset both write history: they sit below one separator, so
+      // the copy entries above are never one slip away from a rewrite.
+      separatorBefore: true,
       danger: true,
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),
@@ -117,6 +143,9 @@ export function commitMenuActions(
     {
       id: 'reset',
       label: env.t('menu.resetToHere'),
+      icon: menuIcon('reset'),
+      // Destructive: separated from the entries above it.
+      separatorBefore: true,
       danger: true,
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),

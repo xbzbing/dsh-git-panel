@@ -14,6 +14,7 @@
 import type { PillTargetValue } from './menu-owners.js'
 import type { MenuAction } from './menu-types.js'
 import { copyText } from './menu-actions.js'
+import { menuIcon } from './menu-icons.js'
 import type { MenuEnv } from './menu-actions.js'
 
 /** What the pill's entries need to run, read at resolve time. */
@@ -40,9 +41,9 @@ export function pillMenuActions(
   value: PillTargetValue, env: MenuEnv, cmds: PillMenuCommands, facts: PillMenuFacts,
 ): MenuAction[] {
   const group: MenuAction[] = [
-    { id: 'open-overview', label: env.t('menu.openOverview'), run: () => cmds.openTab('overview') },
-    { id: 'open-changes', label: env.t('menu.openChanges'), run: () => cmds.openTab('changes') },
-    { id: 'open-files', label: env.t('menu.openFiles'), run: () => cmds.openTab('files') },
+    { id: 'open-overview', label: env.t('menu.openOverview'), icon: menuIcon('overview'), run: () => cmds.openTab('overview') },
+    { id: 'open-changes', label: env.t('menu.openChanges'), icon: menuIcon('changes'), run: () => cmds.openTab('changes') },
+    { id: 'open-files', label: env.t('menu.openFiles'), icon: menuIcon('files'), run: () => cmds.openTab('files') },
   ]
   // A detached HEAD has no branch name to copy; the root is always there.
   if (value.branch !== null) {
@@ -50,6 +51,7 @@ export function pillMenuActions(
     group.push({
       id: 'copy-branch',
       label: env.t('menu.copyBranchName'),
+      icon: menuIcon('copy'),
       failureLabel: env.t('menu.copyFailed'),
       run: () => copyText(env, branch),
     })
@@ -57,6 +59,7 @@ export function pillMenuActions(
   group.push({
     id: 'copy-root',
     label: env.t('overview.copyRoot'),
+    icon: menuIcon('copy'),
     failureLabel: env.t('menu.copyFailed'),
     run: () => copyText(env, value.root),
   })
@@ -64,6 +67,7 @@ export function pillMenuActions(
     group.push({
       id: 'fetch-remote',
       label: env.t('menu.checkRemote'),
+      icon: menuIcon('fetch'),
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.fetch(value.repo),
     })

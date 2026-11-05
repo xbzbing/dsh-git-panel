@@ -57,6 +57,7 @@ const EMPTY_OVERVIEW_COMMANDS: OverviewMenuCommands = {
   openTagCreate: () => {},
   openRevert: () => {},
   openReset: () => {},
+  openCheckout: () => {},
   quote: () => {},
 }
 

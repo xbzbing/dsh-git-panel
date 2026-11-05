@@ -243,6 +243,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Commit-undo targets (revert confirm + reset mode dialog), each a selected commit.
   const [revertTarget, setRevertTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   const [resetTarget, setResetTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
+  const [checkoutTarget, setCheckoutTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
   // In-flight guard so a double-click on confirm can't fire two tag RPCs.
   const [opBusy, setOpBusy] = useState(false)
@@ -368,8 +369,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const commitMenu = useMemo(
     () => (panelMenu === undefined
       ? undefined
-      : (commit: { hash: string; shortHash: string; subject: string }) => panelMenu.bind(MENU_KIND.commit, commit)),
-    [panelMenu],
+      : (commit: { hash: string; shortHash: string; subject: string }) => panelMenu.bind(MENU_KIND.commit, commit, {
+        // A right-click drops the hover card first: it is drawn at the cursor,
+        // so the menu would open over its own text. The platform runs this
+        // handler before its own and still opens the menu.
+        onContextMenu: () => detail.onHoverLeave(),
+      })),
+    // `onHoverLeave` is stable for the life of the hook (useCallback with no deps).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [panelMenu, detail.onHoverLeave],
   )
   const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore, pathSearchSupport, pathSearchUnsupported } = useHistory(
     remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
@@ -395,7 +403,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }
   }
   const opScopeRef = useRef<string | null>(null)
-  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null
+  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null
   const opInFlight = opBusy || switchBusy
   // The runs the menu offers, closing over this render's state (the owner reads
   // the published object at resolve time, so a fresh one each render is enough).
@@ -408,13 +416,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     openTagCreate: (value) => { setOpError(null); setTagForm({ hash: value.hash, shortHash: value.shortHash }) },
     openRevert: (value) => { setOpError(null); setRevertTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     openReset: (value) => { setOpError(null); setResetTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
+    openCheckout: (value) => { setOpError(null); setCheckoutTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     quote: onQuote ?? (() => {}),
   }
   // Publish the overview's runs and busy flag for the menu owner. A fresh object
   // each render is the contract: the owner reads the published one at resolve
   // time, so whatever this render built is what the menu runs.
   if (menuCommandsRef !== undefined) menuCommandsRef.current = overviewMenuCommands
-  if (menuFactsRef !== undefined) menuFactsRef.current = { busy: opInFlight }
+  if (menuFactsRef !== undefined) menuFactsRef.current = { busy: opInFlight, head: snapshot.head }
   useEffect(() => {
     if (!opDialogOpen) { opScopeRef.current = null; return }
     // An in-flight write keeps its dialog: the failure text renders only inside
@@ -585,6 +594,16 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       t('error.generic'),
     )
   }
+  const runCheckout = (): Promise<void> => {
+    if (checkoutTarget === null) return Promise.resolve()
+    return runSnapshotAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      onAction,
+      { kind: 'commit-checkout', commit: checkoutTarget.hash },
+      () => setCheckoutTarget(null),
+      t('error.generic'),
+    )
+  }
   const runReset = (mode: ResetMode): Promise<void> => {
     if (resetTarget === null) return Promise.resolve()
     return runSnapshotAction(
@@ -749,6 +768,19 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       confirmBusy: opBusy,
       onConfirm: () => void runRevert(),
       onClose: () => setRevertTarget(null),
+      t,
+    }) : null,
+    checkoutTarget !== null ? renderConfirmModal({
+      title: t('checkout.title'),
+      // HEAD moves, the work tree does not: say so, because "detached" is the
+      // part a user is least likely to expect.
+      body: t('checkout.body') + `\n\n${checkoutTarget.shortHash} ${checkoutTarget.subject}`,
+      confirmLabel: t('checkout.confirm'),
+      danger: false,
+      error: opError,
+      confirmBusy: opBusy,
+      onConfirm: () => void runCheckout(),
+      onClose: () => setCheckoutTarget(null),
       t,
     }) : null,
     resetTarget !== null ? renderResetModal(resetTarget, {

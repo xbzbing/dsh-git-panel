@@ -7,6 +7,7 @@
  * adds it here, so the menu's composition is readable in one file.
  */
 import type { TreeTargetValue } from './menu-owners.js'
+import { menuIcon } from './menu-icons.js'
 import type { ContextMenusService, MenuAction } from './menu-types.js'
 import type { GitKey } from './locales.js'
 
@@ -73,38 +74,34 @@ function gitGroup(value: TreeTargetValue, env: MenuEnv, target: 'file' | 'direct
   const group: MenuAction[] = []
   if (env.facts.revDiff && target === 'file') {
     group.push(
-      { id: 'compare-revision', label: env.t('menu.compareRevision'), run: () => env.callbacks?.compareRevision(value) },
-      { id: 'compare-ref', label: env.t('menu.compareRef'), run: () => env.callbacks?.compareRef(value) },
+      { id: 'compare-revision', label: env.t('menu.compareRevision'), icon: menuIcon('compare'), run: () => env.callbacks?.compareRevision(value) },
+      { id: 'compare-ref', label: env.t('menu.compareRef'), icon: menuIcon('compare'), run: () => env.callbacks?.compareRef(value) },
     )
   }
   if (env.facts.pathHistory) {
-    group.push({ id: 'show-history', label: env.t('menu.showHistory'), run: () => env.callbacks?.showHistory(value) })
+    group.push({ id: 'show-history', label: env.t('menu.showHistory'), icon: menuIcon('history'), run: () => env.callbacks?.showHistory(value) })
   }
   return group
 }
 
-/** Entries owned by the browser itself. The root row has no relative path to
- * copy (it *is* the root), so it omits that one. */
+/**
+ * Entries owned by the browser itself.
+ *
+ * The platform group already offers "copy path" (the absolute one), so a
+ * workspace-relative copy would be a second, differently-shaped answer to the
+ * same question; the browser adds only what the platform cannot know — putting
+ * the path into the session's composer. The root row has no path of its own, so
+ * it has neither.
+ */
 function browserGroup(value: TreeTargetValue, env: MenuEnv): MenuAction[] {
-  const group: MenuAction[] = []
-  if (value.path !== '') {
-    group.push({
-      id: 'copy-relative-path',
-      label: env.t('menu.copyRelativePath'),
-      failureLabel: env.t('menu.copyFailed'),
-      run: () => copyText(env, value.path),
-    })
-    // The root row has no path of its own, so there is nothing to quote either.
-    if (env.facts.canQuote === true) {
-      group.push({
-        id: 'quote-path',
-        label: env.t('menu.quotePath'),
-        failureLabel: env.t('menu.copyFailed'),
-        run: () => env.callbacks?.quote(value.path),
-      })
-    }
-  }
-  return group
+  if (value.path === '' || env.facts.canQuote !== true) return []
+  return [{
+    id: 'quote-path',
+    label: env.t('menu.quotePath'),
+    icon: menuIcon('quote'),
+    failureLabel: env.t('menu.copyFailed'),
+    run: () => env.callbacks?.quote(value.path),
+  }]
 }
 
 /**

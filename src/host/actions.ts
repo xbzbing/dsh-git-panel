@@ -157,6 +157,14 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       // like a branch) out of the pathspec position.
       return { argv: [['git', 'reset', `--${action.mode}`, action.commit, '--']] }
     }
+    case 'commit-checkout': {
+      if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
+      // Same shape as `branch-checkout`: no `--end-of-options` (older git
+      // rejects it on checkout), and the trailing `--` keeps a commit-ish that
+      // is also a path out of the pathspec position. HEAD detaches; the work
+      // tree is untouched.
+      return { argv: [['git', 'checkout', action.commit, '--']] }
+    }
   }
 }
 

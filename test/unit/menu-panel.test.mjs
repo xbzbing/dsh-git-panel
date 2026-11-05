@@ -101,11 +101,13 @@ test('an image pane asks the image family with the data URL and no path', async 
   assert.deepEqual(actions.map((a) => a.id), ['file-actions.image/copy'])
 })
 
-test('without the menu service a tree row still yields the in-panel entries', async () => {
+test('without the menu service a tree row resolves to nothing (its entries all need it)', async () => {
+  // The platform group and the composer entry are both absent here: the group
+  // needs the service, and the quote entry needs a composer this stub lacks.
   const actions = await merged(owner(undefined), 
     MENU_KIND.file, { ...identity, path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
   )
-  assert.deepEqual(actions.map((a) => a.id), ['copy-relative-path'])
+  assert.deepEqual(actions.map((a) => a.id), [])
 })
 
 test('an image shows nothing without the menu service (its only group is the platform one)', async () => {
@@ -154,13 +156,15 @@ test('a browse-root switch under an open menu resolves to nothing', async () => 
   assert.deepEqual(asked, [])
 })
 
-test('an unresolved root (null) still resolves: the tree may not know its root yet', async () => {
+test('an unresolved root (null) still asks the platform: the tree may not know its root yet', async () => {
   const { service, asked } = recorder()
   const actions = await merged(owner(service), 
     MENU_KIND.file, { ...identity, path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
   )
-  assert.ok(actions.length > 0)
-  assert.equal(asked.length, 1)
+  // The browser contributes nothing of its own without a composer; the platform
+  // group is still asked, resolved against the panel's browse root.
+  assert.deepEqual(asked, [{ kind: 'file', value: { sessionId: 's', path: '/work/repo/a.ts' } }])
+  assert.deepEqual(actions.map((a) => a.id), [], 'this stub offers no file views')
 })
 
 test('a session switch under an open menu resolves to nothing', async () => {

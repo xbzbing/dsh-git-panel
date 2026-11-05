@@ -268,7 +268,7 @@ const oldHostOffered = await oldPage.evaluate(() => window.__menuStub.state.offe
 assert.ok(!oldHostOffered.includes('compare-ref'), 'no ref comparison on a host without the capability')
 assert.ok(!oldHostOffered.includes('compare-revision'), 'no revision comparison either')
 assert.ok(!oldHostOffered.includes('show-history'), 'no file history either')
-assert.ok(oldHostOffered.includes('copy-relative-path'), 'the browser entries stay')
+assert.ok(oldHostOffered.includes('quote-path'), 'the browser entries stay')
 await oldPage.close()
 
 assert.deepEqual(errors, [], 'no page errors')

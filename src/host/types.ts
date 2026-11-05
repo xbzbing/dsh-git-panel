@@ -333,6 +333,10 @@ export type GitAction =
   // can wipe in-flight work (incl. the dsh AI's), so the UI gates it hardest.
   | { readonly kind: 'revert'; readonly commit: string }
   | { readonly kind: 'reset'; readonly commit: string; readonly mode: ResetMode }
+  // Detach HEAD at one commit (`git checkout <commit> --`). Nothing in the work
+  // tree is discarded; the branch simply stops being checked out, and the status
+  // bar says so.
+  | { readonly kind: 'commit-checkout'; readonly commit: string }
 
 /** `git reset` modes, from least to most destructive. Single source so the
  * client dialog and the command builder cannot drift. */

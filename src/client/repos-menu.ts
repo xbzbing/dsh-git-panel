@@ -14,6 +14,7 @@
 import type { RepoTargetValue } from './menu-owners.js'
 import type { MenuAction } from './menu-types.js'
 import type { MenuEnv } from './menu-actions.js'
+import { menuIcon } from './menu-icons.js'
 
 /** What the remote check needs to run, read at resolve time. */
 export interface ReposMenuCommands {
@@ -55,6 +56,7 @@ export function repoRowMenuActions(
     group.push({
       id: 'fetch-remote',
       label: env.t('menu.checkRemote'),
+      icon: menuIcon('fetch'),
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.fetch(value.repo),
     })

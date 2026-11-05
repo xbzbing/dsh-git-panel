@@ -148,9 +148,8 @@ assert.deepEqual(offered.map((a) => a.id), [
   'file-actions.file/copyImage',
   'file-actions.file/download',
   'file-actions.file/saveAs',
-  'copy-relative-path',
   'quote-path',
-], 'platform group first (the sidebar entry is whitelisted out), then the browser entries')
+], 'platform group first (the sidebar entry is whitelisted out), then the composer entry')
 assert.ok(!offered.some((a) => a.id === 'open-in-app.file/sidebar'), 'no "open in sidebar" entry')
 
 // The platform group is asked for the absolute path, so a nested root resolves.
@@ -161,15 +160,19 @@ assert.equal(platformAsk.value.path, ROOT + '/README.md', 'the platform receives
 // Right-click alone does not change the selection or the preview.
 assert.equal(await page.locator('.gp-files__preview').count(), 1, 'the preview stays on the selected file')
 
-// The browser's own entry writes the relative path and confirms through the toast.
-await page.evaluate(() => window.__menuStub.clearNotices())
-assert.equal(await page.evaluate(() => window.__menuStub.invoke('copy-relative-path')), 'ok')
-assert.equal(await page.evaluate(() => window.__clipboard), 'README.md')
-const notice = await page.evaluate(() => window.__menuStub.state.lastNotice)
-assert.equal(notice && notice.text, '已复制') // locales.ts › zh › menu.copied
-assert.equal(notice && notice.success, true)
+// The platform's own copy entry is the only copy in the menu: the browser used
+// to add a second, workspace-relative one, which duplicated it with a
+// differently shaped answer. What is left is forwarded, not reimplemented.
+await page.evaluate(() => { window.__menuStub.state.selected.length = 0 })
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('open-in-app.file/copyPath')), 'ok')
+assert.deepEqual(
+  await page.evaluate(() => window.__menuStub.state.selected.map((s) => s.id)),
+  ['open-in-app.file/copyPath'],
+  'the platform copies the path, and only it',
+)
 
 // A platform entry forwards its id back to the platform's own resolution.
+await page.evaluate(() => { window.__menuStub.state.selected.length = 0 })
 await page.evaluate(() => window.__menuStub.invoke('file-actions.file/download'))
 const selected = await page.evaluate(() => window.__menuStub.state.selected)
 assert.deepEqual(selected.map((s) => s.id), ['file-actions.file/download'])
@@ -218,9 +221,8 @@ const dirOffered = await page.evaluate(() => window.__menuStub.state.offered)
 assert.deepEqual(dirOffered.map((a) => a.id), [
   'open-in-app.directory/reveal',
   'open-in-app.directory/copyPath',
-  'copy-relative-path',
   'quote-path',
-], 'the directory row adds its relative path and the composer entry after the platform group')
+], 'the directory row adds only the composer entry after the platform group')
 
 // ── P9: reference into the composer ───────────────────────────────────────
 // A file row carries the quote entry (the harness exposes a composer face);
@@ -231,7 +233,7 @@ await page.evaluate(() => window.__menuStub.resolvePending())
 await page.waitForTimeout(100)
 const quoteOffered = await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id))
 assert.ok(quoteOffered.includes('quote-path'), 'the file row offers the composer entry')
-assert.deepEqual(quoteOffered.slice(-2), ['copy-relative-path', 'quote-path'], 'the quote follows the path copy')
+assert.equal(quoteOffered[quoteOffered.length - 1], 'quote-path', 'the quote is the browser\'s last entry')
 assert.equal(await page.evaluate(() => window.__menuStub.invoke('quote-path')), 'ok')
 assert.deepEqual(await page.evaluate(() => window.__quotes), ['README.md'], 'the file path lands in the composer')
 assert.equal(await page.evaluate(() => window.__quoteFocus), 1, 'the composer takes the keyboard back')
@@ -255,7 +257,7 @@ const pendingOwn = await page.evaluate(async () => {
   }
 })
 assert.equal(pendingOwn.borrowing, true, 'the borrowed group is its own contribution')
-assert.ok(pendingOwn.own.includes('copy-relative-path'), 'the plugin entries resolve without the platform')
+assert.ok(pendingOwn.own.includes('quote-path'), 'the plugin entries resolve without the platform')
 assert.ok(!pendingOwn.own.some((id) => id.startsWith('open-in-app.')), 'and they do not carry the platform entries')
 await page.evaluate(() => { window.__platformReadyDelay = 0 })
 await page.evaluate(() => window.__menuStub.resolvePending())
@@ -318,8 +320,8 @@ assert.equal(commitTarget.value.shortHash, 'aaaaaaa')
 assert.equal(commitTarget.value.subject, 'first commit')
 assert.deepEqual(
   await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
-  ['copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'revert', 'reset'],
-  'copies and the composer first, then the dialogs',
+  ['copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'checkout', 'revert', 'reset'],
+  'copies and the composer first, then the dialogs (checkout keeps the work tree, the rewrites sit behind a separator)',
 )
 
 // A destructive entry opens the existing confirmation instead of acting: no
@@ -588,7 +590,7 @@ assert.equal(stashTarget.kind, 'gitPanel.stash')
 assert.equal(stashTarget.value.sha, 'stash0sha')
 assert.deepEqual(
   await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
-  ['stash-apply', 'stash-pop', 'stash-drop', 'copy-message'],
+  ['stash-apply', 'stash-pop', 'copy-message', 'stash-drop'],
 )
 assert.equal(await page.evaluate(() => window.__menuStub.invoke('stash-apply')), 'ok')
 await page.waitForTimeout(200)

@@ -14,6 +14,7 @@
  * plugin back.
  */
 import { MENU_KINDS, menuOwner, type GitMenuValue, type MenuKind } from './menu-owners.js'
+import { registerMenuIcons } from './menu-icons.js'
 import type { ClientCtx } from './rpc.js'
 import type { ContextMenusService, MenuSource } from './menu-types.js'
 
@@ -111,6 +112,9 @@ export function mountGitMenus(ctx: ClientCtx): void {
     const menus = contextMenusOf(ready)
     if (menus === undefined) return
     ready.effect(() => registerGitMenus(menus), 'dsh-git-panel: menus')
+    // The glyphs those entries name live in the platform's icon slot, which the
+    // same package provides: a host without it has no menus to draw either.
+    ready.effect(() => registerMenuIcons(ready), 'dsh-git-panel: menu icons')
   })
 }
 

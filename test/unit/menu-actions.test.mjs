@@ -28,38 +28,28 @@ function value(overrides = {}) {
 
 const platform = [{ id: 'open-in-app.file/float', label: 'Float' }]
 
-test('the platform group comes first, then the browser entries', () => {
+test('without a composer the browser adds nothing of its own', () => {
+  // The absolute "copy path" is the platform's; a second, relative copy of the
+  // same path was removed as a duplicate. What is left is the composer entry,
+  // which the platform cannot offer.
   const actions = fileMenuActions(value(), envWith(undefined), platform)
-  assert.deepEqual(actions.map((a) => a.id), ['open-in-app.file/float', 'copy-relative-path'])
-  assert.deepEqual(actions.map((a) => a.label), ['Float', 'menu.copyRelativePath'])
+  assert.deepEqual(actions.map((a) => a.id), ['open-in-app.file/float'])
 })
 
-test('the root row has no relative path to copy', () => {
-  const actions = directoryMenuActions(value({ path: '' }), envWith(undefined), [])
-  assert.deepEqual(actions, [])
+test('the root row and a directory have no browser entries of their own', () => {
+  assert.deepEqual(directoryMenuActions(value({ path: '' }), envWith(undefined), []), [])
+  assert.deepEqual(directoryMenuActions(value({ path: 'src/ui' }), envWith(undefined), []), [])
 })
 
-test('a directory row offers its relative path', () => {
-  const actions = directoryMenuActions(value({ path: 'src/ui' }), envWith(undefined), [])
-  assert.deepEqual(actions.map((a) => a.id), ['copy-relative-path'])
-})
-
-test('copying the relative path writes the tree path and confirms through the toast', async () => {
+test('the composer entry hands the path to the panel, not to the clipboard', async () => {
+  const quoted = []
   const clipboard = stubClipboard()
-  const notices = []
-  const menus = { notify: (text, success) => { notices.push({ text, success }) } }
-  const actions = fileMenuActions(value(), envWith(menus, FACTS, clipboard.write), [])
-  await actions[0].run()
-  assert.deepEqual(clipboard.writes, ['src/a.ts'])
-  assert.deepEqual(notices, [{ text: 'menu.copied', success: true }])
-})
-
-test('a blocked copy reports failure instead of claiming success', async () => {
-  const notices = []
-  const menus = { notify: (text, success) => { notices.push({ text, success }) } }
-  const actions = fileMenuActions(value(), envWith(menus, FACTS, stubClipboard(false).write), [])
-  await actions[0].run()
-  assert.deepEqual(notices, [{ text: 'menu.copyFailed', success: false }])
+  const env = envWith(undefined, { ...FACTS, canQuote: true }, clipboard.write)
+  env.callbacks = { ...CALLBACKS, quote: (text) => quoted.push(text) }
+  const [quote] = fileMenuActions(value(), env, [])
+  await quote.run()
+  assert.deepEqual(quoted, ['src/a.ts'])
+  assert.deepEqual(clipboard.writes, [], 'the entry is not a copy')
 })
 
 
@@ -103,13 +93,13 @@ test('a thunk value is handed to the platform as a function target', () => {
   })
 })
 
-test('a composer on the host adds the quote entry after the path copy', () => {
+test('a composer on the host adds the quote entry after the platform group', () => {
   const quoted = []
   const env = envWith(undefined, { ...FACTS, canQuote: true })
   env.callbacks = { ...CALLBACKS, quote: (text) => quoted.push(text) }
   const actions = fileMenuActions(value(), env, platform)
-  assert.deepEqual(actions.map((a) => a.id), ['open-in-app.file/float', 'copy-relative-path', 'quote-path'])
-  void actions[2].run()
+  assert.deepEqual(actions.map((a) => a.id), ['open-in-app.file/float', 'quote-path'])
+  void actions[1].run()
   assert.deepEqual(quoted, ['src/a.ts'])
 })
 

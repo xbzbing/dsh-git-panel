@@ -120,7 +120,10 @@ test('a stash row opens the existing drop confirm', async () => {
   const rec = recorder()
   const value = { sessionId: 's', owner: 'o', repo: '', sha: 'abc123', label: 'WIP on main' }
   const actions = stashMenuActions(value, env, rec.commands, { busy: false })
-  assert.deepEqual(actions.map((a) => a.id), ['stash-apply', 'stash-pop', 'stash-drop', 'copy-message'])
+  // The destructive entry is last, behind a separator: it never sits next to the
+  // ones a slip would confuse it with.
+  assert.deepEqual(actions.map((a) => a.id), ['stash-apply', 'stash-pop', 'copy-message', 'stash-drop'])
+  assert.equal(actions[3].separatorBefore, true)
   await byId(actions).get('stash-drop').run()
   assert.deepEqual(rec.calls, [['openStashDrop', 'abc123', 'WIP on main']], 'no drop from the menu itself')
 })

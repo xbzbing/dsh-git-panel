@@ -3179,6 +3179,34 @@ test('an untracked file in a linked worktree compares against the revision', asy
   }
 })
 
+test('commit-checkout detaches HEAD and leaves the work tree alone', async () => {
+  const { writeFileSync, rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'v1\n' })
+  try {
+    const d = depsAt(dir)
+    // A second commit, and an uncommitted edit that must survive the checkout.
+    writeFileSync(join(dir, 'a.txt'), 'v2\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'second'])
+    await runGit(dir, ['tag', 'v1'])
+    writeFileSync(join(dir, 'b.txt'), 'scratch\n')
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'commit-checkout', commit: 'refs/tags/v1' } })
+    assert.equal(res.ok, true)
+    // `symbolic-ref` exits non-zero exactly when HEAD is detached (no ref to name).
+    let branch = ''
+    try { branch = execFileSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim() } catch { branch = '' }
+    assert.equal(branch, '', 'HEAD is detached')
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim(), execFileSync('git', ['rev-parse', 'refs/tags/v1'], { cwd: dir, encoding: 'utf8' }).trim())
+    const kept = execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })
+    assert.match(kept, /\?\? b\.txt/, 'the untracked file is still there')
+    const bad = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'commit-checkout', commit: '--orphan' } })
+    assert.equal(bad.ok, false)
+    assert.equal(bad.error.code, 'invalid-name')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a staged deletion still compares against the revision', async () => {
   const { rmSync } = await import('node:fs')
   const dir = await scratchRepo({ 'a.txt': 'v1\n' })
