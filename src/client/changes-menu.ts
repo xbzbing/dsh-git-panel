@@ -42,7 +42,13 @@ export function changeMenuActions(
 ): MenuAction[] {
   const key = `${value.path}:${value.staged ? 's' : 'w'}`
   const group = pick.has(key) && pick.size > 1
+  // Stage acts on the whole pick (either side); discard only on the working-tree
+  // side, because an index-side pick has nothing to drop. Counting the pick for
+  // the discard label would promise more files than the action can touch.
   const paths: readonly string[] = group ? pathsOfPick(pick) : [value.path]
+  const discardPaths: readonly string[] = group
+    ? [...new Set([...pick].filter((entry) => entry.endsWith(':w')).map((entry) => entry.slice(0, -2)))]
+    : [value.path]
   const groupLabel = (key: GitKey): string => env.t(key, { n: paths.length })
   return [
     {
@@ -60,13 +66,13 @@ export function changeMenuActions(
     },
     // Discard is a working-tree operation: an index-side row has nothing to
     // discard, and the confirm is the batch one the toolbar opens.
-    ...(value.staged ? [] : [{
+    ...(value.staged || discardPaths.length === 0 ? [] : [{
       id: 'discard',
-      label: groupLabel('menu.discardPicked'),
+      label: env.t('menu.discardPicked', { n: discardPaths.length }),
       danger: true,
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),
-      run: () => cmds.openDiscard(paths),
+      run: () => cmds.openDiscard(discardPaths),
     }]),
   ]
 }

@@ -820,7 +820,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     ? null
     : h('button', {
       key: 'filepath', type: 'button', className: 'gp-chip gp-chip--filter',
-      title: t('menu.clearFileHistory'), 'aria-label': `${t('menu.fileHistory')} ${filter.exactPath} · ${t('menu.clearFileHistory')}`,
+      title: `${t('menu.clearFileHistory')} · ${t('menu.noRenameNote')}`,
+      'aria-label': `${t('menu.fileHistory')} ${filter.exactPath} · ${t('menu.clearFileHistory')} · ${t('menu.noRenameNote')}`,
       onClick: () => { setFilter((prev) => ({ ...prev, exactPath: undefined })); detail.clearSelection() },
     }, [
       h('span', { key: 'k', className: 'gp-chip__key' }, t('menu.fileHistory')),

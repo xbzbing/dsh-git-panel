@@ -13,7 +13,7 @@
 import { createElement as h, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { inertAttr } from './inert.js'
 import type { JSX } from 'react'
-import { SegmentedTabs, StateDot, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SegmentedTabs, StateDot, writeClipboard, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import { gitPanelRemoteOf, hasSession, queryAs, type ClientCtx } from './rpc.js'
 import { useGitView, controllerFor } from './registry.js'
 import type { GitView } from './controller.js'
@@ -598,12 +598,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     if (!hasSession(sessionId)) return
     if (insertSessionQuote(ctx, sessionId, text)) return
     // The composer is gone (unmounted, another session took it, an old host):
-    // keep the text and say where it went instead of failing silently.
+    // keep the text and say where it went instead of failing silently. The
+    // primitives' clipboard face covers the non-secure-origin case that a bare
+    // `navigator.clipboard` does not.
     const menus = contextMenusOf(ctx)
-    void navigator.clipboard.writeText(text).then(
-      () => menus?.notify(t('menu.quoteFailed'), false),
-      () => menus?.notify(t('menu.copyFailed'), false),
-    )
+    void writeClipboard(text).then((ok) => {
+      menus?.notify(ok ? t('menu.quoteFailed') : t('menu.copyFailed'), false)
+    })
   }, [ctx, sessionId, t])
   const menuSources = useCallback(
     (): readonly MenuSource[] => (hasSession(sessionId) ? [controllerFor(sessionId)] : []),
@@ -671,13 +672,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       }
     })()
   }, [ctx, t])
+  // Read through primitives so the menu owner is not re-registered on every
+  // poll: the sample object changes identity each snapshot, its two facts do not.
+  const sampleReady = view.state === 'ready'
+  const sampleHasRemote = sampleReady && view.snapshot.remote !== null
   const reposFacts = useCallback((repoTag: string): ReposMenuFacts => {
-    if (!hasSession(sessionId) || view.state !== 'ready') return { canFetch: false }
+    if (!hasSession(sessionId) || !sampleReady) return { canFetch: false }
     // The sampled checkout is the only one whose remote is known; a worktree
     // shares it, and a scanned foreign repository answers when asked.
-    if (repoTag === repo) return { canFetch: view.snapshot.remote !== null }
-    return { canFetch: true }
-  }, [sessionId, repo, view])
+    return { canFetch: repoTag === repo ? sampleHasRemote : true }
+  }, [sessionId, repo, sampleReady, sampleHasRemote])
   const reposCommandsRef = useRef<ReposMenuCommands>({ fetch: () => {} })
   reposCommandsRef.current = { fetch: (repoTag: string): void => { if (hasSession(sessionId)) runRepoFetch(sessionId, repoTag) } }
   const reposCommands = useCallback((): ReposMenuCommands => reposCommandsRef.current, [])

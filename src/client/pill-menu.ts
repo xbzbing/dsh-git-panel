@@ -13,10 +13,8 @@
  */
 import type { PillTargetValue } from './menu-owners.js'
 import type { MenuAction } from './menu-types.js'
-import type { GitKey } from './locales.js'
 import { copyText } from './menu-actions.js'
 import type { MenuEnv } from './menu-actions.js'
-import { FETCH_MENU_LABELS } from './repos-menu.js'
 
 /** What the pill's entries need to run, read at resolve time. */
 export interface PillMenuCommands {
@@ -72,15 +70,3 @@ export function pillMenuActions(
   }
   return group
 }
-
-/** Labels are read through the panel's translate; this keeps the keys in one
- * place for the locale test to see. */
-export const PILL_MENU_LABELS = {
-  openOverview: 'menu.openOverview',
-  openChanges: 'menu.openChanges',
-  openFiles: 'menu.openFiles',
-  copyBranchName: 'menu.copyBranchName',
-  copyRoot: 'overview.copyRoot',
-  checkRemote: 'menu.checkRemote',
-  ...FETCH_MENU_LABELS,
-} as const satisfies Record<string, GitKey>

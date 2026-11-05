@@ -9,7 +9,6 @@
  */
 import type { BranchTargetValue, CommitTargetValue } from './menu-owners.js'
 import type { MenuAction } from './menu-types.js'
-import type { GitKey } from './locales.js'
 import { copyText } from './menu-actions.js'
 import { commitQuote } from './quote.js'
 import type { MenuEnv } from './menu-actions.js'
@@ -125,20 +124,3 @@ export function commitMenuActions(
     },
   ]
 }
-
-/** Labels are read through the panel's translate; this keeps the keys in one
- * place for the locale test to see. */
-export const OVERVIEW_MENU_LABELS = {
-  quoteCommit: 'menu.quoteCommit',
-  switchBranch: 'menu.switchBranch',
-  switchToTracking: 'menu.switchToTracking',
-  showHistory: 'menu.showHistory',
-  showThisHistory: 'menu.showThisHistory',
-  copyBranchName: 'menu.copyBranchName',
-  copyHash: 'menu.copyHash',
-  copyShortHash: 'menu.copyShortHash',
-  copySubject: 'menu.copySubject',
-  createTagHere: 'menu.createTagHere',
-  revertCommit: 'menu.revertCommit',
-  resetToHere: 'menu.resetToHere',
-} as const satisfies Record<string, GitKey>

@@ -109,8 +109,10 @@ export function usePillMenu(inputs: PillMenuInputs): Record<string, unknown> {
         const target = value as PillTargetValue
         // The menu must speak for the checkout the pill is showing now: a
         // repository switch under an open menu empties it instead of offering
-        // "copy branch" for a branch that is no longer checked out.
-        if (shown === null || target.root !== shown.root) return []
+        // "copy branch" for a branch that is no longer checked out. A pill with
+        // no sample (the view went cold) captures the empty root, so that case
+        // is checked first — two empty strings would otherwise compare equal.
+        if (shown === null || shown.root === '' || target.root !== shown.root) return []
         const commands: PillMenuCommands = {
           openTab: (tab) => openTabRef.current(tab),
           fetch: (repoTag) => fetchOf(repoTag),

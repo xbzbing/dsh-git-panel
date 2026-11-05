@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { insertSessionQuote, quoteAvailable, commitQuote, pathQuote } from '../../lib/testkit.mjs'
+import { insertSessionQuote, quoteAvailable, commitQuote } from '../../lib/testkit.mjs'
 
 /** A client ctx exposing one `sessions` service (or none). */
 function ctxWith(service) {
@@ -71,8 +71,7 @@ test('the probe answers whether the menu may offer the entry at all', () => {
   assert.equal(quoteAvailable(ctxWith(fakeSessions().service), undefined), false)
 })
 
-test('a commit quotes its short hash and subject; a file quotes its path', () => {
+test('a commit quotes its short hash and subject', () => {
   assert.equal(commitQuote('a1b2c3d', 'fix: the thing'), 'a1b2c3d fix: the thing')
   assert.equal(commitQuote('a1b2c3d', '  '), 'a1b2c3d', 'an empty subject leaves only the hash')
-  assert.equal(pathQuote('src/a b.ts'), 'src/a b.ts')
 })

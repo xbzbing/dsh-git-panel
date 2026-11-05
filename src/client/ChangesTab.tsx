@@ -120,6 +120,11 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   const [discardDir, setDiscardDir] = useState<{ group: ChangeGroupKey; path: string } | null>(null)
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
   const [discardPickedOpen, setDiscardPickedOpen] = useState(false)
+  // The paths a menu entry captured, when the entry (not the toolbar) opened the
+  // confirm. The dialog then reports exactly what the gesture named instead of
+  // whatever happens to be checked — a row that is not part of the pick must not
+  // turn "discard this file" into "discard the checked files".
+  const [discardRequest, setDiscardRequest] = useState<readonly string[] | null>(null)
   const [discardAllOpen, setDiscardAllOpen] = useState(false)
   // Whether the user has expanded the list past the host cap in this mount.
   // Drives the expand-bar wording ("已展开" + collapse); a fresh mount starts
@@ -354,6 +359,10 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // Batch discard targets: the selected working-tree paths, plus the staged-only
   // picks the confirm dialog reports as unaffected instead of dropping silently.
   const discardTargets = useMemo(() => pickDiscardTargets(selected), [selected])
+  // What the confirm will discard: the entry's captured paths when it opened the
+  // dialog, else the toolbar's checked set.
+  const discardPaths = discardRequest ?? discardTargets.paths
+  const discardStagedOnly = discardRequest === null ? discardTargets.stagedOnly : []
   // Batch stage targets: the checked working-tree rows. Index-side picks are
   // already staged and never widen the set; the fresh snapshot retires their
   // `:w` keys, so nothing stale is carried into the next action.
@@ -362,8 +371,10 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // A snapshot that removes every checked row empties the target set; close the
   // dialog rather than letting a stale "open" flag pop it back on the next pick.
   useEffect(() => {
-    if (discardPickedOpen && discardTargets.paths.length === 0) setDiscardPickedOpen(false)
-  }, [discardPickedOpen, discardTargets])
+    if (!discardPickedOpen || discardPaths.length > 0) return
+    setDiscardPickedOpen(false)
+    setDiscardRequest(null)
+  }, [discardPickedOpen, discardPaths])
 
   // A directory whose rows all left the work tree closes its dialog; a partial
   // shrink does not, it just narrows the re-derived path list below — the
@@ -471,11 +482,10 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // Batch discard of the checked files' working-tree changes (already confirmed
   // by the dialog). The refreshed snapshot prunes the now-clean rows, and the
   // selection with them.
-  const discardPicked = async (): Promise<void> => {
-    const paths = [...discardTargets.paths]
-    if (paths.length === 0) { setDiscardPickedOpen(false); return }
-    const ok = await run({ kind: 'discard', paths })
-    if (ok) setDiscardPickedOpen(false)
+  const discardPicked = async (paths: readonly string[]): Promise<void> => {
+    if (paths.length === 0) { setDiscardPickedOpen(false); setDiscardRequest(null); return }
+    const ok = await run({ kind: 'discard', paths: [...paths] })
+    if (ok) { setDiscardPickedOpen(false); setDiscardRequest(null) }
   }
   // Directory discard: the dialog already collected the confirmation, so this
   // is the ordinary batch discard scoped to that directory's work-tree rows —
@@ -701,13 +711,13 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   const changesMenuCommands: ChangesMenuCommands = {
     openDiff: (path, staged) => showDiff(path, staged ? 'staged' : 'worktree'),
     stage: (paths, staged) => { void run({ kind: staged ? 'unstage' : 'stage', paths: [...paths] }) },
-    // The toolbar's own path into the batch-discard dialog: the menu entry
-    // pre-arms the same pick so its confirm matches the checked set.
+    // The toolbar's own path into the batch-discard dialog, with the entry's
+    // captured paths standing in for the checked set: the confirm then lists
+    // exactly what the gesture named (and cannot open over an empty pick).
     openDiscard: (paths) => {
       if (paths.length === 0) return
       setError(null)
-      // A single captured row acts like a one-row pick; a group mirrors the
-      // toolbar (open over the existing checked set).
+      setDiscardRequest([...paths].sort())
       setDiscardPickedOpen(true)
     },
     stashApply: (sha) => { const s = stashes.find((it) => it.sha === sha); if (s !== undefined) stashApply(s.index, sha) },
@@ -779,7 +789,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
       onStagePicked: (paths) => { if (paths.length > 0) void run({ kind: 'stage', paths: [...paths] }) },
       onStageAll: () => void run({ kind: 'stage-all' }),
       onUnstageAll: () => void run({ kind: 'unstage-all' }),
-      onDiscard: () => { setError(null); setDiscardPickedOpen(true) },
+      onDiscard: () => { setError(null); setDiscardRequest(null); setDiscardPickedOpen(true) },
       onDiscardAll: () => { setError(null); setDiscardAllOpen(true) },
       onStash: () => { setError(null); setStashPushOpen(true) },
       // Push runs straight from the toolbar: it is a fast-forward-only push
@@ -910,16 +920,16 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
       onClose: () => setStashDrop(null),
       t,
     }) : null,
-    discardPickedOpen && discardTargets.paths.length > 0
+    discardPickedOpen && discardPaths.length > 0
       ? h(DiscardPickedModal, {
         key: 'discard-picked',
-        paths: discardTargets.paths,
-        stagedOnly: discardTargets.stagedOnly,
+        paths: discardPaths,
+        stagedOnly: discardStagedOnly,
         snapshot,
         busy,
         error,
-        onConfirm: () => void discardPicked(),
-        onClose: () => setDiscardPickedOpen(false),
+        onConfirm: () => void discardPicked(discardPaths),
+        onClose: () => { setDiscardPickedOpen(false); setDiscardRequest(null) },
         t,
       })
       : null,

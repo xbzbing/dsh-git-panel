@@ -135,20 +135,6 @@ export type MenuValueSeed =
   | MenuSeed<RepoTargetValue>
   | MenuSeed<PillTargetValue>
 
-/** Which value each kind carries, so a binder call is checked against its own
- * family instead of an opaque union. */
-export interface MenuValueMap {
-  readonly 'gitPanel.file': TreeTargetValue
-  readonly 'gitPanel.directory': TreeTargetValue
-  readonly 'gitPanel.image': ImageTargetValue
-  readonly 'gitPanel.branch': BranchTargetValue
-  readonly 'gitPanel.commit': CommitTargetValue
-  readonly 'gitPanel.change': ChangeTargetValue
-  readonly 'gitPanel.changeDir': ChangeDirTargetValue
-  readonly 'gitPanel.stash': StashTargetValue
-  readonly 'gitPanel.repos': RepoTargetValue
-  readonly 'gitPanel.pill': PillTargetValue
-}
 
 /** Target kind names. Each is a distinct family in the platform registry, so
  * our contributions never mix with the platform's `file` / `directory` ones —

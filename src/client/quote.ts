@@ -65,8 +65,10 @@ export function insertSessionQuote(ctx: ClientCtx, sessionId: string | undefined
     const input = resolver.for(scope)
     if (!isQuoteFace(input)) return false
     if (!input.insertQuote(text)) return false
-    // The quote lands in the draft; handing the keyboard back is what makes it
-    // editable instead of a silent write behind a menu.
+    // The platform's own insertQuote focuses the composer when it succeeds; the
+    // call is repeated here because the face is declared structurally and an
+    // older or stricter implementation may not — and an unfocused draft reads as
+    // a silent write behind a dismissed menu.
     input.focus()
     return true
   } catch {
@@ -102,10 +104,4 @@ export function quoteAvailable(ctx: ClientCtx, sessionId: string | undefined): b
 export function commitQuote(shortHash: string, subject: string): string {
   const text = subject.trim()
   return text === '' ? shortHash : `${shortHash} ${text}`
-}
-
-/** What a file row quotes: its path as the browser shows it (relative to the
- * browse root), which is what git commands and diffs use. */
-export function pathQuote(path: string): string {
-  return path
 }

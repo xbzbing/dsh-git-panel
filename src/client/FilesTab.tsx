@@ -161,16 +161,19 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
   const [dirs, setDirs] = useState<ReadonlyMap<string, Loaded>>(() => init?.dirs ?? new Map())
   const [open, setOpen] = useState<ReadonlySet<string>>(() => init?.open ?? new Set(['']))
   const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
-  // The preview's picture is a workspace file: its menu is the file row's
-  // (absolute path included), bound through the same face.
-  // The preview's picture is a workspace file: its menu is the file row's
-  // (absolute path included), bound through the same face. The entry's ignored
-  // flag gates the later Git group; the tree computes it per entry.
-  const previewMenu = useMemo<MenuTriggerHandlers | undefined>(() => {
-    if (selected === null || menu === undefined) return undefined
-    return menu.row(selected, MENU_KIND.file, entryIgnored(dirs, selected), { tabIndex: -1 })
-  }, [menu, selected, dirs])
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
+  // The preview's picture is a workspace file: its menu is the file row's
+  // (absolute path included), bound through the same face. It binds the file the
+  // body is actually rendering, not the selection: a read that has not landed
+  // yet still shows the previous picture, and an edit draft shows the file being
+  // edited — naming the selected path there would point "reveal" and "copy path"
+  // at a file the pane is not showing. The entry's ignored flag gates the later
+  // Git group; the tree computes it per entry.
+  const shownPath = file.kind === 'idle' || file.kind === 'loading' ? null : file.path
+  const previewMenu = useMemo<MenuTriggerHandlers | undefined>(() => {
+    if (shownPath === null || menu === undefined) return undefined
+    return menu.row(shownPath, MENU_KIND.file, entryIgnored(dirs, shownPath), { tabIndex: -1 })
+  }, [menu, shownPath, dirs])
   // The preview bar describes the file that is actually on screen. A read in
   // flight blanks the body, so the bar keeps the last settled shape: taking its
   // controls from the loading state would unmount the mode switch and the

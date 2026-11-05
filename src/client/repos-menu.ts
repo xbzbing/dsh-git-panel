@@ -13,7 +13,6 @@
  */
 import type { RepoTargetValue } from './menu-owners.js'
 import type { MenuAction } from './menu-types.js'
-import type { GitKey } from './locales.js'
 import type { MenuEnv } from './menu-actions.js'
 
 /** What the remote check needs to run, read at resolve time. */
@@ -62,16 +61,3 @@ export function repoRowMenuActions(
   }
   return group
 }
-
-/** Labels are read through the panel's translate; this keeps the keys in one
- * place for the locale test to see. */
-export const REPOS_MENU_LABELS = {
-  checkRemote: 'menu.checkRemote',
-} as const satisfies Record<string, GitKey>
-
-/** The fetch report's labels, also shared with the pill's menu. */
-export const FETCH_MENU_LABELS = {
-  done: 'menu.fetchDone',
-  noRemote: 'menu.fetchNoRemote',
-  failed: 'common.operationFailed',
-} as const satisfies Record<string, GitKey>
