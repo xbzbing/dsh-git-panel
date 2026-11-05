@@ -18,7 +18,7 @@
 import { useEffect, useId, useMemo, useRef } from 'react'
 import { hasSession, type ClientCtx } from './rpc.js'
 import { menuTriggerFactory, type PanelMenu } from './menu-bindings.js'
-import { MENU_KIND, registerMenuOwner, type GitMenuValue } from './menu-owners.js'
+import { MENU_KIND, registerMenuOwner, type GitMenuValue, type MenuValueSeed } from './menu-owners.js'
 import type { TreeTargetValue } from './menu-owners.js'
 import { panelMenuOwner } from './menu-panel.js'
 import { contextMenusOf } from './menu-register.js'
@@ -26,6 +26,7 @@ import type { GitKey } from './locales.js'
 import type { MenuCallbacks } from './menu-actions.js'
 import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
 import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
+import type { ReposMenuCommands, ReposMenuFacts } from './repos-menu.js'
 import type { MenuSource, UseContextMenu } from './menu-types.js'
 
 /** What the panel hands the hook. */
@@ -56,6 +57,10 @@ export interface PanelMenuInputs {
   readonly changesCommands: () => ChangesMenuCommands
   readonly changesFacts: () => ChangesMenuFacts
   readonly changesPick: () => ReadonlySet<string>
+  /** The repository rows' remote check (they are not the selected checkout, so
+   * the run reports through the menu toast). */
+  readonly reposCommands: () => ReposMenuCommands
+  readonly reposFacts: (repoTag: string) => ReposMenuFacts
 }
 
 /**
@@ -64,7 +69,7 @@ export interface PanelMenuInputs {
  * @returns the facade its subtree reads (see menu-context.ts).
  */
 export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
-  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory, overviewCommands, overviewFacts, changesCommands, changesFacts, changesPick } = inputs
+  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory, overviewCommands, overviewFacts, changesCommands, changesFacts, changesPick, reposCommands, reposFacts } = inputs
   const factory = useMemo(() => menuTriggerFactory(useContextMenu), [useContextMenu])
   const ownerId = useId()
   // Repository is compared at resolve time, so the thunk reads it through a ref
@@ -85,13 +90,15 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
         sessionId, owner: ownerId, repo: repoRef.current, ...image,
       }), handlers)
     },
-    // Overview rows capture their own identity; the facade only adds the panel's
-    // and defers the value so a repository switch is read at gesture time.
-    bind: (kind, value, handlers) => {
+    // Overview, changes and repository rows capture their own fields; the facade
+    // adds the panel's identity and defers the value so a repository switch is
+    // read at gesture time. A seed may name its own `repo` (a repository row
+    // points at its own checkout) — that one wins over the panel's selection.
+    bind: (kind, value: MenuValueSeed, handlers) => {
       if (!hasSession(sessionId)) return handlers ?? {}
       return factory.bind(
         kind,
-        () => ({ ...value, sessionId, owner: ownerId, repo: repoRef.current }) as GitMenuValue,
+        () => ({ repo: repoRef.current, ...value, sessionId, owner: ownerId }) as GitMenuValue,
         handlers,
       )
     },
@@ -119,9 +126,10 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
         facts: changesFacts,
         pick: changesPick,
       }),
+      repos: () => ({ commands: reposCommands(), facts: reposFacts }),
       observe,
     }))
-  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities, overviewFacts, changesFacts, changesPick])
+  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities, overviewFacts, changesFacts, changesPick, reposCommands, reposFacts])
 
   return facade
 }

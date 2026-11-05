@@ -27,6 +27,7 @@ import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
 import type { FontDelta, GitAction, GitRepoEntry } from './types.js'
+import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
 import { discardUnsavedEdit, hasUnsavedEdit } from './edit-store.js'
@@ -36,9 +37,12 @@ import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
 import { PanelMenuContext } from './menu-context.js'
 import { usePanelMenu } from './use-panel-menu.js'
+import { contextMenusOf } from './menu-register.js'
 import { CompareHost, type CompareRequest } from './compare-host.js'
 import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
 import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
+import type { ReposMenuCommands, ReposMenuFacts } from './repos-menu.js'
+import { MENU_KIND } from './menu-owners.js'
 import type { TreeTargetValue } from './menu-owners.js'
 import type { UseContextMenu } from './menu-types.js'
 import type { MenuSource } from './menu-types.js'
@@ -620,6 +624,49 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   const changesCommands = useCallback((): ChangesMenuCommands => changesCommandsRef.current ?? EMPTY_CHANGES_COMMANDS, [])
   const changesFacts = useCallback((): ChangesMenuFacts => changesStateRef.current, [])
   const changesPick = useCallback((): ReadonlySet<string> => changesPickRef.current, [])
+  // The repository rows' remote check. A row is usually not the checkout the
+  // panes act on, so the fetch reports through the menu toast rather than a
+  // status bar; the sampled checkout answers whether it has a remote at all,
+  // and a row nobody sampled has to answer for itself (a failed fetch says so).
+  const fetchClaimsRef = useRef<Set<string>>(new Set())
+  const runRepoFetch = useCallback((live: string, repoTag: string): void => {
+    const claims = fetchClaimsRef.current
+    if (claims.has(repoTag)) return
+    claims.add(repoTag)
+    void (async () => {
+      try {
+        const result = await withRepo(gitPanelRemoteOf(ctx), repoTag).run({ sessionId: live, action: { kind: 'fetch' } })
+        const menus = contextMenusOf(ctx)
+        if (!result.ok) {
+          menus?.notify(opErrorText(result.error.code, result.error.message, t), false)
+          return
+        }
+        // The reply carries the sample of the checkout the fetch ran in; only
+        // that checkout's controller sample may publish it.
+        const controller = controllerFor(live)
+        if (controller.getRepo() === repoTag) controller.accept(result.snapshot)
+        const snap = result.snapshot
+        if (snap.remote === null) menus?.notify(t('menu.fetchNoRemote'), true)
+        else if (!snap.hasUpstream) menus?.notify(t('menu.fetchNoUpstream'), true)
+        else menus?.notify(t('menu.fetchDone', { ahead: snap.ahead, behind: snap.behind }), true)
+      } catch (error) {
+        contextMenusOf(ctx)?.notify(error instanceof Error ? error.message : t('common.operationFailed'), false)
+      } finally {
+        claims.delete(repoTag)
+      }
+    })()
+  }, [ctx, t])
+  const reposFacts = useCallback((repoTag: string): ReposMenuFacts => {
+    if (!hasSession(sessionId) || view.state !== 'ready') return { canFetch: false }
+    // The sampled checkout is the only one whose remote is known; a worktree
+    // shares it, and a scanned foreign repository answers when asked.
+    if (repoTag === repo) return { canFetch: view.snapshot.remote !== null }
+    return { canFetch: true }
+  }, [sessionId, repo, view])
+  const reposCommandsRef = useRef<ReposMenuCommands>({ fetch: () => {} })
+  reposCommandsRef.current = { fetch: (repoTag: string): void => { if (hasSession(sessionId)) runRepoFetch(sessionId, repoTag) } }
+  const reposCommands = useCallback((): ReposMenuCommands => reposCommandsRef.current, [])
+
   const panelMenu = usePanelMenu({
     ctx, t, sessionId, repo, browseRoot: browseRootOf, useContextMenu, observe: menuSources,
     isGit: isGitRoot, capabilities,
@@ -628,6 +675,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     changesCommands,
     changesFacts,
     changesPick,
+    reposCommands,
+    reposFacts,
     onCompareRevision: useCallback((value: TreeTargetValue) => openCompare('revision', value), [openCompare]),
     onCompareRef: useCallback((value: TreeTargetValue) => openCompare('ref', value), [openCompare]),
     onShowHistory: showHistory,
@@ -763,6 +812,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       t,
     })
 
+  // A row's menu: reveal and copy the checkout's absolute root (the platform's
+  // directory family, resolved per row) plus the remote check. The row names its
+  // own checkout — the menu must not follow the panel's later switch.
+  const repoRowMenu = panelMenu === undefined
+    ? undefined
+    : (choice: RepoChoice): Record<string, unknown> =>
+      panelMenu.bind(MENU_KIND.repos, { repo: choice.path, root: choice.root })
   const repositories = hasSession(sessionId)
     ? {
       choices: repoList,
@@ -770,6 +826,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       onChoose: chooseRepoGuarded,
       collapsed: reposCollapsed,
       onToggleCollapse: () => setReposCollapsed((v) => !v),
+      rowMenu: repoRowMenu,
     }
     : undefined
 

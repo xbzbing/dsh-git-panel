@@ -18,8 +18,16 @@ function recorder() {
     close: () => {},
     resolve: (target) => {
       asked.push(target)
+      // One canned view per family, so the projection keeps the kind's own
+      // entries and the assertions see a realistic group.
+      const views = target.kind === 'directory'
+        ? [
+            { id: 'open-in-app.directory/reveal', label: 'Reveal' },
+            { id: 'open-in-app.directory/copyPath', label: 'Copy path' },
+          ]
+        : [{ id: 'file-actions.image/copy', label: 'Copy image' }]
       return {
-        source: { getSnapshot: () => [{ id: 'file-actions.image/copy', label: 'Copy image' }] },
+        source: { getSnapshot: () => views },
         ready: Promise.resolve(),
         select: () => {},
         dispose: () => {},
@@ -38,6 +46,19 @@ function owner(service, browseRoot = '/work/repo', facts = FACTS) {
     browseRoot: () => browseRoot,
     identity: () => ({ sessionId: 's', repo: '' }),
     callbacks: () => CALLBACKS,
+    repos: () => ({ commands: { fetch: () => {} }, facts: () => ({ canFetch: true }) }),
+    observe: () => [],
+  })
+}
+
+/** A panel showing one repository, with the menu owners' optional faces. */
+function panel(service, { sessionId = 's', repo = '', browseRoot = '/work/repo', canFetch = true } = {}) {
+  return panelMenuOwner({
+    env: () => ({ t, menus: service, facts: FACTS }),
+    browseRoot: () => browseRoot,
+    identity: () => ({ sessionId, repo }),
+    callbacks: () => CALLBACKS,
+    repos: () => ({ commands: { fetch: () => {} }, facts: () => ({ canFetch }) }),
     observe: () => [],
   })
 }
@@ -143,6 +164,49 @@ test('a session switch under an open menu resolves to nothing', async () => {
   })
   const actions = await other.actionsFor(
     MENU_KIND.file, { ...identity, path: 'a.ts', root: null, ignored: false }, new AbortController().signal,
+  )
+  assert.deepEqual(actions, [])
+})
+
+test('a repository row asks the platform for the row\'s own absolute root', async () => {
+  const { service, asked } = recorder()
+  const actions = await owner(service).actionsFor(
+    MENU_KIND.repos, { ...identity, repo: 'apps/cli', root: '/work/apps/cli' }, new AbortController().signal,
+  )
+  assert.deepEqual(asked[0], {
+    kind: 'directory',
+    value: { sessionId: 's', path: '/work/apps/cli' },
+  }, 'the platform directory family, addressed by the row absolute root')
+  assert.deepEqual(actions.map((a) => a.id), [
+    'open-in-app.directory/reveal', 'open-in-app.directory/copyPath', 'fetch-remote',
+  ])
+})
+
+test('a repository row survives a repository pick inside the panel', async () => {
+  const { service, asked } = recorder()
+  // The panel moved to another checkout after the row was captured: a chooser
+  // row still names its own root, so its menu stays valid.
+  const switched = panel(service, { repo: 'other' })
+  const actions = await switched.actionsFor(
+    MENU_KIND.repos, { ...identity, repo: 'apps/cli', root: '/work/apps/cli' }, new AbortController().signal,
+  )
+  assert.equal(asked.length, 1)
+  assert.ok(actions.length > 0)
+})
+
+test('a repository row without a root resolves to nothing', async () => {
+  const { service, asked } = recorder()
+  const actions = await owner(service).actionsFor(
+    MENU_KIND.repos, { ...identity, repo: '', root: '' }, new AbortController().signal,
+  )
+  assert.deepEqual(actions, [])
+  assert.deepEqual(asked, [], 'an unknown root is never sent to the platform')
+})
+
+test('a session switch still empties a repository row', async () => {
+  const { service } = recorder()
+  const actions = await panel(service, { sessionId: 'other' }).actionsFor(
+    MENU_KIND.repos, { ...identity, repo: 'apps/cli', root: '/work/apps/cli' }, new AbortController().signal,
   )
   assert.deepEqual(actions, [])
 })

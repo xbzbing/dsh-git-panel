@@ -89,8 +89,66 @@ export interface ChangeDirTargetValue extends MenuIdentity {
   readonly discardable: readonly string[]
 }
 
+/** One row of the repository selector. Unlike the tree families its `repo` tag
+ * is the row's own checkout (not the panel's selection): the list is a chooser,
+ * so "reveal" and "copy path" name the row whoever the panes act on, and the
+ * actions only need the row's absolute root. */
+export interface RepoTargetValue extends MenuIdentity {
+  /** Absolute checkout root ('' when the host did not report one). */
+  readonly root: string
+}
+
+/** One stash row: the sha the apply/pop/drop actions address plus the subject
+ * the row prints (the copy entry reuses it). */
+export interface StashTargetValue extends MenuIdentity {
+  readonly sha: string
+  readonly label: string
+}
+
+/** The input-bar pill. It reports the checkout the panel samples, so its
+ * actions (jump to a page, copy the branch or the root, check the remote) are
+ * bound to that moment: `branch` is null while HEAD is detached. */
+export interface PillTargetValue extends MenuIdentity {
+  readonly root: string
+  readonly branch: string | null
+}
+
 /** Everything a captured target value can be. */
-export type GitMenuValue = TreeTargetValue | ImageTargetValue | BranchTargetValue | CommitTargetValue | ChangeTargetValue | ChangeDirTargetValue
+export type GitMenuValue =
+  | TreeTargetValue | ImageTargetValue | BranchTargetValue | CommitTargetValue
+  | ChangeTargetValue | ChangeDirTargetValue | StashTargetValue | RepoTargetValue | PillTargetValue
+
+/** The fields a surface supplies when it binds a target: the value without the
+ * identity the panel facade fills in. `repo` stays optional on purpose — a
+ * repository row names its own checkout, everything else inherits the panel's.
+ */
+type MenuSeed<T> = Omit<T, 'sessionId' | 'owner' | 'repo'> & { readonly repo?: string }
+
+export type MenuValueSeed =
+  | MenuSeed<TreeTargetValue>
+  | MenuSeed<ImageTargetValue>
+  | MenuSeed<BranchTargetValue>
+  | MenuSeed<CommitTargetValue>
+  | MenuSeed<ChangeTargetValue>
+  | MenuSeed<ChangeDirTargetValue>
+  | MenuSeed<StashTargetValue>
+  | MenuSeed<RepoTargetValue>
+  | MenuSeed<PillTargetValue>
+
+/** Which value each kind carries, so a binder call is checked against its own
+ * family instead of an opaque union. */
+export interface MenuValueMap {
+  readonly 'gitPanel.file': TreeTargetValue
+  readonly 'gitPanel.directory': TreeTargetValue
+  readonly 'gitPanel.image': ImageTargetValue
+  readonly 'gitPanel.branch': BranchTargetValue
+  readonly 'gitPanel.commit': CommitTargetValue
+  readonly 'gitPanel.change': ChangeTargetValue
+  readonly 'gitPanel.changeDir': ChangeDirTargetValue
+  readonly 'gitPanel.stash': StashTargetValue
+  readonly 'gitPanel.repos': RepoTargetValue
+  readonly 'gitPanel.pill': PillTargetValue
+}
 
 /** Target kind names. Each is a distinct family in the platform registry, so
  * our contributions never mix with the platform's `file` / `directory` ones —
@@ -104,6 +162,8 @@ export const MENU_KIND = {
   change: 'gitPanel.change',
   changeDir: 'gitPanel.changeDir',
   stash: 'gitPanel.stash',
+  repos: 'gitPanel.repos',
+  pill: 'gitPanel.pill',
 } as const
 
 export type MenuKind = typeof MENU_KIND[keyof typeof MENU_KIND]
@@ -111,13 +171,15 @@ export type MenuKind = typeof MENU_KIND[keyof typeof MENU_KIND]
 /** The kinds this build contributes menus for. */
 export const MENU_KINDS: readonly MenuKind[] = [
   MENU_KIND.file, MENU_KIND.directory, MENU_KIND.image, MENU_KIND.branch, MENU_KIND.commit,
-  MENU_KIND.change, MENU_KIND.changeDir, MENU_KIND.stash,
+  MENU_KIND.change, MENU_KIND.changeDir, MENU_KIND.stash, MENU_KIND.repos, MENU_KIND.pill,
 ]
 
-/** Narrow a captured value to a browser entry (file or directory). The two
- * families differ by the root they hang off; an image target has none. */
+/** Narrow a captured value to a browser entry (file or directory). The browser
+ * families are the only ones carrying both a relative path and a root; the
+ * repository row and the pill name an absolute checkout and carry the root
+ * alone. */
 export function isTreeTarget(value: GitMenuValue): value is TreeTargetValue {
-  return 'root' in value
+  return 'path' in value && 'root' in value
 }
 
 

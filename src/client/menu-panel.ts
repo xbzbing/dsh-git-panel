@@ -12,7 +12,8 @@ import { DIRECTORY_VIEWS, FILE_VIEWS, IMAGE_VIEWS, platformActions } from './men
 import { directoryMenuActions, fileMenuActions, type MenuCallbacks, type MenuEnv } from './menu-actions.js'
 import { branchMenuActions, commitMenuActions, type OverviewMenuCommands, type OverviewMenuFacts } from './overview-menu.js'
 import { changeMenuActions, changeDirMenuActions, stashMenuActions, type ChangesMenuCommands, type ChangesMenuFacts } from './changes-menu.js'
-import type { BranchTargetValue, ChangeDirTargetValue, ChangeTargetValue, CommitTargetValue } from './menu-owners.js'
+import { repoRowMenuActions, type ReposMenuCommands, type ReposMenuFacts } from './repos-menu.js'
+import type { BranchTargetValue, ChangeDirTargetValue, ChangeTargetValue, CommitTargetValue, RepoTargetValue, StashTargetValue } from './menu-owners.js'
 import { platformPathFor } from './menu-paths.js'
 import type { MenuAction, MenuSource, MenuTrigger } from './menu-types.js'
 
@@ -41,6 +42,9 @@ export interface PanelMenuOptions {
     facts: () => ChangesMenuFacts
     pick: () => ReadonlySet<string>
   }
+  /** The repository rows' remote check, read live (the checkout asked about is
+   * named per row). */
+  readonly repos: () => { commands: ReposMenuCommands; facts: (repoTag: string) => ReposMenuFacts }
   /** Inputs an open menu should follow (the session snapshot). */
   readonly observe: () => readonly MenuSource[]
 }
@@ -66,7 +70,26 @@ async function actionsFor(
   // otherwise "reveal" or "copy path" would act on a path that no longer exists
   // where the panel now points.
   const live = options.identity()
-  if (value.sessionId !== live.sessionId || value.repo !== live.repo) return []
+  if (value.sessionId !== live.sessionId) return []
+  // A repository row names its own checkout: the row is one entry of a chooser,
+  // not a path inside the checkout the panes act on, so picking another
+  // repository in the panel does not invalidate it. Its actions only need the
+  // row's absolute root, which the captured value carries.
+  if (kind === MENU_KIND.repos) {
+    const row = value as RepoTargetValue
+    if (row.root === '') return []
+    const platform = env.menus === undefined
+      ? []
+      : await platformActions(
+        env.menus,
+        { kind: 'directory', value: { sessionId: row.sessionId, path: row.root } },
+        DIRECTORY_VIEWS,
+        signal,
+      )
+    const repos = options.repos()
+    return repoRowMenuActions(row, env, platform, repos.commands, repos.facts(row.repo))
+  }
+  if (value.repo !== live.repo) return []
   if (isTreeTarget(value) && value.root !== null && value.root !== options.browseRoot()) return []
   if (kind === MENU_KIND.image) {
     return imageActions(value as ImageTargetValue, env, signal)
@@ -84,7 +107,7 @@ async function actionsFor(
     return changeDirMenuActions(value as ChangeDirTargetValue, env, options.changes().commands, options.changes().facts())
   }
   if (kind === MENU_KIND.stash) {
-    return stashMenuActions(value as never, env, options.changes().commands, options.changes().facts())
+    return stashMenuActions(value as StashTargetValue, env, options.changes().commands, options.changes().facts())
   }
   if (!isTreeTarget(value)) return []
   const path = platformPathFor(value, options.browseRoot())

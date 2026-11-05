@@ -564,6 +564,13 @@ export const zh = {
   'menu.copyRelativePath': '复制相对路径',
   'menu.copied': '已复制',
   'menu.copyFailed': '复制失败',
+  'menu.openOverview': '打开 Git 总览',
+  'menu.openChanges': '打开变更记录',
+  'menu.openFiles': '打开文件浏览',
+  'menu.checkRemote': '检查远端',
+  'menu.fetchDone': '已拉取远端：领先 {ahead} 个提交，落后 {behind} 个提交',
+  'menu.fetchNoRemote': '该检出没有配置远端仓库',
+  'menu.fetchNoUpstream': '已拉取远端，当前分支没有上游分支',
 }
 
 export type GitKey = keyof typeof zh
@@ -1105,4 +1112,11 @@ export const en: Record<GitKey, string> = {
   'menu.copyRelativePath': 'Copy relative path',
   'menu.copied': 'Copied',
   'menu.copyFailed': 'Copy failed',
+  'menu.openOverview': 'Open the Git overview',
+  'menu.openChanges': 'Open changes',
+  'menu.openFiles': 'Open the file browser',
+  'menu.checkRemote': 'Check the remote',
+  'menu.fetchDone': 'Fetched: {ahead} ahead, {behind} behind the upstream',
+  'menu.fetchNoRemote': 'This checkout has no remote configured',
+  'menu.fetchNoUpstream': 'Fetched; the current branch has no upstream',
 }

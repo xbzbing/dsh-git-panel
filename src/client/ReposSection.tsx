@@ -44,6 +44,9 @@ export interface RepositoriesHost {
    * switching panes. */
   readonly collapsed?: boolean
   readonly onToggleCollapse?: () => void
+  /** Right-click props for one row (absent on hosts without context menus, and
+   * on a row that cannot be chosen). */
+  readonly rowMenu?: (choice: RepoChoice) => Record<string, unknown>
 }
 
 interface ReposSectionProps {
@@ -58,9 +61,13 @@ interface ReposSectionProps {
    * the state and it survives navigating between panes). */
   readonly collapsed?: boolean
   readonly onToggleCollapse?: () => void
+  /** Right-click props for one row: reveal the checkout or copy its path. Only
+   * a row that can be chosen gets one — a disabled row states its reason on
+   * hover and offers nothing to act on. */
+  readonly rowMenu?: (choice: RepoChoice) => Record<string, unknown>
 }
 
-export function ReposSection({ choices, current, snapshot, onChoose, t, collapsed = false, onToggleCollapse }: ReposSectionProps): JSX.Element | null {
+export function ReposSection({ choices, current, snapshot, onChoose, t, collapsed = false, onToggleCollapse, rowMenu }: ReposSectionProps): JSX.Element | null {
   // One checkout is not a choice: a single row would only repeat the pill, and
   // the branch tree below already names it.
   const listId = useId()
@@ -114,6 +121,10 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
     // The handlers live on the row, not the button: a disabled button drops
     // mouse events, and the row box equals the button box anyway.
     const tipLines = repoRowTip(choice, knownBranch, { detached: t('pill.detached'), disabled: disabledKey === null ? null : t(disabledKey) })
+    // The menu handlers live on the row box, the tip's precedent: a disabled
+    // button swallows context-menu events, and the row box equals the button box
+    // anyway. A row that cannot be chosen carries no menu at all.
+    const menuProps = rowMenu === undefined || disabledKey !== null ? {} : rowMenu(choice)
     return h('li', { key: choice.path === '' ? '__root' : choice.path, className: 'gp-repolist__row', ...tip.tipProps(repoTipContent(tipLines)) },
       h('button', {
         type: 'button',
@@ -124,6 +135,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
         'aria-current': active ? 'true' : undefined,
         disabled: disabledKey !== null,
         onClick: () => { tip.hideTip(); if (!active) onChoose(choice.path) },
+        ...menuProps,
       }, [
         h('span', { key: 'icon', className: 'gp-repolist__icon' }, icon),
         h('span', { key: 'text', className: 'gp-repolist__text' }, [

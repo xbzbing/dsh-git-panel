@@ -8,7 +8,7 @@
  * the captured pick set (Q4): the row is inside the checked set, and the set has
  * more than one entry, the actions target the whole set; otherwise just the row.
  */
-import type { ChangeDirTargetValue, ChangeTargetValue } from './menu-owners.js'
+import type { ChangeDirTargetValue, ChangeTargetValue, StashTargetValue } from './menu-owners.js'
 import type { MenuAction } from './menu-types.js'
 import type { GitKey } from './locales.js'
 import { copyText } from './menu-actions.js'
@@ -105,8 +105,7 @@ export function changeDirMenuActions(
 
 /** Stash-row entries: apply / pop / drop (drop opens the confirm) / copy. */
 export function stashMenuActions(
-  value: { sha: string; label: string; readonly owner: string; readonly sessionId: string; readonly repo: string },
-  env: MenuEnv, cmds: ChangesMenuCommands, facts: ChangesMenuFacts,
+  value: StashTargetValue, env: MenuEnv, cmds: ChangesMenuCommands, facts: ChangesMenuFacts,
 ): MenuAction[] {
   return [
     { id: 'stash-apply', label: env.t('menu.stashApply'), disabled: facts.busy, failureLabel: env.t('common.operationFailed'), run: () => cmds.stashApply(value.sha) },

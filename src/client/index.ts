@@ -145,7 +145,7 @@ function apply(ctx: ClientCtx): void {
   // inputBar zsh-style git marker.
   track(ctx.slots.inject('conversation.input.left', () => ctx.slots.register(
     { name: 'conversation.input.left', id: 'git-panel-pill', order: 100, locale: NS },
-    (props: { sessionId?: string }) => h(GitPill, { ctx, sessionId: props.sessionId, t }),
+    (props: { sessionId?: string; useContextMenu?: UseContextMenu }) => h(GitPill, { ctx, sessionId: props.sessionId, t, useContextMenu: props.useContextMenu }),
   )))
 
   // Plugin detail page config form (the openviking-manager pattern): only an

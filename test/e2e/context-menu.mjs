@@ -37,6 +37,7 @@ const errors = []
 page.on('pageerror', (error) => errors.push('PAGEERROR ' + error.message))
 await page.goto(harness)
 await page.addScriptTag({ path: resolve(DIR, 'client.js') })
+await page.evaluate((root) => { window.__fixtureRoot = root }, ROOT)
 
 await page.evaluate(async ({ snap, tree }) => {
   // The browser writes through the platform clipboard helper; record instead.
@@ -208,6 +209,144 @@ assert.deepEqual(dirOffered.map((a) => a.id), [
   'open-in-app.directory/copyPath',
   'copy-relative-path',
 ], 'the directory row adds its relative path after the platform group')
+
+// ── P8: the repository selector's rows ────────────────────────────────────
+// The repo list needs two choices and a ready snapshot (ReposSection hides
+// itself below two rows). The overview tab hosts it.
+const REPOS = {
+  root: ROOT, branch: 'main', head: '44638f7', unborn: false, dirty: false,
+  staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: true,
+  remote: null, lastCommit: null, changes: [],
+  stats: SNAP.stats, truncated: false, refreshIntervalMs: 0, showInputPill: true,
+  defaultDiffView: 'unified', checkedAt: Date.now(),
+}
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.evaluate(async ({ snap }) => {
+  // Rebuild a second panel whose controller answers with a two-choice list.
+  document.getElementById('panel').innerHTML = ''
+  const entry = window.__getLoaded()
+  const snap2 = { ...snap, root: window.__fixtureRoot + '/nested' }
+  const connection = {
+    rpc: {
+      call: async (_c, endpoint, payload) => {
+        const request = payload && payload.args && payload.args.request
+        if (endpoint === 'gitPanel/snapshot') {
+          const repo = request.repo || ''
+          return { ok: true, value: { ok: true, value: repo === '' ? snap : snap2 } }
+        }
+        if (endpoint === 'gitPanel/query') {
+          const q = request.query
+          if (q.kind === 'repo-list') {
+            return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: window.__fixtureRoot, repos: [
+              { path: '', name: 'fixture', root: window.__fixtureRoot, kind: 'workspace', role: 'main', branch: 'main' },
+              { path: 'nested', name: 'nested', root: window.__fixtureRoot + '/nested', kind: 'repo', role: 'repo' },
+            ] } } }
+          }
+          return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [], remote: [] } } }
+        }
+        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+        return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
+      },
+    },
+  }
+  const registered = {}
+  const dictionaries = {}
+  const ctx = {
+    get: (key) => ({ connection, contextMenus: window.__contextMenusStub })[key],
+    effect: (cb) => { try { cb() } catch { /* ignore */ } },
+    on: () => () => {},
+    inject: (_deps, cb) => cb(ctx),
+    slots: { inject: (_n, p) => p(), register: (reg, component) => { registered[reg.name] = { reg, component }; return () => {} } },
+    locale: {
+      register: (ns, dict) => { dictionaries[ns] = dict },
+      bind: (ns) => (key, params) => {
+        const text = dictionaries[ns]?.zh?.[key] ?? key
+        return params === undefined ? text : text.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m))
+      },
+    },
+  }
+  window.__menuStub.contributions.splice(0)
+  entry.apply(ctx)
+  window.__registered = registered
+  await new Promise((r) => setTimeout(r, 400))
+  window.ReactDOM.createRoot(document.getElementById('panel')).render(
+    registered['conversation.view'].component({ sessionId: 'sess-repos', useContextMenu: window.__useContextMenuStub }),
+  )
+  await new Promise((r) => setTimeout(r, 600))
+}, { snap: REPOS })
+
+// The overview tab shows the repository list; right-click its second row. The
+// list boots collapsed (the fold keeps rows mounted but hidden), so the menu
+// binding is read through the capture, not a click: evaluate the row's own
+// handlers the way the platform would.
+await page.waitForFunction(() => document.querySelectorAll('.gp-repolist__row').length === 2, { timeout: 5000 })
+await page.evaluate(() => {
+  const row = [...document.querySelectorAll('.gp-repolist__row')].find((el) => (el.textContent || '').includes('nested'))
+  const button = row.querySelector('button')
+  const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })
+  button.dispatchEvent(event)
+})
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(100)
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(100)
+const repoTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.equal(repoTarget.kind, 'gitPanel.repos')
+assert.equal(repoTarget.value.root, ROOT + '/nested', 'the captured root is the row\'s checkout')
+assert.equal(repoTarget.value.repo, 'nested', 'the captured tag is the row\'s own checkout, not the panel\'s')
+const repoOffered = await page.evaluate(() => window.__menuStub.state.offered)
+assert.deepEqual(repoOffered.map((a) => a.id), [
+  'open-in-app.directory/reveal',
+  'open-in-app.directory/copyPath',
+  'fetch-remote',
+], 'the row borrows the platform directory group and adds the remote check')
+const repoAsk = await page.evaluate(() => window.__platformAsk)
+assert.equal(repoAsk.kind, 'directory')
+assert.equal(repoAsk.value.path, ROOT + '/nested', 'the platform is asked with the row\'s absolute root')
+
+// The sampled row's menu follows the same facts from the other side: its
+// snapshot carried `remote: null`, so the checkout has no remote to ask and the
+// entry is hidden rather than offered and failing.
+await page.evaluate(() => {
+  const row = [...document.querySelectorAll('.gp-repolist__row')].find((el) => (el.textContent || '').includes('fixture'))
+  row.querySelector('button').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+})
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(100)
+const ownOffered = await page.evaluate(() => window.__menuStub.state.offered)
+assert.deepEqual(ownOffered.map((a) => a.id), [
+  'open-in-app.directory/reveal', 'open-in-app.directory/copyPath',
+], 'a checkout whose sample reports no remote hides the remote check')
+
+// ── P8: the input-bar pill ────────────────────────────────────────────────
+// The pill registers its own owner (it outlives the panel), so its menu is
+// asserted the same way: render it beside the panel and right-click it.
+await page.evaluate(() => {
+  const host = document.createElement('div')
+  host.id = 'pill'
+  document.body.appendChild(host)
+  window.__menuStub.clear()
+})
+await page.evaluate(() => {
+  const entry = window.__registered['conversation.input.left']
+  window.ReactDOM.createRoot(document.getElementById('pill')).render(
+    entry.component({ sessionId: 'sess-repos', useContextMenu: window.__useContextMenuStub }),
+  )
+})
+await page.waitForSelector('.gp-pill', { timeout: 5000 })
+await page.evaluate(() => {
+  document.querySelector('.gp-pill').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+})
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(100)
+const pillTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.equal(pillTarget.kind, 'gitPanel.pill')
+assert.equal(pillTarget.value.root, ROOT, 'the captured root is the checkout the pill samples')
+assert.equal(pillTarget.value.branch, 'main')
+const pillOffered = await page.evaluate(() => window.__menuStub.state.offered)
+assert.deepEqual(pillOffered.map((a) => a.id), [
+  'open-overview', 'open-changes', 'open-files', 'copy-branch', 'copy-root',
+], 'navigation, the copy answers; no remote check (the sample has no remote)')
 
 assert.deepEqual(errors, [], 'no page errors')
 await browser.close()
