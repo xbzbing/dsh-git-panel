@@ -4,8 +4,9 @@
  * Hover shows a rounded tooltip panel with the full repository path; click
  * toggles the Git panel — jumps to it (changes tab when dirty, overview when
  * clean), and returns to the conversation view when the Git tab is already
- * active.
- */
+ * active. When the panel lives in the right sidebar instead, the same click
+ * opens it; if the sidebar is expanded with this page as its only tab, the
+ * click collapses the column. */
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
@@ -14,7 +15,7 @@ import { hasSession } from './rpc.js'
 import { activateGitTab, isGitTabActive, requestSubTab, returnToConversation } from './jump.js'
 import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot.js'
 import { effectivePlacement } from './placement-state.js'
-import { openSidebarTab } from './sidebar.js'
+import { closeSidebarIfOnlyGit, openSidebarTab, sidebarController, sidebarOnlyGitOpen, sidebarRegistry } from './sidebar.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
 
@@ -29,34 +30,84 @@ function basename(path: string): string {
   return parts[parts.length - 1] || path
 }
 
-/** Rounded tooltip panel anchored above the pill (openviking-manager style). */
-function useTooltip(): {
+/** The shell phase of the conversation around `from`; `hero` is the blank,
+ * pre-first-message state whose view-tab row is not rendered. The main pane
+ * carries `data-phase`; the right sidebar's embedded chat carries the phase
+ * on its content body instead. */
+function isHeroPane(from: Element | null): boolean {
+  const phase = from?.closest('[data-phase]')?.getAttribute('data-phase')
+  if (phase !== undefined) return phase === 'hero'
+  const chat = from?.closest('[data-sidebar-chat]') ?? null
+  if (chat === null) return false
+  return from?.closest('[data-conversation-content]')?.getAttribute('data-content-phase') === 'hero'
+}
+
+/** Whether a click can reach the sidebar's Git page type: the placement keeps
+ * the sidebar mount and the host offers both sidebar services. The service
+ * check is the real availability signal — `mountState('all')` still asks for a
+ * sidebar on a host that has none. */
+function sidebarRoute(ctx: ClientCtx): boolean {
+  return effectivePlacement() !== 'tab'
+    && sidebarRegistry(ctx) !== undefined
+    && sidebarController(ctx) !== undefined
+}
+
+/** How long a click-failure notice stays on screen. */
+const NOTICE_MS = 3000
+
+/**
+ * Rounded tooltip panel anchored above the pill (openviking-manager style).
+ * Hover lines come from `getLines` at open time, so a hint that depends on the
+ * conversation phase (blank vs. active) is current even when the pill itself
+ * has not re-rendered. `show` puts a short-lived notice in the same panel for a
+ * click that has nowhere to go; the notice outlives the press that raised it
+ * because it is set after the document-level pointerdown listener ran.
+ */
+function useTooltip(getLines: () => readonly string[]): {
   bind: {
     onPointerEnter: (e: { pointerType: string }) => void
     onPointerLeave: () => void
     ref: (el: HTMLElement | null) => void
   }
-  render: (lines: readonly string[]) => JSX.Element | null
+  render: () => JSX.Element | null
+  show: (lines: readonly string[]) => void
 } {
   const [open, setOpen] = useState(false)
+  const [notice, setNotice] = useState<readonly string[] | null>(null)
   const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
   const anchor = useRef<HTMLElement | null>(null)
+  const timer = useRef<number | undefined>(undefined)
+  const active = open || notice !== null
 
   useLayoutEffect(() => {
-    if (!open || anchor.current === null) { setPos(null); return }
+    if (!active || anchor.current === null) { setPos(null); return }
     const r = anchor.current.getBoundingClientRect()
     setPos({ left: r.left, bottom: window.innerHeight - r.top + 8 })
-  }, [open])
+  }, [active])
 
   // Any press closes the panel. A tap synthesises no leave (the virtual cursor
   // stays where the finger was), so without this the panel a tap left behind
   // would sit over the conversation view.
   useEffect(() => {
-    if (!open || typeof document === 'undefined') return undefined
-    const onDown = (): void => setOpen(false)
+    if (!active || typeof document === 'undefined') return undefined
+    const onDown = (): void => { setOpen(false); setNotice(null) }
     document.addEventListener('pointerdown', onDown, true)
     return () => document.removeEventListener('pointerdown', onDown, true)
-  }, [open])
+  }, [active])
+
+  useEffect(() => () => {
+    if (timer.current !== undefined) window.clearTimeout(timer.current)
+  }, [])
+
+  const show = (lines: readonly string[]): void => {
+    if (typeof window === 'undefined') return
+    setNotice(lines)
+    if (timer.current !== undefined) window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => {
+      timer.current = undefined
+      setNotice(null)
+    }, NOTICE_MS)
+  }
 
   const bind = {
     ref: (el: HTMLElement | null) => { anchor.current = el },
@@ -66,15 +117,19 @@ function useTooltip(): {
     onPointerLeave: () => setOpen(false),
   }
 
-  const render = (lines: readonly string[]): JSX.Element | null => {
-    if (!open || pos === null || typeof document === 'undefined') return null
+  const render = (): JSX.Element | null => {
+    const lines = notice ?? (open ? getLines() : null)
+    if (lines === null || pos === null || typeof document === 'undefined') return null
     return createPortal(
       h('div', { className: 'gp-tip', style: { left: pos.left, bottom: pos.bottom } },
-        lines.map((line, i) => h('div', { key: i, className: i === 0 ? 'gp-tip__path' : 'gp-tip__note' }, line))),
+        lines.map((line, i) => h('div', {
+          key: i,
+          className: notice !== null || i > 0 ? 'gp-tip__note' : 'gp-tip__path',
+        }, line))),
       document.body,
     )
   }
-  return { bind, render }
+  return { bind, render, show }
 }
 
 /**
@@ -103,7 +158,10 @@ const COMPACT_WIDTH = 620
 
 export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
   const view = useGitView(sessionId)
-  const tip = useTooltip()
+  // The hover lines are read when the panel opens, not captured at render:
+  // the conversation can turn from hero to active without the pill re-rendering.
+  const tipLines = useRef<() => readonly string[]>(() => [])
+  const tip = useTooltip(() => tipLines.current())
   const [wrap, setWrap] = useState<HTMLElement | null>(null)
   const compact = useCompactMarker(wrap)
   // Stable owner token for this pill instance (multi-pane shells run several).
@@ -142,25 +200,43 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
 
   // Toggle: a click opens the Git panel; a click while the Git tab is already
   // active returns to the conversation view. When the panel is mounted in the
-  // right sidebar instead, a click opens that page type.
+  // right sidebar instead, a click opens that page type — unless the sidebar is
+  // already expanded with this page as its only tab, in which case the same
+  // click collapses the column. A sidebar holding another page keeps the
+  // navigation meaning: closing it would hide that page too. In a blank session
+  // the shell renders no Git view tab at all, so the tab path falls through to
+  // the sidebar; when neither exists the click says why instead of doing
+  // nothing.
   const sidebarOnly = effectivePlacement() === 'sidebar'
   const onClick = (): void => {
     if (sidebarOnly) {
-      openSidebarTab(ctx)
+      if (closeSidebarIfOnlyGit(ctx, sessionId)) return
+      if (!openSidebarTab(ctx)) tip.show([t('pill.openFailed')])
       return
     }
     if (isGitTabActive(label, wrap)) { returnToConversation(label, wrap); return }
     if (hasSession(sessionId)) {
       requestSubTab(sessionId, dirty ? 'changes' : 'overview')
     }
-    activateGitTab(label, wrap)
+    if (activateGitTab(label, wrap)) return
+    const route = sidebarRoute(ctx)
+    if (route && closeSidebarIfOnlyGit(ctx, sessionId)) return
+    if (route && openSidebarTab(ctx)) return
+    tip.show([route ? t('pill.openFailed') : t('pill.blankUnavailable')])
   }
 
-  // The pill reads as a status marker, so a click that opens the sidebar
-  // rather than the tab needs saying — otherwise the click looks like it
-  // did nothing.
-  const tipLines = [snap.root, dirty ? t('pill.dirty') : t('pill.synced')]
-  if (sidebarOnly) tipLines.push(t('pill.opensSidebar'))
+  // The pill reads as a status marker, so a click that opens or closes the
+  // sidebar rather than the tab needs saying — otherwise the click looks like
+  // it did nothing. A blank pane is the other case: its tab row does not exist,
+  // so the sidebar is the only target. The close hint is chosen at open time
+  // because the sidebar can gain another page without the pill re-rendering.
+  tipLines.current = () => {
+    const lines = [snap.root, dirty ? t('pill.dirty') : t('pill.synced')]
+    if (sidebarOnly || (isHeroPane(wrap) && sidebarRoute(ctx))) {
+      lines.push(sidebarOnlyGitOpen(ctx, sessionId) ? t('pill.closesSidebar') : t('pill.opensSidebar'))
+    }
+    return lines
+  }
 
   return h('span', { className: 'gp-pill-wrap', ref: setWrap }, [
     h('button', {
@@ -175,6 +251,6 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
         ')',
       ]),
     ]),
-    tip.render(tipLines),
+    tip.render(),
   ])
 }

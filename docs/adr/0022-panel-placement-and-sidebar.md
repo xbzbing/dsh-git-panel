@@ -87,3 +87,28 @@ pill 读的是**模块级**的 `effective`（`placement-state.ts`），不是 Re
 - 侧边栏宽度通常 < 620px——面板在其中的布局（compact / stacked / wide 三档判据）由 ADR-0023 决定：窄而高进 stacked，窄且矮才进 compact。本 ADR 只管挂载位置，不管布局档位。
 - 官方 dsh 侧栏是 0.2.x 才有的能力；本插件不提升 `dsh` 兼容下限（老版本上仅少一个挂载点，标签页照常）。
 - 延迟 inject 的回调只在 `sidebarRightTabs` 服务**出现**时触发；若运行时被禁用（服务消失），不重新探测、不把 effective 降级回 `'tab'`。此时 pill 的 `openTab` 静默失败（try/catch 返回 false），面板入口暂时丢失，等服务重新出现时 inject 回调再次触发并恢复。这是有意取舍：服务消失路径回切会造成布局跳动，且禁用后通常伴随重启。
+
+## 2026-11-05 补充：空白会话的入口回退
+
+### 问题
+
+新对话在发出第一条消息前处于 shell 的 `hero` 阶段：`ConversationMainPanel` 根节点带 `data-phase="hero"`，但不渲染 `[data-conversation-tabs]`；`conversation.view` 的 `DefaultConversationViews` 也直接返回 `null`。pill 仍会载入仓库与分支，因此看起来可用，点击却没有任何目标——`activateGitTab` 找不到页签后静默返回 `false`。
+
+### 决策
+
+- 点击顺序保持「先面板页签，后侧边栏」：先尝试 `activateGitTab`；失败后，若 `effective !== 'tab'` 且宿主同时提供 `sidebarRightTabs`（注册表）与 `sidebarRight`（控制器）两个服务，则打开右侧边栏的 `dsh-git-panel` 页签。
+- **可用性判据用服务，不用 `mountState`**：`mountState('all')` 在宿主没有侧边栏时仍会请求挂载，不能说明入口可达；`sidebarRegistry` / `sidebarController` 是否存在才是真实信号。
+- 两条路都不可用时，pill 用同一条 tooltip 槽位显示「发送第一条消息后可打开 Git 面板」，不再静默；侧边栏存在但打开抛错时显示「Git 面板暂时无法打开」。
+- **页签查找限定在 pill 自己的会话面板**：主会话以最近的 `[data-phase]` 根为边界；右侧边栏里的嵌入式对话以 `[data-sidebar-chat]` 为边界。只有这些都找不到时才回退到旧的祖先遍历。多 pane 同屏时，空白 pane 没有自己的标签栏，旧遍历可能走到另一个 pane 的 Git 页签并误点。
+- 空白 pane 且侧边栏可达时，tooltip 增加「点击在右侧边栏打开」——与「仅侧边栏」模式的提示一致。
+- 侧边栏已展开且其中只有 Git 页时，pill 再次点击折叠该列；若还有其它页，点击只聚焦 Git 页，不关闭整列——避免把用户并排打开的页面一起藏掉。tooltip 相应改为「点击关闭右侧边栏」。
+
+### 范围
+
+只修输入框 pill 的点击路径。常驻的左上角图标或 hero 选项入口是另一个可见性问题，不在本 ADR 补充内；它需要新的 slot 入口，单独跟踪。
+
+### 验证
+
+`test/e2e/sidebar-tab.mjs` 覆盖五种情形：空白 pane + `all` + 侧边栏可用 → 打开侧边栏页签；空白 pane + `tab` → 只出现提示；空白 pane + `all` + 无侧边栏 → 只出现提示；空白 pane 与另一个 active pane 同屏 → 不点击 active pane 的页签，改开侧边栏；嵌入在右侧边栏的对话（`[data-sidebar-chat]`，无标签栏）与 active 主 pane 同屏 → 不点击主 pane 的页签，改开侧边栏。另覆盖：侧边栏只有 Git 页时再次点击折叠、折叠后再次打开、还有其它页时只聚焦不折叠。
+
+本补充不改变 wire 类型、配置字段或既有挂载规则；`sidebar` placement 仍走原有分支，`all` 只在页签不可用时才回退。

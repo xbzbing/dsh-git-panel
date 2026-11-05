@@ -114,9 +114,40 @@ async function boot(page, opts = {}) {
         }
       },
     }
+    // The controller's geometry and inventory are part of the public host
+    // surface; the pill uses them to turn a second click into a collapse.
+    let sidebarExpanded = false
+    let sidebarOpenTabs = []
     const sidebarRight = {
-      openTab: (kind) => { ctl.openedTabs.push(kind) },
+      openTab: (kind) => {
+        ctl.openedTabs.push(kind)
+        if (!sidebarOpenTabs.some((tab) => tab.sessionId === 'sess-1' && tab.kind === kind)) {
+          sidebarOpenTabs = [...sidebarOpenTabs, {
+            sessionId: 'sess-1',
+            tabId: `tab-${sidebarOpenTabs.length}`,
+            kind,
+            contentId: kind,
+          }]
+        }
+        sidebarExpanded = true
+      },
+      isExpanded: () => sidebarExpanded,
+      toggleExpanded: () => {
+        ctl.toggleCount = (ctl.toggleCount ?? 0) + 1
+        sidebarExpanded = !sidebarExpanded
+      },
+      openTabs: { getSnapshot: () => sidebarOpenTabs },
     }
+    ctl.setSidebar = (next) => {
+      sidebarExpanded = next.expanded
+      sidebarOpenTabs = next.tabs.map((kind, index) => ({
+        sessionId: 'sess-1',
+        tabId: `tab-${index}`,
+        kind,
+        contentId: kind,
+      }))
+    }
+    ctl.sidebarState = () => ({ expanded: sidebarExpanded, tabs: sidebarOpenTabs.slice() })
 
     const services = { connection, configForms }
     if (withSidebar && !lateSidebar) {
@@ -358,12 +389,79 @@ try {
       notes.some((n) => n.includes('pill.opensSidebar')),
       `the tooltip explains the sidebar target (got ${JSON.stringify(notes)})`,
     )
-    const opened = await page.evaluate(async () => {
-      document.querySelector('.gp-pill').click()
-      await new Promise((r) => setTimeout(r, 100))
-      return window.__ctl.openedTabs.slice()
+    await page.click('.gp-pill')
+    await page.waitForTimeout(100)
+    assert.deepEqual(
+      await page.evaluate(() => window.__ctl.openedTabs.slice()),
+      ['dsh-git-panel'],
+      'a click opens the sidebar page type',
+    )
+
+    // Once the only page in the sidebar is the Git panel, the same pill is a
+    // close control: the hint changes and the next click collapses the column
+    // without losing the page. Reopening still works.
+    await page.mouse.move(0, 0)
+    await page.hover('.gp-pill')
+    await page.waitForTimeout(200)
+    const closeNotes = await page.evaluate(() => [...document.querySelectorAll('.gp-tip__note')].map((n) => n.textContent))
+    assert.ok(
+      closeNotes.some((n) => n.includes('pill.closesSidebar')),
+      `the tooltip explains the close target (got ${JSON.stringify(closeNotes)})`,
+    )
+    await page.click('.gp-pill')
+    await page.waitForTimeout(100)
+    const closed = await page.evaluate(() => ({
+      opened: window.__ctl.openedTabs.slice(),
+      state: window.__ctl.sidebarState(),
+      toggles: window.__ctl.toggleCount ?? 0,
+    }))
+    assert.deepEqual(closed.opened, ['dsh-git-panel'], 'the close click does not open another page')
+    assert.equal(closed.state.expanded, false, 'the second click collapses the sidebar')
+    assert.equal(closed.toggles, 1, 'the second click toggles the column exactly once')
+
+    await page.click('.gp-pill')
+    await page.waitForTimeout(100)
+    const reopened = await page.evaluate(() => ({
+      opened: window.__ctl.openedTabs.slice(),
+      state: window.__ctl.sidebarState(),
+      toggles: window.__ctl.toggleCount ?? 0,
+    }))
+    assert.deepEqual(reopened.opened, ['dsh-git-panel', 'dsh-git-panel'], 'a collapsed sidebar opens again')
+    assert.equal(reopened.state.expanded, true, 'the third click expands the sidebar')
+    assert.equal(reopened.toggles, 1, 'the third click opens instead of toggling')
+    await page.close()
+  }
+
+  // ── another sidebar page keeps the pill a navigation target ───────────
+  // Closing the whole column here would hide the page the user opened
+  // beside the Git panel; the pill must focus Git instead.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'sidebar', withSidebar: true })
+    await page.evaluate(async () => {
+      window.__ctl.setSidebar({ expanded: true, tabs: ['dsh-git-panel', 'files'] })
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
     })
-    assert.deepEqual(opened, ['dsh-git-panel'], 'a click opens the sidebar page type')
+    await page.hover('.gp-pill')
+    await page.waitForTimeout(200)
+    const notes = await page.evaluate(() => [...document.querySelectorAll('.gp-tip__note')].map((n) => n.textContent))
+    assert.ok(
+      notes.some((n) => n.includes('pill.opensSidebar')),
+      `the tooltip keeps the open wording with another page present (got ${JSON.stringify(notes)})`,
+    )
+    await page.click('.gp-pill')
+    await page.waitForTimeout(100)
+    const out = await page.evaluate(() => ({
+      opened: window.__ctl.openedTabs.slice(),
+      state: window.__ctl.sidebarState(),
+      toggles: window.__ctl.toggleCount ?? 0,
+    }))
+    assert.deepEqual(out.opened, ['dsh-git-panel'], 'the click focuses the Git page')
+    assert.equal(out.state.expanded, true, 'the sidebar with another page stays open')
+    assert.equal(out.toggles, 0, 'the column is not collapsed')
     await page.close()
   }
 
@@ -409,6 +507,201 @@ try {
       return window.__ctl.openedTabs.slice()
     })
     assert.deepEqual(opened, [], 'a click does not open the sidebar')
+    await page.close()
+  }
+
+  // ── a blank pane falls back to the sidebar ───────────────────────────
+  // The shell renders no view-tab row in a blank session. The pill's tab
+  // path has no target, so it must open the sidebar's page type instead of
+  // ending in a silent no-op.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: true })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      // The shell wraps both the header (view tabs) and content (the pill)
+      // in the conversation pane root; a blank pane is data-phase="hero"
+      // and has no [data-conversation-tabs].
+      const pane = document.createElement('div')
+      pane.setAttribute('data-phase', 'hero')
+      host.parentElement.insertBefore(pane, host)
+      pane.appendChild(host)
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      const opened = window.__ctl.openedTabs.slice()
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return {
+        opened,
+        state: window.__ctl.sidebarState(),
+        toggles: window.__ctl.toggleCount ?? 0,
+        notice: document.querySelector('.gp-tip')?.textContent ?? null,
+      }
+    })
+    assert.deepEqual(out.opened, ['dsh-git-panel'], 'a blank pane opens the sidebar page type')
+    assert.equal(out.state.expanded, false, 'a second blank-pane click collapses the sidebar')
+    assert.equal(out.toggles, 1, 'the second blank-pane click toggles the column')
+    assert.equal(out.notice, null, 'a successful fallback shows no notice')
+    await page.close()
+  }
+
+  // ── a blank pane with no sidebar route explains the wait ─────────────
+  // Tab-only has no sidebar page type to open; the click must say why rather
+  // than looking broken.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'tab', withSidebar: true })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      const pane = document.createElement('div')
+      pane.setAttribute('data-phase', 'hero')
+      host.parentElement.insertBefore(pane, host)
+      pane.appendChild(host)
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return {
+        opened: window.__ctl.openedTabs.slice(),
+        notice: document.querySelector('.gp-tip')?.textContent ?? null,
+      }
+    })
+    assert.deepEqual(out.opened, [], 'tab-only does not open a sidebar page')
+    assert.ok(
+      out.notice?.includes('pill.blankUnavailable'),
+      `the notice explains the blank state (got ${out.notice})`,
+    )
+    await page.close()
+  }
+
+  // ── a host without a sidebar also explains the wait ───────────────────
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: false })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      const pane = document.createElement('div')
+      pane.setAttribute('data-phase', 'hero')
+      host.parentElement.insertBefore(pane, host)
+      pane.appendChild(host)
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return {
+        opened: window.__ctl.openedTabs.slice(),
+        notice: document.querySelector('.gp-tip')?.textContent ?? null,
+      }
+    })
+    assert.deepEqual(out.opened, [], 'no sidebar page is opened on a host without one')
+    assert.ok(
+      out.notice?.includes('pill.blankUnavailable'),
+      `the notice explains the blank state (got ${out.notice})`,
+    )
+    await page.close()
+  }
+
+  // ── a blank pane never activates another pane's Git tab ──────────────
+  // Without a pane boundary the ancestor walk reaches the frame and finds
+  // the *other* pane's tab row; the blank pill must not switch that pane.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: true })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      const blank = document.createElement('div')
+      blank.setAttribute('data-phase', 'hero')
+      host.parentElement.insertBefore(blank, host)
+      blank.appendChild(host)
+
+      const active = document.createElement('div')
+      active.setAttribute('data-phase', 'active')
+      const tabs = document.createElement('div')
+      tabs.setAttribute('data-conversation-tabs', '')
+      const chat = document.createElement('button')
+      chat.setAttribute('role', 'tab')
+      chat.setAttribute('aria-selected', 'true')
+      chat.textContent = 'chat'
+      const git = document.createElement('button')
+      git.setAttribute('role', 'tab')
+      git.setAttribute('aria-selected', 'false')
+      git.textContent = 'panel.tab'
+      let clicked = false
+      git.addEventListener('click', () => {
+        clicked = true
+        git.setAttribute('aria-selected', 'true')
+      })
+      tabs.append(chat, git)
+      active.appendChild(tabs)
+      document.body.appendChild(active)
+
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return { clicked, opened: window.__ctl.openedTabs.slice() }
+    })
+    assert.equal(out.clicked, false, 'a blank pane never clicks another pane’s Git tab')
+    assert.deepEqual(out.opened, ['dsh-git-panel'], 'the blank pane falls back to its sidebar page instead')
+    await page.close()
+  }
+
+  // ── an embedded sidebar chat never drives the main pane's Git tab ─────
+  // The shell's second conversation is the right-sidebar chat. It has no
+  // data-phase root and no tab row of its own; its wrapper is
+  // data-sidebar-chat. The lookup must stop there, not climb to the main
+  // pane's tab row.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'all', withSidebar: true })
+    const out = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+
+      const main = document.createElement('div')
+      main.setAttribute('data-phase', 'active')
+      const tabs = document.createElement('div')
+      tabs.setAttribute('data-conversation-tabs', '')
+      const chat = document.createElement('button')
+      chat.setAttribute('role', 'tab')
+      chat.setAttribute('aria-selected', 'true')
+      chat.textContent = 'chat'
+      const git = document.createElement('button')
+      git.setAttribute('role', 'tab')
+      git.setAttribute('aria-selected', 'false')
+      git.textContent = 'panel.tab'
+      let clicked = false
+      git.addEventListener('click', () => {
+        clicked = true
+        git.setAttribute('aria-selected', 'true')
+      })
+      tabs.append(chat, git)
+      main.appendChild(tabs)
+      document.body.appendChild(main)
+
+      const embedded = document.createElement('aside')
+      embedded.setAttribute('data-sidebar-chat', '')
+      const body = document.createElement('div')
+      body.setAttribute('data-conversation-content', '')
+      body.setAttribute('data-content-phase', 'hero')
+      body.appendChild(host)
+      embedded.appendChild(body)
+      document.body.appendChild(embedded)
+
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
+      return { clicked, opened: window.__ctl.openedTabs.slice() }
+    })
+    assert.equal(out.clicked, false, 'an embedded chat never clicks the main pane’s Git tab')
+    assert.deepEqual(out.opened, ['dsh-git-panel'], 'the embedded chat opens the sidebar page')
     await page.close()
   }
 

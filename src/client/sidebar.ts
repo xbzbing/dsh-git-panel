@@ -40,9 +40,20 @@ export interface SidebarRightTabsFace {
   register(definition: SidebarRightTabDefinition): () => void
 }
 
-/** The controller face the plugin uses to open a page type. */
+/** One open sidebar tab, as the controller's inventory publishes it. */
+export interface SidebarRightOpenTab {
+  readonly sessionId: string
+  readonly kind: string
+}
+
+/** The controller face the plugin uses to open a page type. The geometry and
+ * inventory methods are optional so a host with only the original `openTab`
+ * still supports the pill; without them a second click simply focuses. */
 export interface SidebarRightControllerFace {
   openTab(kind: string, options?: Record<string, unknown>): void
+  readonly openTabs?: { getSnapshot(): readonly SidebarRightOpenTab[] }
+  isExpanded?: () => boolean
+  toggleExpanded?: () => void
 }
 
 /** The registry service, or undefined when the host has no right sidebar. */
@@ -68,6 +79,49 @@ export function openSidebarTab(ctx: ClientCtx): boolean {
   if (controller === undefined) return false
   try {
     controller.openTab(SIDEBAR_KIND)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether the pill should close the sidebar rather than focus its Git page.
+ *
+ * True only when the column is expanded and every open tab of this session is
+ * this page type. A second page makes the pill a navigation target: closing
+ * the whole column would hide the page the user came to see. Hosts without the
+ * inventory/geometry methods keep the old open-only behavior.
+ */
+export function sidebarOnlyGitOpen(ctx: ClientCtx, sessionId: string | undefined): boolean {
+  const controller = sidebarController(ctx)
+  if (controller === undefined || sessionId === undefined) return false
+  if (typeof controller.isExpanded !== 'function' || typeof controller.toggleExpanded !== 'function') return false
+  const source = controller.openTabs
+  if (source === undefined || typeof source.getSnapshot !== 'function') return false
+  try {
+    if (!controller.isExpanded()) return false
+    const tabs = source.getSnapshot()
+    if (!Array.isArray(tabs)) return false
+    const own = tabs.filter((tab) => tab.sessionId === sessionId)
+    return own.length > 0 && own.every((tab) => tab.kind === SIDEBAR_KIND)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Collapse the sidebar when its only page is this one.
+ *
+ * @returns true when the column was collapsed; false leaves the caller to
+ *   open/focus the page as usual.
+ */
+export function closeSidebarIfOnlyGit(ctx: ClientCtx, sessionId: string | undefined): boolean {
+  if (!sidebarOnlyGitOpen(ctx, sessionId)) return false
+  const controller = sidebarController(ctx)
+  if (controller?.toggleExpanded === undefined) return false
+  try {
+    controller.toggleExpanded()
     return true
   } catch {
     return false
