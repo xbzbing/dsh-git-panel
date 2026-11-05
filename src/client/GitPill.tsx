@@ -4,8 +4,9 @@
  * Hover shows a rounded tooltip panel with the full repository path; click
  * toggles the Git panel — jumps to it (changes tab when dirty, overview when
  * clean), and returns to the conversation view when the Git tab is already
- * active.
- */
+ * active. When the panel lives in the right sidebar instead, the same click
+ * opens it; if the sidebar is expanded with this page as its only tab, the
+ * click collapses the column. */
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
@@ -14,7 +15,7 @@ import { hasSession } from './rpc.js'
 import { activateGitTab, isGitTabActive, requestSubTab, returnToConversation } from './jump.js'
 import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot.js'
 import { effectivePlacement } from './placement-state.js'
-import { openSidebarTab, sidebarController, sidebarRegistry } from './sidebar.js'
+import { closeSidebarIfOnlyGit, openSidebarTab, sidebarController, sidebarOnlyGitOpen, sidebarRegistry } from './sidebar.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
 
@@ -199,12 +200,17 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
 
   // Toggle: a click opens the Git panel; a click while the Git tab is already
   // active returns to the conversation view. When the panel is mounted in the
-  // right sidebar instead, a click opens that page type. In a blank session the
-  // shell renders no Git view tab at all, so the tab path falls through to the
-  // sidebar; when neither exists the click says why instead of doing nothing.
+  // right sidebar instead, a click opens that page type — unless the sidebar is
+  // already expanded with this page as its only tab, in which case the same
+  // click collapses the column. A sidebar holding another page keeps the
+  // navigation meaning: closing it would hide that page too. In a blank session
+  // the shell renders no Git view tab at all, so the tab path falls through to
+  // the sidebar; when neither exists the click says why instead of doing
+  // nothing.
   const sidebarOnly = effectivePlacement() === 'sidebar'
   const onClick = (): void => {
     if (sidebarOnly) {
+      if (closeSidebarIfOnlyGit(ctx, sessionId)) return
       if (!openSidebarTab(ctx)) tip.show([t('pill.openFailed')])
       return
     }
@@ -214,18 +220,21 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
     }
     if (activateGitTab(label, wrap)) return
     const route = sidebarRoute(ctx)
+    if (route && closeSidebarIfOnlyGit(ctx, sessionId)) return
     if (route && openSidebarTab(ctx)) return
     tip.show([route ? t('pill.openFailed') : t('pill.blankUnavailable')])
   }
 
-  // The pill reads as a status marker, so a click that opens the sidebar
-  // rather than the tab needs saying — otherwise the click looks like it
-  // did nothing. A blank pane is the other case: its tab row does not exist,
-  // so the sidebar is the only target. `isHeroPane` runs when the tooltip
-  // opens, so the hint follows a hero → active transition without a re-render.
+  // The pill reads as a status marker, so a click that opens or closes the
+  // sidebar rather than the tab needs saying — otherwise the click looks like
+  // it did nothing. A blank pane is the other case: its tab row does not exist,
+  // so the sidebar is the only target. The close hint is chosen at open time
+  // because the sidebar can gain another page without the pill re-rendering.
   tipLines.current = () => {
     const lines = [snap.root, dirty ? t('pill.dirty') : t('pill.synced')]
-    if (sidebarOnly || (isHeroPane(wrap) && sidebarRoute(ctx))) lines.push(t('pill.opensSidebar'))
+    if (sidebarOnly || (isHeroPane(wrap) && sidebarRoute(ctx))) {
+      lines.push(sidebarOnlyGitOpen(ctx, sessionId) ? t('pill.closesSidebar') : t('pill.opensSidebar'))
+    }
     return lines
   }
 

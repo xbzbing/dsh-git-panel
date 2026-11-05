@@ -114,9 +114,40 @@ async function boot(page, opts = {}) {
         }
       },
     }
+    // The controller's geometry and inventory are part of the public host
+    // surface; the pill uses them to turn a second click into a collapse.
+    let sidebarExpanded = false
+    let sidebarOpenTabs = []
     const sidebarRight = {
-      openTab: (kind) => { ctl.openedTabs.push(kind) },
+      openTab: (kind) => {
+        ctl.openedTabs.push(kind)
+        if (!sidebarOpenTabs.some((tab) => tab.sessionId === 'sess-1' && tab.kind === kind)) {
+          sidebarOpenTabs = [...sidebarOpenTabs, {
+            sessionId: 'sess-1',
+            tabId: `tab-${sidebarOpenTabs.length}`,
+            kind,
+            contentId: kind,
+          }]
+        }
+        sidebarExpanded = true
+      },
+      isExpanded: () => sidebarExpanded,
+      toggleExpanded: () => {
+        ctl.toggleCount = (ctl.toggleCount ?? 0) + 1
+        sidebarExpanded = !sidebarExpanded
+      },
+      openTabs: { getSnapshot: () => sidebarOpenTabs },
     }
+    ctl.setSidebar = (next) => {
+      sidebarExpanded = next.expanded
+      sidebarOpenTabs = next.tabs.map((kind, index) => ({
+        sessionId: 'sess-1',
+        tabId: `tab-${index}`,
+        kind,
+        contentId: kind,
+      }))
+    }
+    ctl.sidebarState = () => ({ expanded: sidebarExpanded, tabs: sidebarOpenTabs.slice() })
 
     const services = { connection, configForms }
     if (withSidebar && !lateSidebar) {
@@ -358,12 +389,79 @@ try {
       notes.some((n) => n.includes('pill.opensSidebar')),
       `the tooltip explains the sidebar target (got ${JSON.stringify(notes)})`,
     )
-    const opened = await page.evaluate(async () => {
-      document.querySelector('.gp-pill').click()
-      await new Promise((r) => setTimeout(r, 100))
-      return window.__ctl.openedTabs.slice()
+    await page.click('.gp-pill')
+    await page.waitForTimeout(100)
+    assert.deepEqual(
+      await page.evaluate(() => window.__ctl.openedTabs.slice()),
+      ['dsh-git-panel'],
+      'a click opens the sidebar page type',
+    )
+
+    // Once the only page in the sidebar is the Git panel, the same pill is a
+    // close control: the hint changes and the next click collapses the column
+    // without losing the page. Reopening still works.
+    await page.mouse.move(0, 0)
+    await page.hover('.gp-pill')
+    await page.waitForTimeout(200)
+    const closeNotes = await page.evaluate(() => [...document.querySelectorAll('.gp-tip__note')].map((n) => n.textContent))
+    assert.ok(
+      closeNotes.some((n) => n.includes('pill.closesSidebar')),
+      `the tooltip explains the close target (got ${JSON.stringify(closeNotes)})`,
+    )
+    await page.click('.gp-pill')
+    await page.waitForTimeout(100)
+    const closed = await page.evaluate(() => ({
+      opened: window.__ctl.openedTabs.slice(),
+      state: window.__ctl.sidebarState(),
+      toggles: window.__ctl.toggleCount ?? 0,
+    }))
+    assert.deepEqual(closed.opened, ['dsh-git-panel'], 'the close click does not open another page')
+    assert.equal(closed.state.expanded, false, 'the second click collapses the sidebar')
+    assert.equal(closed.toggles, 1, 'the second click toggles the column exactly once')
+
+    await page.click('.gp-pill')
+    await page.waitForTimeout(100)
+    const reopened = await page.evaluate(() => ({
+      opened: window.__ctl.openedTabs.slice(),
+      state: window.__ctl.sidebarState(),
+      toggles: window.__ctl.toggleCount ?? 0,
+    }))
+    assert.deepEqual(reopened.opened, ['dsh-git-panel', 'dsh-git-panel'], 'a collapsed sidebar opens again')
+    assert.equal(reopened.state.expanded, true, 'the third click expands the sidebar')
+    assert.equal(reopened.toggles, 1, 'the third click opens instead of toggling')
+    await page.close()
+  }
+
+  // ── another sidebar page keeps the pill a navigation target ───────────
+  // Closing the whole column here would hide the page the user opened
+  // beside the Git panel; the pill must focus Git instead.
+  {
+    const page = await browser.newPage()
+    await boot(page, { placement: 'sidebar', withSidebar: true })
+    await page.evaluate(async () => {
+      window.__ctl.setSidebar({ expanded: true, tabs: ['dsh-git-panel', 'files'] })
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
     })
-    assert.deepEqual(opened, ['dsh-git-panel'], 'a click opens the sidebar page type')
+    await page.hover('.gp-pill')
+    await page.waitForTimeout(200)
+    const notes = await page.evaluate(() => [...document.querySelectorAll('.gp-tip__note')].map((n) => n.textContent))
+    assert.ok(
+      notes.some((n) => n.includes('pill.opensSidebar')),
+      `the tooltip keeps the open wording with another page present (got ${JSON.stringify(notes)})`,
+    )
+    await page.click('.gp-pill')
+    await page.waitForTimeout(100)
+    const out = await page.evaluate(() => ({
+      opened: window.__ctl.openedTabs.slice(),
+      state: window.__ctl.sidebarState(),
+      toggles: window.__ctl.toggleCount ?? 0,
+    }))
+    assert.deepEqual(out.opened, ['dsh-git-panel'], 'the click focuses the Git page')
+    assert.equal(out.state.expanded, true, 'the sidebar with another page stays open')
+    assert.equal(out.toggles, 0, 'the column is not collapsed')
     await page.close()
   }
 
@@ -433,12 +531,19 @@ try {
       await new Promise((r) => setTimeout(r, 400))
       document.querySelector('.gp-pill').click()
       await new Promise((r) => setTimeout(r, 100))
+      const opened = window.__ctl.openedTabs.slice()
+      document.querySelector('.gp-pill').click()
+      await new Promise((r) => setTimeout(r, 100))
       return {
-        opened: window.__ctl.openedTabs.slice(),
+        opened,
+        state: window.__ctl.sidebarState(),
+        toggles: window.__ctl.toggleCount ?? 0,
         notice: document.querySelector('.gp-tip')?.textContent ?? null,
       }
     })
     assert.deepEqual(out.opened, ['dsh-git-panel'], 'a blank pane opens the sidebar page type')
+    assert.equal(out.state.expanded, false, 'a second blank-pane click collapses the sidebar')
+    assert.equal(out.toggles, 1, 'the second blank-pane click toggles the column')
     assert.equal(out.notice, null, 'a successful fallback shows no notice')
     await page.close()
   }
