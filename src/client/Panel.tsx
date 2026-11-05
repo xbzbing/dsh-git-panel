@@ -36,6 +36,8 @@ import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
 import { PanelMenuContext } from './menu-context.js'
 import { usePanelMenu } from './use-panel-menu.js'
+import { CompareHost, type CompareRequest } from './compare-host.js'
+import type { TreeTargetValue } from './menu-owners.js'
 import type { UseContextMenu } from './menu-types.js'
 import type { MenuSource } from './menu-types.js'
 
@@ -546,13 +548,48 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // gesture happens rather than when the row rendered.
   const filesRootRef = useRef<string | null>(null)
   filesRootRef.current = filesRoot
+  // A Git group needs a checkout behind the browser's root. The snapshot is the
+  // answer when the browser follows the panel's repository; otherwise the root
+  // is a directory inside a checkout, which the file tree itself proves (its
+  // entries carry ignore marks) but the snapshot does not. Until the panel can
+  // tell, offering compare/history on paths git may not track would be a guess,
+  // so the group waits for the same-root case.
+  const viewRootIsGit = useRef(false)
+  viewRootIsGit.current = !filesOnly && filesSelector === repo && view.state === 'ready'
+  const capabilitiesRef = useRef<{ revDiff: boolean; pathHistory: boolean }>({ revDiff: false, pathHistory: false })
+  if (view.state === 'ready') {
+    capabilitiesRef.current = {
+      revDiff: view.snapshot.capabilities?.revDiff === true,
+      pathHistory: view.snapshot.capabilities?.pathHistory === true,
+    }
+  }
   const browseRootOf = useCallback((): string | null => filesRootRef.current, [])
   const menuSources = useCallback(
     (): readonly MenuSource[] => (hasSession(sessionId) ? [controllerFor(sessionId)] : []),
     [sessionId],
   )
+  // The comparison flows and the file-history filter are menu outcomes: the
+  // request lives here so the picker reuses this panel's remote (and therefore
+  // its repository tag), while compare-host.tsx owns the picker and overlay.
+  const [compare, setCompare] = useState<CompareRequest | null>(null)
+  const [historyPath, setHistoryPath] = useState<string | null>(null)
+  const openCompare = useCallback((mode: CompareRequest['mode'], value: TreeTargetValue): void => {
+    setCompare({ mode, path: value.path })
+  }, [])
+  const showHistory = useCallback((value: TreeTargetValue): void => {
+    // The history filter replaces the page, so the overview must be the visible
+    // sub-tab before the chip can mean anything.
+    setHistoryPath(value.path)
+    if (hasSession(sessionId)) setSelection({ sessionId, tab: 'overview' })
+  }, [sessionId])
+  const isGitRoot = useCallback((): boolean => filesRootRef.current !== null && viewRootIsGit.current, [])
+  const capabilities = useCallback((): { revDiff: boolean; pathHistory: boolean } => capabilitiesRef.current, [])
   const panelMenu = usePanelMenu({
     ctx, t, sessionId, repo, browseRoot: browseRootOf, useContextMenu, observe: menuSources,
+    isGit: isGitRoot, capabilities,
+    onCompareRevision: useCallback((value: TreeTargetValue) => openCompare('revision', value), [openCompare]),
+    onCompareRef: useCallback((value: TreeTargetValue) => openCompare('ref', value), [openCompare]),
+    onShowHistory: showHistory,
   })
   // The browse-root dropdown exists whenever the list offers a second root,
   // follow config on or off: the config sets the session default, but the
@@ -718,6 +755,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       tight: stackedTight,
       phone: layout.phone ?? false,
       repositories,
+      exactPath: historyPath,
       t,
       })
       : undefined
@@ -838,6 +876,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // Inert while a switch is in flight: the panes still show the previous
     // checkout, but every request is tagged with the next one, so a stage or a
     // discard clicked on the old list would land on the new work tree.
+    compare !== null && sessionId !== undefined
+      ? h(CompareHost, {
+        key: 'compare', remote: repoRemote, sessionId, request: compare,
+        compact, onClose: () => setCompare(null), t,
+      })
+      : null,
     h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) },
       h(PanelMenuContext.Provider, { value: panelMenu }, body)),
   ])

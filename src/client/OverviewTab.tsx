@@ -89,6 +89,9 @@ interface OverviewProps {
    * band or drawer, compact drawer or sheet), so a pick never hides the
    * branches or the commit list. */
   readonly repositories?: RepositoriesHost
+  /** A file whose history is being shown (the "show Git history" entry): the
+   * history is filtered to this exact path until the chip is dismissed. */
+  readonly exactPath?: string | null
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -135,7 +138,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   // Latest snapshot for late replies: a direct status-bar write (pull / push /
   // clean switch) has no dialog, so nothing else would stop its failure from
@@ -144,6 +147,16 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const snapRef = useRef(snapshot)
   snapRef.current = snapshot
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
+  // The file-history chip rides the same filter object: exactPath excludes every
+  // other filter on the wire, so setting it clears the rest (and vice versa —
+  // any other filter write drops the chip).
+  useEffect(() => {
+    setFilter((prev) => (prev.exactPath === exactPath ? prev : {
+      ...prev,
+      exactPath: exactPath ?? undefined,
+      ...(exactPath ? { ref: null, search: '', author: '', since: '' } : {}),
+    }))
+  }, [exactPath])
   const [searchInput, setSearchInput] = useState('')
   const [searchScope, setSearchScope] = useState<HistorySearchScope>('message')
   /** Menu open state per filter: Menu is controlled and never closes itself. */
@@ -756,6 +769,20 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     labelNarrow: searchNarrow || compact || (!stacked && scopeLabelNarrow),
     onChange: setSearchInput, onScopeChange: changeScope, t,
   })
+  // The file-history chip: the filter takes over the page (see the effect that
+  // writes `exactPath`), so it is stated above the list and dismissed with one
+  // click rather than left to look like an empty repository.
+  const exactPathEl = filter.exactPath === undefined || filter.exactPath === ''
+    ? null
+    : h('button', {
+      key: 'filepath', type: 'button', className: 'gp-chip gp-chip--filter',
+      title: t('menu.clearFileHistory'), 'aria-label': `${t('menu.fileHistory')} ${filter.exactPath} · ${t('menu.clearFileHistory')}`,
+      onClick: () => { setFilter((prev) => ({ ...prev, exactPath: undefined })); detail.clearSelection() },
+    }, [
+      h('span', { key: 'k', className: 'gp-chip__key' }, t('menu.fileHistory')),
+      h('span', { key: 'v', className: 'gp-chip__value' }, filter.exactPath),
+      h('span', { key: 'x', className: 'gp-chip__x', 'aria-hidden': 'true' }, '×'),
+    ])
   const secondaryFilters: JSX.Element[] = [authorMenu, sinceMenu, fetchButton]
   // Tight stacked: the left column does not occupy the band, so its only entry
   // is the toolbar's leftmost button — the drawer slides out over the history.
@@ -810,6 +837,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // handler still reads the scroll box itself, and the row-slider fill measures
   // against the same node.
   const { setEl: trackList, viewport } = useViewportTracker()
+  // (the chip sits directly above the history scroller — see historyBody)
   const attachList = useCallback((el: HTMLDivElement | null): void => {
     listRef.current = el
     trackList(el)
@@ -838,6 +866,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       key: 'path-unsupported', text: t('overview.searchPathUnsupported'), closeLabel: t('common.close'), status: true,
       onClose: () => dismissedNotices.dismiss('path-search-unsupported'),
     }) : null,
+    exactPathEl,
     h('div', { key: 'list', className: 'gp-history__list', ref: attachList, onScroll }, [
       commitSlider.slider,
       commits.length === 0

@@ -19,9 +19,11 @@ import { useEffect, useId, useMemo, useRef } from 'react'
 import { hasSession, type ClientCtx } from './rpc.js'
 import { menuTriggerFactory, type PanelMenu } from './menu-bindings.js'
 import { MENU_KIND, registerMenuOwner } from './menu-owners.js'
+import type { TreeTargetValue } from './menu-owners.js'
 import { panelMenuOwner } from './menu-panel.js'
 import { contextMenusOf } from './menu-register.js'
 import type { GitKey } from './locales.js'
+import type { MenuCallbacks } from './menu-actions.js'
 import type { MenuSource, UseContextMenu } from './menu-types.js'
 
 /** What the panel hands the hook. */
@@ -37,6 +39,14 @@ export interface PanelMenuInputs {
   readonly useContextMenu: UseContextMenu | undefined
   /** Inputs an open menu follows (the session snapshot). */
   readonly observe: () => readonly MenuSource[]
+  /** The browser's root is inside a checkout; read live. */
+  readonly isGit: () => boolean
+  /** The host's declared query capabilities; read live (older host: false). */
+  readonly capabilities: () => { readonly revDiff: boolean; readonly pathHistory: boolean }
+  /** The Git group's runs. */
+  readonly onCompareRevision: (value: TreeTargetValue) => void
+  readonly onCompareRef: (value: TreeTargetValue) => void
+  readonly onShowHistory: (value: TreeTargetValue) => void
 }
 
 /**
@@ -45,7 +55,7 @@ export interface PanelMenuInputs {
  * @returns the facade its subtree reads (see menu-context.ts).
  */
 export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
-  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe } = inputs
+  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory } = inputs
   const factory = useMemo(() => menuTriggerFactory(useContextMenu), [useContextMenu])
   const ownerId = useId()
   // Repository is compared at resolve time, so the thunk reads it through a ref
@@ -68,15 +78,21 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
     },
   }), [factory, sessionId, ownerId, browseRoot])
 
+  const callbacksRef = useRef<MenuCallbacks>({ compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory })
+  callbacksRef.current = { compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory }
   useEffect(() => {
     if (!hasSession(sessionId)) return
     return registerMenuOwner(ownerId, panelMenuOwner({
-      env: () => ({ t, menus: contextMenusOf(ctx) }),
+      env: () => ({
+        t, menus: contextMenusOf(ctx),
+        facts: { isGit: isGit(), ...capabilities() },
+      }),
       browseRoot,
       identity: () => ({ sessionId, repo: repoRef.current }),
+      callbacks: () => callbacksRef.current,
       observe,
     }))
-  }, [ctx, ownerId, sessionId, t, browseRoot, observe])
+  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities])
 
   return facade
 }

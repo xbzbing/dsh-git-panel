@@ -117,6 +117,9 @@ await row.click({ button: 'right' })
 await page.evaluate(() => window.__menuStub.resolvePending())
 await page.waitForTimeout(100)
 
+// A thunk target is what keeps the captured identity current: the platform
+// evaluates it at gesture time, and this stub mirrors that (harness.html).
+assert.equal(await page.evaluate(() => window.__menuStub.sawThunk), true, 'the row binds a thunk, not a render-time value')
 const target = await page.evaluate(() => window.__menuStub.state.last)
 assert.ok(target, 'the row captured a context-menu target')
 assert.equal(target.kind, 'gitPanel.file')

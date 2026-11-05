@@ -9,7 +9,7 @@
  */
 import { MENU_KIND, isTreeTarget, type GitMenuValue, type ImageTargetValue, type MenuKind, type MenuOwner } from './menu-owners.js'
 import { DIRECTORY_VIEWS, FILE_VIEWS, IMAGE_VIEWS, platformActions } from './menu-proxy.js'
-import { directoryMenuActions, fileMenuActions, type MenuEnv } from './menu-actions.js'
+import { directoryMenuActions, fileMenuActions, type MenuCallbacks, type MenuEnv } from './menu-actions.js'
 import { platformPathFor } from './menu-paths.js'
 import type { MenuAction, MenuSource, MenuTrigger } from './menu-types.js'
 
@@ -28,6 +28,8 @@ export interface PanelMenuOptions {
   readonly browseRoot: () => string | null
   /** Session and repository the panel shows right now. */
   readonly identity: () => PanelIdentity
+  /** The Git group's runs (read through the ref the hook keeps fresh). */
+  readonly callbacks: () => MenuCallbacks
   /** Inputs an open menu should follow (the session snapshot). */
   readonly observe: () => readonly MenuSource[]
 }
@@ -46,6 +48,7 @@ export function panelMenuOwner(options: PanelMenuOptions): MenuOwner {
 async function actionsFor(
   kind: MenuKind, value: GitMenuValue, signal: AbortSignal, options: PanelMenuOptions,
 ): Promise<MenuAction[]> {
+  const env: MenuEnv = { ...options.env(), callbacks: options.callbacks() }
   // A menu can outlive the surface that raised it. Every action here names a
   // resource by a captured path or ref, so the panel must still be showing the
   // same session, repository and browse root before anything is offered —
@@ -54,7 +57,6 @@ async function actionsFor(
   const live = options.identity()
   if (value.sessionId !== live.sessionId || value.repo !== live.repo) return []
   if (isTreeTarget(value) && value.root !== null && value.root !== options.browseRoot()) return []
-  const env = options.env()
   if (kind === MENU_KIND.image) {
     return imageActions(value as ImageTargetValue, env, signal)
   }

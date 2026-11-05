@@ -29,11 +29,15 @@ function recorder() {
   return { service, asked }
 }
 
-function owner(service, browseRoot = '/work/repo') {
+const FACTS = { isGit: false, revDiff: false, pathHistory: false }
+const CALLBACKS = { compareRevision: () => {}, compareRef: () => {}, showHistory: () => {} }
+
+function owner(service, browseRoot = '/work/repo', facts = FACTS) {
   return panelMenuOwner({
-    env: () => ({ t, menus: service }),
+    env: () => ({ t, menus: service, facts }),
     browseRoot: () => browseRoot,
     identity: () => ({ sessionId: 's', repo: '' }),
+    callbacks: () => CALLBACKS,
     observe: () => [],
   })
 }
@@ -90,9 +94,10 @@ test('a value of the wrong family resolves to no actions instead of a wrong menu
 test('a repository switch under an open menu resolves to nothing', async () => {
   const { service, asked } = recorder()
   const switched = panelMenuOwner({
-    env: () => ({ t, menus: service }),
+    env: () => ({ t, menus: service, facts: FACTS }),
     browseRoot: () => '/work/repo',
     identity: () => ({ sessionId: 's', repo: 'other-repo' }),
+    callbacks: () => CALLBACKS,
     observe: () => [],
   })
   const actions = await switched.actionsFor(
@@ -105,9 +110,10 @@ test('a repository switch under an open menu resolves to nothing', async () => {
 test('a browse-root switch under an open menu resolves to nothing', async () => {
   const { service, asked } = recorder()
   const moved = panelMenuOwner({
-    env: () => ({ t, menus: service }),
+    env: () => ({ t, menus: service, facts: FACTS }),
     browseRoot: () => '/work/other',
     identity: () => ({ sessionId: 's', repo: '' }),
+    callbacks: () => CALLBACKS,
     observe: () => [],
   })
   const actions = await moved.actionsFor(
@@ -129,9 +135,10 @@ test('an unresolved root (null) still resolves: the tree may not know its root y
 test('a session switch under an open menu resolves to nothing', async () => {
   const { service } = recorder()
   const other = panelMenuOwner({
-    env: () => ({ t, menus: service }),
+    env: () => ({ t, menus: service, facts: FACTS }),
     browseRoot: () => '/work/repo',
     identity: () => ({ sessionId: 'other-session', repo: '' }),
+    callbacks: () => CALLBACKS,
     observe: () => [],
   })
   const actions = await other.actionsFor(

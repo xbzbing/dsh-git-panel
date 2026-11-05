@@ -64,7 +64,13 @@ export function menuTriggerFactory(useContextMenu: (() => MenuBindings) | undefi
   const bindings = useContextMenu()
   if (bindings === undefined || typeof bindings.getTriggerProps !== 'function') return NO_MENU
   return {
-    bind: (kind, value, handlers) => bindings.getTriggerProps({ kind, value }, handlers),
+    // The platform evaluates a *function* target at gesture time; wrapping the
+    // whole `{ kind, value }` pair (not just the value) is what makes that work,
+    // because the pair is the captured object it hands back to resolution.
+    bind: (kind, value, handlers) => bindings.getTriggerProps(
+      typeof value === 'function' ? () => ({ kind, value: value() }) : { kind, value },
+      handlers,
+    ),
   }
 }
 

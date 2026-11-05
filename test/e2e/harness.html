@@ -338,7 +338,10 @@
             if (handlers && handlers.onContextMenu) handlers.onContextMenu(event)
             event.preventDefault()
             event.stopPropagation()
-            window.__menuStub.capture(target)
+            // Mirror the platform: a thunk target is evaluated when the gesture
+            // runs, so the captured value is the surface's state at that moment.
+            window.__menuStub.sawThunk = typeof target === 'function'
+            window.__menuStub.capture(typeof target === 'function' ? target() : target)
           }
           if (merged.tabIndex === undefined) merged.tabIndex = 0
           return merged

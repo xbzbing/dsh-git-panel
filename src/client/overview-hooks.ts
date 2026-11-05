@@ -27,6 +27,10 @@ export interface HistoryFilter {
   search: string
   /** File / path history search; mutually exclusive with `search` on the wire. */
   pathSearch?: string
+  /** One exact file whose history is shown (the "show Git history" entry); it
+   * replaces every other filter, and its menu entry is hidden unless the host
+   * declared `capabilities.pathHistory`. */
+  exactPath?: string
   author: string
   since: string
 }
@@ -237,6 +241,7 @@ export function useHistory(
         ...(f.ref ? { ref: f.ref } : {}),
         ...(f.search ? { search: f.search } : {}),
         ...(f.pathSearch?.trim() ? { pathSearch: f.pathSearch.trim() } : {}),
+        ...(f.exactPath !== undefined && f.exactPath !== '' ? { exactPath: f.exactPath } : {}),
         ...(f.author ? { author: f.author } : {}),
         ...(f.since ? { since: f.since } : {}),
       },
@@ -270,7 +275,7 @@ export function useHistory(
   }, [remote, sessionId, scope])
 
   const prevFilter = useRef(filter)
-  useVisibleRequest([scope, sessionId, ...queryKey, filter.ref, filter.search, filter.pathSearch?.trim() ?? '', filter.author, filter.since], visible, async (isCurrent) => {
+  useVisibleRequest([scope, sessionId, ...queryKey, filter.ref, filter.search, filter.pathSearch?.trim() ?? '', filter.exactPath ?? '', filter.author, filter.since], visible, async (isCurrent) => {
     seqRef.current += 1
     loadingRef.current = false
     currentPage.current = isCurrent

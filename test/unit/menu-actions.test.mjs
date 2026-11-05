@@ -21,6 +21,10 @@ function stubNavigator() {
 
 const t = (key) => key
 
+const FACTS = { isGit: false, revDiff: false, pathHistory: false }
+const CALLBACKS = { compareRevision: () => {}, compareRef: () => {}, showHistory: () => {} }
+const envWith = (menus) => ({ t, menus, facts: FACTS, callbacks: CALLBACKS })
+
 function value(overrides = {}) {
   return { sessionId: 's', owner: 'o', repo: '', path: 'src/a.ts', root: '/work', ignored: false, ...overrides }
 }
@@ -28,18 +32,18 @@ function value(overrides = {}) {
 const platform = [{ id: 'open-in-app.file/float', label: 'Float' }]
 
 test('the platform group comes first, then the browser entries', () => {
-  const actions = fileMenuActions(value(), { t, menus: undefined }, platform)
+  const actions = fileMenuActions(value(), envWith(undefined), platform)
   assert.deepEqual(actions.map((a) => a.id), ['open-in-app.file/float', 'copy-relative-path'])
   assert.deepEqual(actions.map((a) => a.label), ['Float', 'menu.copyRelativePath'])
 })
 
 test('the root row has no relative path to copy', () => {
-  const actions = directoryMenuActions(value({ path: '' }), { t, menus: undefined }, [])
+  const actions = directoryMenuActions(value({ path: '' }), envWith(undefined), [])
   assert.deepEqual(actions, [])
 })
 
 test('a directory row offers its relative path', () => {
-  const actions = directoryMenuActions(value({ path: 'src/ui' }), { t, menus: undefined }, [])
+  const actions = directoryMenuActions(value({ path: 'src/ui' }), envWith(undefined), [])
   assert.deepEqual(actions.map((a) => a.id), ['copy-relative-path'])
 })
 
@@ -47,7 +51,7 @@ test('copying the relative path writes the tree path and confirms through the to
   const writes = stubNavigator()
   const notices = []
   const menus = { notify: (text, success) => { notices.push({ text, success }) } }
-  const actions = fileMenuActions(value(), { t, menus }, [])
+  const actions = fileMenuActions(value(), envWith(menus), [])
   await actions[0].run()
   assert.deepEqual(writes, ['src/a.ts'])
   assert.deepEqual(notices, [{ text: 'menu.copied', success: true }])
@@ -59,7 +63,7 @@ test('a rejected copy surfaces through the action failure label', async () => {
     configurable: true,
     writable: true,
   })
-  const actions = fileMenuActions(value(), { t, menus: undefined }, [])
+  const actions = fileMenuActions(value(), envWith(undefined), [])
   assert.equal(actions[0].failureLabel, 'menu.copyFailed')
   await assert.rejects(() => actions[0].run(), /denied/)
 })
@@ -89,4 +93,17 @@ test('the factory binds the captured kind and value and keeps the row handlers',
   })
   assert.equal(seen[0].handlers, handlers)
   assert.equal(bound.tabIndex, 0, 'the platform decides the final tab stop')
+})
+
+test('a thunk value is handed to the platform as a function target', () => {
+  const seen = []
+  const factory = menuTriggerFactory(() => ({
+    getTriggerProps: (target) => { seen.push(target); return {} },
+  }))
+  factory.bind('gitPanel.file', () => ({ sessionId: 's', owner: 'o', repo: '', path: 'a.ts', root: null, ignored: false }))
+  assert.equal(typeof seen[0], 'function', 'the platform must be able to defer the capture')
+  assert.deepEqual(seen[0](), {
+    kind: 'gitPanel.file',
+    value: { sessionId: 's', owner: 'o', repo: '', path: 'a.ts', root: null, ignored: false },
+  })
 })
