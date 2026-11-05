@@ -531,4 +531,11 @@ export const ja: Record<GitKey, string> = {
   'menu.resetToHere': '現在のブランチをここにリセット…',
   'menu.copySubject': 'コミットメッセージをコピー',
   'common.operationFailed': '操作に失敗しました',
+  'menu.openDiff': '差分を開く',
+  'menu.stagePicked': '選択した {n} ファイルをステージ',
+  'menu.unstagePicked': '選択した {n} ファイルのステージを解除',
+  'menu.discardPicked': '{n} ファイルの変更を破棄…',
+  'menu.stashApply': 'スタッシュを適用',
+  'menu.stashPop': 'スタッシュをポップ',
+  'menu.stashDrop': 'スタッシュを削除…',
 }

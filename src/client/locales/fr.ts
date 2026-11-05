@@ -532,4 +532,11 @@ export const fr: Record<GitKey, string> = {
   'menu.resetToHere': 'Réinitialiser la branche courante ici…',
   'menu.copySubject': 'Copier le message du commit',
   'common.operationFailed': 'L’opération a échoué',
+  'menu.openDiff': 'Ouvrir le diff',
+  'menu.stagePicked': 'Indexer les {n} fichiers sélectionnés',
+  'menu.unstagePicked': 'Désindexer les {n} fichiers sélectionnés',
+  'menu.discardPicked': 'Abandonner les modifications de {n} fichiers…',
+  'menu.stashApply': 'Appliquer le remisage',
+  'menu.stashPop': 'Dépiler le remisage',
+  'menu.stashDrop': 'Supprimer le remisage…',
 }

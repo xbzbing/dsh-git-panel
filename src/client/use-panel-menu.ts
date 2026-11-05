@@ -25,6 +25,7 @@ import { contextMenusOf } from './menu-register.js'
 import type { GitKey } from './locales.js'
 import type { MenuCallbacks } from './menu-actions.js'
 import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
+import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
 import type { MenuSource, UseContextMenu } from './menu-types.js'
 
 /** What the panel hands the hook. */
@@ -51,6 +52,10 @@ export interface PanelMenuInputs {
   /** The overview's runs and busy flag (branch / commit rows). */
   readonly overviewCommands: () => OverviewMenuCommands
   readonly overviewFacts: () => OverviewMenuFacts
+  /** The changes tab's runs, busy flag and checked set (change / dir / stash rows). */
+  readonly changesCommands: () => ChangesMenuCommands
+  readonly changesFacts: () => ChangesMenuFacts
+  readonly changesPick: () => ReadonlySet<string>
 }
 
 /**
@@ -59,7 +64,7 @@ export interface PanelMenuInputs {
  * @returns the facade its subtree reads (see menu-context.ts).
  */
 export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
-  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory, overviewCommands, overviewFacts } = inputs
+  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory, overviewCommands, overviewFacts, changesCommands, changesFacts, changesPick } = inputs
   const factory = useMemo(() => menuTriggerFactory(useContextMenu), [useContextMenu])
   const ownerId = useId()
   // Repository is compared at resolve time, so the thunk reads it through a ref
@@ -96,6 +101,8 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
   callbacksRef.current = { compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory }
   const overviewCommandsRef = useRef(overviewCommands())
   overviewCommandsRef.current = overviewCommands()
+  const changesCommandsRef = useRef(changesCommands())
+  changesCommandsRef.current = changesCommands()
   useEffect(() => {
     if (!hasSession(sessionId)) return
     return registerMenuOwner(ownerId, panelMenuOwner({
@@ -107,9 +114,14 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
       identity: () => ({ sessionId, repo: repoRef.current }),
       callbacks: () => callbacksRef.current,
       overview: () => ({ commands: overviewCommandsRef.current, facts: overviewFacts }),
+      changes: () => ({
+        commands: changesCommandsRef.current,
+        facts: changesFacts,
+        pick: changesPick,
+      }),
       observe,
     }))
-  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities, overviewFacts])
+  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities, overviewFacts, changesFacts, changesPick])
 
   return facade
 }

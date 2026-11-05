@@ -11,7 +11,8 @@ import { MENU_KIND, isTreeTarget, type GitMenuValue, type ImageTargetValue, type
 import { DIRECTORY_VIEWS, FILE_VIEWS, IMAGE_VIEWS, platformActions } from './menu-proxy.js'
 import { directoryMenuActions, fileMenuActions, type MenuCallbacks, type MenuEnv } from './menu-actions.js'
 import { branchMenuActions, commitMenuActions, type OverviewMenuCommands, type OverviewMenuFacts } from './overview-menu.js'
-import type { BranchTargetValue, CommitTargetValue } from './menu-owners.js'
+import { changeMenuActions, changeDirMenuActions, stashMenuActions, type ChangesMenuCommands, type ChangesMenuFacts } from './changes-menu.js'
+import type { BranchTargetValue, ChangeDirTargetValue, ChangeTargetValue, CommitTargetValue } from './menu-owners.js'
 import { platformPathFor } from './menu-paths.js'
 import type { MenuAction, MenuSource, MenuTrigger } from './menu-types.js'
 
@@ -34,6 +35,12 @@ export interface PanelMenuOptions {
   readonly callbacks: () => MenuCallbacks
   /** The overview's runs and busy state, read live. */
   readonly overview: () => { commands: OverviewMenuCommands; facts: () => OverviewMenuFacts }
+  /** The changes tab's runs, busy state and checked set, read live. */
+  readonly changes: () => {
+    commands: ChangesMenuCommands
+    facts: () => ChangesMenuFacts
+    pick: () => ReadonlySet<string>
+  }
   /** Inputs an open menu should follow (the session snapshot). */
   readonly observe: () => readonly MenuSource[]
 }
@@ -69,6 +76,15 @@ async function actionsFor(
   }
   if (kind === MENU_KIND.commit) {
     return commitMenuActions(value as CommitTargetValue, env, options.overview().commands, options.overview().facts())
+  }
+  if (kind === MENU_KIND.change) {
+    return changeMenuActions(value as ChangeTargetValue, env, options.changes().commands, options.changes().facts(), options.changes().pick())
+  }
+  if (kind === MENU_KIND.changeDir) {
+    return changeDirMenuActions(value as ChangeDirTargetValue, env, options.changes().commands, options.changes().facts())
+  }
+  if (kind === MENU_KIND.stash) {
+    return stashMenuActions(value as never, env, options.changes().commands, options.changes().facts())
   }
   if (!isTreeTarget(value)) return []
   const path = platformPathFor(value, options.browseRoot())

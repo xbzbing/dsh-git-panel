@@ -532,4 +532,11 @@ export const ru: Record<GitKey, string> = {
   'menu.resetToHere': 'Сбросить текущую ветку сюда…',
   'menu.copySubject': 'Скопировать сообщение коммита',
   'common.operationFailed': 'Не удалось выполнить операцию',
+  'menu.openDiff': 'Открыть дифф',
+  'menu.stagePicked': 'Проиндексировать выбранные файлы ({n})',
+  'menu.unstagePicked': 'Убрать из индекса выбранные файлы ({n})',
+  'menu.discardPicked': 'Отменить изменения в файлах ({n})…',
+  'menu.stashApply': 'Применить stash',
+  'menu.stashPop': 'Достать stash',
+  'menu.stashDrop': 'Удалить stash…',
 }

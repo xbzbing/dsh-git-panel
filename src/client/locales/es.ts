@@ -532,4 +532,11 @@ export const es: Record<GitKey, string> = {
   'menu.resetToHere': 'Restablecer la rama actual aquí…',
   'menu.copySubject': 'Copiar mensaje del commit',
   'common.operationFailed': 'La operación falló',
+  'menu.openDiff': 'Abrir el diff',
+  'menu.stagePicked': 'Preparar los {n} archivos seleccionados',
+  'menu.unstagePicked': 'Quitar del índice los {n} archivos seleccionados',
+  'menu.discardPicked': 'Descartar cambios en {n} archivos…',
+  'menu.stashApply': 'Aplicar el stash',
+  'menu.stashPop': 'Extraer el stash',
+  'menu.stashDrop': 'Eliminar el stash…',
 }

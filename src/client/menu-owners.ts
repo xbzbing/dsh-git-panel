@@ -70,8 +70,27 @@ export interface CommitTargetValue extends MenuIdentity {
   readonly subject: string
 }
 
+/** One change row: which side it was picked on decides the actions (stage /
+ * unstage) and whether discarding is possible at all. */
+export interface ChangeTargetValue extends MenuIdentity {
+  readonly path: string
+  /** The row is the index side (already staged). */
+  readonly staged: boolean
+}
+
+/** One directory row of the changes tree. */
+export interface ChangeDirTargetValue extends MenuIdentity {
+  /** Directory path, '' for the repository root row. */
+  readonly path: string
+  readonly staged: boolean
+  /** Every changed path below it, so the menu acts on exactly what the row
+   * claims to cover. */
+  readonly paths: readonly string[]
+  readonly discardable: readonly string[]
+}
+
 /** Everything a captured target value can be. */
-export type GitMenuValue = TreeTargetValue | ImageTargetValue | BranchTargetValue | CommitTargetValue
+export type GitMenuValue = TreeTargetValue | ImageTargetValue | BranchTargetValue | CommitTargetValue | ChangeTargetValue | ChangeDirTargetValue
 
 /** Target kind names. Each is a distinct family in the platform registry, so
  * our contributions never mix with the platform's `file` / `directory` ones —
@@ -82,6 +101,9 @@ export const MENU_KIND = {
   image: 'gitPanel.image',
   branch: 'gitPanel.branch',
   commit: 'gitPanel.commit',
+  change: 'gitPanel.change',
+  changeDir: 'gitPanel.changeDir',
+  stash: 'gitPanel.stash',
 } as const
 
 export type MenuKind = typeof MENU_KIND[keyof typeof MENU_KIND]
@@ -89,6 +111,7 @@ export type MenuKind = typeof MENU_KIND[keyof typeof MENU_KIND]
 /** The kinds this build contributes menus for. */
 export const MENU_KINDS: readonly MenuKind[] = [
   MENU_KIND.file, MENU_KIND.directory, MENU_KIND.image, MENU_KIND.branch, MENU_KIND.commit,
+  MENU_KIND.change, MENU_KIND.changeDir, MENU_KIND.stash,
 ]
 
 /** Narrow a captured value to a browser entry (file or directory). The two

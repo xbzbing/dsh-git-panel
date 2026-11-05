@@ -38,6 +38,7 @@ import { PanelMenuContext } from './menu-context.js'
 import { usePanelMenu } from './use-panel-menu.js'
 import { CompareHost, type CompareRequest } from './compare-host.js'
 import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
+import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
 import type { TreeTargetValue } from './menu-owners.js'
 import type { UseContextMenu } from './menu-types.js'
 import type { MenuSource } from './menu-types.js'
@@ -50,6 +51,16 @@ const EMPTY_OVERVIEW_COMMANDS: OverviewMenuCommands = {
   openTagCreate: () => {},
   openRevert: () => {},
   openReset: () => {},
+}
+
+/** No changes tab mounted: its rows do not exist, so nothing can reach these. */
+const EMPTY_CHANGES_COMMANDS: ChangesMenuCommands = {
+  openDiff: () => {},
+  stage: () => {},
+  openDiscard: () => {},
+  stashApply: () => {},
+  stashPop: () => {},
+  openStashDrop: () => {},
 }
 
 function coerceFontDelta(value: unknown): FontDelta {
@@ -602,11 +613,21 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   const overviewStateRef = useRef<OverviewMenuFacts>({ busy: false })
   const overviewCommands = useCallback((): OverviewMenuCommands => overviewCommandsRef.current ?? EMPTY_OVERVIEW_COMMANDS, [])
   const overviewFacts = useCallback((): OverviewMenuFacts => overviewStateRef.current, [])
+  // The changes tab publishes its runs, busy flag and checked set the same way.
+  const changesCommandsRef = useRef<ChangesMenuCommands | null>(null)
+  const changesStateRef = useRef<ChangesMenuFacts>({ busy: false })
+  const changesPickRef = useRef<ReadonlySet<string>>(new Set())
+  const changesCommands = useCallback((): ChangesMenuCommands => changesCommandsRef.current ?? EMPTY_CHANGES_COMMANDS, [])
+  const changesFacts = useCallback((): ChangesMenuFacts => changesStateRef.current, [])
+  const changesPick = useCallback((): ReadonlySet<string> => changesPickRef.current, [])
   const panelMenu = usePanelMenu({
     ctx, t, sessionId, repo, browseRoot: browseRootOf, useContextMenu, observe: menuSources,
     isGit: isGitRoot, capabilities,
     overviewCommands,
     overviewFacts,
+    changesCommands,
+    changesFacts,
+    changesPick,
     onCompareRevision: useCallback((value: TreeTargetValue) => openCompare('revision', value), [openCompare]),
     onCompareRef: useCallback((value: TreeTargetValue) => openCompare('ref', value), [openCompare]),
     onShowHistory: showHistory,
@@ -803,7 +824,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     const snapshot = view.snapshot
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), onSetChangesView: (view) => writePanelConfigField(ctx, 'changesView', view), compact, stacked, cramped, repositories: compact ? undefined : repositories, t })
+        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), onSetChangesView: (view) => writePanelConfigField(ctx, 'changesView', view), compact, stacked, cramped, repositories: compact ? undefined : repositories, panelMenu, menuCommandsRef: changesCommandsRef, menuFactsRef: changesStateRef, menuPickRef: changesPickRef, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list

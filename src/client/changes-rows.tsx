@@ -57,6 +57,8 @@ export function StashPushModal({ onClose, onStash, error, t }: StashPushCbs): JS
 }
 
 export interface StashRowCbs {
+  /** Right-click props for this stash (absent on hosts without menus). */
+  readonly menu?: (value: { sha: string; label: string }) => Record<string, unknown>
   busy: boolean
   onApply: () => void
   onPop: () => void
@@ -65,7 +67,10 @@ export interface StashRowCbs {
 }
 
 export function renderStashRow(s: StashEntry, cb: StashRowCbs): JSX.Element {
-  return h('div', { key: s.index, className: 'gp-stash-row' }, [
+  return h('div', {
+    key: s.index, className: 'gp-stash-row',
+    ...cb.menu?.({ sha: s.sha, label: s.message }),
+  }, [
     h('div', { key: 'info', className: 'gp-stash-row__info' }, [
       h('span', { key: 'm', className: 'gp-stash-row__msg', title: s.message }, s.message),
       h('span', { key: 'meta', className: 'gp-stash-row__meta' }, [
@@ -141,6 +146,11 @@ export interface ChangeRowCtx {
   readonly onDiscardRow: (rowKey: string, detail: number) => boolean
   readonly onStageDir: (action: { readonly kind: 'stage' | 'unstage'; readonly paths: readonly string[] }) => void
   readonly onOpenDirDiscard: (group: ChangeGroupKey, path: string) => void
+  /** Right-click props for a change row / directory row / stash row (absent on
+   * hosts without menus). */
+  readonly menuRow?: (value: { path: string; staged: boolean }) => Record<string, unknown>
+  readonly menuDir?: (value: { path: string; staged: boolean; paths: readonly string[]; discardable: readonly string[] }) => Record<string, unknown>
+  readonly menuStash?: (value: { sha: string; label: string }) => Record<string, unknown>
 }
 
 /**
@@ -148,8 +158,8 @@ export interface ChangeRowCtx {
  * the fixed height for its kind; the kind maps to its own controls.
  */
 export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: number): JSX.Element {
-  const box = (key: string, inner: JSX.Element): JSX.Element =>
-    h('div', { key, className: 'gp-changes__vrow', style: { top, height: ROW_H[row.kind] } }, inner)
+  const box = (key: string, inner: JSX.Element, menu?: Record<string, unknown>): JSX.Element =>
+    h('div', { key, className: 'gp-changes__vrow', style: { top, height: ROW_H[row.kind] }, ...menu }, inner)
   if (row.kind === 'head') {
     const labelKey = GROUP_LABEL[row.group]
     const pick = groupPickState(ctx.selected, row.items)
@@ -194,6 +204,12 @@ export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: numb
     // unstage / discard for the subtree.
     const stage = dirStageAction(row.group, row.changes)
     const discardPaths = dirDiscardPaths(row.changes)
+    const dirMenu = ctx.menuDir === undefined ? undefined : ctx.menuDir({
+      path: row.path,
+      staged: row.group === 'staged',
+      paths: row.changes.map((c) => c.path),
+      discardable: dirDiscardPaths(row.changes),
+    })
     return box(`d:${dirKey(row.group, row.path)}`, renderDirRow({
       path: row.path,
       name: row.name,
@@ -219,7 +235,7 @@ export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: numb
       onTogglePick: () => ctx.onPick(row.changes),
       tipProps: ctx.tipProps,
       hideTip: ctx.hideTip,
-    }))
+    }), dirMenu)
   }
   // A path staged AND modified appears in two rows; key selection / active /
   // armed by path+side so acting on one row doesn't light up the other.
@@ -228,7 +244,9 @@ export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: numb
   // The diff query names the side with its own vocabulary; spell the mapping
   // once for the row instead of twice inside the props below.
   const base = c.staged ? 'staged' : 'worktree'
-  return box(rowKey, renderFileRow(c, {
+  return box(
+    rowKey,
+    renderFileRow(c, {
     depth: row.depth,
     // The tree already places the row under its directory; repeating the
     // directory text would read as a second, wrong path.
@@ -245,7 +263,9 @@ export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: numb
     hideTip: ctx.hideTip,
     showTipNow: ctx.showTipNow,
     t: ctx.t,
-  }))
+  }),
+    ctx.menuRow === undefined ? undefined : ctx.menuRow({ path: c.path, staged: c.staged }),
+  )
 }
 
 export function renderFileRow(c: GitChange, a: RowActions): JSX.Element {

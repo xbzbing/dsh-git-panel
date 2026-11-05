@@ -25,6 +25,9 @@ import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-
 import { useViewportTracker } from './use-viewport.js'
 import { useRowSlider } from './row-slider.js'
 import { changeKey, pathOfKey, pickDiscardTargets, pickStageTargets, sideOf, toggleGroupKeys } from './selection-keys.js'
+import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
+import type { PanelMenu } from './menu-bindings.js'
+import { MENU_KIND } from './menu-owners.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
@@ -35,6 +38,13 @@ import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 
 interface ChangesTabProps {
+  /** The panel's menu face (rows bind through it). */
+  readonly panelMenu?: PanelMenu
+  /** Refs the panel owns: this tab publishes its runs, busy flag and checked
+   * set each render, and the menu owner reads them at resolve time. */
+  readonly menuCommandsRef?: { current: ChangesMenuCommands | null }
+  readonly menuFactsRef?: { current: ChangesMenuFacts }
+  readonly menuPickRef?: { current: ReadonlySet<string> }
   readonly remote: GitPanelRemote
   readonly sessionId: string
   readonly visible?: boolean
@@ -78,7 +88,7 @@ const byPath = (a: GitChange, b: GitChange): number => a.path.localeCompare(b.pa
 // would wait indefinitely for a stray click.
 const DISCARD_ARM_MS = 4000
 
-export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, onSetChangesView, compact, stacked, cramped, repositories, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickRef,  remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, onSetChangesView, compact, stacked, cramped, repositories, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
@@ -685,6 +695,42 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
 
   // One context for the row dispatch: the tab owns selection, dialogs, queries
   // and the fold state; the row file owns how each row kind presents them.
+  // The runs the change / dir / stash menus offer. The panel reads the
+  // published object at resolve time (menuCommandsRef), so a fresh one each
+  // render keeps the closures current without re-registering anything.
+  const changesMenuCommands: ChangesMenuCommands = {
+    openDiff: (path, staged) => showDiff(path, staged ? 'staged' : 'worktree'),
+    stage: (paths, staged) => { void run({ kind: staged ? 'unstage' : 'stage', paths: [...paths] }) },
+    // The toolbar's own path into the batch-discard dialog: the menu entry
+    // pre-arms the same pick so its confirm matches the checked set.
+    openDiscard: (paths) => {
+      if (paths.length === 0) return
+      setError(null)
+      // A single captured row acts like a one-row pick; a group mirrors the
+      // toolbar (open over the existing checked set).
+      setDiscardPickedOpen(true)
+    },
+    stashApply: (sha) => { const s = stashes.find((it) => it.sha === sha); if (s !== undefined) stashApply(s.index, sha) },
+    stashPop: (sha) => { const s = stashes.find((it) => it.sha === sha); if (s !== undefined) stashPop(s.index, sha) },
+    openStashDrop: (sha) => { const s = stashes.find((it) => it.sha === sha); if (s !== undefined) { setError(null); setStashDrop(s) } },
+  }
+  if (menuCommandsRef !== undefined) menuCommandsRef.current = changesMenuCommands
+  if (menuFactsRef !== undefined) menuFactsRef.current = { busy }
+  if (menuPickRef !== undefined) menuPickRef.current = selected
+
+  // Row binders: the row supplies its own fields, the panel adds the identity at
+  // gesture time (use-panel-menu.ts).
+  const menuRow = panelMenu === undefined
+    ? undefined
+    : (value: { path: string; staged: boolean }) => panelMenu.bind(MENU_KIND.change, value)
+  const menuDir = panelMenu === undefined
+    ? undefined
+    : (value: { path: string; staged: boolean; paths: readonly string[]; discardable: readonly string[] }) =>
+      panelMenu.bind(MENU_KIND.changeDir, value)
+  const menuStash = panelMenu === undefined
+    ? undefined
+    : (value: { sha: string; label: string }) => panelMenu.bind(MENU_KIND.stash, value)
+
   const rowCtx: ChangeRowCtx = {
     showDir: viewMode === 'flat',
     selected,
@@ -717,6 +763,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       return true
     },
     onStageDir: (action) => { void run(action) },
+    ...(menuRow === undefined ? {} : { menuRow }),
+    ...(menuDir === undefined ? {} : { menuDir }),
     onOpenDirDiscard: (group, path) => { setError(null); setDiscardDir({ group, path }) },
   }
 
@@ -819,6 +867,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         onApply: () => stashApply(s.index, s.sha),
         onPop: () => stashPop(s.index, s.sha),
         onDrop: () => { setError(null); setStashDrop(s) },
+        ...(menuStash === undefined ? {} : { menu: menuStash }),
         t,
       }))),
     ]) : null,
