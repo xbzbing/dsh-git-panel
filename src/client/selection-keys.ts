@@ -11,10 +11,11 @@
  * a new side cannot update one without the other.
  *
  * Besides the codec this module holds the policies that consume keys:
- * `pickDiscardTargets` (batch-discard split), `pickStageTargets` (batch-stage
- * targets), and the group select-all state (`groupPickState` /
- * `toggleGroupKeys`). They are defined on the same sides, so they live next to
- * them rather than re-deriving them at the call site.
+ * `pickDiscardTargets` (batch-discard split), `pickStageTargets` /
+ * `pickUnstageTargets` (the two batch stage directions), and the group
+ * select-all state (`groupPickState` / `toggleGroupKeys`). They are defined on
+ * the same sides, so they live next to them rather than re-deriving them at the
+ * call site.
  */
 import type { GitChange } from './types.js'
 
@@ -87,6 +88,15 @@ export function pickDiscardTargets(keys: Iterable<string>): DiscardTargets {
  */
 export function pickStageTargets(keys: Iterable<string>): readonly string[] {
   return [...splitBySide(keys).w].sort()
+}
+
+/**
+ * Batch-unstage targets from a selection: the index-side picks (`:s`), deduped
+ * and sorted. The mirror of `pickStageTargets` — a working-tree pick is not in
+ * the index and owes nothing to `git reset`, so it never widens this set.
+ */
+export function pickUnstageTargets(keys: Iterable<string>): readonly string[] {
+  return [...splitBySide(keys).s].sort()
 }
 
 /** Tri-state of one group's rows against the current selection. */

@@ -444,6 +444,132 @@ assert.deepEqual(pillOffered.map((a) => a.id), [
   'open-overview', 'open-changes', 'open-files', 'copy-branch', 'copy-root',
 ], 'navigation, the copy answers; no remote check (the sample has no remote)')
 
+// ── The changes list's rows ───────────────────────────────────────────────
+// Rebuild the panel with a working-tree change and a stash stack that answers
+// late: the tab publishes its runs during its own render, so a menu opened
+// while that answer is still in flight must read them at resolve time. A
+// copied snapshot would hold the empty stand-ins and the apply would do
+// nothing at all.
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.evaluate(async ({ snap }) => {
+  document.getElementById('panel').innerHTML = ''
+  window.__runs = []
+  // The previous panel's contributions are still registered (its context was
+  // never torn down), and a target kind is answered by every contribution that
+  // names it — drop them so the assertions see one group per section.
+  window.__menuStub.contributions.splice(0)
+  const entry = window.__getLoaded()
+  const changed = {
+    ...snap, dirty: true, staged: 0, modified: 1, untracked: 0,
+    changes: [{ path: 'a.txt', status: 'M', staged: false, isDirectory: false }],
+  }
+  const connection = {
+    rpc: {
+      call: async (_c, endpoint, payload) => {
+        const request = payload && payload.args && payload.args.request
+        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: changed } }
+        if (endpoint === 'gitPanel/query') {
+          const q = request.query
+          if (q.kind === 'repo-list') {
+            return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: window.__fixtureRoot, repos: [
+              { path: '', name: 'fixture', root: window.__fixtureRoot, kind: 'workspace', role: 'main', branch: 'main' },
+            ] } } }
+          }
+          if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'main', shortHash: '44638f7' }], remote: [] } } }
+          if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
+          if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
+          if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 0, commits: [] } } }
+          if (q.kind === 'stash-list') {
+            // Late on purpose: the panel has already rendered by the time this
+            // lands, so the tab's published runs change afterwards.
+            await new Promise((r) => setTimeout(r, 400))
+            return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: [
+              { index: 0, sha: 'stash0sha', message: 'WIP on main: abc', branch: 'main', relTime: '2 hours ago' },
+            ] } } }
+          }
+          if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: '', truncated: false } } }
+        }
+        if (endpoint === 'gitPanel/run') {
+          window.__runs.push({ action: request.action })
+          return { ok: true, value: { ok: true, snapshot: changed } }
+        }
+        return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
+      },
+    },
+  }
+  const registered = {}
+  const dictionaries = {}
+  const ctx = {
+    get: (key) => ({ connection, contextMenus: window.__contextMenusStub, sessions: window.__sessionsStub })[key],
+    effect: (cb) => { try { cb() } catch { /* ignore */ } },
+    on: () => () => {},
+    inject: (_deps, cb) => cb(ctx),
+    slots: { inject: (_n, p) => p(), register: (reg, component) => { registered[reg.name] = { reg, component }; return () => {} } },
+    locale: {
+      register: (ns, dict) => { dictionaries[ns] = dict },
+      bind: (ns) => (key, params) => {
+        const text = dictionaries[ns]?.zh?.[key] ?? key
+        return params === undefined ? text : text.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m))
+      },
+    },
+  }
+  entry.apply(ctx)
+  await new Promise((r) => setTimeout(r, 300))
+  window.ReactDOM.createRoot(document.getElementById('panel')).render(
+    registered['conversation.view'].component({ sessionId: 'sess-changes', useContextMenu: window.__useContextMenuStub }),
+  )
+  await new Promise((r) => setTimeout(r, 500))
+  const tab = [...document.querySelectorAll('.gp-tabbar [role="tab"]')]
+    .find((t) => (t.textContent || '').includes('变更'))
+  tab?.click()
+  await new Promise((r) => setTimeout(r, 400))
+}, { snap: SNAP })
+
+await page.waitForSelector('.gp-changes__vrow', { timeout: 5000 })
+await page.evaluate(() => { window.__menuStub.clear() })
+const changeRow = page.locator('.gp-changes__vrow', { hasText: 'a.txt' }).first()
+await changeRow.click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(150)
+const changeTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.ok(changeTarget, 'the change row binds a context menu')
+assert.equal(changeTarget.kind, 'gitPanel.change')
+assert.equal(changeTarget.value.path, 'a.txt')
+assert.equal(changeTarget.value.staged, false)
+assert.deepEqual(
+  await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
+  ['open-diff', 'stage', 'discard'],
+  'the diff, the stage direction and the discard confirm',
+)
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('stage')), 'ok')
+await page.waitForTimeout(200)
+const staged = await page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'stage'))
+assert.equal(staged.length, 1, 'the menu stage reaches the host')
+assert.deepEqual(staged[0].action.paths, ['a.txt'])
+
+// The stash stack arrives 400 ms after the panel rendered; the row's entries
+// exist only once it has, and the apply must still reach the host.
+// The stash list boots folded; its rows only exist once it is opened.
+await page.waitForSelector('.gp-stash', { timeout: 5000 })
+await page.locator('.gp-stash .gp-group-head').click()
+await page.waitForSelector('.gp-stash-row', { timeout: 5000 })
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-stash-row').first().click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(150)
+const stashTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.ok(stashTarget, 'the stash row binds a context menu')
+assert.equal(stashTarget.kind, 'gitPanel.stash')
+assert.equal(stashTarget.value.sha, 'stash0sha')
+assert.deepEqual(
+  await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
+  ['stash-apply', 'stash-pop', 'stash-drop', 'copy-message'],
+)
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('stash-apply')), 'ok')
+await page.waitForTimeout(200)
+const applied = await page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'stash-apply'))
+assert.equal(applied.length, 1, 'a stash that arrived after the panel rendered still applies')
+
 assert.deepEqual(errors, [], 'no page errors')
 await browser.close()
 console.log('context-menu e2e: ok')

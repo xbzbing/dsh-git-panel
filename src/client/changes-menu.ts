@@ -13,6 +13,7 @@ import type { MenuAction } from './menu-types.js'
 import type { GitKey } from './locales.js'
 import { copyText } from './menu-actions.js'
 import type { MenuEnv } from './menu-actions.js'
+import { changeKey, pickDiscardTargets, pickStageTargets, pickUnstageTargets } from './selection-keys.js'
 
 /** The changes tab's own runs. */
 export interface ChangesMenuCommands {
@@ -40,15 +41,18 @@ export function changeMenuActions(
   value: ChangeTargetValue, env: MenuEnv, cmds: ChangesMenuCommands, facts: ChangesMenuFacts,
   pick: ReadonlySet<string>,
 ): MenuAction[] {
-  const key = `${value.path}:${value.staged ? 's' : 'w'}`
+  const key = changeKey(value)
   const group = pick.has(key) && pick.size > 1
-  // Stage acts on the whole pick (either side); discard only on the working-tree
-  // side, because an index-side pick has nothing to drop. Counting the pick for
-  // the discard label would promise more files than the action can touch.
-  const paths: readonly string[] = group ? pathsOfPick(pick) : [value.path]
-  const discardPaths: readonly string[] = group
-    ? [...new Set([...pick].filter((entry) => entry.endsWith(':w')).map((entry) => entry.slice(0, -2)))]
+  // Each direction acts only on its own side. A path can be listed twice (a
+  // file edited after being partly staged), and handing the other side's path to
+  // `git add` would stage the whole file — wiping the hunks `git add -p` left in
+  // the index. Discard is a working-tree operation for the same reason, and an
+  // index-side pick has nothing to drop, so its count must not promise more
+  // files than the action can touch.
+  const paths: readonly string[] = group
+    ? (value.staged ? pickUnstageTargets(pick) : pickStageTargets(pick))
     : [value.path]
+  const discardPaths: readonly string[] = group ? pickDiscardTargets(pick).paths : [value.path]
   const groupLabel = (key: GitKey): string => env.t(key, { n: paths.length })
   return [
     {
@@ -75,14 +79,6 @@ export function changeMenuActions(
       run: () => cmds.openDiscard(discardPaths),
     }]),
   ]
-}
-
-/** The bare paths of a pick set (both sides of a path collapse into one list;
- * git's argv treats repeats harmlessly, but one path per action reads better). */
-export function pathsOfPick(pick: ReadonlySet<string>): readonly string[] {
-  const paths: string[] = []
-  for (const key of pick) paths.push(key.endsWith(':s') || key.endsWith(':w') ? key.slice(0, -2) : key)
-  return [...new Set(paths)]
 }
 
 /** Directory-row entries: stage / unstage / discard the subtree, exactly what
