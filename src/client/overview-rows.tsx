@@ -63,6 +63,8 @@ export interface RowProps {
   onSelect: (commit: GraphCommit) => void
   onHoverEnter: (commit: GraphCommit, x: number, y: number) => void
   onHoverLeave: () => void
+  /** Right-click props for this commit row (absent on hosts without menus). */
+  menu?: (commit: { hash: string; shortHash: string; subject: string }) => Record<string, unknown>
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -83,6 +85,7 @@ export const CommitRow = memo(function CommitRow({ row, ...cb }: RowProps): JSX.
       className: `gp-commit-row gp-commit-row--compact${cb.selected ? ' gp-commit-row--active' : ''}`,
       style: { gridTemplateColumns: cb.gridTpl, height: `${cb.rowH}px` },
       onClick: () => cb.onSelect(c),
+      ...cb.menu?.({ hash: c.hash, shortHash: c.shortHash, subject: c.subject }),
     }, [
       graphCell,
       h('div', { key: 'tx', className: 'gp-commit-lines' }, [
@@ -100,6 +103,7 @@ export const CommitRow = memo(function CommitRow({ row, ...cb }: RowProps): JSX.
     className: `gp-commit-row${cb.selected ? ' gp-commit-row--active' : ''}`,
     style: { gridTemplateColumns: cb.gridTpl },
     onClick: () => cb.onSelect(c),
+    ...cb.menu?.({ hash: c.hash, shortHash: c.shortHash, subject: c.subject }),
     // Hover only for a real pointer: a tap synthesizes mouseenter and never
     // sends mouseleave, so on a touch screen the card would stay up until the
     // next row was tapped (the same rule `tip.tsx` applies).

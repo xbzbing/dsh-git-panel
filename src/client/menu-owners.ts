@@ -54,8 +54,24 @@ export interface ImageTargetValue {
   readonly mediaType?: string
 }
 
+/** One branch row (local or remote). `name` is what the panel's switch map is
+ * keyed by; the section is carried so a remote row is never switched as a local
+ * name. */
+export interface BranchTargetValue extends MenuIdentity {
+  readonly name: string
+  readonly isCurrent: boolean
+  readonly isRemote: boolean
+}
+
+/** One commit row (history list or the detail header). */
+export interface CommitTargetValue extends MenuIdentity {
+  readonly hash: string
+  readonly shortHash: string
+  readonly subject: string
+}
+
 /** Everything a captured target value can be. */
-export type GitMenuValue = TreeTargetValue | ImageTargetValue
+export type GitMenuValue = TreeTargetValue | ImageTargetValue | BranchTargetValue | CommitTargetValue
 
 /** Target kind names. Each is a distinct family in the platform registry, so
  * our contributions never mix with the platform's `file` / `directory` ones —
@@ -64,12 +80,16 @@ export const MENU_KIND = {
   file: 'gitPanel.file',
   directory: 'gitPanel.directory',
   image: 'gitPanel.image',
+  branch: 'gitPanel.branch',
+  commit: 'gitPanel.commit',
 } as const
 
 export type MenuKind = typeof MENU_KIND[keyof typeof MENU_KIND]
 
 /** The kinds this build contributes menus for. */
-export const MENU_KINDS: readonly MenuKind[] = [MENU_KIND.file, MENU_KIND.directory, MENU_KIND.image]
+export const MENU_KINDS: readonly MenuKind[] = [
+  MENU_KIND.file, MENU_KIND.directory, MENU_KIND.image, MENU_KIND.branch, MENU_KIND.commit,
+]
 
 /** Narrow a captured value to a browser entry (file or directory). The two
  * families differ by the root they hang off; an image target has none. */

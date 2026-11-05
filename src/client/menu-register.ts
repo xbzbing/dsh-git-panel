@@ -23,6 +23,8 @@ export const MENU_CONTRIBUTION_IDS: Readonly<Record<MenuKind, string>> = {
   'gitPanel.file': 'git-panel.file',
   'gitPanel.directory': 'git-panel.directory',
   'gitPanel.image': 'git-panel.image',
+  'gitPanel.branch': 'git-panel.branch',
+  'gitPanel.commit': 'git-panel.commit',
 }
 
 /** The `contextMenus` service, when the host has the menu package. */

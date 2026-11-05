@@ -18,12 +18,13 @@
 import { useEffect, useId, useMemo, useRef } from 'react'
 import { hasSession, type ClientCtx } from './rpc.js'
 import { menuTriggerFactory, type PanelMenu } from './menu-bindings.js'
-import { MENU_KIND, registerMenuOwner } from './menu-owners.js'
+import { MENU_KIND, registerMenuOwner, type GitMenuValue } from './menu-owners.js'
 import type { TreeTargetValue } from './menu-owners.js'
 import { panelMenuOwner } from './menu-panel.js'
 import { contextMenusOf } from './menu-register.js'
 import type { GitKey } from './locales.js'
 import type { MenuCallbacks } from './menu-actions.js'
+import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
 import type { MenuSource, UseContextMenu } from './menu-types.js'
 
 /** What the panel hands the hook. */
@@ -47,6 +48,9 @@ export interface PanelMenuInputs {
   readonly onCompareRevision: (value: TreeTargetValue) => void
   readonly onCompareRef: (value: TreeTargetValue) => void
   readonly onShowHistory: (value: TreeTargetValue) => void
+  /** The overview's runs and busy flag (branch / commit rows). */
+  readonly overviewCommands: () => OverviewMenuCommands
+  readonly overviewFacts: () => OverviewMenuFacts
 }
 
 /**
@@ -55,7 +59,7 @@ export interface PanelMenuInputs {
  * @returns the facade its subtree reads (see menu-context.ts).
  */
 export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
-  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory } = inputs
+  const { ctx, t, sessionId, repo, browseRoot, useContextMenu, observe, isGit, capabilities, onCompareRevision, onCompareRef, onShowHistory, overviewCommands, overviewFacts } = inputs
   const factory = useMemo(() => menuTriggerFactory(useContextMenu), [useContextMenu])
   const ownerId = useId()
   // Repository is compared at resolve time, so the thunk reads it through a ref
@@ -76,10 +80,22 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
         sessionId, owner: ownerId, repo: repoRef.current, ...image,
       }), handlers)
     },
+    // Overview rows capture their own identity; the facade only adds the panel's
+    // and defers the value so a repository switch is read at gesture time.
+    bind: (kind, value, handlers) => {
+      if (!hasSession(sessionId)) return handlers ?? {}
+      return factory.bind(
+        kind,
+        () => ({ ...value, sessionId, owner: ownerId, repo: repoRef.current }) as GitMenuValue,
+        handlers,
+      )
+    },
   }), [factory, sessionId, ownerId, browseRoot])
 
   const callbacksRef = useRef<MenuCallbacks>({ compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory })
   callbacksRef.current = { compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory }
+  const overviewCommandsRef = useRef(overviewCommands())
+  overviewCommandsRef.current = overviewCommands()
   useEffect(() => {
     if (!hasSession(sessionId)) return
     return registerMenuOwner(ownerId, panelMenuOwner({
@@ -90,9 +106,10 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
       browseRoot,
       identity: () => ({ sessionId, repo: repoRef.current }),
       callbacks: () => callbacksRef.current,
+      overview: () => ({ commands: overviewCommandsRef.current, facts: overviewFacts }),
       observe,
     }))
-  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities])
+  }, [ctx, ownerId, sessionId, t, browseRoot, observe, isGit, capabilities, overviewFacts])
 
   return facade
 }

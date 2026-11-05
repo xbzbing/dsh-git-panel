@@ -10,6 +10,8 @@
 import { MENU_KIND, isTreeTarget, type GitMenuValue, type ImageTargetValue, type MenuKind, type MenuOwner } from './menu-owners.js'
 import { DIRECTORY_VIEWS, FILE_VIEWS, IMAGE_VIEWS, platformActions } from './menu-proxy.js'
 import { directoryMenuActions, fileMenuActions, type MenuCallbacks, type MenuEnv } from './menu-actions.js'
+import { branchMenuActions, commitMenuActions, type OverviewMenuCommands, type OverviewMenuFacts } from './overview-menu.js'
+import type { BranchTargetValue, CommitTargetValue } from './menu-owners.js'
 import { platformPathFor } from './menu-paths.js'
 import type { MenuAction, MenuSource, MenuTrigger } from './menu-types.js'
 
@@ -30,6 +32,8 @@ export interface PanelMenuOptions {
   readonly identity: () => PanelIdentity
   /** The Git group's runs (read through the ref the hook keeps fresh). */
   readonly callbacks: () => MenuCallbacks
+  /** The overview's runs and busy state, read live. */
+  readonly overview: () => { commands: OverviewMenuCommands; facts: () => OverviewMenuFacts }
   /** Inputs an open menu should follow (the session snapshot). */
   readonly observe: () => readonly MenuSource[]
 }
@@ -59,6 +63,12 @@ async function actionsFor(
   if (isTreeTarget(value) && value.root !== null && value.root !== options.browseRoot()) return []
   if (kind === MENU_KIND.image) {
     return imageActions(value as ImageTargetValue, env, signal)
+  }
+  if (kind === MENU_KIND.branch) {
+    return branchMenuActions(value as BranchTargetValue, env, options.overview().commands, options.overview().facts())
+  }
+  if (kind === MENU_KIND.commit) {
+    return commitMenuActions(value as CommitTargetValue, env, options.overview().commands, options.overview().facts())
   }
   if (!isTreeTarget(value)) return []
   const path = platformPathFor(value, options.browseRoot())

@@ -37,13 +37,16 @@ export interface CompareHostProps {
   readonly sessionId: string
   readonly request: CompareRequest
   readonly compact: boolean
+  /** The panel's diff-view preference, so the comparison opens in the layout
+   * the user already chose (compact folds split into unified, as everywhere). */
+  readonly defaultDiffView: DiffMode
   readonly onClose: () => void
   /** The panel's browse-root-relative root label, for the overlay title. */
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
 /** One mounted comparison flow: picker → revision diff overlay. */
-export function CompareHost({ remote, sessionId, request, compact, onClose, t }: CompareHostProps): JSX.Element | null {
+export function CompareHost({ remote, sessionId, request, compact, defaultDiffView, onClose, t }: CompareHostProps): JSX.Element | null {
   const [picked, setPicked] = useState<{ rev: string; label: string } | null>(null)
   const [candidates, setCandidates] = useState<readonly CompareRef[] | null>(null)
   const [commits, setCommits] = useState<readonly GraphCommit[] | null>(null)
@@ -137,7 +140,8 @@ export function CompareHost({ remote, sessionId, request, compact, onClose, t }:
       ? null
       : h(RevDiffOverlay, {
         key: 'overlay', remote, sessionId, path: request.path, rev: picked.rev, label: picked.label,
-        compact, defaultMode: compact ? 'unified' : 'split', onClose: () => setPicked(null), t,
+        compact, defaultMode: compact && defaultDiffView === 'split' ? 'unified' : defaultDiffView,
+        onClose: () => setPicked(null), t,
       }),
   ])
 }

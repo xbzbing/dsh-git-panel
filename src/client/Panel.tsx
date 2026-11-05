@@ -37,9 +37,20 @@ import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, has
 import { PanelMenuContext } from './menu-context.js'
 import { usePanelMenu } from './use-panel-menu.js'
 import { CompareHost, type CompareRequest } from './compare-host.js'
+import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
 import type { TreeTargetValue } from './menu-owners.js'
 import type { UseContextMenu } from './menu-types.js'
 import type { MenuSource } from './menu-types.js'
+
+/** No overview mounted: the branch/commit entries cannot act, and the owner is
+ * only reachable from rows that overview renders. */
+const EMPTY_OVERVIEW_COMMANDS: OverviewMenuCommands = {
+  switchBranch: () => {},
+  filterRef: () => {},
+  openTagCreate: () => {},
+  openRevert: () => {},
+  openReset: () => {},
+}
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -584,9 +595,18 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   }, [sessionId])
   const isGitRoot = useCallback((): boolean => filesRootRef.current !== null && viewRootIsGit.current, [])
   const capabilities = useCallback((): { revDiff: boolean; pathHistory: boolean } => capabilitiesRef.current, [])
+  // The overview's own runs and busy flag are published by the tab into this
+  // ref each render (it owns the switch map, the filter and the dialogs); the
+  // menu owner reads them at resolve time.
+  const overviewCommandsRef = useRef<OverviewMenuCommands | null>(null)
+  const overviewStateRef = useRef<OverviewMenuFacts>({ busy: false })
+  const overviewCommands = useCallback((): OverviewMenuCommands => overviewCommandsRef.current ?? EMPTY_OVERVIEW_COMMANDS, [])
+  const overviewFacts = useCallback((): OverviewMenuFacts => overviewStateRef.current, [])
   const panelMenu = usePanelMenu({
     ctx, t, sessionId, repo, browseRoot: browseRootOf, useContextMenu, observe: menuSources,
     isGit: isGitRoot, capabilities,
+    overviewCommands,
+    overviewFacts,
     onCompareRevision: useCallback((value: TreeTargetValue) => openCompare('revision', value), [openCompare]),
     onCompareRef: useCallback((value: TreeTargetValue) => openCompare('ref', value), [openCompare]),
     onShowHistory: showHistory,
@@ -756,6 +776,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       phone: layout.phone ?? false,
       repositories,
       exactPath: historyPath,
+      menuCommandsRef: overviewCommandsRef,
+      menuFactsRef: overviewStateRef,
       t,
       })
       : undefined
@@ -879,7 +901,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     compare !== null && sessionId !== undefined
       ? h(CompareHost, {
         key: 'compare', remote: repoRemote, sessionId, request: compare,
-        compact, onClose: () => setCompare(null), t,
+        compact, defaultDiffView: view.state === 'ready' ? view.snapshot.defaultDiffView : 'unified',
+        onClose: () => setCompare(null), t,
       })
       : null,
     h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) },

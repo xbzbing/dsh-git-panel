@@ -9,7 +9,7 @@
  * menu without knowing whether one is available, and so the react-hooks rules
  * never see a call that looks like a conditional hook.
  */
-import type { GitMenuValue, MenuKind } from './menu-owners.js'
+import type { GitMenuValue, MenuIdentity, MenuKind } from './menu-owners.js'
 import type { MenuBindings, MenuTriggerHandlers } from './menu-types.js'
 
 export { MENU_KIND } from './menu-owners.js'
@@ -47,6 +47,9 @@ export type ImageMenuBinder = (
 export interface PanelMenu {
   readonly row: RowMenuBinder
   readonly image: ImageMenuBinder
+  /** Bind any other captured value (branch / commit rows bind themselves). The
+   * row supplies only its own fields: the facade adds the panel identity. */
+  readonly bind: (kind: MenuKind, value: Omit<GitMenuValue, keyof MenuIdentity>, handlers?: MenuTriggerHandlers) => MenuTriggerHandlers
 }
 
 /**

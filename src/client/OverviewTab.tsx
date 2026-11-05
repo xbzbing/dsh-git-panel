@@ -43,6 +43,9 @@ import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
 import { BranchScroll, renderBranchSheet, type BranchTrees } from './overview-branches.js'
+import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
+import { MENU_KIND } from './menu-owners.js'
+import type { PanelMenu } from './menu-bindings.js'
 import { CommitRow, renderFileTree, renderHoverCard } from './overview-rows.js'
 import { renderFileDiffModal } from './overview-filediff.js'
 
@@ -92,6 +95,12 @@ interface OverviewProps {
   /** A file whose history is being shown (the "show Git history" entry): the
    * history is filtered to this exact path until the chip is dismissed. */
   readonly exactPath?: string | null
+  /** The panel's menu face; branch and commit rows bind through it. */
+  readonly panelMenu?: PanelMenu
+  /** Refs the panel owns: the tab publishes its runs and busy flag into them
+   * each render, and the menu owner reads them at resolve time. */
+  readonly menuCommandsRef?: { current: OverviewMenuCommands | null }
+  readonly menuFactsRef?: { current: OverviewMenuFacts }
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -138,7 +147,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, panelMenu, menuCommandsRef, menuFactsRef, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   // Latest snapshot for late replies: a direct status-bar write (pull / push /
   // clean switch) has no dialog, so nothing else would stop its failure from
@@ -309,6 +318,20 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     setSwitchTarget(option)
   }
   const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
+  // Branch rows bind through the panel's face; the value carries only what the
+  // menu needs, and the panel adds the identity at gesture time.
+  const branchMenu = useMemo(
+    () => (panelMenu === undefined
+      ? undefined
+      : (value: { name: string; isCurrent: boolean; isRemote: boolean }) => panelMenu.bind(MENU_KIND.branch, value)),
+    [panelMenu],
+  )
+  const commitMenu = useMemo(
+    () => (panelMenu === undefined
+      ? undefined
+      : (commit: { hash: string; shortHash: string; subject: string }) => panelMenu.bind(MENU_KIND.commit, commit)),
+    [panelMenu],
+  )
   const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore, pathSearchSupport, pathSearchUnsupported } = useHistory(
     remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
   )
@@ -335,6 +358,23 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const opScopeRef = useRef<string | null>(null)
   const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null
   const opInFlight = opBusy || switchBusy
+  // The runs the menu offers, closing over this render's state (the owner reads
+  // the published object at resolve time, so a fresh one each render is enough).
+  const overviewMenuCommands: OverviewMenuCommands = {
+    switchBranch: (value) => {
+      const option = switchOptions.get(`${value.isRemote ? 'remote' : 'local'}:${value.name}`)
+      if (option !== undefined) openSwitch(option)
+    },
+    filterRef: (ref) => setRef(ref),
+    openTagCreate: (value) => { setOpError(null); setTagForm({ hash: value.hash, shortHash: value.shortHash }) },
+    openRevert: (value) => { setOpError(null); setRevertTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
+    openReset: (value) => { setOpError(null); setResetTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
+  }
+  // Publish the overview's runs and busy flag for the menu owner. A fresh object
+  // each render is the contract: the owner reads the published one at resolve
+  // time, so whatever this render built is what the menu runs.
+  if (menuCommandsRef !== undefined) menuCommandsRef.current = overviewMenuCommands
+  if (menuFactsRef !== undefined) menuFactsRef.current = { busy: opInFlight }
   useEffect(() => {
     if (!opDialogOpen) { opScopeRef.current = null; return }
     // An in-flight write keeps its dialog: the failure text renders only inside
@@ -886,6 +926,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             // defeat the memo and rebuild every row's graph on any hover.
             onSelect: selectCommit,
             onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
+            menu: commitMenu,
             t,
           })))),
     ]),
@@ -995,7 +1036,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onSwitch: openSwitch,
       onToggle: toggleSection,
       onRetry: reloadTree,
-      t,
+      menu: branchMenu,
+            t,
     }, trees: branchTrees })
     const status = renderStatusBar(snapshot, statusCbs)
     const leftChildren: JSX.Element[] = [
@@ -1052,7 +1094,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
             onToggle: toggleSection,
             onRetry: reloadTree,
-            t,
+            menu: branchMenu,
+                  t,
           }, trees: branchTrees }),
         ],
         t,
@@ -1080,7 +1123,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onToggle: toggleSection,
         onRetry: reloadTree,
         onClose: () => setSheetOpen(false),
-        t,
+        menu: branchMenu,
+              t,
       }, branchTrees, reposBlock) : null,
     ])
   }
@@ -1099,7 +1143,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onSwitch: openSwitch,
         onToggle: toggleSection,
         onRetry: reloadTree,
-        t,
+        menu: branchMenu,
+              t,
       }, trees: branchTrees }),
       renderStatusBar(snapshot, statusCbs),
     ]),

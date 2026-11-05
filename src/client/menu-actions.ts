@@ -86,8 +86,8 @@ function browserGroup(value: TreeTargetValue, env: MenuEnv): MenuAction[] {
 }
 
 /** Write to the clipboard and report through the platform's toast, which
- * outlives the dismissed popup. */
-async function copyText(env: MenuEnv, text: string): Promise<void> {
+ * outlives the dismissed popup. Shared by every group that copies. */
+export async function copyText(env: Pick<MenuEnv, 't' | 'menus'>, text: string): Promise<void> {
   await navigator.clipboard.writeText(text)
   env.menus?.notify(env.t('menu.copied'), true)
 }
