@@ -97,12 +97,23 @@ jobs:
       # nine-minute step; a restored cache (exact or via restore-keys) needs
       # neither apt nor a download, and a real playwright bump changes the
       # executable path so the install still runs.
+      #
+      # A hit skips apt on purpose. If a runner image moves a shared library
+      # under the cached browser, every launch fails instead of self-healing —
+      # clear this cache key when that happens.
+      #
+      # Headless launches use `chrome-headless-shell`, which is not the path
+      # chromium.executablePath() reports; check both, or a partial cache passes
+      # the guard and every runner fails to launch.
       - name: Install Chromium
         timeout-minutes: 12
         run: |
+          CACHE="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
           CHROME="$(node -p "require('playwright-core').chromium.executablePath()")"
-          if [ -x "$CHROME" ]; then
+          SHELL="$(find "$CACHE" -maxdepth 3 -type f -name 'chrome-headless-shell' -perm -u+x -print -quit 2>/dev/null)"
+          if [ -x "$CHROME" ] && [ -n "$SHELL" ]; then
             echo "Chromium already present: $CHROME"
+            echo "Headless shell already present: $SHELL"
           else
             npx --no-install playwright-core install --with-deps chromium
           fi
@@ -110,6 +121,7 @@ jobs:
       - name: E2E tests
         run: npm run test:e2e
         env:
+          # Four-vCPU runner: three slots leave the main process a core.
           E2E_CONCURRENCY: '3'
 
   # Unit tests only: the e2e runners and the lint / typecheck gates do not
