@@ -3065,7 +3065,9 @@ test('a remote URL never carries its credential into the snapshot', async () => 
  */
 async function scratchRepo(files) {
   const dir = mkdtempSync(join(tmpdir(), 'gp-scratch-'))
-  await runGit(dir, ['init', '-q'])
+  // The default branch name is the runner's to choose (`master` on CI): pin it,
+  // or a test asserting on `refs/heads/main` fails only off this machine.
+  await runGit(dir, ['init', '-q', '-b', 'main'])
   await runGit(dir, ['config', 'user.email', 't@t.co'])
   await runGit(dir, ['config', 'user.name', 'Tester'])
   const { writeFileSync } = await import('node:fs')
@@ -3429,8 +3431,11 @@ test('history exactPath selects only the commits that touch that file', async ()
     writeFileSync(join(dir, 'ab.txt'), 'sibling\n')
     await runGit(dir, ['add', 'ab.txt'])
     await runGit(dir, ['commit', '-qm', 'feat: add ab'])
-    writeFileSync(join(dir, 'star*.txt'), 'glob\n')
-    await runGit(dir, ['add', 'star*.txt'])
+    // `[` is a glob metacharacter that is a legal filename on Windows, where
+    // `*` and `?` are not; `-A` stages it without a pathspec whose glob rules
+    // `git add <pattern>` would apply to the literal name.
+    writeFileSync(join(dir, 'star[1].txt'), 'glob\n')
+    await runGit(dir, ['add', '-A'])
     await runGit(dir, ['commit', '-qm', 'feat: add star'])
 
     const mine = await query({ kind: 'history', limit: 20, skip: 0, exactPath: 'a.txt' })
@@ -3441,7 +3446,7 @@ test('history exactPath selects only the commits that touch that file', async ()
     assert.ok(Array.isArray(mine.value.topology), 'a filtered page carries its ancestry')
 
     // Literal pathspec: a name with glob metacharacters selects itself.
-    const literal = await query({ kind: 'history', limit: 20, skip: 0, exactPath: 'star*.txt' })
+    const literal = await query({ kind: 'history', limit: 20, skip: 0, exactPath: 'star[1].txt' })
     assert.deepEqual(literal.value.commits.map((c) => c.subject), ['feat: add star'])
   } finally {
     rmSync(dir, { recursive: true, force: true })
