@@ -23,6 +23,9 @@ export interface CompareRef {
 /** Display order of the three groups. */
 export const COMPARE_GROUPS = ['local', 'remote', 'tag'] as const
 
+/** `refs/remotes/<remote>/HEAD` is the remote's symbolic default, not a branch. */
+const SYMBOLIC_REMOTE_HEAD = /^refs\/remotes\/[^/]+\/HEAD$/
+
 /**
  * The candidates a repository offers: every local branch, every remote-tracking
  * branch and every tag. Full ref names are used on the wire; the labels are the
@@ -44,7 +47,13 @@ export function compareCandidates(
     // A remote-tracking HEAD spells as its remote alone (`origin`), and an old
     // host has no `ref` to tell it apart, so the shape of the name is the only
     // signal left: a real remote-tracking branch always carries `<remote>/<name>`.
-    .filter((b: GitBranch) => b.name.includes('/') && !b.name.endsWith('/HEAD'))
+    // New hosts also drop the symbolic row themselves; the exact `refs/remotes/
+    // <remote>/HEAD` shape is the fallback, never a `/HEAD` name suffix — that
+    // would hide a real branch called `feature/HEAD`.
+    .filter((b: GitBranch) => b.name.includes('/')
+      && (b.ref !== undefined
+        ? !SYMBOLIC_REMOTE_HEAD.test(b.ref)
+        : !b.name.endsWith('/HEAD')))
     .map((b: GitBranch) => ({ rev: b.ref ?? `refs/remotes/${b.name}`, label: b.name, group: 'remote' as const }))
   const tagRefs = tags.tags.map((tag: GitBranch) => ({ rev: tag.ref ?? `refs/tags/${tag.name}`, label: tag.name, group: 'tag' as const }))
   return [...local, ...remote, ...tagRefs]
@@ -126,4 +135,14 @@ export async function loadCompareCandidates(
   const tags = queryAs(tagsRes, 'tags')
   if (branches === null || tags === null) return null
   return compareCandidates(branches, tags)
+}
+
+/** One comparison names a path in one checkout of one session: a panel that has
+ * moved since must not run it against the new checkout. */
+export function compareApplies(
+  request: { readonly sessionId: string; readonly repo: string } | null,
+  sessionId: string | undefined,
+  repo: string,
+): boolean {
+  return request !== null && sessionId !== undefined && request.sessionId === sessionId && request.repo === repo
 }

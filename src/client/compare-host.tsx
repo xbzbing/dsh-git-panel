@@ -31,6 +31,10 @@ export interface CompareRequest {
   readonly mode: 'ref' | 'revision'
   /** Repository-relative path the comparison is about. */
   readonly path: string
+  /** The checkout the request was raised on; a panel that has since moved must
+   * not run it against the new one (see compareApplies). */
+  readonly repo: string
+  readonly sessionId: string
 }
 
 export interface CompareHostProps {

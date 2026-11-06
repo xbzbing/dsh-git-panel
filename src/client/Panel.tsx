@@ -40,6 +40,7 @@ import { usePanelMenu } from './use-panel-menu.js'
 import { contextMenusOf } from './menu-register.js'
 import { insertSessionQuote } from './quote.js'
 import { CompareHost, type CompareRequest } from './compare-host.js'
+import { compareApplies } from './compare-refs.js'
 import { runRemoteFetch } from './fetch-report.js'
 import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
 import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
@@ -621,8 +622,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   const [historyRequest, setHistoryRequest] = useState<{ path: string; seq: number; repo: string; sessionId: string } | null>(null)
   const historySeq = useRef(0)
   const openCompare = useCallback((mode: CompareRequest['mode'], value: TreeTargetValue): void => {
-    setCompare({ mode, path: value.path })
-  }, [])
+    if (!hasSession(sessionId)) return
+    setCompare({ mode, path: value.path, repo, sessionId })
+  }, [repo, sessionId])
   // A request names one path in one checkout of one session: a panel that has
   // since moved must not consume it.
   const historyRequestApplies = (request: { sessionId: string; repo: string }, liveSession: string | undefined, liveRepo: string): boolean =>
@@ -995,10 +997,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // Inert while a switch is in flight: the panes still show the previous
     // checkout, but every request is tagged with the next one, so a stage or a
     // discard clicked on the old list would land on the new work tree.
-    compare !== null && sessionId !== undefined
+    compare !== null && sessionId !== undefined && compareApplies(compare, sessionId, repo)
       ? h(CompareHost, {
         // Re-keyed on the checkout so a switch tears the flow down even when the
-        // effect above has not run yet.
+        // effect above has not run yet. The gate is the render-time half: the
+        // child's effects run before this panel's cleanup, so a request that no
+        // longer names the current checkout must never reach the tree at all.
         key: `compare:${sessionId}:${repo}`, remote: repoRemote, sessionId, request: compare,
         compact, defaultDiffView: view.state === 'ready' ? view.snapshot.defaultDiffView : 'unified',
         onClose: () => setCompare(null), t,

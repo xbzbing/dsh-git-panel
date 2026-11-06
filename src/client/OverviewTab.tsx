@@ -188,6 +188,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     if (exactPath === undefined || exactPathSeq === undefined) return
     if (appliedChipSeq.current === exactPathSeq) return
     appliedChipSeq.current = exactPathSeq
+    // The chip replaces every other filter, the text one included. Emptying the
+    // box here also kills the pending debounce: without it, a search typed just
+    // before the click would publish a moment later, `searchPublish` would drop
+    // the chip, and the click would look like it never happened.
+    setSearchInput('')
     setFilter((prev) => ({ ...prev, exactPath, ref: null, search: '', pathSearch: '', author: '', since: '' }))
   }, [exactPath, exactPathSeq])
   // The debounce below runs in a timer, outside the render phase, so it reads

@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compareCandidates, compareRows, filterCandidates, revisionCandidates, revisionLabel, COMPARE_GROUPS } from '../../lib/testkit.mjs'
+import { compareApplies, compareCandidates, compareRows, filterCandidates, revisionCandidates, revisionLabel, COMPARE_GROUPS } from '../../lib/testkit.mjs'
 
 const branches = (local, remote = []) => ({ local, remote })
 const tagList = (tags) => ({ tags })
@@ -36,10 +36,31 @@ test('a host without the ref field falls back to the prefixed name', () => {
   assert.deepEqual(refs.map((r) => r.rev), ['refs/heads/main', 'refs/remotes/origin/main', 'refs/tags/v1'])
 })
 
-test('a remote-tracking HEAD is not a comparison target', () => {
-  // `origin` is how git spells refs/remotes/origin/HEAD; it is not a ref.
-  const refs = compareCandidates(branches([], [b('origin'), b('origin/HEAD'), b('origin/main')]), tagList([]))
+test('a remote-tracking HEAD is not a comparison target, but a branch called …/HEAD is', () => {
+  // `origin` is how git spells refs/remotes/origin/HEAD; it is not a ref. New
+  // hosts drop that row themselves; this pins the client's own defence and the
+  // case a `/HEAD` name suffix would have broken.
+  const refs = compareCandidates(branches([], [
+    b('origin'),
+    b('origin/HEAD', 'refs/remotes/origin/HEAD'),
+    b('origin/feature/HEAD', 'refs/remotes/origin/feature/HEAD'),
+    b('origin/main', 'refs/remotes/origin/main'),
+  ]), tagList([]))
+  assert.deepEqual(refs.map((r) => r.rev), ['refs/remotes/origin/feature/HEAD', 'refs/remotes/origin/main'])
+})
+
+test('an old host without refs is still filtered by the name shape', () => {
+  const refs = compareCandidates(branches([], [b('origin'), b('origin/main')]), tagList([]))
   assert.deepEqual(refs.map((r) => r.rev), ['refs/remotes/origin/main'])
+})
+
+test('a comparison applies only to the checkout that raised it', () => {
+  const request = { sessionId: 's1', repo: '/w' }
+  assert.equal(compareApplies(request, 's1', '/w'), true)
+  assert.equal(compareApplies(request, 's1', '/other'), false, 'another checkout must not run it')
+  assert.equal(compareApplies(request, 's2', '/w'), false, 'nor another session')
+  assert.equal(compareApplies(null, 's1', '/w'), false)
+  assert.equal(compareApplies(request, undefined, '/w'), false)
 })
 
 test('the filter is a case-insensitive substring over the label', () => {
