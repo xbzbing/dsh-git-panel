@@ -2917,9 +2917,8 @@ test('file-lines refuses .git in any spelling and caps the reply', async () => {
       assert.equal(res.ok, false, `${path} must be refused`)
     }
     const image = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'image-diff', path: '.git/x.png', base: 'worktree' } })
-    assert.equal(image.ok, true)
-    assert.equal(image.value.old, undefined, 'no side of a .git file is ever read')
-    assert.equal(image.value.new, undefined)
+    assert.equal(image.ok, false, 'a .git path is refused before either side is read')
+    assert.equal(image.error.code, 'invalid-path')
 
     writeFileSync(join(dir, 'long.txt'), Array.from({ length: FILE_LINES_MAX_LINES + 500 }, (_, i) => `l${i + 1}`).join('\n') + '\n')
     await runGit(dir, ['add', 'long.txt'])
@@ -3179,16 +3178,108 @@ test('an untracked file in a linked worktree compares against the revision', asy
   }
 })
 
-test('commit-checkout detaches HEAD and leaves the work tree alone', async () => {
-  const { writeFileSync, rmSync } = await import('node:fs')
+test('an untracked file identical to the revision is an empty diff, not a deletion', async () => {
+  const { rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'v1\n' })
+  try {
+    const query = (q) => runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: q })
+    // Untracked but present in HEAD: `git diff <rev> -- path` calls it a
+    // deletion, so the synthesized side must answer "no change" instead of
+    // leaving that stale deletion in place.
+    await runGit(dir, ['rm', '--cached', '-qf', 'a.txt'])
+    const same = await query({ kind: 'diff', path: 'a.txt', base: 'rev', rev: 'HEAD' })
+    assert.equal(same.ok, true)
+    assert.equal(same.value.text, '', 'identical sides produce an empty diff')
+    assert.equal(same.value.newLines, 0, 'no hunk means no new-side count to offer (the view hides trailing expansion)')
+
+    // And when the sides differ the synthesized answer keeps both.
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'v2\n')
+    const diff = await query({ kind: 'diff', path: 'a.txt', base: 'rev', rev: 'HEAD' })
+    assert.match(diff.value.text, /^-v1$/m, 'the old side is the revision')
+    assert.match(diff.value.text, /^\+v2$/m, 'the new side is the working file')
+    assert.doesNotMatch(diff.value.text, /^deleted file mode/m)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('diff and image-diff refuse .git paths on every base', async () => {
+  const { rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'v1\n' })
+  try {
+    const query = (q) => runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: q })
+    for (const base of ['worktree', 'staged', 'rev', 'commit']) {
+      const extra = base === 'rev' ? { rev: 'HEAD' } : base === 'commit' ? { commit: 'HEAD' } : {}
+      for (const path of ['.git/config', '.GIT/config', 'sub/.git/config']) {
+        const res = await query({ kind: 'diff', path, base, ...extra })
+        assert.equal(res.ok, false, `${base} diff must refuse ${path}`)
+        assert.equal(res.error.code, 'invalid-path')
+        const image = await query({ kind: 'image-diff', path: '.git/x.png', base, ...extra })
+        assert.equal(image.ok, false, `${base} image-diff must refuse .git`)
+        assert.equal(image.error.code, 'invalid-path')
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('branches drops the remote symbolic HEAD and keeps a real branch ending in /HEAD', async () => {
+  const { rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'v1\n' })
+  try {
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()
+    await runGit(dir, ['update-ref', 'refs/remotes/origin/main', head])
+    await runGit(dir, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'])
+    await runGit(dir, ['update-ref', 'refs/remotes/origin/feature/HEAD', head])
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'branches' } })
+    assert.equal(res.ok, true)
+    const refs = res.value.remote.map((b) => b.ref)
+    assert.ok(!refs.includes('refs/remotes/origin/HEAD'), 'the symbolic HEAD is not a branch')
+    assert.ok(!res.value.remote.some((b) => b.name === 'origin'), 'and does not appear as a bare remote name')
+    assert.ok(refs.includes('refs/remotes/origin/feature/HEAD'), 'a real branch named feature/HEAD survives')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('image-diff refuses a directory even when its name ends in an image suffix', async () => {
+  const { rmSync, mkdirSync, writeFileSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'v1\n' })
+  try {
+    const query = (q) => runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: q })
+    mkdirSync(join(dir, 'assets.png'))
+    writeFileSync(join(dir, 'assets.png', 'x.txt'), 'x\n')
+    const working = await query({ kind: 'image-diff', path: 'assets.png', base: 'worktree' })
+    assert.equal(working.ok, false, 'a directory is not a picture')
+    assert.equal(working.error.code, 'invalid-path')
+
+    // Also when the directory is gone from the work tree but the revision still
+    // stores a tree: the revision-side type check has to reject it too.
+    await runGit(dir, ['add', '-A'])
+    await runGit(dir, ['commit', '-qm', 'dir'])
+    rmSync(join(dir, 'assets.png'), { recursive: true, force: true })
+    const rev = await query({ kind: 'image-diff', path: 'assets.png', base: 'rev', rev: 'HEAD' })
+    assert.equal(rev.ok, false, 'a revision-side tree is not a picture')
+    assert.equal(rev.error.code, 'invalid-path')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('commit-checkout detaches HEAD at the commit and keeps untracked files', async () => {
+  const { writeFileSync, readFileSync, rmSync } = await import('node:fs')
   const dir = await scratchRepo({ 'a.txt': 'v1\n' })
   try {
     const d = depsAt(dir)
-    // A second commit, and an uncommitted edit that must survive the checkout.
+    // Tag the base commit *before* building on top of it: a tag on the new HEAD
+    // would make `rev-parse HEAD` equal `rev-parse v1` before the action runs,
+    // and the detach assertion below could never fail.
+    await runGit(dir, ['tag', 'v1'])
     writeFileSync(join(dir, 'a.txt'), 'v2\n')
     await runGit(dir, ['add', 'a.txt'])
     await runGit(dir, ['commit', '-qm', 'second'])
-    await runGit(dir, ['tag', 'v1'])
     writeFileSync(join(dir, 'b.txt'), 'scratch\n')
     const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'commit-checkout', commit: 'refs/tags/v1' } })
     assert.equal(res.ok, true)
@@ -3197,6 +3288,9 @@ test('commit-checkout detaches HEAD and leaves the work tree alone', async () =>
     try { branch = execFileSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim() } catch { branch = '' }
     assert.equal(branch, '', 'HEAD is detached')
     assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim(), execFileSync('git', ['rev-parse', 'refs/tags/v1'], { cwd: dir, encoding: 'utf8' }).trim())
+    // The work tree follows the detached commit: "checkout" moves HEAD *and*
+    // rewrites tracked files, which is what the confirmation promises.
+    assert.equal(readFileSync(join(dir, 'a.txt'), 'utf8'), 'v1\n', 'the tracked file follows the checked-out commit')
     const kept = execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })
     assert.match(kept, /\?\? b\.txt/, 'the untracked file is still there')
     const bad = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'commit-checkout', commit: '--orphan' } })

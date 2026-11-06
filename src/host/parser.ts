@@ -156,13 +156,19 @@ export function parseRefs(decoration: string): GitRef[] {
   return refs
 }
 
-/** Parse `git for-each-ref` local/remote branch lines: `name\0shortHash\0track`. */
+/**
+ * Parse `git for-each-ref` local/remote branch lines:
+ * `name\0shortHash\0track\0ref\0symref`. A non-empty `symref` marks a symbolic
+ * row (`refs/remotes/origin/HEAD` → `refs/remotes/origin/main`), which is not a
+ * branch: dropping it here keeps `origin` out of the list, and — unlike a
+ * name-suffix filter — does not hide a real branch called `feature/HEAD`.
+ */
 export function parseBranches(stdout: string): GitBranch[] {
   const out: GitBranch[] = []
   for (const line of stdout.split('\n')) {
     if (line.trim() === '') continue
-    const [name, shortHash = '', track = '', ref = ''] = line.split('\0')
-    if (name === undefined || name === '') continue
+    const [name, shortHash = '', track = '', ref = '', symref = ''] = line.split('\0')
+    if (name === undefined || name === '' || symref !== '') continue
     const branch: { name: string; shortHash: string | null; ahead?: number; behind?: number; ref?: string } = {
       name,
       shortHash: shortHash === '' ? null : shortHash,

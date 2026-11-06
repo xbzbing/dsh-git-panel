@@ -161,8 +161,10 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
       // Same shape as `branch-checkout`: no `--end-of-options` (older git
       // rejects it on checkout), and the trailing `--` keeps a commit-ish that
-      // is also a path out of the pathspec position. HEAD detaches; the work
-      // tree is untouched.
+      // is also a path out of the pathspec position. With no path after it, `--`
+      // still means "check out this revision": HEAD detaches at the commit and
+      // the work tree follows it, so uncommitted changes it would overwrite make
+      // git refuse the whole checkout.
       return { argv: [['git', 'checkout', action.commit, '--']] }
     }
   }
