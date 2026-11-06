@@ -48,17 +48,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
-      # playwright-core ships no browsers, and the e2e runners launch chromium
-      # themselves (no test runner, no display, file:// fixtures only).
-      - name: Install Chromium
-        run: npx --no-install playwright-core install --with-deps chromium
-
       - name: Lint
         run: npm run lint
 
@@ -68,8 +57,42 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
+  # E2E runs on one Node version: the harness drives the browser bundle over
+  # file:// fixtures, so neither the runner nor the assertions read the host
+  # Node version, while the matrix legs above already cover it for lint,
+  # typecheck and the unit suite. A separate job also means one browser install
+  # instead of two racing cache entries, and its pool keeps the wall clock near
+  # the slowest runner rather than the sum of all of them.
+  e2e:
+    name: e2e (node 24.x)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+
+      # playwright-core ships no browsers, and the e2e runners launch chromium
+      # themselves (no test runner, no display, file:// fixtures only).
+      - name: Install Chromium
+        run: npx --no-install playwright-core install --with-deps chromium
+
       - name: E2E tests
         run: npm run test:e2e
+        env:
+          E2E_CONCURRENCY: '3'
 
   # Unit tests only: the e2e runners and the lint / typecheck gates do not
   # depend on the host OS. The runner's token may create symlinks, so the
