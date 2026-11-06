@@ -66,7 +66,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 插件分 host / client 两半，通过 typert Remote 网关通信。
 
-- **Host**（`lib/host/`）：`dbGitPanel` 命名空间上的 Cordis + typert `GitPanelService`（服务键全局唯一，重复挂载的条目保持惰性），暴露 `snapshot` / `run` / `query` / `suggest` / `version` / `openFile` / `writeFile` 七个端点，仅做端点委托与生命周期接线；git 命令经宿主 `subprocess` 服务执行（argv 数组、无 shell、cwd 锁仓库根、超时 + 输出上限）；`suggest` 端点经宿主 `llm` 服务用你已配置的模型一次性生成提交信息。
+- **Host**（`lib/host/`）：`dbGitPanel` 命名空间上的 Cordis + typert `GitPanelService`（服务键全局唯一；重复挂载的条目保持惰性，不再激活失败），暴露 `snapshot` / `run` / `query` / `suggest` / `version` / `openFile` / `writeFile` 七个端点，仅做端点委托与生命周期接线；git 命令经宿主 `subprocess` 服务执行（argv 数组、无 shell、cwd 锁仓库根、超时 + 输出上限）；`suggest` 端点经宿主 `llm` 服务用你已配置的模型一次性生成提交信息。
 - **Client**（`lib/client.js`）：一个 React 包，注册 `conversation.view` 面板和 `conversation.input.left` 标记。每会话一个快照控制器（轮询 + turn 完成后刷新 + 连接重置重拉），标记、变更记录页和统计条共用同一份快照，避免重复 git 命令。
 
 ## 开发

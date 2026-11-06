@@ -16,6 +16,8 @@
 
 插件分 host / client 两半，边界是 `gitPanel` 命名空间上的**五个语义化端点**：`snapshot` / `run` / `query` / `suggest` / `version`。
 
+> 命名空间名与端点数量已由 ADR-0029 与实现更新（现为 `dbGitPanel` 上的七个端点）；双半边界与端点语义不变。
+
 - host 是 Cordis 服务（`GitPanelService`），只做端点委托与生命周期接线；它不 import React、不 import `@deepseek-ai/dsh-client-*`、不 import client 的任何模块。
 - client 是 React bundle，只经 RPC 取数据；它不 import `node:*`、不自己拼 git 命令、不各自发快照。
 - `snapshot` 是全量状态，`query` 是按需读取（历史、diff、文件内容…），`run` 是写操作，`suggest` 经宿主 llm 服务生成提交信息，`version` 是版本与更新检查。**语义化端点而非通用 RPC**：每个端点有自己的校验、超时与错误码，host 因此能拒绝它看不懂的请求。

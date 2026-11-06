@@ -291,7 +291,13 @@ export class GitPanelService extends TypertRemoteService {
  * old fiber is torn down before the new one applies.
  */
 function apply(ctx: Context, config: unknown): void {
-  if (ctx.get(SERVICE_KEY) !== undefined) {
+  // Non-strict on purpose: the question is whether the key is taken, not
+  // whether its provider is active. A sibling fiber that registered the
+  // service moments ago is still in state 1 (loading) while it applies, and a
+  // provider restart reloads every dependent in the same batch — a strict
+  // lookup returns undefined in both windows, the next `provide` then throws
+  // "already registered".
+  if (ctx.get(SERVICE_KEY, false) !== undefined) {
     ctx.logger.warn('%s: %s is already registered; this mount leaves the existing service in place', PLUGIN_NAME, SERVICE_KEY)
     return
   }

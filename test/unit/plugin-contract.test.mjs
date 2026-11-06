@@ -19,6 +19,8 @@ import * as host from '../../lib/host/index.js'
 test('host bundle exports the plugin object + GitPanelService', () => {
   const plugin = host.default
   assert.equal(typeof plugin.apply, 'function', 'default export is an object plugin')
+  // Fiber display name: it matches the cordis.patch.yml row id so logs such as
+  // "service ... has been registered at <git-panel>" point at the right row.
   assert.equal(plugin.name, 'git-panel')
   assert.equal(typeof host.GitPanelService, 'function', 'the service class is still exported')
   assert.equal(host.GitPanelService.name, 'GitPanelService')

@@ -66,7 +66,7 @@ The client bundle (`lib/client.js`) makes no network requests of its own — it 
 
 Two halves communicating over the typert Remote gateway.
 
-- **Host** (`lib/host/`) — a Cordis + typert `GitPanelService` on the `dbGitPanel` namespace (the service key is globally unique; a duplicate mount stays inert), exposing `snapshot` / `run` / `query` / `suggest` / `version` / `openFile` / `writeFile` and doing only endpoint delegation and lifecycle wiring; git runs through the host `subprocess` service (argv arrays, no shell, cwd locked to the repository root, timeout + output caps); the `suggest` endpoint makes a one-shot commit-message call through the host `llm` service with your configured model.
+- **Host** (`lib/host/`) — a Cordis + typert `GitPanelService` on the `dbGitPanel` namespace (the service key is globally unique; a duplicate mount stays inert instead of failing to activate), exposing `snapshot` / `run` / `query` / `suggest` / `version` / `openFile` / `writeFile` and doing only endpoint delegation and lifecycle wiring; git runs through the host `subprocess` service (argv arrays, no shell, cwd locked to the repository root, timeout + output caps); the `suggest` endpoint makes a one-shot commit-message call through the host `llm` service with your configured model.
 - **Client** (`lib/client.js`) — a React bundle that registers the `conversation.view` panel and the `conversation.input.left` marker. One snapshot controller per session (polling + a refresh after each turn + a reload on connection reset) feeds the marker, the changes page, and the stats bar from a single snapshot, avoiding duplicate git commands.
 
 ## Development
