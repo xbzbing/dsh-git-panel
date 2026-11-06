@@ -3399,6 +3399,12 @@ test('diff base rev guards: unsafe rev, unknown base, unsafe path', async () => 
   const escape = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: '../x', base: 'rev', rev: 'HEAD' } })
   assert.equal(escape.ok, false)
   assert.equal(escape.error.code, 'invalid-path')
+  // A ref this repository does not have exits 128 with *empty* stdout. Serving
+  // that would read as "no differences" against a branch that no longer exists.
+  const missing = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'rev', rev: 'refs/heads/does-not-exist' } })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.error.code, 'git-error')
+  assert.match(missing.error.message, /does-not-exist/, 'git says which revision it refused')
 })
 
 test('image-diff base rev compares the stored picture against the work tree', async () => {
@@ -3417,6 +3423,34 @@ test('image-diff base rev compares the stored picture against the work tree', as
     const bad = await query({ kind: 'image-diff', path: 'img.png', base: 'rev', rev: '-x' })
     assert.equal(bad.ok, false)
     assert.equal(bad.error.code, 'invalid-name')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('image-diff separates a revision without the picture from an unknown revision', async () => {
+  const { writeFileSync, rmSync } = await import('node:fs')
+  const dir = await scratchRepo({ 'a.txt': 'a\n' })
+  try {
+    const d = depsAt(dir)
+    const query = (q) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: q })
+    await runGit(dir, ['tag', 'base'])
+    writeFileSync(join(dir, 'img.png'), Buffer.from('PNG-new-bytes'))
+    await runGit(dir, ['add', 'img.png'])
+    await runGit(dir, ['commit', '-qm', 'feat: add picture'])
+    // The revision exists and simply predates the picture: one side only, and
+    // that is a correct answer, not an error.
+    const first = await query({ kind: 'image-diff', path: 'img.png', base: 'rev', rev: 'refs/tags/base' })
+    assert.equal(first.ok, true)
+    assert.equal(first.value.old, undefined, 'the revision has no such path')
+    assert.equal(first.value.new, `data:image/png;base64,${Buffer.from('PNG-new-bytes').toString('base64')}`)
+    // A revision the repository does not know leaves the oid unresolved too;
+    // without asking the rev itself it would render as this same one-sided
+    // "added" answer.
+    const missing = await query({ kind: 'image-diff', path: 'img.png', base: 'rev', rev: 'refs/heads/does-not-exist' })
+    assert.equal(missing.ok, false)
+    assert.equal(missing.error.code, 'git-error')
+    assert.match(missing.error.message, /does-not-exist/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

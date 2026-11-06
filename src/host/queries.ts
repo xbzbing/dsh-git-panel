@@ -295,6 +295,14 @@ async function queryDiff(
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
   if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
   if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  // `git diff <rev>` answers a revision it does not know (a branch deleted since
+  // the picker listed it) with `fatal: bad revision` and *empty* stdout, exit
+  // 128. Serving that would read as "no differences" against a ref that does not
+  // exist. The staged and work-tree forms have no operand to get wrong — an
+  // unmatched pathspec exits 0 there — so the same check is a no-op for them.
+  if (res.run.exitCode !== 0) {
+    return { ok: false, error: { code: 'git-error', message: res.run.stderr.trim() || 'git diff failed' } }
+  }
   // A lossy run dropped output at the runner's collect/spill ceiling, and a
   // lossy read keeps the stream's *tail*: this single-file diff lost its header
   // and opening hunks, so what survived starts mid-diff. Surviving hunks still
@@ -706,6 +714,21 @@ async function queryImageDiff(
     resolveOid(deps, root, oldSpec),
     newSpec === null ? Promise.resolve(undefined) : resolveOid(deps, root, newSpec),
   ])
+
+  // A path the revision does not carry is a legitimate one-sided answer (the
+  // picture arrived later); a revision the repository does not know is not.
+  // Both leave `oldOid` undefined, and only asking the revision itself tells
+  // them apart — without this the work-tree side alone would render as "added".
+  if (oldOid === undefined && (q.base === 'rev' || q.base === 'commit')) {
+    const rev = q.base === 'rev' ? q.rev : q.commit
+    const known = await runCommand(deps.run, ['git', 'rev-parse', '--verify', '--end-of-options', `${rev}^{commit}`], root, 'rev-exists', deps.signal)
+    if (!('run' in known)) return { ok: false, error: { code: 'git-unavailable' } }
+    if (known.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+    if (known.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+    if (known.run.exitCode !== 0) {
+      return { ok: false, error: { code: 'git-error', message: `unknown revision: ${rev}` } }
+    }
+  }
 
   const cap = config.maxBytes
   const gitDir = oldOid !== undefined || newOid !== undefined ? await absoluteGitDir(deps, root) : ''
