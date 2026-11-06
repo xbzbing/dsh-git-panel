@@ -183,7 +183,15 @@ async function mount(repos, action, options = {}) {
     window.ReactDOM.createRoot(document.getElementById('panel'))
       .render(view.component({ sessionId: 'sess-1' }))
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    await wait(500)
+    // Wait for the shell to commit its three tabs instead of sleeping a fixed
+    // half second per scenario; the short settle afterwards covers the first
+    // sample's effects. A condition that never comes true still fails the
+    // scenario through the assertions it guards, rather than hanging here.
+    const started = Date.now()
+    while (document.querySelectorAll('.gp-panel .gp-tabbar__tabs [role="tab"]').length !== 3 && Date.now() - started < 5000) {
+      await wait(20)
+    }
+    await wait(150)
 
     // Path lines may carry the invisible LRM prefix (rtlPathText); test reads
     // compare the visible path, so strip it.

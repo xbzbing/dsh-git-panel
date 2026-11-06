@@ -1,5 +1,5 @@
 /**
- * E2E: portaled modals on a phone-sized viewport (they live outside .gp-panel,
+ * E2E (merged into run3): portaled modals on a phone-sized viewport (they live outside .gp-panel,
  * so they adapt via viewport media queries, not the panel layout attribute).
  * Asserts: small confirm dialogs stay content-height (the tall near-fullscreen
  * sizing must not leak onto .gp-modal--sm — it used to stretch them to 90vh
@@ -8,7 +8,6 @@
  *
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
-import { chromium } from 'playwright-core'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -32,7 +31,8 @@ const SNAP = {
 
 const DIFF = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,3 @@\n line1\n+line1.5\n line2\n line3\n'
 
-const browser = await chromium.launch()
+/** Run this scenario on the caller's browser; it owns only its own page. */
+export async function run(browser) {
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
 const errors = []
 page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()) })
@@ -186,11 +186,8 @@ try {
   assert.equal(out.barCloseAtRowEnd, true, 'the close button sits at the far right of the second row')
   assert.equal(out.barModesOneLine, true, 'the mode switches sit side by side on one line')
   assert.equal(out.barModesEvenWidth, true, 'the mode switches are evenly sized')
-  console.log('e2e run4.mjs: PASS', JSON.stringify(out))
-} catch (e) {
-  console.error('e2e run4.mjs: FAIL', e.message)
-  console.error(JSON.stringify(out, null, 2))
-  process.exit(1)
+  console.log('e2e run4 (merged in run3): PASS', JSON.stringify(out))
 } finally {
-  await browser.close()
+  await page.close()
+}
 }

@@ -24,7 +24,8 @@ import { fileURLToPath } from 'node:url'
 // carry no assertions, so they could never fail — run them by hand for visual
 // review instead of spending gate time on an always-green exit.
 const RUNNERS = [
-  'run', 'run2', 'run3', 'run4', 'run5',
+  // run2 / run4 are scenario modules now, merged into run and run3.
+  'run', 'run3', 'run5',
   'branch-tree-review', 'filtered-graph', 'graph-filter-transition',
   // Search scopes, capability negotiation, deferred responses and responsive geometry.
   'history-path-search',

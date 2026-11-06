@@ -8,6 +8,7 @@
  */
 import { chromium } from 'playwright-core'
 import { assertPanelResults } from './assert-panel-results.mjs'
+import { run as runCleanStates } from './clean-states-scenario.mjs'
 import { SCREEN_TIMEOUT_MS } from '../../lib/testkit.mjs'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
@@ -114,12 +115,20 @@ const out = await page.evaluate(async (snap) => {
   entry.apply(ctx)
   result.slots = Object.keys(registered)
 
+  // Wait for React to commit and effects to run instead of sleeping a fixed
+  // settle time: two frames cover the commit + passive effects, and the short
+  // tail covers the microtask that follows a mocked RPC answer.
+  const settle = async () => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    await new Promise((r) => setTimeout(r, 40))
+  }
+
   const ReactDOM = window.ReactDOM
   const pillEntry = registered['conversation.input.left']
   const pillElement = pillEntry.component({ sessionId: 'sess-1' })
   function CountedPill(props) { fixture.renders.pill++; return pillElement.type(props) }
   ReactDOM.createRoot(document.getElementById('pill')).render(window.React.createElement(CountedPill, pillElement.props))
-  await new Promise((r) => setTimeout(r, 300))
+  await settle()
   result.pillHasDirty = document.querySelector('.gp-pill--dirty') !== null
 
   const viewEntry = registered['conversation.view']
@@ -129,7 +138,7 @@ const out = await page.evaluate(async (snap) => {
   const panelElement = viewEntry.component({ sessionId: 'sess-1' })
   function CountedPanel(props) { fixture.renders.panel++; return panelElement.type(props) }
   viewRoot.render(window.React.createElement(CountedPanel, panelElement.props))
-  await new Promise((r) => setTimeout(r, 500))
+  await settle()
   result.tabCount = document.querySelectorAll('.gp-panel [role="tab"]').length
   result.dirtyDefault = document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.changes') ?? false
   result.noInitialFileListing = fixture.fileQueries.length === 0
@@ -170,7 +179,7 @@ const out = await page.evaluate(async (snap) => {
     }
     const clickTab = async (key) => {
       tabs.find((t) => (t.textContent || '').includes(key))?.click()
-      await new Promise((r) => setTimeout(r, 250))
+      await settle()
     }
     await clickTab('tab.overview')
     out.activeAfterOverview = selectedText()
@@ -192,18 +201,18 @@ const out = await page.evaluate(async (snap) => {
   const pressedState = () => ['decrease', 'reset', 'increase'].map((k) => fontBtn(k)?.getAttribute('aria-pressed')).join(',')
   result.fontPressedDefault = pressedState() === 'false,true,false'
   document.querySelector('.gp-font__increase')?.click()
-  await new Promise((r) => setTimeout(r, 400))
+  await settle()
   result.fontIncreased = getComputedStyle(panelRoot).fontSize
   result.fontStored = String(configState.fontDelta)
   result.fontPressedIncreased = pressedState() === 'false,false,true'
   document.querySelector('.gp-font__reset')?.click()
-  await new Promise((r) => setTimeout(r, 400))
+  await settle()
   result.fontReset = getComputedStyle(panelRoot).fontSize
   result.fontPressedReset = pressedState() === 'false,true,false'
   // A failed config write must roll the optimistic step back to the snapshot.
   failFontWrite = true
   document.querySelector('.gp-font__increase')?.click()
-  await new Promise((r) => setTimeout(r, 400))
+  await settle()
   result.fontWriteFailRolledBack = getComputedStyle(panelRoot).fontSize === '13px'
     && pressedState() === 'false,true,false'
     && panelRoot.getAttribute('data-font-delta') === '0'
@@ -288,7 +297,7 @@ const out = await page.evaluate(async (snap) => {
   result.restoresVersion = verbar() !== null
   result.restoresFont = panelRoot.querySelector('.gp-font') !== null
   const changesTab = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.changes'))
-  if (changesTab) { changesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (changesTab) { changesTab.click(); await settle() }
   result.hasStats = document.querySelector('.gp-stats') !== null
   result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
   result.changeRows = document.querySelectorAll('.gp-file-row').length
@@ -469,7 +478,7 @@ const out = await page.evaluate(async (snap) => {
   // Image compare: opening a binary image renders old/new panes (not the
   // binary notice), and before/after modes collapse to a single labelled pane.
   const imgRow = [...document.querySelectorAll('.gp-file-row')].find((r) => (r.textContent || '').includes('img.png'))
-  if (imgRow) { imgRow.click(); await new Promise((r) => setTimeout(r, 600)) }
+  if (imgRow) { imgRow.click(); await settle() }
   result.imagePanes = document.querySelectorAll('.gp-imgcmp__pane').length
   result.imageImgs = document.querySelectorAll('.gp-imgcmp img').length
   result.imageSrcOk = [...document.querySelectorAll('.gp-imgcmp img')].every((i) => (i.src || '').startsWith('data:image/png;base64,'))
@@ -487,7 +496,7 @@ const out = await page.evaluate(async (snap) => {
     && paneRendered(0) > paneRendered(1) && paneRendered(1) === paneWBefore
   result.imageHeads = [...document.querySelectorAll('.gp-imgcmp__head')].map((e) => e.textContent)
   const afterBtn = document.querySelector('[data-diff-mode="after"]')
-  if (afterBtn) { afterBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (afterBtn) { afterBtn.click(); await settle() }
   result.imageSingle = document.querySelector('.gp-imgcmp--single') !== null
   result.imageSingleHead = document.querySelector('.gp-imgcmp__head')?.textContent ?? null
 
@@ -495,7 +504,7 @@ const out = await page.evaluate(async (snap) => {
   // defaults to the rendered comparison (image panes), and switching to source
   // reveals the text diff; switching back returns to the rendered panes.
   const svgRow = [...document.querySelectorAll('.gp-file-row')].find((r) => (r.textContent || '').includes('icon.svg'))
-  if (svgRow) { svgRow.click(); await new Promise((r) => setTimeout(r, 600)) }
+  if (svgRow) { svgRow.click(); await settle() }
   // The left pane was left zoomed above; feeding the comparison panes a new file
   // must drop that zoom instead of carrying it over.
   const panePctsAfterSwitch = [...document.querySelectorAll('.gp-imgcmp .gp-zoom__pct')].map((e) => e.textContent)
@@ -503,15 +512,15 @@ const out = await page.evaluate(async (snap) => {
   result.svgHasToggle = document.querySelector('.gp-svgdiff__bar') !== null
   result.svgRenderDefault = document.querySelector('.gp-svgdiff .gp-imgcmp') !== null
   const svgSourceBtn = [...document.querySelectorAll('.gp-svgdiff__bar .gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.svgSource')
-  if (svgSourceBtn) { svgSourceBtn.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (svgSourceBtn) { svgSourceBtn.click(); await settle() }
   result.svgSourceShowsDiff = document.querySelector('.gp-svgdiff .gp-diff__unified, .gp-svgdiff .gp-diff__side, .gp-svgdiff .gp-diff__single') !== null
   const svgRenderBtn = [...document.querySelectorAll('.gp-svgdiff__bar .gp-seg__btn')].find((b) => (b.textContent || '') === 'diff.svgRender')
-  if (svgRenderBtn) { svgRenderBtn.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (svgRenderBtn) { svgRenderBtn.click(); await settle() }
   result.svgRenderRestored = document.querySelector('.gp-svgdiff .gp-imgcmp') !== null
 
   const tabs = [...document.querySelectorAll('.gp-panel [role="tab"]')]
   const overviewTab = tabs.find((t) => (t.textContent || '').includes('tab.overview'))
-  if (overviewTab) { overviewTab.click(); await new Promise((r) => setTimeout(r, 500)) }
+  if (overviewTab) { overviewTab.click(); await settle() }
   result.hasBranchList = document.querySelector('.gp-branch-group') !== null
   result.commitRows = document.querySelectorAll('.gp-commit-row').length
   result.hasGraph = document.querySelector('.gp-graph-svg') !== null
@@ -528,7 +537,7 @@ const out = await page.evaluate(async (snap) => {
   // one click pushes straight away (fast-forward-only push, no confirm dialog).
   const clickCheck = async () => {
     const btn = document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__btn')
-    if (btn) { btn.click(); await new Promise((r) => setTimeout(r, 300)) }
+    if (btn) { btn.click(); await settle() }
   }
   const findBarBtn = (key) => [...document.querySelectorAll('.gp-col--left .gp-statusbar__sync button')].find((b) => (b.textContent || '').includes(key)) || null
   fixture.snapshot = { ...snap, ahead: 3, behind: 0 }
@@ -537,13 +546,13 @@ const out = await page.evaluate(async (snap) => {
   result.statusAheadPushShown = pushBtn != null
   const pushCount = () => fixture.actions.filter((a) => a.kind === 'push').length
   const pushesBefore = pushCount()
-  if (pushBtn) { pushBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (pushBtn) { pushBtn.click(); await settle() }
   result.statusPushDirect = pushCount() === pushesBefore + 1
   result.statusPushNoDialog = document.querySelector('.gp-modal') === null
   // A refused push surfaces in the status bar's error slot — no dialog exists
   // to hold it anymore.
   fixture.runFailure = { kind: 'push', code: 'push-rejected' }
-  if (pushBtn) { pushBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (pushBtn) { pushBtn.click(); await settle() }
   result.statusPushErrorInBar = (document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state--warn')?.textContent || '').includes('error.pushRejected')
   // A failure that lands after the checkout moved must not paint on the new
   // scope: hold the push, land another branch/HEAD, then let it fail.
@@ -571,7 +580,7 @@ const out = await page.evaluate(async (snap) => {
   fixture.holdRun = null
   fixture.releaseRun?.()
   fixture.releaseRun = null
-  await new Promise((r) => setTimeout(r, 300))
+  await settle()
   result.statusLateErrorSetup = pushParked && snapshotParked
   result.statusLateErrorSuppressed = document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state--warn') === null
   result.statusLateErrorNewScope = (document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state')?.textContent || '').includes('status.synced')
@@ -582,7 +591,7 @@ const out = await page.evaluate(async (snap) => {
   result.statusNoUpstreamNoPush = findBarBtn('status.push') == null
   const publishBtn = findBarBtn('status.publish')
   result.statusPublishShown = publishBtn != null
-  if (publishBtn) { publishBtn.click(); await new Promise((r) => setTimeout(r, 250)) }
+  if (publishBtn) { publishBtn.click(); await settle() }
   result.statusPublishConfirmOpened = [...document.querySelectorAll('.gp-modal__path')].some((n) => (n.textContent || '').includes('status.publishConfirmTitle'))
   document.querySelector('.gp-modal__close')?.click(); await new Promise((r) => setTimeout(r, 150))
   fixture.snapshot = snap
@@ -794,7 +803,7 @@ const out = await page.evaluate(async (snap) => {
 
   // Select the first commit → its changed-file tree appears on the right.
   const firstCommit = document.querySelector('.gp-commit-row')
-  if (firstCommit) { firstCommit.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (firstCommit) { firstCommit.click(); await settle() }
   // The changed-file list has a `src/` dir (with app.ts) + a root index.ts file.
   const fileRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
   result.hasDetailFileRow = fileRow !== null
@@ -867,7 +876,7 @@ const out = await page.evaluate(async (snap) => {
   // Re-query: the collapse/expand round above re-rendered the tree, detaching
   // the row captured earlier.
   const freshFileRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
-  if (freshFileRow) { freshFileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (freshFileRow) { freshFileRow.click(); await settle() }
   result.hasModal = document.querySelector('.gp-modal') !== null
   result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
   result.modalWordSyntax = [...document.querySelectorAll('.gp-modal .gp-diff-word span')].some((el) => el.style.color.includes('--shiki-keyword'))
@@ -950,7 +959,7 @@ const out = await page.evaluate(async (snap) => {
   result.modalClosedByEsc = document.querySelector('.gp-modal') === null
   // Reopen, then close via the close button.
   const reopenRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
-  if (reopenRow) { reopenRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (reopenRow) { reopenRow.click(); await settle() }
   // By class, not "the bar's only icon button": the expand control is one too.
   const closeBtn = document.querySelector('.gp-modal__bar .gp-modal__close')
   if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
@@ -962,14 +971,14 @@ const out = await page.evaluate(async (snap) => {
   // Files tab: open it, the root tree lists entries; expand a dir; select a
   // text file → code preview; select an image → inline image pane.
   const filesTab = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.files'))
-  if (filesTab) { filesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (filesTab) { filesTab.click(); await settle() }
   result.filesTreeRows = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
   const cacheRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('cache'))
   const ignoredRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('ignored.log'))
   result.ignoredRowsDimmed = cacheRow?.classList.contains('gp-tree-row--ignored') && ignoredRow?.classList.contains('gp-tree-row--ignored') && getComputedStyle(cacheRow).opacity < 1
   result.folderIcon = cacheRow?.querySelector('svg[data-folder]')?.getAttribute('data-folder')
   const dirRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('src'))
-  if (dirRow) { dirRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (dirRow) { dirRow.click(); await settle() }
   result.folderIconOpen = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')]
     .find((r) => (r.textContent || '').includes('src'))?.querySelector('svg[data-folder]')?.getAttribute('data-folder')
   result.filesTreeRowsAfterExpand = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
@@ -977,7 +986,7 @@ const out = await page.evaluate(async (snap) => {
   // instead of leaving only the folder glyph flipped (the ignored `cache`
   // fixture resolves to an empty listing).
   cacheRow?.click()
-  await new Promise((r) => setTimeout(r, 300))
+  await settle()
   const emptyHint = [...document.querySelectorAll('.gp-files__tree .gp-tree-row--muted')]
     .find((r) => (r.textContent || '').trim() === 'files.emptyDir')
   // `.find` misses with undefined, so the emptiness checks are truthiness based.
@@ -986,7 +995,7 @@ const out = await page.evaluate(async (snap) => {
     && parseInt(getComputedStyle(emptyHint).paddingLeft) > parseInt(getComputedStyle(cacheRow).paddingLeft)
   result.dirRowAriaExpanded = cacheRow?.getAttribute('aria-expanded') === 'true'
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
-  if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (txtRow) { txtRow.click(); await settle() }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
   result.txtRowSelected = txtRow?.classList.contains('gp-tree-row--active') === true
   // Selection styling is shared across the list panes via --gp-select-*: the
@@ -1004,7 +1013,7 @@ const out = await page.evaluate(async (snap) => {
     return rowUsesVar && panelDefinesToken
   })()
   const tsRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('index.ts'))
-  if (tsRow) { tsRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (tsRow) { tsRow.click(); await settle() }
   result.officialCodeHighlight = [...document.querySelectorAll('.gp-files__code .gp-diff-cell span')].some((node) => node.style.color.includes('--shiki-keyword'))
   result.codeIconPath = tsRow?.querySelector('[data-file-type]')?.getAttribute('data-file-type')
   // Files refresh: the status bar's button (above the tree) re-lists the
@@ -1019,7 +1028,7 @@ const out = await page.evaluate(async (snap) => {
   fixture.rootExtraEntries = [{ name: 'fresh.txt', dir: false, size: 9 }]
   fixture.textOverrides = { 'src/index.ts': 'const x = 42\n' }
   refreshBtn?.click()
-  await new Promise((r) => setTimeout(r, 500))
+  await settle()
   result.refreshRelistedRoot = fixture.fileQueries.filter((p) => p === '').length > rootListsBeforeRefresh
   result.refreshRelistedOpenDir = fixture.fileQueries.filter((p) => p === 'src').length > srcListsBeforeRefresh
   result.refreshRereadSelectedFile = fixture.contentQueries.filter((p) => p === 'src/index.ts').length > fileReadsBeforeRefresh
@@ -1091,7 +1100,7 @@ const out = await page.evaluate(async (snap) => {
   // above is the control that proves the difference is the directory, not the
   // element).
   const rootPathRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
-  if (rootPathRow) { rootPathRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (rootPathRow) { rootPathRow.click(); await settle() }
   result.rootPathShape = (() => {
     const btn = document.querySelector('.gp-files__path')
     const name = btn === null ? null : btn.querySelector('.gp-files__path-name')
@@ -1111,19 +1120,19 @@ const out = await page.evaluate(async (snap) => {
   // and both come from the one read (switching must not re-query the host).
   const svgTab = (label) => [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((b) => b.textContent === label)
   const svgFileRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.svg'))
-  if (svgFileRow) { svgFileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (svgFileRow) { svgFileRow.click(); await settle() }
   result.svgRendersByDefault = document.querySelector('.gp-files__image img') !== null
     && document.querySelector('.gp-files__code') === null
   result.svgModeSegShown = svgTab('files.source') !== undefined && svgTab('files.render') !== undefined
   const svgReadsBefore = fixture.contentQueries.filter((p) => p === 'logo.svg').length
   svgTab('files.source')?.click()
-  await new Promise((r) => setTimeout(r, 300))
+  await settle()
   result.svgSourceShowsMarkup = (document.querySelector('.gp-files__code')?.textContent || '').includes('<svg')
     && document.querySelector('.gp-files__image img') === null
   // The source face is a code body, so the code-only controls follow it.
   result.svgSourceWrapOffered = document.querySelector('.gp-files__bar [aria-label="files.wrap"]') !== null
   svgTab('files.render')?.click()
-  await new Promise((r) => setTimeout(r, 300))
+  await settle()
   result.svgRenderRestoresImage = document.querySelector('.gp-files__image img') !== null
     && document.querySelector('.gp-files__code') === null
   result.svgSingleRead = fixture.contentQueries.filter((p) => p === 'logo.svg').length === svgReadsBefore
@@ -1135,7 +1144,7 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 150))
   result.svgCopyContentCopiesMarkup = typeof copiedPath === 'string' && copiedPath.includes('<svg')
   const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
-  if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (pngRow) { pngRow.click(); await settle() }
   result.filesImageShown = document.querySelector('.gp-files__image img') !== null
   // Image zoom: toolbar presence, pinch (ctrl+wheel) zooms, plain wheel is a
   // native-pan passthrough, double click returns to fit, fullscreen lightbox
@@ -1205,7 +1214,7 @@ const out = await page.evaluate(async (snap) => {
   zoomRoot?.querySelector('button[aria-label="files.zoomIn"]')?.click()
   await new Promise((r) => setTimeout(r, 80))
   const iconRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('icon.png'))
-  if (iconRow) { iconRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (iconRow) { iconRow.click(); await settle() }
   const zoomImgAfterSwitch = document.querySelector('.gp-files__image img')
   result.zoomResetsOnNewImage = zoomImgAfterSwitch !== null
     && zoomImgAfterSwitch.style.width === ''
@@ -1222,21 +1231,21 @@ const out = await page.evaluate(async (snap) => {
   // image: a pane-width change moves wide.png's fit ratio, while the square
   // fixture is limited by the pane height and would keep the same percentage.
   const wideRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('wide.png'))
-  if (wideRow) { wideRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (wideRow) { wideRow.click(); await settle() }
   const wideRoot = document.querySelector('.gp-files__image')?.parentElement ?? null
   const wideImg = wideRoot?.querySelector('img') ?? null
   const wideLabel = () => wideRoot?.querySelector('.gp-zoom__pct')?.textContent ?? ''
   const wideReal = () => (wideImg === null ? '' : `${Math.round((wideImg.getBoundingClientRect().width / wideImg.naturalWidth) * 100)}%`)
   const fitNarrow = { label: wideLabel(), real: wideReal() }
   panelHost.style.width = '1000px'
-  await new Promise((r) => setTimeout(r, 250))
+  await settle()
   const fitWide = { label: wideLabel(), real: wideReal() }
   result.zoomFitTracksViewport = fitNarrow.label !== '' && fitNarrow.label === fitNarrow.real
     && fitWide.label === fitWide.real && fitNarrow.label !== fitWide.label
   panelHost.style.width = '800px'
   await new Promise((r) => setTimeout(r, 200))
   const bigImgRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.png'))
-  if (bigImgRow) { bigImgRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  if (bigImgRow) { bigImgRow.click(); await settle() }
   const panRoot = document.querySelector('.gp-files__image')?.parentElement ?? null
   const panVp = panRoot?.querySelector('.gp-zoom__scroll') ?? null
   const panImg = panRoot?.querySelector('img') ?? null
@@ -1327,7 +1336,7 @@ const out = await page.evaluate(async (snap) => {
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((resolve) => { finishCopy = resolve }) } })
   document.querySelector('.gp-files__path')?.click()
   const mdRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
-  if (mdRow) { mdRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (mdRow) { mdRow.click(); await settle() }
   finishCopy?.()
   await new Promise((r) => setTimeout(r, 50))
   // A late copy of the previous file must not colour the new file's name.
@@ -1449,18 +1458,18 @@ const out = await page.evaluate(async (snap) => {
   // lazy chunk, keeps the surrounding markdown in order, and a diagram the
   // engine rejects falls back to the plain code block.
   const diagramRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('diagram.md'))
-  if (diagramRow) { diagramRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (diagramRow) { diagramRow.click(); await settle() }
   result.mermaidRendered = document.querySelector('.gp-mermaid svg[data-mermaid-stub]') !== null
     && [...document.querySelectorAll('[data-markdown-rendered]')].some((n) => (n.textContent || '').includes('Intro para'))
     && [...document.querySelectorAll('[data-markdown-rendered]')].some((n) => (n.textContent || '').includes('Outro para'))
   const brokenRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('broken.md'))
-  if (brokenRow) { brokenRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (brokenRow) { brokenRow.click(); await settle() }
   result.mermaidFallback = document.querySelector('[data-mermaid-fallback]') !== null
     && document.querySelector('.gp-mermaid svg') === null
   // HTML defaults to source (no auto-run); switching to render mounts a
   // sandboxed iframe that carries the page bytes but drops same-origin.
   const htmlRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('page.html'))
-  if (htmlRow) { htmlRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (htmlRow) { htmlRow.click(); await settle() }
   result.htmlSourceDefault = document.querySelector('.gp-files__code') !== null && document.querySelector('.gp-files__html') === null
   // The panel cannot read into the opaque frame, so the page reports itself:
   // a message per document load proves the scripts really ran (and that a
@@ -1595,7 +1604,7 @@ const out = await page.evaluate(async (snap) => {
   // until the load fallback, ignores a forged report from the panel itself,
   // and only then goes click-through.
   const cspRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('csp.html'))
-  if (cspRow) { cspRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (cspRow) { cspRow.click(); await settle() }
   const cspRenderBtn = modeTab('files.render')
   if (cspRenderBtn) { cspRenderBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
   const cspMask = document.querySelector('.gp-files__html-mask')
@@ -1615,9 +1624,9 @@ const out = await page.evaluate(async (snap) => {
   // A heavy document asks before it is rendered: the panel must not mount a
   // frame (and start the page's own scripts) without the user's consent.
   const heavyRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('heavy.html'))
-  if (heavyRow) { heavyRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (heavyRow) { heavyRow.click(); await settle() }
   const heavyRenderBtn = modeTab('files.render')
-  if (heavyRenderBtn) { heavyRenderBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (heavyRenderBtn) { heavyRenderBtn.click(); await settle() }
   // The question is a modal: a page that can freeze the app must not be
   // started by an easy-to-miss bar.
   const heavyModal = () => document.querySelector('[data-gp-heavy-modal]')?.closest('.gp-modal') ?? null
@@ -1627,12 +1636,12 @@ const out = await page.evaluate(async (snap) => {
   // Cancelling keeps the source and closes the dialog without approving.
   const heavyButtons = () => [...(heavyModal()?.querySelectorAll('button') ?? [])]
   heavyButtons().find((b) => (b.textContent || '').includes('common.cancel'))?.click()
-  await new Promise((r) => setTimeout(r, 250))
+  await settle()
   result.htmlHeavyKeptSource = heavyModal() === null
     && document.querySelector('.gp-files__html') === null
   // Asking again shows the question again: cancelling is not an approval.
   const heavyRenderBtn2 = modeTab('files.render')
-  if (heavyRenderBtn2) { heavyRenderBtn2.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (heavyRenderBtn2) { heavyRenderBtn2.click(); await settle() }
   result.htmlHeavyAsksAgain = heavyModal() !== null
   // On a loopback GUI the dialog offers the local-open escape; the harness is
   // served from file:// so it lands on the remote copy (no open button).
@@ -1640,7 +1649,7 @@ const out = await page.evaluate(async (snap) => {
     && (heavyModal()?.textContent || '').includes('files.htmlHeavyRemote')
   // Approving mounts the frame and runs the page.
   heavyButtons().find((b) => (b.textContent || '').includes('files.htmlHeavyRun'))?.click()
-  await new Promise((r) => setTimeout(r, 300))
+  await settle()
   result.htmlHeavyRuns = document.querySelector('.gp-files__html') !== null
     && heavyModal() === null
   // A slow frame must not look like a dead panel: past the slow threshold the
@@ -1656,7 +1665,7 @@ const out = await page.evaluate(async (snap) => {
   result.htmlMaskSlowCounts = slowMask?.querySelector('.gp-files__html-mask-elapsed') !== null
   // Stopping unmounts the frame and returns the source view.
   slowMask?.querySelector('.gp-files__html-mask-stop')?.click()
-  await new Promise((r) => setTimeout(r, 300))
+  await settle()
   result.htmlStopUnmounts = document.querySelector('.gp-files__html') === null
     && document.querySelector('.gp-files__code') !== null
   // HTML asset pack (ADR-0020): a page with a relative stylesheet is read
@@ -1665,9 +1674,9 @@ const out = await page.evaluate(async (snap) => {
   // bytes render instead.
   const contentQueriesBeforeHtml = fixture.contentQueries.length
   const styledRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('styled.html'))
-  if (styledRow) { styledRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (styledRow) { styledRow.click(); await settle() }
   const styledRenderBtn = modeTab('files.render')
-  if (styledRenderBtn) { styledRenderBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (styledRenderBtn) { styledRenderBtn.click(); await settle() }
   const styledFrame = document.querySelector('.gp-files__html')
   const styledSrc = styledFrame?.getAttribute('src') || ''
   const styledSrcdoc = styledSrc === '' ? (styledFrame?.getAttribute('srcdoc') || '') : await (await fetch(styledSrc)).text()
@@ -1683,9 +1692,9 @@ const out = await page.evaluate(async (snap) => {
     try { return atob(inline[1]).includes('rgb(1, 2, 3)') } catch { return false }
   })()
   const unpackedRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('unpacked.html'))
-  if (unpackedRow) { unpackedRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (unpackedRow) { unpackedRow.click(); await settle() }
   const unpackedRenderBtn = modeTab('files.render')
-  if (unpackedRenderBtn) { unpackedRenderBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (unpackedRenderBtn) { unpackedRenderBtn.click(); await settle() }
   const unpackedFrame = document.querySelector('.gp-files__html')
   const unpackedSrc = unpackedFrame?.getAttribute('src') || ''
   const unpackedSrcdoc = unpackedSrc === ''
@@ -1699,7 +1708,7 @@ const out = await page.evaluate(async (snap) => {
   // syntax spans) while the content itself is never cut: the giant line keeps
   // its full length and no truncation marker exists anywhere.
   const bigRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.js'))
-  if (bigRow) { bigRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (bigRow) { bigRow.click(); await settle() }
   result.bigHighlightOff = document.querySelector('.gp-files__note')?.textContent === 'files.highlightOff'
   result.bigNoSyntaxSpans = document.querySelector('.gp-files__code .gp-diff-cell span[style]') === null
   result.bigLineFull = (() => {
@@ -1767,11 +1776,11 @@ const out = await page.evaluate(async (snap) => {
   result.bigSelectionScrolled = (document.querySelector('.gp-files__code')?.scrollTop ?? 0) > 1000
   window.getSelection()?.removeAllRanges()
   if (selView !== null) selView.scrollTop = scrollBefore
-  await new Promise((r) => setTimeout(r, 300))
+  await settle()
   // In-panel Find (Ctrl+F): open on a text file, type a query, assert match
   // count + highlighted hits + next-match navigation, then Esc closes it.
   const findRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
-  if (findRow) { findRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  if (findRow) { findRow.click(); await settle() }
   const codeEl = document.querySelector('.gp-files__code')
   Object.defineProperty(codeEl, 'offsetParent', { configurable: true, get: () => document.body })
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }))
@@ -1980,7 +1989,7 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 50))
   const viewRoot2 = ReactDOM.createRoot(document.getElementById('panel'))
   viewRoot2.render(window.React.createElement(CountedPanel, panelElement.props))
-  await new Promise((r) => setTimeout(r, 500))
+  await settle()
   result.restoredFilesActive = document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.files') ?? false
   result.restoredChildVisible = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].some((r) => (r.textContent || '').includes('a.txt'))
   result.restoredSelected = document.querySelector('.gp-files__tree .gp-tree-row--active')?.textContent?.trim() ?? null
@@ -2113,9 +2122,13 @@ const out = await page.evaluate(async (snap) => {
 // input path reaches them — nor that zooming past 100% really resizes the picture.
 const realInput = await (async () => {
   const dragAt = await page.evaluate(async () => {
+    const settle = async () => {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      await new Promise((r) => setTimeout(r, 40))
+    }
     const row = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.png'))
     row?.click()
-    await new Promise((r) => setTimeout(r, 400))
+    await settle()
     const root = document.querySelector('.gp-files__image')?.parentElement
     root?.querySelector('.gp-zoom__pct')?.click() // 100%
     await new Promise((r) => setTimeout(r, 150))
@@ -2150,10 +2163,14 @@ const realInput = await (async () => {
 // portaled tip (140ms), with no native title underneath doubling the hint.
 const copyTip = await (async () => {
   const picked = await page.evaluate(async () => {
+    const settle = async () => {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      await new Promise((r) => setTimeout(r, 40))
+    }
     const row = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
     if (row === undefined) return false
     row.click()
-    await new Promise((r) => setTimeout(r, 400))
+    await settle()
     return document.querySelector('.gp-files__copy-icon') !== null
   })
   if (!picked) return null
@@ -2211,6 +2228,9 @@ const copyTip = await (async () => {
 })()
 out.copyTip = copyTip
 
+// The clean-repo / non-git / no-session states live next door (run2) and share
+// this browser: one Chromium launch covers both desktop suites.
+await runCleanStates(browser)
 await browser.close()
 
 try {

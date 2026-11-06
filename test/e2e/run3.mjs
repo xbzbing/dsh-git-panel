@@ -9,6 +9,7 @@
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
 import { chromium } from 'playwright-core'
+import { run as runModalSizing } from './phone-modals-scenario.mjs'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -591,8 +592,6 @@ const out = await page.evaluate(async (snap) => {
   return result
 }, SNAP)
 
-await browser.close()
-
 try {
   assert.equal(out.error, undefined, out.error)
   assert.equal(out.compactLayout, 'compact', 'a phone-width panel mounts in the compact layout')
@@ -728,6 +727,10 @@ try {
   assert.equal(out.wideDetailSummaryInFiles, true, 'the wide detail keeps the summary above the changed-file tree')
   assert.equal(out.wideStatusBarInLeft, true, 'the wide left column keeps the status bar below the scrolling branch list')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
+  // The phone-sized portaled-modal scenarios live next door (run4) and share
+  // this browser: one Chromium launch covers both phone suites.
+  await runModalSizing(browser)
+  await browser.close()
   console.log('e2e run3.mjs: PASS', JSON.stringify(out))
 } catch (e) {
   console.error('e2e run3.mjs: FAIL', e.message)

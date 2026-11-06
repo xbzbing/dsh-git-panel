@@ -1,8 +1,7 @@
 /**
- * E2E: clean-repo pill color + non-git directory marker + jump click.
+ * E2E (merged into run): clean-repo pill color + non-git directory marker + jump click.
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
-import { chromium } from 'playwright-core'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -26,7 +25,8 @@ function cleanSnap() {
   }
 }
 
-const browser = await chromium.launch()
+/** Run this scenario on the caller's browser; it owns only its own page. */
+export async function run(browser) {
 const page = await browser.newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
@@ -276,8 +276,6 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   return result
 }, { snap: cleanSnap(), nonGitDir: NON_GIT_DIR })
 
-await browser.close()
-
 try {
   assert.equal(out.hasSynced, true, 'clean repo pill uses the green synced class')
   assert.equal(out.hasDirty, false, 'clean repo pill is not orange')
@@ -332,9 +330,8 @@ try {
   assert.equal(aria.noSession.tabCount, 3, 'no session still renders the tab list')
   assert.equal(aria.noSession.statePlaceholderText, 'error.noCwd', 'no session shows the no-cwd placeholder in its pane')
   assert.equal(errors.length, 0, 'no page errors: ' + JSON.stringify(errors))
-  console.log('e2e run2.mjs: PASS', JSON.stringify(out))
-} catch (e) {
-  console.error('e2e run2.mjs: FAIL', e.message)
-  console.error(JSON.stringify(out, null, 2))
-  process.exit(1)
+  console.log('e2e run2 (merged in run): PASS')
+} finally {
+  await page.close()
+}
 }
