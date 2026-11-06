@@ -21,7 +21,7 @@
 - host 的 Git 命令经 `git.ts` 调宿主 subprocess；client 的 RPC 统一经 `rpc.ts`，页面数据统一由每 session 一个 `GitController` 提供。
 - 新增纯逻辑放 `src/client/` 的纯函数模块并配单测，不塞进 React 组件；样式规则放对应 `css/` 模块。
 - `CSS_PARTS` 的顺序是层叠契约，不重排。跨布局覆盖放 `layout.ts`，stacked 覆盖放 `stacked.ts`。
-- 服务键、typert wire 命名空间、client `rpc.ts` 与 `locales.ts` 的命名空间统一为 `dbGitPanel`（host 的 `SERVICE_KEY`），不再使用领域通用名；host 默认导出是对象插件，`apply` 对已注册的同名服务保持惰性，守卫必须随 fiber 失效，否则配置变更后服务不会重建。见 ADR-0029。
+- 服务键、typert wire 命名空间统一为 `dbGitPanel`（host 的 `SERVICE_KEY`）；client 只有 `namespace.ts` 一个 `NS`，locale 与 RPC 都从它取，契约测试钉住两半一致。不再使用领域通用名；host 默认导出是对象插件，`apply` 对已注册的同名服务保持惰性，守卫必须随 fiber 失效，否则配置变更后服务不会重建。见 ADR-0029。
 
 ## 安全不变量
 

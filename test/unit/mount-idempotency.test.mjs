@@ -91,6 +91,18 @@ test('a second copy of the module is guarded too', async () => {
   assert.equal(messages.filter((m) => m.type === 'warn').length, 1)
 })
 
+test('a config edit restarts the same fiber and re-registers the service', async () => {
+  // The settings mirror applies a field change through fiber.update(), which
+  // disposes the running service and re-applies in place. The guard must not
+  // mistake that transient absence for another owner.
+  const ctx = createRoot()
+  const fiber = ctx.plugin(plugin, { showInputPill: true })
+  await fiber
+  fiber.update({ showInputPill: false })
+  await fiber.await()
+  assert.equal(configOf(ctx).showInputPill, false)
+})
+
 test('the guard does not outlive the fiber: a remount registers a fresh service', async () => {
   const ctx = createRoot()
 

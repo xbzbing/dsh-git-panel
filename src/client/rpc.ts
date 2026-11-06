@@ -13,9 +13,9 @@ import type {
   GitOpenFileRequest, GitOpenFileResult, GitVersionInfo, GitVersionRequest,
   GitWriteFileRequest, GitWriteFileResult,
 } from './types.js'
+import { NS } from './namespace.js'
 
 const API_CHANNEL = '/api'
-const NS = 'dbGitPanel'
 
 interface ConnectionFace {
   rpc?: {

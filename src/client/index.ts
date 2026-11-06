@@ -16,7 +16,7 @@
  */
 import { createElement as h } from 'react'
 import { ensureStyles } from './styles.js'
-import { NS } from './locales.js'
+import { NS } from './namespace.js'
 import { DICTIONARIES } from './locale-dicts.js'
 import { bindContext, disposeAll, resyncAll } from './registry.js'
 import { Panel } from './Panel.js'

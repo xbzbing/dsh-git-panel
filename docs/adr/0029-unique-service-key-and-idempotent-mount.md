@@ -15,7 +15,7 @@
 
 ## Decision
 
-**1. 三处名字统一为 `dbGitPanel`。** `SERVICE_KEY = 'dbGitPanel'` 同时用于 Cordis 服务键、typert 命名空间、client `rpc.ts` 的 `NS` 与 `locales.ts` 的 locale 命名空间。host 导出该常量，契约测试与重复挂载测试直接引用，避免四处字符串各写一份。
+**1. 三处名字统一为 `dbGitPanel`。** `SERVICE_KEY = 'dbGitPanel'` 同时用于 Cordis 服务键与 typert 命名空间；client 侧只有 `namespace.ts` 一个 `NS` 常量，locale 注册与 RPC 端点前缀都从它取。契约测试把 client 的注册命名空间与 host 的 `SERVICE_KEY` 钉在一起，避免任一半单独改名。
 
 **2. host 默认导出改成对象插件，`apply` 承担幂等守卫。** 默认导出从类改为 `{ name, inject, Config, apply }`：`apply` 先 `ctx.get(SERVICE_KEY)`，已存在时记一条 warn 并返回，否则构造 `GitPanelService`。守卫读的是**当前树里已注册的服务**，不是模块级标志，因此：
 
@@ -29,7 +29,7 @@
 ## Consequences
 
 - 服务键不再是一个领域通用词，整棵树里可以与本插件共存任意名称的其他包；wire 名与 locale 命名空间也随之独占。
-- 重复组合的 profile 不再让树激活失败：第二条目保持惰性，只在日志里留一行说明。代价是若第一条目先卸载、第二条目仍在，面板会消失到下一次重新挂载为止——这只会发生在本来就重复的组合里，且日志已经说明。
+- 重复组合的 profile 不再让树激活失败：第二条目保持惰性，只在日志里留一行说明。守卫只管 host 半的激活；client 半的 bundle 图按 id 记账，重复条目在校验阶段就会被拒绝（`client-modules` 的 duplicate graph entry），这一层不归插件管。代价是若第一条目先卸载、第二条目仍在，面板会消失到下一次重新挂载为止——这只会发生在本来就重复的组合里，且日志已经说明。
 - 旧版本的 client bundle 与新 host 不兼容（反之亦然）。失败是显式的传输层错误，面板降级为不可用而不会误绑；发布说明要求同版本 + 硬刷新。
 - 配置命名空间不受影响：插件配置仍按 profile 条目落在 `cordis.patch.yml` 的 `id` 下，重命名只动服务键、wire 名与 locale 名。
 - ADR-0001 中「`gitPanel` 命名空间上的五个端点」这个名称由本 ADR 取代，双半边界与端点语义不变；端点数量本身也已扩展到七个（新增 `openFile` / `writeFile`），不在本 ADR 的范围。

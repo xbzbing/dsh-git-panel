@@ -127,6 +127,7 @@ test('apply registers the conversation.view panel and input.left marker', () => 
   const handoff = loadClient()
   const plugin = handoff.factory(sandboxRequire())
   const registered = []
+  const namespaces = []
   const ctx = {
     get: () => undefined,
     effect: (cb) => { try { cb() } catch { /* ignore */ } },
@@ -136,11 +137,14 @@ test('apply registers the conversation.view panel and input.left marker', () => 
       inject: (_name, provider) => provider(),
       register: (reg) => { registered.push(reg.name); return () => {} },
     },
-    locale: { register: () => () => {}, bind: () => (k) => k },
+    locale: { register: (ns) => { namespaces.push(ns); return () => {} }, bind: () => (k) => k },
   }
   plugin.apply(ctx)
   assert.ok(registered.includes('conversation.view'), 'panel slot registered')
   assert.ok(registered.includes('conversation.input.left'), 'marker slot registered')
+  // The two halves meet on one name: the client registers its dictionaries
+  // (and prefixes every RPC endpoint) with the host's service key.
+  assert.deepEqual([...new Set(namespaces)], [host.SERVICE_KEY], 'client namespace equals the host service key')
 })
 
 // DSH STORE's catalog automation blocks install when an install-time lifecycle
