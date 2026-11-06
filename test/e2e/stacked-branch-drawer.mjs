@@ -370,6 +370,8 @@ assert.equal(await page.locator('.gp-drawer .gp-branch-row[title="feature"] .gp-
 assert.equal(await page.locator('.gp-drawer .gp-branch-row[title="feature"] .gp-branch-row__switch').getAttribute('aria-busy'), 'true', 'branch button exposes aria-busy')
 assert.equal(await page.locator('.gp-drawer .gp-statusbar').getAttribute('aria-busy'), 'true', 'status bar exposes busy state')
 assert.match(await page.locator('.gp-drawer .gp-statusbar__state').textContent(), /切换分支中/, 'status reports switching progress')
+assert.equal(await page.locator('.gp-drawer .gp-statusbar__state--busy svg').count(), 0, 'the busy label names the operation without a loader of its own')
+assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.gp-statusbar--busy .gp-statusbar__btn')).animationName), 'gp-spin', 'the check button keeps spinning for the busy window')
 assert.equal(await page.evaluate(() => window.__gpFixture.actions.filter((a) => a.kind === 'branch-checkout').length), 1, 'synchronous double dispatch runs one checkout')
 await page.evaluate(() => {
   window.__gpFixture.holdRun = null

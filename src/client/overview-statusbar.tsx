@@ -9,7 +9,6 @@ import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
 import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
-import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { pushIntent as pushIntentOf } from './push-policy.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
@@ -99,10 +98,12 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     else { text = t('status.ahead', { n: ahead }) }
     if (cb.switchBusy || cb.pullBusy || cb.pushBusy) {
       const text = cb.switchBusy ? t('status.switching') : cb.pullBusy ? t('status.pulling') : t('status.pushing')
-      return h('span', { key: 'busy', className: 'gp-statusbar__state gp-statusbar__state--busy', role: 'status' }, [
-        h(StateDot, { key: 'dot', state: 'ongoing', size: 12 }),
-        h('span', { key: 'label', className: 'gp-statusbar__state-label' }, text),
-      ])
+      // The whole bar already marks the busy window with `aria-busy`, and the
+      // check button spins for exactly as long (`.gp-statusbar--busy`): a second
+      // loader next to the label would say the same thing twice, one of them
+      // only 12px wide. The label is what names the operation.
+      return h('span', { key: 'busy', className: 'gp-statusbar__state gp-statusbar__state--busy', role: 'status' },
+        h('span', { key: 'label', className: 'gp-statusbar__state-label' }, text))
     }
     if (cb.syncError !== null) {
       return h('span', { key: 'error', className: 'gp-statusbar__state gp-statusbar__state--warn', role: 'alert', title: cb.syncError }, cb.syncError)
