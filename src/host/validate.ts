@@ -17,6 +17,20 @@ export function isSafePath(path: string): boolean {
   return true
 }
 
+/**
+ * Whether a repository-relative path names git's own directory (or anything
+ * below it). `.git` is a directory in a plain checkout and a *file* in a linked
+ * worktree or submodule, but either way nothing below it is workspace content.
+ * Diffing such a path is worse than useless: `git diff --no-index` bypasses
+ * git's own exclusion and would serve `config` (which can carry a remote URL
+ * with credentials) as an ordinary new file.
+ */
+export function isGitInternalPath(path: string): boolean {
+  // Case-insensitive: the default macOS filesystem resolves `.GIT/config` to
+  // the same file, so an exact-case check would be a bypass there.
+  return path.split(/[\\/]+/).some((segment) => segment.toLowerCase() === '.git')
+}
+
 // Control chars, space, DEL, and the glob / rev-expression metacharacters a
 // plain branch/tag/commit ref we filter by must never contain.
 const REV_META = /[\x00-\x20\x7f~^:?*[\\]/
@@ -70,4 +84,15 @@ export function validateHistoryPathSearch(input: unknown): { readonly ok: true; 
 export function historyPathspec(keyword: string): string {
   const escaped = keyword.replace(/[\\*?\[\]]/g, '\\$&')
   return `:(top,icase)*${escaped}*`
+}
+
+/**
+ * The pathspec for one exact file: `:(top,literal)` anchors it at the
+ * repository root and turns off glob magic, so a file named `*.ts` (or one whose
+ * name contains `*`, `?`, `[`) selects itself and nothing else. The path is
+ * repository-relative, matching what the change list and the file browser use.
+ * @param path - repository-relative path (already validated by isSafePath).
+ */
+export function exactPathspec(path: string): string {
+  return `:(top,literal)${path}`
 }

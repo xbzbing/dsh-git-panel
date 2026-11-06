@@ -16,13 +16,18 @@ import { activateGitTab, isGitTabActive, requestSubTab, returnToConversation } f
 import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot.js'
 import { effectivePlacement } from './placement-state.js'
 import { closeSidebarIfOnlyGit, openSidebarTab, sidebarController, sidebarOnlyGitOpen, sidebarRegistry } from './sidebar.js'
+import { usePillMenu, type PillSample } from './use-pill-menu.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
+import type { UseContextMenu } from './menu-types.js'
 
 interface PillProps {
   readonly ctx: ClientCtx
   readonly sessionId?: string
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
+  /** The platform's injected menu factory; absent on hosts without the
+   * context-menu package, where the pill keeps its native menu only. */
+  readonly useContextMenu?: UseContextMenu
 }
 
 function basename(path: string): string {
@@ -156,7 +161,7 @@ function useCompactMarker(anchor: HTMLElement | null): boolean {
 /** Workspace width (px) below which the marker collapses to a status dot. */
 const COMPACT_WIDTH = 620
 
-export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
+export function GitPill({ ctx, sessionId, t, useContextMenu }: PillProps): JSX.Element | null {
   const view = useGitView(sessionId)
   // The hover lines are read when the panel opens, not captured at render:
   // the conversation can turn from hero to active without the pill re-rendering.
@@ -175,6 +180,27 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
       ? (view.snapshot.dirty ? 'dirty' : 'synced')
       : null
   const label = t('panel.tab')
+  // Placement is read once per render; the click and the menu's page opener
+  // both branch on it.
+  const sidebarOnly = effectivePlacement() === 'sidebar'
+  // The menu reads the same sample the marker shows; it must be computed before
+  // the early returns so the hook order holds in every state.
+  const sample: PillSample | null = view.state === 'ready'
+    ? { root: view.snapshot.root, branch: view.snapshot.branch, remote: view.snapshot.remote !== null }
+    : null
+  // One page opener for the menu entries. The click's own toggle (collapse, or
+  // return to the conversation) is not what a menu entry means, so this only
+  // ever opens: the sub-tab is requested first — the sidebar panel subscribes
+  // to the same session request — then the in-panel tab or the sidebar is
+  // opened, with the click's blank-pane fallback and its notice.
+  const openTab = (tab: 'overview' | 'changes' | 'files'): void => {
+    if (hasSession(sessionId)) requestSubTab(sessionId, tab)
+    if (!sidebarOnly && activateGitTab(label, wrap)) return
+    const route = sidebarOnly || sidebarRoute(ctx)
+    if (route && openSidebarTab(ctx)) return
+    tip.show([route ? t('pill.openFailed') : t('pill.blankUnavailable')])
+  }
+  const menuProps = usePillMenu({ ctx, t, sessionId, useContextMenu, sample, openTab })
   useEffect(() => {
     setGitTabDot(dotOwner.current, label, dotStatus)
     const owner = dotOwner.current
@@ -207,7 +233,6 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
   // the shell renders no Git view tab at all, so the tab path falls through to
   // the sidebar; when neither exists the click says why instead of doing
   // nothing.
-  const sidebarOnly = effectivePlacement() === 'sidebar'
   const onClick = (): void => {
     if (sidebarOnly) {
       if (closeSidebarIfOnlyGit(ctx, sessionId)) return
@@ -242,6 +267,7 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
     h('button', {
       key: 'btn', type: 'button', className: `gp-pill ${gitClass}${compact ? ' gp-pill--compact' : ''}`, onClick,
       ref: tip.bind.ref, onPointerEnter: tip.bind.onPointerEnter, onPointerLeave: tip.bind.onPointerLeave,
+      ...menuProps,
     }, [
       h('span', { key: 'dot', className: 'gp-pill__dot', 'aria-hidden': 'true' }),
       h('span', { key: 'repo', className: 'gp-pill__repo' }, repo),

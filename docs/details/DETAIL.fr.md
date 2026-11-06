@@ -14,6 +14,7 @@ Un panneau Git de style IDE dans l’espace de travail de la conversation : bran
 - **Différences et code source** : vues unifiée / côte à côte / avant / après, avec coloration syntaxique, mise en évidence par mot, contexte dépliable à la demande et recherche sur place avec <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>.
 - **Panneau étroit / mobile** : la mise en page s’adapte à la taille du panneau, dans la barre latérale comme sur téléphone.
 - **Langues** : l’interface suit la langue système de DSH : Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский et Português.
+- **Menus contextuels** — clic droit sur fichiers, répertoires, images, branches, commits, modifications et stashes pour copier les chemins, révéler dans le gestionnaire de fichiers, télécharger / enregistrer sous, indexer ou annuler, changer de branche, créer un tag, revert ou reset, citer dans le composeur, ou vérifier le dépôt distant ; les actions destructives demandent une confirmation.
 
 ## Dépôt
 

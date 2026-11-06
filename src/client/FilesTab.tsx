@@ -25,6 +25,10 @@ import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 import { formatBytes } from './bytes.js'
 import { renderModalShell } from './ops-modals.js'
+import { usePanelMenu } from './menu-context.js'
+import { MENU_KIND } from './menu-owners.js'
+import { entryIgnored } from './files-types.js'
+import type { MenuTriggerHandlers } from './menu-types.js'
 import { NoticeBar } from './notice.js'
 import { inertAttr } from './inert.js'
 import { useRowSlider } from './row-slider.js'
@@ -144,6 +148,10 @@ function restoreFilesState(sessionId: string): FilesState | null {
 }
 
 export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
+  // The panel publishes its menu face through context; the tree renderer is a
+  // plain function, so the binder is read here and passed down as a value.
+  const menu = usePanelMenu()
+  const bindMenu = menu?.row
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -154,6 +162,18 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
   const [open, setOpen] = useState<ReadonlySet<string>>(() => init?.open ?? new Set(['']))
   const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
+  // The preview's picture is a workspace file: its menu is the file row's
+  // (absolute path included), bound through the same face. It binds the file the
+  // body is actually rendering, not the selection: a read that has not landed
+  // yet still shows the previous picture, and an edit draft shows the file being
+  // edited — naming the selected path there would point "reveal" and "copy path"
+  // at a file the pane is not showing. The entry's ignored flag gates the later
+  // Git group; the tree computes it per entry.
+  const shownPath = file.kind === 'idle' || file.kind === 'loading' ? null : file.path
+  const previewMenu = useMemo<MenuTriggerHandlers | undefined>(() => {
+    if (shownPath === null || menu === undefined) return undefined
+    return menu.row(shownPath, MENU_KIND.file, entryIgnored(dirs, shownPath), { tabIndex: -1 })
+  }, [menu, shownPath, dirs])
   // The preview bar describes the file that is actually on screen. A read in
   // flight blanks the body, so the bar keeps the last settled shape: taking its
   // controls from the loading state would unmount the mode switch and the
@@ -493,7 +513,10 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
     if (init !== null && init.selected !== null && file.kind === 'idle') openFile(init.selected)
   }, [init, file.kind, openFile])
 
-  const treeRows = useMemo(() => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t }), [dirs, open, selected, toggleDir, selectFile, t])
+  const treeRows = useMemo(
+    () => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t, ...(bindMenu === undefined ? {} : { bindMenu }) }),
+    [dirs, open, selected, toggleDir, selectFile, t, bindMenu],
+  )
 
   // Both copy actions go through the platform helper (inside useCopyFeedback):
   // its async Clipboard path is unavailable on a remote plain-HTTP origin
@@ -841,7 +864,7 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       h('div', {
         key: 'pv', ...tabPanel('preview'),
         style: editPreview.text === null ? { display: 'none' } : { display: 'contents' },
-      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, t)),
+      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, t, previewMenu)),
     ]
     : editing
     ? fileEdit.editorNode(wrap, false)
@@ -850,13 +873,13 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       h('div', {
         key: 'src', ...tabPanel('source'),
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu)),
       h('div', {
         key: 'rnd', ...tabPanel('render'),
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu) : null),
     ]
-    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu)
 
   // A heavy document asks in a modal before its frame is mounted: the choice
   // is about a page that can freeze the whole app while it paints, so it must
@@ -986,10 +1009,11 @@ function renderContent(
   htmlHint: { readonly run: () => void } | undefined,
   htmlStop: (() => void) | undefined,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
+  imageMenu?: MenuTriggerHandlers,
 ): JSX.Element {
   // An SVG has both faces in hand: the picture, or its markup as source.
   if (file.kind === 'image' && file.content !== undefined) {
-    return renderMarkdown ? renderPreview(file, wrap, t) : h(CodePreview, { content: file.content, path: file.path, wrap, t })
+    return renderMarkdown ? renderPreview(file, wrap, t, imageMenu) : h(CodePreview, { content: file.content, path: file.path, wrap, t })
   }
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
     const markdownProps = { labels: markdownLabels, variant: 'body' as const, ...(pathImages !== undefined ? { pathImages } : {}) }
@@ -1007,7 +1031,7 @@ function renderContent(
   if (file.kind === 'text' && htmlFrame !== undefined) {
     // The pack is in flight: hold the source preview instead of flashing an
     // unstyled page (the pack resolves in a few local RPC round-trips).
-    if (htmlFrame === null) return renderPreview(file, wrap, t)
+    if (htmlFrame === null) return renderPreview(file, wrap, t, imageMenu)
     // A static preview is handed no script permission at all and carries a CSP
     // that blocks the network; the interactive one opts into allow-scripts.
     return h('div', { className: 'gp-files__html-wrap' }, [
@@ -1026,7 +1050,7 @@ function renderContent(
       h(HtmlFrame, { key: `frame:${htmlFrame.kind}:${htmlFrame.kind === 'interactive' ? htmlFrame.src : ''}`, frame: htmlFrame, title: file.path, t, ...(htmlStop !== undefined ? { onStop: htmlStop } : {}) }),
     ])
   }
-  return renderPreview(file, wrap, t)
+  return renderPreview(file, wrap, t, imageMenu)
 }
 
 

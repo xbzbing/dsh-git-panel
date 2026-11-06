@@ -605,6 +605,47 @@ test('useCommitDetail hover writes go through the same LRU cap (no unbounded gro
   h.unmount()
 })
 
+test('useCommitDetail raises no hover card while a menu is open', async () => {
+  const remote = showRemote({ n: 0 })
+  const state = { menuOpen: false }
+  const h = mount(() => useCommitDetail(remote, 's', 'unified', true, state.menuOpen))
+  const past = () => new Promise((r) => setTimeout(r, 300))
+  h.value.onHoverEnter({ hash: H('a') }, 1, 1)
+  await past(); await h.settle()
+  assert.ok(h.value.hover, 'the card is up before any menu opens')
+
+  state.menuOpen = true
+  h.rerender(); await h.settle()
+  assert.equal(h.value.hover, null, 'opening a menu drops the card already shown')
+
+  h.value.onHoverEnter({ hash: H('b') }, 2, 2)
+  await past(); await h.settle()
+  assert.equal(h.value.hover, null, 'a row hovered under an open menu raises nothing')
+
+  state.menuOpen = false
+  h.rerender(); await h.settle()
+  h.value.onHoverEnter({ hash: H('b') }, 2, 2)
+  await past(); await h.settle()
+  assert.ok(h.value.hover, 'the card returns once the menu closes')
+  h.unmount()
+})
+
+test('useCommitDetail cancels a pending hover when the menu opens mid-debounce', async () => {
+  const remote = showRemote({ n: 0 })
+  const state = { menuOpen: false }
+  const h = mount(() => useCommitDetail(remote, 's', 'unified', true, state.menuOpen))
+  h.value.onHoverEnter({ hash: H('c') }, 1, 1)
+  // Past the enter but well inside the 260ms debounce: the right-click that
+  // opens the menu lands in this window.
+  await new Promise((r) => setTimeout(r, 100))
+  state.menuOpen = true
+  h.rerender(); await h.settle()
+  await new Promise((r) => setTimeout(r, 300))
+  await h.settle()
+  assert.equal(h.value.hover, null, 'the timer must not raise a card behind the menu')
+  h.unmount()
+})
+
 test('useBranchTree surfaces treeError when branches fail, and reload recovers', async () => {
   let ok = false
   const remote = {

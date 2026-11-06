@@ -25,6 +25,7 @@ import { createPortal } from 'react-dom'
 import type { GitKey } from './locales.js'
 import { CloseIcon } from './icons.js'
 import { anchoredScroll, clampScale, isDragGesture, normalizeWheel, panScroll, wheelZoomFactor, ZOOM_STEP } from './zoom.js'
+import type { MenuTriggerHandlers } from './menu-types.js'
 
 type T = (key: GitKey, params?: Record<string, string | number>) => string
 
@@ -53,9 +54,12 @@ interface ZoomableImageProps {
   readonly fullscreen?: boolean
   /** Press on the viewport's empty area (lightbox backdrop press-to-close). */
   readonly onEmptyAreaMouseDown?: () => void
+  /** Right-click props for the picture, bound by the caller that knows which
+   * target family applies (a workspace file, or one side of an image diff). */
+  readonly menuProps?: MenuTriggerHandlers
 }
 
-export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true, onEmptyAreaMouseDown }: ZoomableImageProps): JSX.Element {
+export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true, onEmptyAreaMouseDown, menuProps }: ZoomableImageProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
@@ -322,6 +326,7 @@ export function ZoomableImage({ src, alt, t, viewportClass, fullscreen = true, o
     }, h('img', {
       key: 'img', ref: imgRef, className: 'gp-zoom__img', src, alt, style: imgStyle,
       draggable: false, onLoad: onLoaded, onDoubleClick,
+      ...menuProps,
     })),
     bar,
     open ? h(ZoomLightbox, { key: 'lb', src, alt, t, onClose: closeLightbox }) : null,

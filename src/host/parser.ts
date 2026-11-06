@@ -156,16 +156,23 @@ export function parseRefs(decoration: string): GitRef[] {
   return refs
 }
 
-/** Parse `git for-each-ref` local/remote branch lines: `name\0shortHash\0track`. */
+/**
+ * Parse `git for-each-ref` local/remote branch lines:
+ * `name\0shortHash\0track\0ref\0symref`. A non-empty `symref` marks a symbolic
+ * row (`refs/remotes/origin/HEAD` → `refs/remotes/origin/main`), which is not a
+ * branch: dropping it here keeps `origin` out of the list, and — unlike a
+ * name-suffix filter — does not hide a real branch called `feature/HEAD`.
+ */
 export function parseBranches(stdout: string): GitBranch[] {
   const out: GitBranch[] = []
   for (const line of stdout.split('\n')) {
     if (line.trim() === '') continue
-    const [name, shortHash = '', track = ''] = line.split('\0')
-    if (name === undefined || name === '') continue
-    const branch: { name: string; shortHash: string | null; ahead?: number; behind?: number } = {
+    const [name, shortHash = '', track = '', ref = '', symref = ''] = line.split('\0')
+    if (name === undefined || name === '' || symref !== '') continue
+    const branch: { name: string; shortHash: string | null; ahead?: number; behind?: number; ref?: string } = {
       name,
       shortHash: shortHash === '' ? null : shortHash,
+      ...(ref === '' ? {} : { ref }),
     }
     const ahead = /ahead (\d+)/.exec(track)
     const behind = /behind (\d+)/.exec(track)
@@ -176,13 +183,13 @@ export function parseBranches(stdout: string): GitBranch[] {
   return out
 }
 
-/** Parse `git for-each-ref` tag lines: `name\0shortHash` per line. */
+/** Parse `git for-each-ref` tag lines: `name\0shortHash\0ref` per line. */
 export function parseTags(stdout: string): GitBranch[] {
   const out: GitBranch[] = []
   for (const line of stdout.split('\n')) {
     if (line.trim() === '') continue
-    const [name, shortHash = ''] = line.split('\0')
-    if (name) out.push({ name, shortHash: shortHash === '' ? null : shortHash })
+    const [name, shortHash = '', ref = ''] = line.split('\0')
+    if (name) out.push({ name, shortHash: shortHash === '' ? null : shortHash, ...(ref === '' ? {} : { ref }) })
   }
   return out
 }

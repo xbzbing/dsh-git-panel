@@ -170,4 +170,13 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-status--deleted{color:var(--dsw-alias-state-error-primary)}
 .gp-status--untracked{color:var(--dsw-alias-label-tertiary)}
 .gp-status--renamed{color:var(--dsw-alias-state-business-primary)}
+/* 文件历史筛选 chip（右键「显示 Git 历史」后出现在历史列表上方）与
+   比较/引用选择框的样式。主题变量着色，不写死颜色。 */
+.gp-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
+.gp-chip--filter{margin:6px 0 2px}
+.gp-chip__key{color:var(--dsw-alias-label-secondary);flex:none}
+.gp-chip__value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
+.gp-chip__x{flex:none;opacity:.7}
+.gp-chip:hover{border-color:var(--dsw-alias-border-l3)}
+.gp-chip:hover .gp-chip__x{opacity:1;color:var(--dsw-alias-state-error-primary)}
 `

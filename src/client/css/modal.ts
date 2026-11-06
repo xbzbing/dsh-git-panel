@@ -94,4 +94,44 @@ export const CSS = `
 .gp-props__badge{display:inline-block;padding:1.5px 9px;border-radius:999px;font-size:11px;font-weight:600;line-height:1.5;border:1px solid color-mix(in srgb,currentColor 30%,transparent);background:color-mix(in srgb,currentColor 12%,transparent);white-space:nowrap}
 .gp-props__badge--ok{color:var(--dsw-alias-state-success-primary)}
 .gp-props__badge--muted{color:var(--dsw-alias-label-tertiary)}
+/* comparison pickers (file menu → compare with a branch / tag / revision): a
+ * fixed-height list dialog. The head (file + search) and the key hints stay put;
+ * only the list scrolls, so the virtualized rows always have a bounded viewport.
+ * One highlight per list: the pointer moves the keyboard cursor rather than
+ * painting a second hover fill. */
+.gp-modal--picker{width:min(540px,92vw)}
+.gp-modal--picker .gp-modal__form{padding:0;gap:0;overflow:hidden}
+.gp-compare__head{flex:none;display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2))}
+.gp-compare__file{display:flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:18px}
+.gp-compare__file-icon{display:inline-flex;flex:none;color:var(--dsw-alias-label-tertiary)}
+.gp-compare__dir{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);margin-right:-6px}
+.gp-compare__name{flex:0 0 auto;max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-weight:600}
+.gp-compare__search{position:relative;display:flex;align-items:center;height:34px;padding:0 10px 0 32px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-sizing:border-box;cursor:text;transition:border-color .12s ease,box-shadow .12s ease}
+.gp-compare__search:focus-within{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent)}
+.gp-compare__search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);display:inline-flex;color:var(--dsw-alias-label-tertiary);pointer-events:none}
+.gp-compare__filter{flex:1;min-width:0;height:100%;padding:0;border:0;outline:none;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
+.gp-compare__filter::placeholder{color:var(--dsw-alias-label-tertiary)}
+.gp-compare__total{flex:none;margin-left:8px;font-size:11px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
+.gp-compare__list{flex:none;height:min(340px,48vh);padding:4px 6px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box}
+.gp-compare__heading{display:flex;align-items:center;gap:6px;padding:6px 10px 0;box-sizing:border-box;font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-tertiary);user-select:none}
+.gp-compare__count{padding:0 6px;border-radius:999px;font-weight:500;line-height:16px;font-variant-numeric:tabular-nums;background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent)}
+.gp-compare__row{display:flex;align-items:center;gap:9px;padding:0 10px;box-sizing:border-box;border-radius:7px;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none}
+.gp-compare__row--active{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-compare__icon{display:inline-flex;flex:none;width:16px;justify-content:center;color:var(--dsw-alias-label-tertiary)}
+.gp-compare__row--active .gp-compare__icon{color:var(--dsw-alias-label-secondary)}
+.gp-compare__icon--current,.gp-compare__row--active .gp-compare__icon--current{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
+.gp-compare__label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-compare__badge{margin-left:0}
+.gp-compare__hash{flex:none;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.gp-compare__body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:3px}
+.gp-compare__meta{display:flex;align-items:center;gap:8px;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
+.gp-compare__meta .gp-compare__hash{padding:0 5px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent)}
+.gp-compare__author{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.gp-compare__when{flex:none}
+.gp-compare__author+.gp-compare__when::before{content:"·";margin-right:8px}
+.gp-compare__state{display:flex;align-items:center;justify-content:center;gap:8px;height:100%;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.gp-compare__more{display:flex;justify-content:center;padding:8px 0 10px}
+.gp-compare__more-btn{height:26px;padding:0 14px;font-size:12px}
+.gp-compare__keys{flex:none;padding:7px 14px;border-top:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));font-size:11px;color:var(--dsw-alias-label-tertiary)}
+@media (hover:none){.gp-compare__keys{display:none}}
 `

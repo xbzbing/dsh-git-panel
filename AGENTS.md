@@ -49,6 +49,7 @@
 - 弹窗统一复用 `ops-modals.tsx` 和 `dialog-focus.ts`；每个浮层声明 `data-gp-overlay`，在途操作禁用 Escape / backdrop。
 - 长列表使用 `virtual-list.ts` + `use-viewport.ts`；memo props 不在 render 中新建对象；高亮使用 `highlight-cache.ts`。
 - row slider 是唯一选中底色：宿主滚动容器必须 `position: relative`，行的 active 状态只改文字色；虚拟窗口和字号 zoom 必须纳入量测。详见 `test/e2e/row-slider.mjs`。
+- 右键菜单的目标值在手势时捕获（thunk），owner 解析前必须复核 sessionId / repo / browse root（仓库行自带检出，只要求 root 非空）；菜单项不改选中与 row slider；破坏性项只打开既有确认框；菜单打开期间不显示指针锚定的浮层（提交 hover 卡片先收起，再由 `contextMenus.active` 门控）。详见 ADR-0028。
 - 折叠滚动区用 `grid 1fr/0fr` 时，折叠层为 flex 列，列表 `flex: 1 1 auto; min-height: 0`。
 - 加载指示使用平台 `StateDot(state="ongoing")`；图片放大图必须 `flex: none`，拖拽监听 window 且不 `setPointerCapture`。
 - hover 提示只对 hover / 键盘焦点显示，触摸不显示；文件工具栏尾部按钮放入一个 `.gp-files__bar-end`，整组换行。

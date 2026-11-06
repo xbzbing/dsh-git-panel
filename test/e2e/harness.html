@@ -261,6 +261,255 @@
       },
     },
   };
+  // ── context-menu stubs (dsh >= 0.2.2-alpha.3) ────────────────────────────
+  // The platform's menu package is external to the plugin bundle, so the
+  // harness supplies the two faces the plugin consumes: the `contextMenus`
+  // service (registration + embedded resolution) and the injected
+  // `useContextMenu` factory. Both record what the rows captured, and the
+  // stub's platform resolutions answer with the platform's own action ids so a
+  // runner can assert which of them the whitelist kept.
+  (function () {
+    var contributions = []
+    // Subscriptions of the last `collect`; released before the next one and on
+    // `clear`, like the platform's per-occurrence subscriptions.
+    var observed = []
+    var observedBusy = false
+    function releaseObserved() {
+      for (var i = 0; i < observed.length; i++) { try { observed[i]() } catch (error) { /* ignore */ } }
+      observed = []
+    }
+    var state = {
+      last: null, offered: [], actions: [], pending: null, selected: [],
+      notices: [], lastNotice: null,
+    }
+    function platformViews(kind) {
+      if (kind === 'file') {
+        return [
+          { id: 'open-in-app.file/sidebar', label: 'sidebar' },
+          { id: 'open-in-app.file/float', label: 'float' },
+          { id: 'open-in-app.file/reveal', label: 'reveal' },
+          { id: 'open-in-app.file/open', label: 'open' },
+          { id: 'open-in-app.file/copyPath', label: 'copyPath' },
+          { id: 'file-actions.file/copyImage', label: 'copyImage' },
+          { id: 'file-actions.file/download', label: 'download' },
+          { id: 'file-actions.file/saveAs', label: 'saveAs' },
+        ]
+      }
+      if (kind === 'directory') {
+        return [
+          { id: 'open-in-app.directory/reveal', label: 'reveal' },
+          { id: 'open-in-app.directory/copyPath', label: 'copyPath' },
+        ]
+      }
+      if (kind === 'image') {
+        return [
+          { id: 'file-actions.image/copy', label: 'copy' },
+          { id: 'file-actions.image/download', label: 'download' },
+          { id: 'file-actions.image/saveAs', label: 'saveAs' },
+        ]
+      }
+      return []
+    }
+    // The shared popup's presence, in the platform's snapshot shape: the target
+    // that opened it, null again once it is dismissed. The plugin reads it to
+    // keep pointer-anchored chrome (the commit hover card) out from under the
+    // popup, so the stub has to publish the same transitions a real open/close
+    // does.
+    var activeTarget = null
+    var activeListeners = []
+    function publishActive(target) {
+      activeTarget = target
+      for (var i = 0; i < activeListeners.length; i++) activeListeners[i]()
+    }
+    var service = {
+      active: {
+        subscribe: function (listener) {
+          activeListeners.push(listener)
+          var live = true
+          return function () {
+            if (!live) return
+            live = false
+            var at = activeListeners.indexOf(listener)
+            if (at !== -1) activeListeners.splice(at, 1)
+          }
+        },
+        getSnapshot: function () { return activeTarget },
+      },
+      open: function (target) { publishActive(target) },
+      register: function (contribution) {
+        // The platform refuses a second contribution with the same id in one
+        // target family; a stub that silently accepts both would hide a plugin
+        // that registers twice (two HMR rounds, a leaked disposer).
+        for (var i = 0; i < contributions.length; i++) {
+          if (contributions[i].target === contribution.target && contributions[i].id === contribution.id) {
+            throw new Error('duplicate menu contribution: ' + contribution.target + '/' + contribution.id)
+          }
+        }
+        contributions.push(contribution)
+        return function () {
+          var at = contributions.indexOf(contribution)
+          if (at !== -1) contributions.splice(at, 1)
+        }
+      },
+      resolve: function (target) {
+        window.__platformAsk = target
+        var views = platformViews(target.kind)
+        // A platform that answers late (or never, with Infinity): the plugin's
+        // own group must survive its absence rather than go down with it.
+        var delay = window.__platformReadyDelay || 0
+        var settled = delay === 0
+        var ready = delay === 0 ? Promise.resolve() : new Promise(function (resolve) { setTimeout(resolve, delay) })
+        ready.then(function () { settled = true })
+        var disposed = false
+        return {
+          // The source is empty until `ready` settles: that is the platform's
+          // contract, and it is what makes a caller that reads it too early
+          // show up as a missing group instead of passing.
+          source: { getSnapshot: function () { return settled ? views : [] } },
+          ready: ready,
+          select: function (id) {
+            if (disposed) return
+            state.selected.push({ id: id, target: target })
+          },
+          dispose: function () { disposed = true },
+        }
+      },
+      notify: function (text, success, action) {
+        var notice = { text: text, success: success, action: action }
+        state.notices.push(notice); state.lastNotice = notice
+      },
+      close: function () { publishActive(null) },
+    }
+    service.__viewsFor = platformViews
+    window.__contextMenusStub = service
+    window.__useContextMenuStub = function () {
+      return {
+        getTriggerProps: function (target, handlers) {
+          var merged = {}
+          for (var key in handlers || {}) merged[key] = handlers[key]
+          merged.onContextMenu = function (event) {
+            if (handlers && handlers.onContextMenu) handlers.onContextMenu(event)
+            event.preventDefault()
+            event.stopPropagation()
+            // Mirror the platform: a thunk target is evaluated when the gesture
+            // runs, so the captured value is the surface's state at that moment.
+            var captured = typeof target === 'function' ? target() : target
+            window.__menuStub.sawThunk = typeof target === 'function'
+            window.__menuStub.capture(captured)
+            // ...and the popup opens on that target, which is what publishes the
+            // presence the plugin reads while the menu is up.
+            service.open(captured, { x: event.clientX, y: event.clientY })
+          }
+          // The platform binds a keyboard gesture too (ContextMenu key, or
+          // Shift+F10); a stub with only the pointer path would let a broken
+          // keyboard binding pass every runner.
+          merged.onKeyDown = function (event) {
+            if (handlers && handlers.onKeyDown) handlers.onKeyDown(event)
+            if (event.defaultPrevented) return
+            if (!(event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))) return
+            var captured = typeof target === 'function' ? target() : target
+            window.__menuStub.sawThunk = typeof target === 'function'
+            window.__menuStub.capture(captured)
+            service.open(captured, { x: 0, y: 0 })
+            event.preventDefault()
+          }
+          if (merged.tabIndex === undefined) merged.tabIndex = 0
+          return merged
+        },
+      }
+    }
+    // The conversation's composer face, as the plugin probes it structurally:
+    // sessions.scope(id).get('conversation').input.for(scope).insertQuote(text).
+    window.__quotes = []
+    window.__quoteFocus = 0
+    window.__sessionsStub = {
+      scope: function () {
+        return {
+          get: function (key) {
+            if (key !== 'conversation') return undefined
+            return {
+              input: {
+                for: function () {
+                  return {
+                    insertQuote: function (text) { window.__quotes.push(text); return true },
+                    focus: function () { window.__quoteFocus += 1 },
+                  }
+                },
+              },
+            }
+          },
+        }
+      },
+    }
+    window.__menuStub = {
+      state: state,
+      contributions: contributions,
+      capture: function (target) {
+        state.last = target
+        state.offered = []
+        state.actions = []
+        state.pending = this.collect(target)
+      },
+      collect: async function (target) {
+        var merged = []
+        // The platform merges providers by `order`, then by contribution id —
+        // not by registration order. Mirroring that is what makes an id-only
+        // reordering (a second contribution for the same family) visible here.
+        var mine = contributions.filter(function (c) { return c.target === target.kind })
+        mine.sort(function (a, b) { return (a.order - b.order) || a.id.localeCompare(b.id) })
+        for (var i = 0; i < mine.length; i++) {
+          var contribution = mine[i]
+          var list = await contribution.resolve(target.value, new AbortController().signal)
+          for (var j = 0; j < list.length; j++) merged.push(list[j])
+        }
+        state.actions = merged
+        state.offered = merged.map(function (action) { return { id: action.id, label: action.label } })
+        // Mirror the platform's `observe`: an open menu re-resolves when one of
+        // its contributions' reactive inputs changes. Without it, "the open menu
+        // follows the snapshot" is invisible to e2e.
+        releaseObserved()
+        var sources = []
+        for (var k = 0; k < mine.length; k++) {
+          if (typeof mine[k].observe !== 'function') continue
+          sources = sources.concat(mine[k].observe(target.value) || [])
+        }
+        sources.forEach(function (source) {
+          try {
+            observed.push(source.subscribe(function () {
+              if (observedBusy) return
+              observedBusy = true
+              Promise.resolve().then(function () {
+                observedBusy = false
+                window.__menuStub.capture(target)
+              })
+            }))
+          } catch (error) { /* a source that cannot subscribe adds nothing */ }
+        })
+        return merged
+      },
+      resolvePending: function () { return state.pending },
+      invoke: async function (id) {
+        var action = null
+        for (var i = 0; i < state.actions.length; i++) if (state.actions[i].id === id) action = state.actions[i]
+        if (action === null) throw new Error('no offered action ' + id)
+        // The platform dismisses the occurrence before it runs the selected
+        // action (client.js: select sets the presence to null, then runs). A
+        // stub that kept the popup "open" would let a run leave the panel in a
+        // state the real platform never produces.
+        service.close()
+        await action.run()
+        return 'ok'
+      },
+      clear: function () {
+        releaseObserved()
+        state.last = null; state.offered = []; state.actions = []; state.pending = null
+        // A cleared stub models "closed", so a scenario that starts here never
+        // inherits a popup another one left open.
+        service.close()
+      },
+      clearNotices: function () { state.notices = []; state.lastNotice = null },
+    }
+  })();
   var LOADED = null;
   // Real package-local chunks loaded by <script> (the editor chunk is the
   // shipped CodeMirror bundle, not a stand-in): chunk name -> exports, and the

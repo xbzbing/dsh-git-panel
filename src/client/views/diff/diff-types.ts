@@ -15,4 +15,4 @@ export type DiffMode = 'unified' | 'split' | 'before' | 'after'
 
 /** Diff base for the compared sides — selects the image panes and the source
  * the hidden-context expansion reads from. */
-export type DiffBase = 'worktree' | 'staged' | 'commit'
+export type DiffBase = 'worktree' | 'staged' | 'commit' | 'rev'

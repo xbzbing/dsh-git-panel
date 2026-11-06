@@ -1,0 +1,85 @@
+/**
+ * Trigger binding for rows: merge the platform's context-menu props into a
+ * row's own props, or hand the handlers through untouched when the platform
+ * has no menu system (dsh < 0.2.2-alpha.3).
+ *
+ * `getTriggerProps` is an ordinary function, not a React hook — the platform
+ * injects it as a plain prop factory and it creates no subscriptions. The
+ * indirection through `MenuTriggerFactory` exists so row renderers can bind a
+ * menu without knowing whether one is available, and so the react-hooks rules
+ * never see a call that looks like a conditional hook.
+ */
+import type { GitMenuValue, MenuKind, MenuValueSeed } from './menu-owners.js'
+import type { MenuBindings, MenuSnapshot, MenuTriggerHandlers } from './menu-types.js'
+
+export { MENU_KIND } from './menu-owners.js'
+
+/** A stable factory one panel holds for its lifetime. The value may be a thunk:
+ * the platform evaluates it when the gesture runs, so the captured identity is
+ * the panel's state at that moment (a root or repository picked since the row
+ * rendered is not read stale). */
+export type MenuTriggerFactory = {
+  bind: (kind: MenuKind, value: GitMenuValue | (() => GitMenuValue), handlers?: MenuTriggerHandlers) => MenuTriggerHandlers
+}
+
+/** The no-menu fallback: rows keep their own handlers, native menu stays. */
+export const NO_MENU: MenuTriggerFactory = { bind: (_kind, _value, handlers) => handlers ?? {} }
+
+/** What a row calls: the panel has already folded its identity (session, owner,
+ * repository, root) into the value, so a row names only itself. */
+export type RowMenuBinder = (
+  path: string,
+  kind: MenuKind,
+  ignored: boolean,
+  handlers?: MenuTriggerHandlers,
+) => MenuTriggerHandlers
+
+/** What an image pane calls: the picture it shows, plus the name a download
+ * should carry (the old side of a diff names its revision). */
+export type ImageMenuBinder = (
+  image: { readonly url: string; readonly name?: string; readonly mediaType?: string },
+  handlers?: MenuTriggerHandlers,
+) => MenuTriggerHandlers
+
+/** One panel's menu face, as the surfaces inside it see it. Rows get `row`;
+ * pictures deep in the diff tree get `image`, so neither has to thread the
+ * binder through the components between them. */
+export interface PanelMenu {
+  readonly row: RowMenuBinder
+  readonly image: ImageMenuBinder
+  /** Bind any other captured value (branch / commit / change / repository rows
+   * bind themselves). The row supplies only its own fields: the facade adds the
+   * panel identity, and a value that names its own checkout (a repository row)
+   * keeps the tag it carries. */
+  readonly bind: (kind: MenuKind, value: MenuValueSeed, handlers?: MenuTriggerHandlers) => MenuTriggerHandlers
+  /** The shared popup's captured target (`null` while none is open), for the
+   * surfaces that must stay out of its way while it is up. Absent on hosts
+   * without the menu package, and on a platform face that cannot be observed. */
+  readonly active?: MenuSnapshot<unknown>
+}
+
+/**
+ * Build the panel's trigger factory.
+ * @param useContextMenu - the injected slot prop, when the host provides one.
+ * @returns a factory bound to the platform bindings, or `NO_MENU`.
+ */
+export function menuTriggerFactory(useContextMenu: (() => MenuBindings) | undefined): MenuTriggerFactory {
+  if (typeof useContextMenu !== 'function') return NO_MENU
+  // The platform injects `useContextMenu` as an ordinary prop factory, not a
+  // React hook: it creates no subscriptions and calls no hooks. The eslint
+  // disable documents that reading (the naming convention is the platform's,
+  // set in its GlobalStandardProps declaration).
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const bindings = useContextMenu()
+  if (bindings === undefined || typeof bindings.getTriggerProps !== 'function') return NO_MENU
+  return {
+    // The platform evaluates a *function* target at gesture time; wrapping the
+    // whole `{ kind, value }` pair (not just the value) is what makes that work,
+    // because the pair is the captured object it hands back to resolution.
+    bind: (kind, value, handlers) => bindings.getTriggerProps(
+      typeof value === 'function' ? () => ({ kind, value: value() }) : { kind, value },
+      handlers,
+    ),
+  }
+}
+

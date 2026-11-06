@@ -107,6 +107,21 @@ test('parseBranches reads name/hash/track with ahead·behind', () => {
   assert.equal(feat.ahead, undefined)
 })
 
+test('parseBranches carries the full ref and drops symbolic rows', () => {
+  // name \0 shortHash \0 track \0 ref \0 symref
+  const stdout = 'main\x00abc1234\x00\x00refs/heads/main\x00'
+  const rows = parseBranches(stdout)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].ref, 'refs/heads/main')
+
+  // A remote-tracking HEAD is a symbolic ref, not a branch.
+  const withSymref = 'origin\x00abc1234\x00\x00refs/remotes/origin/HEAD\x00refs/remotes/origin/main\n'
+    + 'origin/feature/HEAD\x00def5678\x00\x00refs/remotes/origin/feature/HEAD\x00'
+  const out = parseBranches(withSymref)
+  assert.deepEqual(out.map((b) => b.name), ['origin/feature/HEAD'], 'a real branch ending in /HEAD stays')
+  assert.equal(out[0].ref, 'refs/remotes/origin/feature/HEAD')
+})
+
 test('parseNameStatus reads statuses and rename new-path', () => {
   // A file, M file, R old→new
   const z = 'A\0added.txt\0M\0mod.txt\0R100\0old.txt\0new.txt\0'

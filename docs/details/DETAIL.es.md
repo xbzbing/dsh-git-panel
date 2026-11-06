@@ -14,6 +14,7 @@ Un panel de Git al estilo IDE en el espacio de trabajo de la conversación: rama
 - **Diferencias y código fuente**: vistas unificada / en paralelo / antes / después con resaltado de sintaxis, énfasis por palabra, expansión de contexto bajo demanda y búsqueda en el sitio con <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>.
 - **Panel estrecho / móvil**: el diseño se adapta al tamaño del panel, así que funciona en la barra lateral y en el teléfono.
 - **Idiomas**: la interfaz sigue el idioma del sistema de DSH: Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский y Português.
+- **Menús contextuales**: clic derecho sobre archivos, directorios, imágenes, ramas, commits, cambios y stashes para copiar rutas, mostrarlos en el gestor de archivos, descargar / guardar como, aplicar al índice o descartar, cambiar de rama, crear etiquetas, revertir o restablecer, citar en el compositor o comprobar el remoto; las acciones destructivas piden confirmación.
 
 ## Repositorio
 

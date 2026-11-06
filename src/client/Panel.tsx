@@ -10,10 +10,10 @@
  * checkout pick, the file browser's root selector, and the switch between
  * checkouts.
  */
-import { createElement as h, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createElement as h, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { inertAttr } from './inert.js'
 import type { JSX } from 'react'
-import { SegmentedTabs, StateDot, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SegmentedTabs, StateDot, writeClipboard, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import { gitPanelRemoteOf, hasSession, queryAs, type ClientCtx } from './rpc.js'
 import { useGitView, controllerFor } from './registry.js'
 import type { GitView } from './controller.js'
@@ -27,6 +27,7 @@ import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
 import type { FontDelta, GitAction, GitRepoEntry } from './types.js'
+import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
 import { discardUnsavedEdit, hasUnsavedEdit } from './edit-store.js'
@@ -34,6 +35,42 @@ import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
+import { PanelMenuContext } from './menu-context.js'
+import { usePanelMenu } from './use-panel-menu.js'
+import { contextMenusOf } from './menu-register.js'
+import { insertSessionQuote } from './quote.js'
+import { CompareHost, type CompareRequest } from './compare-host.js'
+import { compareApplies } from './compare-refs.js'
+import { runRemoteFetch } from './fetch-report.js'
+import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
+import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
+import type { ReposMenuCommands, ReposMenuFacts } from './repos-menu.js'
+import { MENU_KIND } from './menu-owners.js'
+import type { TreeTargetValue } from './menu-owners.js'
+import type { UseContextMenu } from './menu-types.js'
+import type { MenuSource } from './menu-types.js'
+
+/** No overview mounted: the branch/commit entries cannot act, and the owner is
+ * only reachable from rows that overview renders. */
+const EMPTY_OVERVIEW_COMMANDS: OverviewMenuCommands = {
+  switchBranch: () => {},
+  filterRef: () => {},
+  openTagCreate: () => {},
+  openRevert: () => {},
+  openReset: () => {},
+  openCheckout: () => {},
+  quote: () => {},
+}
+
+/** No changes tab mounted: its rows do not exist, so nothing can reach these. */
+const EMPTY_CHANGES_COMMANDS: ChangesMenuCommands = {
+  openDiff: () => {},
+  stage: () => {},
+  openDiscard: () => {},
+  stashApply: () => {},
+  stashPop: () => {},
+  openStashDrop: () => {},
+}
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -53,9 +90,12 @@ interface PanelProps {
   /** Whether the mounting surface is currently on screen. The sidebar reports
    * its own tab's visibility, so a hidden tab starts no queries. */
   readonly visible?: boolean
+  /** The slot's injected menu bindings (dsh ≥ 0.2.2-alpha.3); absent on older
+   * hosts, where rows keep the native context menu. */
+  readonly useContextMenu?: UseContextMenu
 }
 
-export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: PanelProps): JSX.Element {
+export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useContextMenu }: PanelProps): JSX.Element {
   const pageVisible = usePageVisibility()
   const [fontPending, setFontPending] = useState<FontDelta | null>(null)
   // Monotonic token for the latest font write: a slow host set for an older
@@ -531,6 +571,130 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     : filesSelector === ''
       ? projectRoot ?? (repo === '' && view.state === 'ready' ? view.snapshot.root : null)
       : repoList.find((c) => c.path === filesSelector)?.root ?? null
+
+  // ── context menus ─────────────────────────────────────────────────────
+  // Rows publish their menu through the panel's facade (use-panel-menu.ts):
+  // the captured target carries this instance's id, so an action runs against
+  // the copy that raised the gesture, and the browse root is read when the
+  // gesture happens rather than when the row rendered.
+  const filesRootRef = useRef<string | null>(null)
+  filesRootRef.current = filesRoot
+  // A Git group needs a checkout behind the browser's root. The snapshot is the
+  // answer when the browser follows the panel's repository; otherwise the root
+  // is a directory inside a checkout, which the file tree itself proves (its
+  // entries carry ignore marks) but the snapshot does not. Until the panel can
+  // tell, offering compare/history on paths git may not track would be a guess,
+  // so the group waits for the same-root case.
+  const viewRootIsGit = useRef(false)
+  viewRootIsGit.current = !filesOnly && filesSelector === repo && view.state === 'ready'
+  const capabilitiesRef = useRef<{ revDiff: boolean; pathHistory: boolean }>({ revDiff: false, pathHistory: false })
+  if (view.state === 'ready') {
+    capabilitiesRef.current = {
+      revDiff: view.snapshot.capabilities?.revDiff === true,
+      pathHistory: view.snapshot.capabilities?.pathHistory === true,
+    }
+  }
+  const browseRootOf = useCallback((): string | null => filesRootRef.current, [])
+  // Quote to the composer; a composer that is not there falls back to the
+  // clipboard so the gesture never drops the text on the floor.
+  const quoteRun = useCallback((text: string): void => {
+    if (!hasSession(sessionId)) return
+    if (insertSessionQuote(ctx, sessionId, text)) return
+    // The composer is gone (unmounted, another session took it, an old host):
+    // keep the text and say where it went instead of failing silently. The
+    // primitives' clipboard face covers the non-secure-origin case that a bare
+    // `navigator.clipboard` does not.
+    const menus = contextMenusOf(ctx)
+    void writeClipboard(text).then((ok) => {
+      menus?.notify(ok ? t('menu.quoteFailed') : t('menu.copyFailed'), false)
+    })
+  }, [ctx, sessionId, t])
+  const menuSources = useCallback(
+    (): readonly MenuSource[] => (hasSession(sessionId) ? [controllerFor(sessionId)] : []),
+    [sessionId],
+  )
+  // The comparison flows and the file-history filter are menu outcomes: the
+  // request lives here so the picker reuses this panel's remote (and therefore
+  // its repository tag), while compare-host.tsx owns the picker and overlay.
+  const [compare, setCompare] = useState<CompareRequest | null>(null)
+  // A one-shot request, not a filter: the sequence makes a repeat of the same
+  // path a new request, and `repo` scopes it to the checkout it was raised on.
+  const [historyRequest, setHistoryRequest] = useState<{ path: string; seq: number; repo: string; sessionId: string } | null>(null)
+  const historySeq = useRef(0)
+  const openCompare = useCallback((mode: CompareRequest['mode'], value: TreeTargetValue): void => {
+    if (!hasSession(sessionId)) return
+    setCompare({ mode, path: value.path, repo, sessionId })
+  }, [repo, sessionId])
+  // A request names one path in one checkout of one session: a panel that has
+  // since moved must not consume it.
+  const historyRequestApplies = (request: { sessionId: string; repo: string }, liveSession: string | undefined, liveRepo: string): boolean =>
+    request.sessionId === liveSession && request.repo === liveRepo
+  const showHistory = useCallback((value: TreeTargetValue): void => {
+    // The history filter replaces the page, so the overview must be the visible
+    // sub-tab before the chip can mean anything.
+    historySeq.current += 1
+    if (!hasSession(sessionId)) return
+    setHistoryRequest({ path: value.path, seq: historySeq.current, repo, sessionId })
+    if (hasSession(sessionId)) setSelection({ sessionId, tab: 'overview' })
+  }, [sessionId, repo])
+  // A comparison names a path inside one checkout. Switching repository (or
+  // session) under an open picker must close it: the picker would otherwise
+  // re-query the new checkout with the old path and show a diff that belongs to
+  // neither.
+  useEffect(() => { setCompare(null); setHistoryRequest(null) }, [sessionId, repo])
+  const isGitRoot = useCallback((): boolean => filesRootRef.current !== null && viewRootIsGit.current, [])
+  const capabilities = useCallback((): { revDiff: boolean; pathHistory: boolean } => capabilitiesRef.current, [])
+  // The overview's own runs and busy flag are published by the tab into this
+  // ref each render (it owns the switch map, the filter and the dialogs); the
+  // menu owner reads them at resolve time.
+  const overviewCommandsRef = useRef<OverviewMenuCommands | null>(null)
+  const overviewStateRef = useRef<OverviewMenuFacts>({ busy: false })
+  const overviewCommands = useCallback((): OverviewMenuCommands => overviewCommandsRef.current ?? EMPTY_OVERVIEW_COMMANDS, [])
+  const overviewFacts = useCallback((): OverviewMenuFacts => overviewStateRef.current, [])
+  // The changes tab publishes its runs, busy flag and checked set the same way.
+  const changesCommandsRef = useRef<ChangesMenuCommands | null>(null)
+  const changesStateRef = useRef<ChangesMenuFacts>({ busy: false })
+  const changesPickRef = useRef<ReadonlySet<string>>(new Set())
+  const changesCommands = useCallback((): ChangesMenuCommands => changesCommandsRef.current ?? EMPTY_CHANGES_COMMANDS, [])
+  const changesFacts = useCallback((): ChangesMenuFacts => changesStateRef.current, [])
+  const changesPick = useCallback((): ReadonlySet<string> => changesPickRef.current, [])
+  // The repository rows' remote check. A row is usually not the checkout the
+  // panes act on, so the fetch reports through the menu toast rather than a
+  // status bar; the sampled checkout answers whether it has a remote at all,
+  // and a row nobody sampled has to answer for itself (a failed fetch says so).
+  const fetchClaimsRef = useRef<Set<string>>(new Set())
+  const runRepoFetch = useCallback((live: string, repoTag: string): void => {
+    runRemoteFetch(ctx, t, live, repoTag, fetchClaimsRef.current)
+  }, [ctx, t])
+  // Read through primitives so the menu owner is not re-registered on every
+  // poll: the sample object changes identity each snapshot, its two facts do not.
+  const sampleReady = view.state === 'ready'
+  const sampleHasRemote = sampleReady && view.snapshot.remote !== null
+  const reposFacts = useCallback((repoTag: string): ReposMenuFacts => {
+    if (!hasSession(sessionId) || !sampleReady) return { canFetch: false }
+    // The sampled checkout is the only one whose remote is known; a worktree
+    // shares it, and a scanned foreign repository answers when asked.
+    return { canFetch: repoTag === repo ? sampleHasRemote : true }
+  }, [sessionId, repo, sampleReady, sampleHasRemote])
+  const reposCommandsRef = useRef<ReposMenuCommands>({ fetch: () => {} })
+  reposCommandsRef.current = { fetch: (repoTag: string): void => { if (hasSession(sessionId)) runRepoFetch(sessionId, repoTag) } }
+  const reposCommands = useCallback((): ReposMenuCommands => reposCommandsRef.current, [])
+
+  const panelMenu = usePanelMenu({
+    ctx, t, sessionId, repo, browseRoot: browseRootOf, useContextMenu, observe: menuSources,
+    isGit: isGitRoot, capabilities,
+    overviewCommands,
+    overviewFacts,
+    changesCommands,
+    changesFacts,
+    changesPick,
+    reposCommands,
+    reposFacts,
+    onCompareRevision: useCallback((value: TreeTargetValue) => openCompare('revision', value), [openCompare]),
+    onCompareRef: useCallback((value: TreeTargetValue) => openCompare('ref', value), [openCompare]),
+    onShowHistory: showHistory,
+    onQuote: quoteRun,
+  })
   // The browse-root dropdown exists whenever the list offers a second root,
   // follow config on or off: the config sets the session default, but the
   // dropdown is where a session opts the other way (park at a root while the
@@ -662,6 +826,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       t,
     })
 
+  // A row's menu: reveal and copy the checkout's absolute root (the platform's
+  // directory family, resolved per row) plus the remote check. The row names its
+  // own checkout — the menu must not follow the panel's later switch.
+  const repoRowMenu = panelMenu === undefined
+    ? undefined
+    : (choice: RepoChoice): Record<string, unknown> =>
+      panelMenu.bind(MENU_KIND.repos, { repo: choice.path, root: choice.root })
   const repositories = hasSession(sessionId)
     ? {
       choices: repoList,
@@ -669,6 +840,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       onChoose: chooseRepoGuarded,
       collapsed: reposCollapsed,
       onToggleCollapse: () => setReposCollapsed((v) => !v),
+      rowMenu: repoRowMenu,
     }
     : undefined
 
@@ -695,6 +867,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       tight: stackedTight,
       phone: layout.phone ?? false,
       repositories,
+      // Only the checkout the request was raised on may consume it: a
+      // repository switch drops the request instead of filtering the new tree by
+      // a path from the old one.
+      exactPath: historyRequest !== null && historyRequestApplies(historyRequest, sessionId, repo) ? historyRequest.path : undefined,
+      exactPathSeq: historyRequest !== null && historyRequestApplies(historyRequest, sessionId, repo) ? historyRequest.seq : undefined,
+      onClearExactPath: () => setHistoryRequest(null),
+      panelMenu,
+      menuCommandsRef: overviewCommandsRef,
+      menuFactsRef: overviewStateRef,
+      onQuote: quoteRun,
       t,
       })
       : undefined
@@ -720,7 +902,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     const snapshot = view.snapshot
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), onSetChangesView: (view) => writePanelConfigField(ctx, 'changesView', view), compact, stacked, cramped, repositories: compact ? undefined : repositories, t })
+        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), onSetChangesView: (view) => writePanelConfigField(ctx, 'changesView', view), compact, stacked, cramped, repositories: compact ? undefined : repositories, panelMenu, menuCommandsRef: changesCommandsRef, menuFactsRef: changesStateRef, menuPickRef: changesPickRef, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list
@@ -815,6 +997,18 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // Inert while a switch is in flight: the panes still show the previous
     // checkout, but every request is tagged with the next one, so a stage or a
     // discard clicked on the old list would land on the new work tree.
-    h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) }, body),
+    compare !== null && sessionId !== undefined && compareApplies(compare, sessionId, repo)
+      ? h(CompareHost, {
+        // Re-keyed on the checkout so a switch tears the flow down even when the
+        // effect above has not run yet. The gate is the render-time half: the
+        // child's effects run before this panel's cleanup, so a request that no
+        // longer names the current checkout must never reach the tree at all.
+        key: `compare:${sessionId}:${repo}`, remote: repoRemote, sessionId, request: compare,
+        compact, defaultDiffView: view.state === 'ready' ? view.snapshot.defaultDiffView : 'unified',
+        onClose: () => setCompare(null), t,
+      })
+      : null,
+    h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) },
+      h(PanelMenuContext.Provider, { value: panelMenu }, body)),
   ])
 }

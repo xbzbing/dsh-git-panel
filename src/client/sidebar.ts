@@ -21,6 +21,7 @@ import { NS } from './locales.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
 import type { SidebarRightTabDefinition, SidebarRightTabBodyProps } from './sidebar-types.js'
+import type { UseContextMenu } from './menu-types.js'
 
 /** This implementation's identity in the tab system, and the key the body and
  * title register under. */
@@ -176,6 +177,7 @@ function bodyFor(ctx: ClientCtx, t: (key: GitKey) => string): (props: SidebarRig
       t,
       host: 'sidebar',
       visible,
+      useContextMenu: (props as { useContextMenu?: UseContextMenu }).useContextMenu,
     })
   }
 }

@@ -14,6 +14,7 @@ An IDE-style Git panel in the conversation workspace: branches and commit histor
 - **Diff and source viewing**: unified / split / before / after views with syntax highlighting, word-level emphasis, on-demand context expansion, and <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> find-in-place.
 - **Narrow panel / mobile**: the layout adapts to the panel size, so it works in the sidebar and on a phone.
 - **Languages**: the UI follows the DSH system language: Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский and Português.
+- **Context menus** — right-click files, directories, images, branches, commits, changes and stashes to copy paths, reveal in the file manager, download / save as, stage or discard, switch branches, create tags, revert or reset, quote into the composer, or check the remote; destructive actions still ask twice.
 
 ## Repository
 

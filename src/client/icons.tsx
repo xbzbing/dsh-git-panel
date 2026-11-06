@@ -142,6 +142,11 @@ export function ArrowLeftIcon({ size }: IconProps): JSX.Element {
 }
 
 /** Funnel glyph for the compact branch/ref filter trigger. */
+/** Magnifier: the filter box of the comparison pickers. */
+export function SearchIcon({ size }: IconProps): JSX.Element {
+  return svg([h('circle', { key: 'a', cx: 7, cy: 7, r: 4.3 }), h('path', { key: 'b', d: 'M10.3 10.3 13.8 13.8' })], size, true)
+}
+
 export function FilterIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M2 3h12l-4.5 5.5V13L6.5 11V8.5z' })], size)
 }
@@ -177,6 +182,23 @@ export function UnstageAllIcon({ size }: IconProps): JSX.Element {
 /** A pencil: enter edit mode in the file browser. */
 export function EditIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M10.6 2.6l2.8 2.8-7.6 7.6-3.4.6.6-3.4z' }), h('path', { key: 'b', d: 'M9.2 4l2.8 2.8' })], size)
+}
+
+/** A clock with a counter-clockwise arrow: the file-history entry. */
+export function HistoryIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'a', d: 'M2.4 8a5.6 5.6 0 1 0 1.7-4' }),
+    h('path', { key: 'b', d: 'M2.4 2.2v3.2h3.2' }),
+    h('path', { key: 'c', d: 'M8 5.2V8l2.2 1.6' }),
+  ], size)
+}
+
+/** An arrow entering a box: put a reference into the session's composer. */
+export function QuoteIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'box', d: 'M9 2.6H3.6A1.6 1.6 0 0 0 2 4.2v8.2a1.6 1.6 0 0 0 1.6 1.6h8.2a1.6 1.6 0 0 0 1.6-1.6V7.4' }),
+    h('path', { key: 'arrow', d: 'M7.2 8.8L13.6 2.4M9.8 2.4h3.8v3.8' }),
+  ], size)
 }
 
 export function RefreshIcon({ size }: IconProps): JSX.Element {

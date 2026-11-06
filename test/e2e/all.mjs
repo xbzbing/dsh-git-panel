@@ -33,6 +33,11 @@ const RUNNERS = [
   // park, so a stale or in-flight pack is a real race rather than a sleep.
   'html-preview-lifecycle',
   'overview-detail-scroll',
+  'context-menu',
+  // The comparison flows: ref / revision pickers, the revision diff overlay and
+  // its Escape layering, the file-history chip against the other filters, and
+  // the capability gate that hides all three on an older host.
+  'compare-history',
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
   // The change list's flat / tree views (issue #99): directory rows and counts,
   // folding, directory-level stage and discard, the path filter, remembered view.

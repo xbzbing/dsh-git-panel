@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { DIFF_EXPAND_CONTEXT, type GitBranch, type GitCommit, type GitDiffPayload, type GitFileStat, type GitGraphNode, type GraphCommit, type DiffViewMode } from './types.js'
 import type { DiffMode } from './DiffView.js'
+import type { FileDiffTarget } from './overview-filediff.js'
 import { useVisibleRequest } from './use-visible-request.js'
 import { pageVisibility } from './visibility.js'
 import type { QueryKey } from './query-key.js'
@@ -26,6 +27,10 @@ export interface HistoryFilter {
   search: string
   /** File / path history search; mutually exclusive with `search` on the wire. */
   pathSearch?: string
+  /** One exact file whose history is shown (the "show Git history" entry); it
+   * replaces every other filter, and its menu entry is hidden unless the host
+   * declared `capabilities.pathHistory`. */
+  exactPath?: string
   author: string
   since: string
 }
@@ -236,6 +241,7 @@ export function useHistory(
         ...(f.ref ? { ref: f.ref } : {}),
         ...(f.search ? { search: f.search } : {}),
         ...(f.pathSearch?.trim() ? { pathSearch: f.pathSearch.trim() } : {}),
+        ...(f.exactPath !== undefined && f.exactPath !== '' ? { exactPath: f.exactPath } : {}),
         ...(f.author ? { author: f.author } : {}),
         ...(f.since ? { since: f.since } : {}),
       },
@@ -269,7 +275,7 @@ export function useHistory(
   }, [remote, sessionId, scope])
 
   const prevFilter = useRef(filter)
-  useVisibleRequest([scope, sessionId, ...queryKey, filter.ref, filter.search, filter.pathSearch?.trim() ?? '', filter.author, filter.since], visible, async (isCurrent) => {
+  useVisibleRequest([scope, sessionId, ...queryKey, filter.ref, filter.search, filter.pathSearch?.trim() ?? '', filter.exactPath ?? '', filter.author, filter.since], visible, async (isCurrent) => {
     seqRef.current += 1
     loadingRef.current = false
     currentPage.current = isCurrent
@@ -313,8 +319,13 @@ export function useHistory(
  * diffs. Owns an LRU `show` cache (immutable per hash) shared by the detail
  * pane and the hover card, the full-width file-diff overlay (generation-guarded
  * + Esc-to-close), and the hover fetch (debounced, unmount-safe).
+ *
+ * `menuOpen` is the shared context-menu popup's presence: the card is anchored
+ * to the pointer, so while a popup is up it would be drawn underneath it. The
+ * hook drops the card and refuses new ones for that stretch (see the two
+ * `menuOpenRef` reads below).
  */
-export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defaultDiffView: DiffViewMode, visible = true): {
+export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defaultDiffView: DiffViewMode, visible = true, menuOpen = false): {
   selected: GraphCommit | null
   detail: CommitDetail | null
   detailError: boolean
@@ -323,7 +334,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
    *  without refetching detail; no-op unless the hash matches the selection. */
   resyncSelected: (commit: GraphCommit) => void
   clearSelection: () => void
-  fileDiff: { path: string; hash: string; shortHash: string } | null
+  fileDiff: FileDiffTarget | null
   /** Diff text + its new-side line count (one query result; the gap logic
    * needs both, so they are stored and cleared together). */
   fileDiffData: GitDiffPayload | null
@@ -332,6 +343,8 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   setFileDiffMode: (m: DiffMode) => void
   fileDiffExpanded: boolean
   openFileDiff: (path: string, hash: string, shortHash: string, expand?: boolean) => void
+  /** Open the "compare with a revision" overlay: `<rev>` (old side) against the
+   * work tree. `label` names the old side in the header. */
   closeFileDiff: () => void
   hover: { commit: GraphCommit; x: number; y: number } | null
   hoverBody: string | null
@@ -341,7 +354,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   const [selected, setSelected] = useState<GraphCommit | null>(null)
   const [detail, setDetail] = useState<CommitDetail | null>(null)
   const [detailError, setDetailError] = useState(false)
-  const [fileDiff, setFileDiff] = useState<{ path: string; hash: string; shortHash: string } | null>(null)
+  const [fileDiff, setFileDiff] = useState<FileDiffTarget | null>(null)
   const [fileDiffData, setFileDiffData] = useState<GitDiffPayload | null>(null)
   const [fileDiffError, setFileDiffError] = useState(false)
   const [fileDiffMode, setFileDiffMode] = useState<DiffMode>(defaultDiffView)
@@ -437,11 +450,16 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   const hoverHash = useRef<string | null>(null)
   const visibleRef = useRef(visible)
   visibleRef.current = visible
+  // Read by the debounced timer and by the enter gesture: the popup can open
+  // or close between the pointer entering a row and the 260ms elapse.
+  const menuOpenRef = useRef(menuOpen)
+  menuOpenRef.current = menuOpen
 
   const onHoverEnter = useCallback((commit: GraphCommit, x: number, y: number) => {
+    if (menuOpenRef.current) return
     if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
     hoverTimer.current = setTimeout(() => {
-      if (!visibleRef.current || !pageVisibility.isVisible()) return
+      if (menuOpenRef.current || !visibleRef.current || !pageVisibility.isVisible()) return
       hoverHash.current = commit.hash
       setHover({ commit, x, y })
       const cached = detailCache.current.get(commit.hash)
@@ -466,6 +484,11 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   }, [])
 
   useEffect(() => { if (!visible) onHoverLeave() }, [visible, onHoverLeave])
+  // A right-click drops the card before the popup opens (the commit row's own
+  // handler); this covers the rest of the stretch — the pointer usually stays
+  // over the list, so moving across rows would otherwise raise a fresh card
+  // behind the open menu.
+  useEffect(() => { if (menuOpen) onHoverLeave() }, [menuOpen, onHoverLeave])
 
   // Clear a pending hover timer on unmount so it can't setState after teardown.
   useEffect(() => () => { if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current) }, [])

@@ -14,6 +14,7 @@ Ein Git-Panel im IDE-Stil für den Konversations-Arbeitsbereich: Branches und Co
 - **Diffs und Quelltext**: Ansichten vereinheitlicht / nebeneinander / vorher / nachher mit Syntaxhervorhebung, wortgenauer Hervorhebung, bei Bedarf aufklappbarem Kontext und Suche vor Ort mit <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>.
 - **Schmales Panel / Mobilgerät**: das Layout passt sich der Panelgröße an und funktioniert in der Seitenleiste wie auf dem Smartphone.
 - **Sprachen**: die Oberfläche folgt der DSH-Systemsprache: Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский und Português.
+- **Kontextmenüs** — Dateien, Verzeichnisse, Bilder, Zweige, Commits, Änderungen und Stashes per Rechtsklick: Pfade kopieren, im Dateimanager zeigen, herunterladen / sichern, einstufen oder verwerfen, Zweige wechseln, Tags anlegen, Revert oder Reset, in den Verfasser zitieren oder das Remote prüfen; destruktive Aktionen fragen nach.
 
 ## Repository
 

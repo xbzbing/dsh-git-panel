@@ -19,6 +19,7 @@ import type { GitPanelRemote } from './rpc.js'
 import { DIFF_EXPAND_CONTEXT } from './types.js'
 import { useGapExpander, type GapExpander } from './gap-expander.js'
 import { useImageDiff } from './image-diff-hook.js'
+import { imageSideLabel } from './menu-paths.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import type { GitKey } from './locales.js'
 import type { DiffBase, DiffMode } from './views/diff/diff-types.js'
@@ -63,11 +64,13 @@ interface DiffViewProps {
    * also the source for on-demand gap (hidden-context) expansion. */
   readonly remote?: GitPanelRemote
   readonly sessionId?: string
-  /** Diff base and, for `commit`, the commit to compare against. Kept as plain
-   * values (never an object built during render) so the memoized component is
-   * not invalidated on every parent render. */
+  /** Diff base and, for `commit` the commit or for `rev` the revision to
+   * compare against. Kept as plain values (never an object built during render)
+   * so the memoized component is not invalidated on every parent render. */
   readonly base?: DiffBase
   readonly commit?: string
+  /** The revision a `base: 'rev'` comparison reads its old side from. */
+  readonly rev?: string
   /** True while the toolbar's "expand all" is engaged. Only then can hidden
    * context be a surprise, so only then does the capped notice render. */
   readonly expanded?: boolean
@@ -83,7 +86,7 @@ interface DiffViewProps {
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-export const DiffView = memo(function DiffView({ visible = true, text, mode, path, remote, sessionId, base, commit, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
+export const DiffView = memo(function DiffView({ visible = true, text, mode, path, remote, sessionId, base, commit, rev, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
   const dismissedNotices = useDismissedNotices()
   const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
@@ -124,7 +127,7 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   const wantImage = imageable && (!svg || svgView === 'render')
   const image = useImageDiff(
     wantImage ? remote : undefined, wantImage ? sessionId : undefined, wantImage ? path : undefined,
-    wantImage ? base : undefined, wantImage ? commit : undefined, visible,
+    wantImage ? base : undefined, wantImage ? commit : undefined, wantImage ? rev : undefined, visible,
   )
 
   // In-diff Find (Ctrl/Cmd+F): matches are computed over every row of the
@@ -302,7 +305,13 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
         const res = image.res
         if (res.tooLarge === true) return h('div', { className: 'gp-empty' }, t('diff.tooLarge'))
         if (res.mime !== null && (res.old !== undefined || res.new !== undefined)) {
-          return h(ImageCompare, { oldUrl: res.old, newUrl: res.new, mode, t })
+          // The old side's download name names the revision it was read from.
+          const oldLabel = imageSideLabel(base, commit, rev)
+          return h(ImageCompare, {
+            oldUrl: res.old, newUrl: res.new, mode, t,
+            ...(path === undefined ? {} : { path }),
+            ...(oldLabel === undefined ? {} : { oldLabel }),
+          })
         }
       }
       // failed / unsupported / no sides.

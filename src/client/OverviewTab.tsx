@@ -24,6 +24,8 @@ import { buildBranchTree, buildLocalBranchSection, pinPrimaryFirst, primaryBranc
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime } from './time.js'
 import { useBranchTree, useCommitDetail, useHistory, type HistoryFilter } from './overview-hooks.js'
+import { useMenuActive } from './use-menu-active.js'
+import { searchPublish } from './history-filter.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
@@ -43,6 +45,9 @@ import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
 import { BranchScroll, renderBranchSheet, type BranchTrees } from './overview-branches.js'
+import type { OverviewMenuCommands, OverviewMenuFacts } from './overview-menu.js'
+import { MENU_KIND } from './menu-owners.js'
+import type { PanelMenu } from './menu-bindings.js'
 import { CommitRow, renderFileTree, renderHoverCard } from './overview-rows.js'
 import { renderFileDiffModal } from './overview-filediff.js'
 
@@ -89,6 +94,23 @@ interface OverviewProps {
    * band or drawer, compact drawer or sheet), so a pick never hides the
    * branches or the commit list. */
   readonly repositories?: RepositoriesHost
+  /** A file whose history is being shown (the "show Git history" entry): the
+   * history is filtered to this exact path until the chip is dismissed. */
+  readonly exactPath?: string
+  /** Changes on every "show Git history" request, including a repeat of the
+   * same path: the chip is a one-shot request, not a sticky filter. */
+  readonly exactPathSeq?: number
+  /** The panel drops its request when another filter takes over. */
+  readonly onClearExactPath?: () => void | null
+  /** The panel's menu face; branch and commit rows bind through it. */
+  readonly panelMenu?: PanelMenu
+  /** Refs the panel owns: the tab publishes its runs and busy flag into them
+   * each render, and the menu owner reads them at resolve time. */
+  readonly menuCommandsRef?: { current: OverviewMenuCommands | null }
+  readonly menuFactsRef?: { current: OverviewMenuFacts }
+  /** The panel's quote run (composer first, clipboard fallback) — the commit
+   * row's menu entry uses it; the tab has no composer of its own. */
+  readonly onQuote?: (text: string) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -135,7 +157,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, exactPathSeq, onClearExactPath, panelMenu, menuCommandsRef, menuFactsRef, onQuote, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   // Latest snapshot for late replies: a direct status-bar write (pull / push /
   // clean switch) has no dialog, so nothing else would stop its failure from
@@ -144,6 +166,51 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const snapRef = useRef(snapshot)
   snapRef.current = snapshot
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
+  // The file-history chip rides the same filter object: exactPath excludes every
+  // other filter on the wire, so setting it clears the rest (and vice versa —
+  // any other filter write drops the chip; see writeFilter below). The request
+  // sequence is what makes a repeat meaningful: asking for the same file twice
+  // closes the chip in between, and a path alone would not change.
+  const appliedChipSeq = useRef<number | undefined>(undefined)
+  // The panel withdraws the request when the checkout changes or a control takes
+  // over. The local filter has to follow: the chip names a path in one checkout,
+  // and leaving it set would filter the next one by a path it never had.
+  useEffect(() => {
+    if (exactPath !== undefined || appliedChipSeq.current === undefined) return
+    appliedChipSeq.current = undefined
+    setFilter((prev) => (prev.exactPath === undefined ? prev : { ...prev, exactPath: undefined }))
+  }, [exactPath])
+  useEffect(() => {
+    // Apply once per request. Clearing the request from the panel's side (a
+    // control took over, or the repository switched) must not re-apply an old
+    // chip: the local filter was already cleared by whoever did the clearing,
+    // and re-running here would race that write and put the chip back.
+    if (exactPath === undefined || exactPathSeq === undefined) return
+    if (appliedChipSeq.current === exactPathSeq) return
+    appliedChipSeq.current = exactPathSeq
+    // The chip replaces every other filter, the text one included. Emptying the
+    // box here also kills the pending debounce: without it, a search typed just
+    // before the click would publish a moment later, `searchPublish` would drop
+    // the chip, and the click would look like it never happened.
+    setSearchInput('')
+    setFilter((prev) => ({ ...prev, exactPath, ref: null, search: '', pathSearch: '', author: '', since: '' }))
+  }, [exactPath, exactPathSeq])
+  // The debounce below runs in a timer, outside the render phase, so it reads
+  // the current chip state through a ref instead of taking it as a dependency
+  // (a dependency would restart the timer on every filter write).
+  const filterRef = useRef(filter)
+  filterRef.current = filter
+  const clearChipRef = useRef<(() => void) | undefined>(onClearExactPath)
+  clearChipRef.current = onClearExactPath
+  /** Drop the file-history chip: the panel's request goes with it, so a new
+   * request for the same path is a new request. */
+  const clearChip = useCallback((): void => { clearChipRef.current?.() }, [])
+  /** Write a filter from a control. The chip is exclusive with every other
+   * filter on the wire (the host rejects the combination), so the write drops it. */
+  const writeFilter = useCallback((patch: Partial<HistoryFilter>): void => {
+    if (filterRef.current.exactPath !== undefined) clearChip()
+    setFilter((prev) => ({ ...prev, ...patch, ...(prev.exactPath === undefined ? {} : { exactPath: undefined }) }))
+  }, [clearChip])
   const [searchInput, setSearchInput] = useState('')
   const [searchScope, setSearchScope] = useState<HistorySearchScope>('message')
   /** Menu open state per filter: Menu is controlled and never closes itself. */
@@ -182,6 +249,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Commit-undo targets (revert confirm + reset mode dialog), each a selected commit.
   const [revertTarget, setRevertTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   const [resetTarget, setResetTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
+  const [checkoutTarget, setCheckoutTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
   // In-flight guard so a double-click on confirm can't fire two tag RPCs.
   const [opBusy, setOpBusy] = useState(false)
@@ -295,7 +363,32 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     if (!snapshot.dirty) { void runBranchSwitch(option, false); return }
     setSwitchTarget(option)
   }
-  const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
+  // The shared popup is an overlay above everything the panel draws, including
+  // the pointer-anchored commit card: keep the card out of its way while it is
+  // open instead of letting it peek out from underneath.
+  const menuOpen = useMenuActive(panelMenu?.active)
+  const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible, menuOpen)
+  // Branch rows bind through the panel's face; the value carries only what the
+  // menu needs, and the panel adds the identity at gesture time.
+  const branchMenu = useMemo(
+    () => (panelMenu === undefined
+      ? undefined
+      : (value: { name: string; isCurrent: boolean; isRemote: boolean }) => panelMenu.bind(MENU_KIND.branch, value)),
+    [panelMenu],
+  )
+  const commitMenu = useMemo(
+    () => (panelMenu === undefined
+      ? undefined
+      : (commit: { hash: string; shortHash: string; subject: string }) => panelMenu.bind(MENU_KIND.commit, commit, {
+        // A right-click drops the hover card first: it is drawn at the cursor,
+        // so the menu would open over its own text. The platform runs this
+        // handler before its own and still opens the menu.
+        onContextMenu: () => detail.onHoverLeave(),
+      })),
+    // `onHoverLeave` is stable for the life of the hook (useCallback with no deps).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [panelMenu, detail.onHoverLeave],
+  )
   const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore, pathSearchSupport, pathSearchUnsupported } = useHistory(
     remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
   )
@@ -320,8 +413,36 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }
   }
   const opScopeRef = useRef<string | null>(null)
-  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null
+  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null
   const opInFlight = opBusy || switchBusy
+  // The runs the menu offers, closing over this render's state (the owner reads
+  // the published object at resolve time, so a fresh one each render is enough).
+  const overviewMenuCommands: OverviewMenuCommands = {
+    switchBranch: (value) => {
+      const option = switchOptions.get(`${value.isRemote ? 'remote' : 'local'}:${value.name}`)
+      if (option !== undefined) openSwitch(option)
+    },
+    filterRef: (ref) => setRef(ref),
+    openTagCreate: (value) => { setOpError(null); setTagForm({ hash: value.hash, shortHash: value.shortHash }) },
+    openRevert: (value) => { setOpError(null); setRevertTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
+    openReset: (value) => { setOpError(null); setResetTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
+    openCheckout: (value) => { setOpError(null); setCheckoutTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
+    quote: onQuote ?? (() => {}),
+  }
+  // Publish the overview's runs and busy flag for the menu owner. A fresh object
+  // each render is the contract: the owner reads the published one at resolve
+  // time, so whatever this render built is what the menu runs.
+  if (menuCommandsRef !== undefined) menuCommandsRef.current = overviewMenuCommands
+  if (menuFactsRef !== undefined) {
+    // The host capability travels with the facts: the owner gates the checkout
+    // entry on it, and a host without the action must not be offered an entry
+    // whose run it would reject.
+    menuFactsRef.current = {
+      busy: opInFlight,
+      head: snapshot.head,
+      commitCheckout: snapshot.capabilities?.commitCheckout === true,
+    }
+  }
   useEffect(() => {
     if (!opDialogOpen) { opScopeRef.current = null; return }
     // An in-flight write keeps its dialog: the failure text renders only inside
@@ -359,14 +480,20 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // One debounce publishes the scope and text together, so the request never
   // combines a previous message filter with the new path filter.
   useEffect(() => {
-    const timer = setTimeout(() => setFilter((prev) => {
+    const timer = setTimeout(() => {
       const search = searchScope === 'message' ? searchInput : ''
       const pathSearch = searchScope === 'path' ? searchInput : ''
-      return prev.search === search && (prev.pathSearch ?? '') === pathSearch
-        ? prev : { ...prev, search, pathSearch }
-    }), 300)
+      // Nothing new to publish: the first tick after a mount lands here, and it
+      // must not take a file-history chip down with it (see history-filter.ts).
+      const next = searchPublish(filterRef.current, search, pathSearch)
+      if (next === null) return
+      if (next.dropsChip) clearChip()
+      setFilter((current) => ({
+        ...current, ...(current.exactPath === undefined ? {} : { exactPath: undefined }), search: next.search, pathSearch: next.pathSearch,
+      }))
+    }, 300)
     return () => clearTimeout(timer)
-  }, [searchInput, searchScope])
+  }, [searchInput, searchScope, clearChip])
 
   // The published topology signals projection mode. An older host may omit it;
   // use the shared query predicate as a conservative fallback for those rows.
@@ -448,7 +575,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // ignores the value. The split is shared across the three stacked surfaces.
   const split = useStackedSplit(t('resizer.resetHeight'))
 
-  const setRef = (ref: string | null): void => setFilter((prev) => ({ ...prev, ref }))
+  const setRef = (ref: string | null): void => writeFilter({ ref })
 
   // Tag write ops go straight through `run` (the work tree is untouched, so no
   // snapshot is needed); afterTagOp reloads the history graph + branch/tag list.
@@ -483,6 +610,16 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onAction,
       { kind: 'revert', commit: revertTarget.hash },
       () => setRevertTarget(null),
+      t('error.generic'),
+    )
+  }
+  const runCheckout = (): Promise<void> => {
+    if (checkoutTarget === null) return Promise.resolve()
+    return runSnapshotAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      onAction,
+      { kind: 'commit-checkout', commit: checkoutTarget.hash },
+      () => setCheckoutTarget(null),
       t('error.generic'),
     )
   }
@@ -600,7 +737,13 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     mode: detail.fileDiffMode,
     onMode: detail.setFileDiffMode,
     expanded: detail.fileDiffExpanded,
-    onExpand: (expand) => { if (detail.fileDiff !== null) detail.openFileDiff(detail.fileDiff.path, detail.fileDiff.hash, detail.fileDiff.shortHash, expand) },
+    onExpand: (expand) => {
+      const target = detail.fileDiff
+      // The overview's own dialog only ever holds a commit; the revision shape
+      // belongs to compare-host, which renders this modal itself.
+      if (target === null || !('hash' in target)) return
+      detail.openFileDiff(target.path, target.hash, target.shortHash, expand)
+    },
     onClose: detail.closeFileDiff,
     pathFeedback: pathCopy.feedback,
     onCopyPath: pathCopy.copy,
@@ -644,6 +787,19 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       confirmBusy: opBusy,
       onConfirm: () => void runRevert(),
       onClose: () => setRevertTarget(null),
+      t,
+    }) : null,
+    checkoutTarget !== null ? renderConfirmModal({
+      title: t('checkout.title'),
+      // HEAD moves, the work tree does not: say so, because "detached" is the
+      // part a user is least likely to expect.
+      body: t('checkout.body') + `\n\n${checkoutTarget.shortHash} ${checkoutTarget.subject}`,
+      confirmLabel: t('checkout.confirm'),
+      danger: false,
+      error: opError,
+      confirmBusy: opBusy,
+      onConfirm: () => void runCheckout(),
+      onClose: () => setCheckoutTarget(null),
       t,
     }) : null,
     resetTarget !== null ? renderResetModal(resetTarget, {
@@ -717,7 +873,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     selectedId: filter.author,
     onSelect: (id: string) => {
       setAuthorOpen(false)
-      setFilter((prev) => ({ ...prev, author: id }))
+      writeFilter({ author: id })
     },
     align: 'start',
     portal: true,
@@ -732,7 +888,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     selectedId: filter.since,
     onSelect: (id: string) => {
       setSinceOpen(false)
-      setFilter((prev) => ({ ...prev, since: id }))
+      writeFilter({ since: id })
     },
     align: 'start',
     portal: true,
@@ -751,6 +907,21 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     labelNarrow: searchNarrow || compact || (!stacked && scopeLabelNarrow),
     onChange: setSearchInput, onScopeChange: changeScope, t,
   })
+  // The file-history chip: the filter takes over the page (see the effect that
+  // writes `exactPath`), so it is stated above the list and dismissed with one
+  // click rather than left to look like an empty repository.
+  const exactPathEl = filter.exactPath === undefined || filter.exactPath === ''
+    ? null
+    : h('button', {
+      key: 'filepath', type: 'button', className: 'gp-chip gp-chip--filter',
+      title: `${t('menu.clearFileHistory')} · ${t('menu.noRenameNote')}`,
+      'aria-label': `${t('menu.fileHistory')} ${filter.exactPath} · ${t('menu.clearFileHistory')} · ${t('menu.noRenameNote')}`,
+      onClick: () => { clearChip(); setFilter((prev) => ({ ...prev, exactPath: undefined })); detail.clearSelection() },
+    }, [
+      h('span', { key: 'k', className: 'gp-chip__key' }, t('menu.fileHistory')),
+      h('span', { key: 'v', className: 'gp-chip__value' }, filter.exactPath),
+      h('span', { key: 'x', className: 'gp-chip__x', 'aria-hidden': 'true' }, '×'),
+    ])
   const secondaryFilters: JSX.Element[] = [authorMenu, sinceMenu, fetchButton]
   // Tight stacked: the left column does not occupy the band, so its only entry
   // is the toolbar's leftmost button — the drawer slides out over the history.
@@ -805,6 +976,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // handler still reads the scroll box itself, and the row-slider fill measures
   // against the same node.
   const { setEl: trackList, viewport } = useViewportTracker()
+  // (the chip sits directly above the history scroller — see historyBody)
   const attachList = useCallback((el: HTMLDivElement | null): void => {
     listRef.current = el
     trackList(el)
@@ -833,6 +1005,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       key: 'path-unsupported', text: t('overview.searchPathUnsupported'), closeLabel: t('common.close'), status: true,
       onClose: () => dismissedNotices.dismiss('path-search-unsupported'),
     }) : null,
+    exactPathEl,
     h('div', { key: 'list', className: 'gp-history__list', ref: attachList, onScroll }, [
       commitSlider.slider,
       commits.length === 0
@@ -852,6 +1025,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             // defeat the memo and rebuild every row's graph on any hover.
             onSelect: selectCommit,
             onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
+            menu: commitMenu,
             t,
           })))),
     ]),
@@ -951,7 +1125,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // sheet — so every layout switches checkouts from the same place.
   const reposBlock = repositories === undefined
     ? null
-    : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, t })
+    : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, rowMenu: repositories.rowMenu, t })
 
   if (stacked) {
     const branchList = h(BranchScroll, { key: 'scroll', tree, treeError, activeRef: filter.ref, closed: closedSections, cbs: {
@@ -961,7 +1135,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onSwitch: openSwitch,
       onToggle: toggleSection,
       onRetry: reloadTree,
-      t,
+      menu: branchMenu,
+            t,
     }, trees: branchTrees })
     const status = renderStatusBar(snapshot, statusCbs)
     const leftChildren: JSX.Element[] = [
@@ -1018,7 +1193,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
             onToggle: toggleSection,
             onRetry: reloadTree,
-            t,
+            menu: branchMenu,
+                  t,
           }, trees: branchTrees }),
         ],
         t,
@@ -1046,7 +1222,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onToggle: toggleSection,
         onRetry: reloadTree,
         onClose: () => setSheetOpen(false),
-        t,
+        menu: branchMenu,
+              t,
       }, branchTrees, reposBlock) : null,
     ])
   }
@@ -1065,7 +1242,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onSwitch: openSwitch,
         onToggle: toggleSection,
         onRetry: reloadTree,
-        t,
+        menu: branchMenu,
+              t,
       }, trees: branchTrees }),
       renderStatusBar(snapshot, statusCbs),
     ]),

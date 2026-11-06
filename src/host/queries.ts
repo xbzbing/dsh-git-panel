@@ -2,10 +2,11 @@
  * Read-only query endpoint: history / diff / image-diff / show / branches /
  * tags / authors / last-commit-message / worktree-stats.
  */
-import { join, sep } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { listSessionRepos, mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
-import { historyPathspec, isSafePath, isSafeRev, validateHistoryPathSearch } from './validate.js'
+import { exactPathspec, historyPathspec, isGitInternalPath, isSafePath, isSafeRev, validateHistoryPathSearch } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
@@ -130,8 +131,22 @@ async function queryHistory(
   if (search !== '' && pathSearch !== '') {
     return { ok: false, error: { code: 'invalid-name', message: 'history search fields are mutually exclusive' } }
   }
-  const hexJump = pathSearch === '' && isHistoryHashSearch(search)
-  const filtered = isHistoryFiltered({ ...q, pathSearch })
+  // The file-history filter names one exact repository path. It is exclusive
+  // with every other filter: the substring search answers "which commits touch
+  // something like this", the exact path answers "what happened to this file",
+  // and a menu that asks the second never wants the first misread.
+  let exactPath: string | null = null
+  if (q.exactPath !== undefined) {
+    if (typeof q.exactPath !== 'string' || !isSafePath(q.exactPath) || /[\x00-\x1f\x7f-\x9f]/.test(q.exactPath)) {
+      return { ok: false, error: { code: 'invalid-name', message: `unsafe exact path: ${q.exactPath}` } }
+    }
+    if (q.exactPath === '' || pathSearch !== '' || search !== '' || q.author !== undefined || q.since !== undefined) {
+      return { ok: false, error: { code: 'invalid-name', message: 'history search fields are mutually exclusive' } }
+    }
+    exactPath = q.exactPath
+  }
+  const hexJump = pathSearch === '' && exactPath === null && isHistoryHashSearch(search)
+  const filtered = isHistoryFiltered({ ...q, pathSearch: pathSearch || (exactPath !== null ? exactPath : undefined) })
   // Exactly the flags pushed below (one source, so they can never disagree). An
   // effective filter hides commits — and therefore parents — from the page
   // itself, which is what makes the raw-ancestry walk necessary; a ref-only walk
@@ -166,6 +181,7 @@ async function queryHistory(
     }
     filters.push('--')
     if (pathSearch !== '') filters.push(historyPathspec(pathSearch))
+    else if (exactPath !== null) filters.push(exactPathspec(exactPath))
     args.push(...filters)
     countArgs.push(...filters)
   } else {
@@ -230,6 +246,10 @@ async function queryDiff(
   q: Extract<GitQueryRequest['query'], { kind: 'diff' }>,
 ): Promise<GitQueryResponse> {
   if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  // Git's own directory is metadata, not workspace content — and the untracked
+  // fallback below compares with `--no-index`, which bypasses git's exclusion
+  // and would read `config` (with its remote URL) out as a new file.
+  if (isGitInternalPath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   // Context lines around each change; DIFF_CONTEXT_MAX shows the whole file
   // (expand-all). Clamp to a sane ceiling to bound output.
   const ctx = q.context !== undefined && Number.isFinite(q.context)
@@ -242,14 +262,47 @@ async function queryDiff(
   } else if (q.base === 'commit') {
     if (!isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
     args = ['git', 'show', unified, FIRST_PARENT_DIFF, '--end-of-options', q.commit, '--', q.path]
-  } else {
+  } else if (q.base === 'rev') {
+    // "Compare with a revision": old side `<rev>`, new side the working file.
+    // Full refs (refs/heads/x, refs/remotes/o/x, refs/tags/x) ride in the
+    // caller's value; a bare name stays bare — `--end-of-options` plus the
+    // trailing `--` keep it an operand either way.
+    if (!isSafeRev(q.rev)) return { ok: false, error: { code: 'invalid-name', message: `unsafe rev: ${q.rev}` } }
+    // A revision comparison is one file. A directory path answers with a
+    // multi-file diff, which this single-pane reply cannot express: the view
+    // would draw the second file's headers as a changed line. Reject it here so
+    // a caller that offers the entry anyway gets an error instead of nonsense.
+    const stat = await deps.fs.stat(join(root, q.path)).catch(() => null)
+    if (stat !== null && stat.isDirectory()) {
+      return { ok: false, error: { code: 'invalid-path', message: `not a file: ${q.path}` } }
+    }
+    // The working path may be gone (a directory deleted here, still present in
+    // the revision): ask the revision what its own entry is.
+    if (await revSideIsTree(deps, root, `${q.rev}:${q.path}`)) {
+      return { ok: false, error: { code: 'invalid-path', message: `not a file in ${q.rev}: ${q.path}` } }
+    }
+    args = ['git', 'diff', unified, '--end-of-options', q.rev, '--', q.path]
+  } else if (q.base === 'worktree') {
     // worktree: unstaged diff; for untracked files use --no-index against /dev/null.
     args = ['git', 'diff', unified, '--', q.path]
+  } else {
+    // An unknown base must not silently become a work-tree diff: the caller
+    // asked for a comparison against something this host does not model, and
+    // the work-tree answer would read as the right shape with wrong content.
+    return { ok: false, error: { code: 'invalid-name', message: `unknown diff base` } }
   }
   const res = await runCommand(deps.run, args, root, 'diff', deps.signal)
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
   if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
   if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  // `git diff <rev>` answers a revision it does not know (a branch deleted since
+  // the picker listed it) with `fatal: bad revision` and *empty* stdout, exit
+  // 128. Serving that would read as "no differences" against a ref that does not
+  // exist. The staged and work-tree forms have no operand to get wrong — an
+  // unmatched pathspec exits 0 there — so the same check is a no-op for them.
+  if (res.run.exitCode !== 0) {
+    return { ok: false, error: { code: 'git-error', message: res.run.stderr.trim() || 'git diff failed' } }
+  }
   // A lossy run dropped output at the runner's collect/spill ceiling, and a
   // lossy read keeps the stream's *tail*: this single-file diff lost its header
   // and opening hunks, so what survived starts mid-diff. Surviving hunks still
@@ -264,14 +317,33 @@ async function queryDiff(
   // A truly untracked file produces no `git diff` output; synthesize one with
   // --no-index. Gate on the file being untracked (ls-files --error-unmatch
   // fails for it) so a clean *tracked* path isn't rendered as an all-new file.
-  if (q.base === 'worktree' && text.trim() === '') {
+  if (q.base === 'worktree' || q.base === 'rev') {
     const tracked = await runCommand(deps.run, ['git', 'ls-files', '--error-unmatch', '--', q.path], root, 'diff-tracked-probe', deps.signal)
     const isUntracked = !('run' in tracked) || tracked.run.exitCode !== 0
     if (isUntracked) {
-      const noIndex = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
-      if ('run' in noIndex) {
-        truncated = truncated || noIndex.run.stdoutLossy
-        text = noIndex.run.stdout
+      // A revision comparison of an untracked path is the case `git diff <rev>`
+      // cannot answer: it compares the rev's tree with the *index*, so the path
+      // reads as a deletion of the rev's blob and the working file never shows.
+      // Compose that one by hand; it falls back to the empty-side form below
+      // when the rev has no such path either.
+      const synthesized = q.base === 'rev' ? await revBlobAgainstWorktree(deps, root, q, unified) : null
+      // The revision holds the path but its blob cannot be put side by side
+      // with the working file: serving the caller's `git diff <rev>` answer
+      // would silently show "deleted" for a file that exists. Say what happened.
+      if (synthesized !== null && synthesized.kind === 'failed') {
+        return { ok: false, error: { code: 'git-error', message: 'compare unavailable' } }
+      }
+      if (synthesized !== null && synthesized.kind === 'diff') {
+        truncated = truncated || synthesized.truncated
+        text = synthesized.text
+      } else if (text.trim() === '') {
+        // No old side to compare against (`none`, or a work-tree diff with no
+        // output): the path is all-new.
+        const noIndex = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
+        if ('run' in noIndex) {
+          truncated = truncated || noIndex.run.stdoutLossy
+          text = noIndex.run.stdout
+        }
       }
     }
   }
@@ -282,6 +354,100 @@ async function queryDiff(
       newLines: await countNewSideLines(deps, root, q, text),
       ...(truncated ? { truncated: true as const } : {}),
     },
+  }
+}
+
+/**
+ * A scratch name for the synthesized old side: unique per call, so two panels
+ * comparing at once cannot collide. It lives in the repository's own git
+ * directory — `<root>/.git` is a *file* in a linked worktree or submodule, and
+ * writing there would fail — which also keeps it out of the working tree, so it
+ * can never show up as an untracked change of the very repository being
+ * compared.
+ */
+async function compareScratchPath(deps: SnapshotDeps, root: string, path: string): Promise<string | null> {
+  const res = await runCommand(deps.run, ['git', 'rev-parse', '--git-path', '.'], root, 'compare-scratch-dir', deps.signal)
+  if (!('run' in res) || res.run.exitCode !== 0) return null
+  const dir = res.run.stdout.trim()
+  if (dir === '') return null
+  // A linked worktree answers with an absolute path under the main checkout's
+  // git directory; a plain repository answers `.git`.
+  const base = isAbsolute(dir) ? dir : join(root, dir)
+  // A random leaf, not `pid`+counter: a process killed between the write and
+  // the unlink leaves the file behind, and a later run could reuse the same
+  // name (pid reuse) only to fail on `wx` and degrade to an error. The random
+  // name makes a collision impossible in practice.
+  const leaf = path.replace(/[\\/]+/g, '-').replace(/[^A-Za-z0-9._-]/g, '_').slice(-60)
+  return join(base, `gp-compare-${randomUUID()}-${leaf}`)
+}
+
+/** How the synthesized old side of a revision comparison came out.
+ *
+ * `none` is "there is nothing to synthesize": the revision has no such path,
+ * or the working file is gone (a staged `git rm`), and the caller's own
+ * `git diff <rev>` answer is the right one. `failed` is *not* the same thing:
+ * the revision holds content, so falling back to the caller's "deleted" answer
+ * would be a lie about a file that exists.
+ */
+type RevSideResult =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'diff'; readonly text: string; readonly truncated: boolean }
+  | { readonly kind: 'failed' }
+
+/**
+ * Whether a revision stores a directory at the repository-relative path.
+ * A single-file comparison cannot express a tree (its diff lists more than one
+ * file), and the working path may be gone while the revision still has one.
+ */
+async function revSideIsTree(deps: SnapshotDeps, root: string, spec: string): Promise<boolean> {
+  const res = await runCommand(deps.run, ['git', 'cat-file', '-t', '--end-of-options', spec], root, 'rev-side-type', deps.signal)
+  return 'run' in res && res.run.exitCode === 0 && res.run.stdout.trim() === 'tree'
+}
+
+/**
+ * The old side of a revision comparison when the working path is untracked:
+ * `git diff <rev> -- <path>` compares the rev's tree against the index and
+ * reports the path as deleted, which is true about the index and wrong about
+ * what the user asked for. Write the rev's blob to a scratch file and let
+ * `--no-index` compare it with the working file, so both sides are real.
+ */
+async function revBlobAgainstWorktree(
+  deps: SnapshotDeps,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'diff'; base: 'rev' }>,
+  unified: string,
+): Promise<RevSideResult> {
+  if (!isSafeRev(q.rev)) return { kind: 'failed' }
+  const spec = `${q.rev}:${q.path}`
+  const blob = await runCommand(deps.run, ['git', 'cat-file', '-e', '--end-of-options', spec], root, 'rev-old-probe', deps.signal)
+  if (!('run' in blob) || blob.run.exitCode !== 0) return { kind: 'none' }
+  const old = await runCommand(deps.run, ['git', 'show', '--end-of-options', spec], root, 'rev-old-side', deps.signal)
+  if (!('run' in old) || old.run.exitCode !== 0 || old.run.stdoutLossy) return { kind: 'failed' }
+  const scratch = await compareScratchPath(deps, root, q.path)
+  if (scratch === null) return { kind: 'failed' }
+  try {
+    await deps.fs.writeExclusive(scratch, Buffer.from(old.run.stdout, 'utf8'), 0o600)
+  } catch {
+    return { kind: 'failed' }
+  }
+  try {
+    // The path may be gone from the working tree (a staged `git rm`): `--no-index`
+    // then has a face to compare against nothing and its output is not the
+    // two-sided answer the view needs. The revision still has content and the
+    // caller's own `git diff <rev> -- path` already described the deletion.
+    const stat = await deps.fs.stat(join(root, q.path)).catch(() => null)
+    if (stat === null) return { kind: 'none' }
+    const rel = relative(root, scratch)
+    const res = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', rel, q.path], root, 'diff-untracked', deps.signal)
+    // `--no-index` exits 0 and prints nothing when the two sides are identical.
+    // That is a valid answer (an empty diff), not a missing one: otherwise the
+    // caller keeps the deletion hunk the first command produced.
+    if (!('run' in res)) return { kind: 'failed' }
+    return { kind: 'diff', text: res.run.stdout, truncated: res.run.stdoutLossy }
+  } finally {
+    // A leftover scratch file inside .git is invisible but wrong to leave
+    // behind; a failed unlink must not turn a served diff into an error.
+    await deps.fs.unlink(scratch).catch(() => {})
   }
 }
 
@@ -298,6 +464,17 @@ async function queryDiff(
  * DIFF_COUNT_READ_MAX): the view then hides the trailing expand control rather
  * than offering one that could not reveal anything.
  */
+/** The version a diff's new side comes from: the work tree for a work-tree or
+ * revision comparison (a revision is the OLD side), the index for staged, the
+ * commit for a stored diff. `file-lines` and the line count read through this,
+ * so neither can describe a different file than the diff did. */
+function newSideQuery(
+  q: Extract<GitQueryRequest['query'], { kind: 'diff' }>,
+): Extract<GitQueryRequest['query'], { kind: 'diff' }> {
+  if (q.base !== 'rev') return q
+  return { kind: 'diff', path: q.path, base: 'worktree', ...(q.context === undefined ? {} : { context: q.context }) }
+}
+
 async function countNewSideLines(
   deps: SnapshotDeps,
   root: string,
@@ -309,7 +486,7 @@ async function countNewSideLines(
   if (!diffText.includes('@@')) return 0
   // The working file is read by us, uncapped by the runner: bound the read that
   // only feeds this count (file-lines, the expansion path, stays uncapped).
-  const side = await readNewSide(deps, root, q, { worktreeMaxBytes: DIFF_COUNT_READ_MAX })
+  const side = await readNewSide(deps, root, newSideQuery(q), { worktreeMaxBytes: DIFF_COUNT_READ_MAX })
   if (!side.ok || side.text === null) return 0
   return countLines(side.text)
 }
@@ -398,6 +575,9 @@ async function readNewSide(
     return { ok: true, text: 'text' in read ? read.text : null }
   }
   if (q.base === 'commit' && !isSafeRev(q.commit)) return { ok: false, code: 'invalid-name', message: `unsafe commit: ${q.commit}` }
+  // A revision comparison's new side is the work tree; reading the index here
+  // would reveal stale lines. Callers map the base before asking (newSideQuery).
+  if (q.base === 'rev') return { ok: false, code: 'invalid-name', message: 'rev base has no stored new side' }
   const spec = q.base === 'commit' ? `${q.commit}:${q.path}` : `:${q.path}`
   const res = await runCommand(deps.run, ['git', 'show', '--end-of-options', spec], root, 'new-side', deps.signal)
   if (!('run' in res)) return { ok: false, code: 'git-unavailable', message: 'git unavailable' }
@@ -507,16 +687,48 @@ async function queryImageDiff(
   q: Extract<GitQueryRequest['query'], { kind: 'image-diff' }>,
 ): Promise<GitQueryResponse> {
   if (!isSafePath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  if (isGitInternalPath(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   if (q.base === 'commit' && !isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
+  if (q.base === 'rev' && !isSafeRev(q.rev)) return { ok: false, error: { code: 'invalid-name', message: `unsafe rev: ${q.rev}` } }
   const mime = imageMimeFor(q.path)
   if (mime === null) return { ok: true, value: { kind: 'image-diff', path: q.path, mime } }
+  // One picture, not a directory: a directory name can still end in an image
+  // suffix (`assets.png/`), and a revision-side tree resolves to an oid that
+  // blobSide cannot read — a half-answer the view draws as a broken side.
+  const stat = await deps.fs.stat(join(root, q.path)).catch(() => null)
+  if (stat !== null && stat.isDirectory()) {
+    return { ok: false, error: { code: 'invalid-path', message: `not a file: ${q.path}` } }
+  }
+  if ((q.base === 'rev' || q.base === 'commit')
+    && await revSideIsTree(deps, root, `${q.base === 'rev' ? q.rev : q.commit}:${q.path}`)) {
+    return { ok: false, error: { code: 'invalid-path', message: `not a file: ${q.path}` } }
+  }
 
-  const oldSpec = q.base === 'staged' ? `HEAD:${q.path}` : q.base === 'commit' ? `${q.commit}^1:${q.path}` : `:${q.path}`
+  // Old side: the stored version being compared against; the work tree for a
+  // revision comparison, whose picture is read from disk like the work-tree case.
+  const oldSpec = q.base === 'staged'
+    ? `HEAD:${q.path}`
+    : q.base === 'commit' ? `${q.commit}^1:${q.path}` : q.base === 'rev' ? `${q.rev}:${q.path}` : `:${q.path}`
   const newSpec = q.base === 'staged' ? `:${q.path}` : q.base === 'commit' ? `${q.commit}:${q.path}` : null
   const [oldOid, newOid] = await Promise.all([
     resolveOid(deps, root, oldSpec),
     newSpec === null ? Promise.resolve(undefined) : resolveOid(deps, root, newSpec),
   ])
+
+  // A path the revision does not carry is a legitimate one-sided answer (the
+  // picture arrived later); a revision the repository does not know is not.
+  // Both leave `oldOid` undefined, and only asking the revision itself tells
+  // them apart — without this the work-tree side alone would render as "added".
+  if (oldOid === undefined && (q.base === 'rev' || q.base === 'commit')) {
+    const rev = q.base === 'rev' ? q.rev : q.commit
+    const known = await runCommand(deps.run, ['git', 'rev-parse', '--verify', '--end-of-options', `${rev}^{commit}`], root, 'rev-exists', deps.signal)
+    if (!('run' in known)) return { ok: false, error: { code: 'git-unavailable' } }
+    if (known.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+    if (known.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+    if (known.run.exitCode !== 0) {
+      return { ok: false, error: { code: 'git-error', message: `unknown revision: ${rev}` } }
+    }
+  }
 
   const cap = config.maxBytes
   const gitDir = oldOid !== undefined || newOid !== undefined ? await absoluteGitDir(deps, root) : ''
@@ -524,7 +736,7 @@ async function queryImageDiff(
     oldOid === undefined ? Promise.resolve(undefined) : blobSide(deps, gitDir, oldOid, cap),
     newOid !== undefined
       ? blobSide(deps, gitDir, newOid, cap)
-      : q.base === 'worktree' ? worktreeSide(deps, root, q.path, cap) : Promise.resolve(undefined),
+      : q.base === 'worktree' || q.base === 'rev' ? worktreeSide(deps, root, q.path, cap) : Promise.resolve(undefined),
   ])
   const sides = [oldSide, newSide]
   if (sides.some((s) => s !== undefined && 'tooLarge' in s)) {
@@ -867,7 +1079,12 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
 }
 
 async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
-  const fmt = '--format=%(refname:short)%00%(objectname:short)%00%(upstream:track)'
+  // The full ref rides along: the short name is ambiguous for a branch and tag
+  // that share a name, and a remote-tracking HEAD spells as its remote.
+  // `%(symref)` is non-empty exactly for those symbolic rows, which the parser
+  // drops — filtering by a `/HEAD` name suffix would also hide a real branch
+  // that happens to end in `/HEAD`.
+  const fmt = '--format=%(refname:short)%00%(objectname:short)%00%(upstream:track)%00%(refname)%00%(symref)'
   const [localRes, remoteRes, currentRes, defaultRes] = await Promise.all([
     runCommand(deps.run, ['git', 'for-each-ref', '--sort=-committerdate', fmt, 'refs/heads'], root, 'branches-local', deps.signal),
     runCommand(deps.run, ['git', 'for-each-ref', '--sort=-committerdate', fmt, 'refs/remotes'], root, 'branches-remote', deps.signal),
@@ -876,7 +1093,7 @@ async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQuery
   ])
   const local: GitBranch[] = 'run' in localRes && localRes.run.exitCode === 0 ? parseBranches(localRes.run.stdout) : []
   const remote: GitBranch[] = 'run' in remoteRes && remoteRes.run.exitCode === 0
-    ? parseBranches(remoteRes.run.stdout).filter((b) => !b.name.endsWith('/HEAD'))
+    ? parseBranches(remoteRes.run.stdout)
     : []
   const current = 'run' in currentRes && currentRes.run.exitCode === 0 ? currentRes.run.stdout.trim() || null : null
   let defaultBranch: string | null = null
@@ -888,7 +1105,7 @@ async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQuery
 }
 
 async function queryTags(deps: SnapshotDeps, root: string): Promise<GitQueryResponse> {
-  const res = await runCommand(deps.run, ['git', 'for-each-ref', '--sort=-creatordate', '--format=%(refname:short)%00%(objectname:short)', 'refs/tags'], root, 'tags', deps.signal)
+  const res = await runCommand(deps.run, ['git', 'for-each-ref', '--sort=-creatordate', '--format=%(refname:short)%00%(objectname:short)%00%(refname)', 'refs/tags'], root, 'tags', deps.signal)
   const tags: GitBranch[] = 'run' in res && res.run.exitCode === 0 ? parseTags(res.run.stdout) : []
   return { ok: true, value: { kind: 'tags', tags } }
 }

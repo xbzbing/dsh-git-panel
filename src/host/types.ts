@@ -188,6 +188,19 @@ export interface GitSnapshot {
    * preference). Absent on older hosts, which have no write endpoint either:
    * the client then offers no edit button (`file-content.edit` is absent too). */
   readonly allowFileEdit?: boolean
+  /**
+   * Query features this host implements. Absent on hosts that predate them
+   * (older than the compare/history feature): the client hides the menu entries
+   * instead of asking, because an old host reads an unknown `base` as a
+   * work-tree diff and would answer with the wrong content rather than fail.
+   */
+  readonly capabilities?: {
+    readonly revDiff?: true
+    readonly pathHistory?: true
+    /** `commit-checkout` runs here. An older host has no such action, so the
+     * client does not offer the entry rather than sending it and failing. */
+    readonly commitCheckout?: true
+  }
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
   readonly stateFingerprint?: string
@@ -323,6 +336,10 @@ export type GitAction =
   // can wipe in-flight work (incl. the dsh AI's), so the UI gates it hardest.
   | { readonly kind: 'revert'; readonly commit: string }
   | { readonly kind: 'reset'; readonly commit: string; readonly mode: ResetMode }
+  // Detach HEAD at one commit (`git checkout <commit> --`). Nothing in the work
+  // tree is discarded; the branch simply stops being checked out, and the status
+  // bar says so.
+  | { readonly kind: 'commit-checkout'; readonly commit: string }
 
 /** `git reset` modes, from least to most destructive. Single source so the
  * client dialog and the command builder cannot drift. */
@@ -437,9 +454,10 @@ export function isHistoryHashSearch(search: string): boolean {
 
 /** Whether Git's effective content filters hide commits; hash jumps ignore them.
  * Shared with clients receiving history from a host that omits topology. */
-export function isHistoryFiltered(query: Pick<Extract<GitQuery, { kind: 'history' }>, 'search' | 'author' | 'since' | 'pathSearch'>): boolean {
+export function isHistoryFiltered(query: Pick<Extract<GitQuery, { kind: 'history' }>, 'search' | 'author' | 'since' | 'pathSearch' | 'exactPath'>): boolean {
   const search = query.search?.trim() ?? ''
   const pathSearch = query.pathSearch?.trim() ?? ''
+  if (query.exactPath !== undefined && query.exactPath !== '') return true
   return pathSearch !== '' || (!isHistoryHashSearch(search) && (search !== '' || (query.author ?? '') !== '' || (query.since ?? '') !== ''))
 }
 
@@ -497,6 +515,10 @@ export type GitQuery =
     readonly search?: string
     /** Historical Git path substring search, matched case-insensitively. */
     readonly pathSearch?: string
+    /** One exact repository path (no wildcards, no substring): the file-history
+     * filter. Mutually exclusive with `pathSearch`; no `--follow`, so a rename
+     * before the current name is not traced. */
+    readonly exactPath?: string
     /** Author filter (--author). */
     readonly author?: string
     /** Date lower bound (--since). */
@@ -507,6 +529,10 @@ export type GitQuery =
   // count, so this only controls how much git shows, not what the view decides.
   | { readonly kind: 'diff'; readonly path: string; readonly base: 'worktree' | 'staged'; readonly context?: number }
   | { readonly kind: 'diff'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly context?: number }
+  // Compare one revision against the work tree (what "compare with a revision"
+  // means): the old side is `<rev>`, the new side is the file on disk, staged
+  // and unstaged changes included.
+  | { readonly kind: 'diff'; readonly path: string; readonly base: 'rev'; readonly rev: string; readonly context?: number }
   // On-demand hidden-context expansion: a slice of the post-change file, by
   // 1-based new-side line numbers. `base`/`commit` mirror the diff request so
   // the revealed lines come from the exact version the diff compared against.
@@ -514,6 +540,7 @@ export type GitQuery =
   | { readonly kind: 'file-lines'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly start: number; readonly end: number }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'worktree' | 'staged' }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'commit'; readonly commit: string }
+  | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'rev'; readonly rev: string }
   // File browser: list one working-tree directory (lazy, one level down), and
   // read one working-tree file (text slice / image data URL / binary marker).
   // Both take an in-tree relative path; `''` is the repository root.
@@ -562,6 +589,14 @@ export interface GitBranch {
   readonly shortHash: string | null
   readonly ahead?: number
   readonly behind?: number
+  /**
+   * Full ref name (`refs/heads/x`, `refs/remotes/o/x`, `refs/tags/x`). Absent
+   * on hosts that predate it. The short name is ambiguous once a branch and a
+   * tag share it (git spells those `heads/foo` / `tags/foo`), and a
+   * remote-tracking HEAD spells as its remote, so anything that needs to name
+   * the ref again reads this field.
+   */
+  readonly ref?: string
 }
 
 /** One entry in the stash stack (`git stash list`). */
