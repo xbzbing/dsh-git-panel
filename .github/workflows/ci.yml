@@ -82,12 +82,30 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: ms-playwright-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          # A lockfile change (any dependency bump) must not throw away the
+          # browser: the pinned playwright revision usually stays the same, and
+          # a cold install spends minutes in apt + the CDN download.
+          restore-keys: |
+            ms-playwright-${{ runner.os }}-
 
       # playwright-core ships no browsers, and the e2e runners launch chromium
       # themselves (no test runner, no display, file:// fixtures only).
+      #
+      # Install only when the expected browser binary is missing. `--with-deps`
+      # re-runs apt every time, which is what turned one cache miss into a
+      # nine-minute step; a restored cache (exact or via restore-keys) needs
+      # neither apt nor a download, and a real playwright bump changes the
+      # executable path so the install still runs.
       - name: Install Chromium
-        run: npx --no-install playwright-core install --with-deps chromium
+        timeout-minutes: 12
+        run: |
+          CHROME="$(node -p "require('playwright-core').chromium.executablePath()")"
+          if [ -x "$CHROME" ]; then
+            echo "Chromium already present: $CHROME"
+          else
+            npx --no-install playwright-core install --with-deps chromium
+          fi
 
       - name: E2E tests
         run: npm run test:e2e
