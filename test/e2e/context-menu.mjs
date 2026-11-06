@@ -122,6 +122,17 @@ await row.click()
 await page.waitForTimeout(300)
 assert.ok(await page.locator('.gp-files__preview').count() > 0, 'clicking the row still selects the file')
 
+// A right-click is a gesture on a target, not a selection: pointing at another
+// row must leave the active row (and the preview) where the click put them.
+const activeOf = () => page.evaluate(() => document.querySelector('.gp-files__entry.gp-tree-row--active')?.textContent ?? '')
+const beforeRightClick = await activeOf()
+await page.locator('.gp-files__tree .gp-files__entry', { hasText: 'docs' }).click({ button: 'right' })
+await page.waitForTimeout(150)
+assert.equal(await page.evaluate(() => document.querySelectorAll('.gp-files__entry.gp-tree-row--active').length), 1, 'exactly one active row')
+assert.equal(await activeOf(), beforeRightClick, 'right-clicking a directory row does not move the active row')
+assert.ok((await activeOf()).includes('README.md'), 'the active row is still the file clicked above')
+assert.equal(await page.locator('.gp-files__preview').count(), 1, 'and the preview still shows it')
+
 // Right-click captures the row's identity and composes the menu.
 await page.evaluate(() => { window.__menuStub.clear() })
 await row.click({ button: 'right' })
@@ -332,6 +343,55 @@ await page.waitForSelector('[data-gp-overlay]', { timeout: 3000 })
 assert.equal(await page.evaluate(() => window.__runs.length), runsBefore, 'the reset entry only opens the dialog')
 await page.keyboard.press('Escape')
 await page.waitForTimeout(150)
+
+// ── the hover card steps aside for an open menu ───────────────────────────
+// The card is a portal anchored at the pointer and the popup is drawn above
+// it, so the history raises no card while a menu is up: the right-click drops
+// the one already shown, and moving across rows stays quiet until it closes.
+await page.evaluate(() => window.__menuStub.clear())
+const commitRows = page.locator('.gp-commit-row')
+await commitRows.first().hover()
+await page.waitForSelector('.gp-hovercard', { timeout: 3000 })
+assert.equal(await page.locator('.gp-hovercard').count(), 1, 'hovering a commit row raises the card')
+
+await commitRows.first().click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+assert.notEqual(
+  await page.evaluate(() => window.__contextMenusStub.active.getSnapshot()), null,
+  'the right-click opened the popup (the stub mirrors the platform presence)',
+)
+await page.waitForTimeout(80)
+assert.equal(await page.locator('.gp-hovercard').count(), 0, 'the right-click drops the card')
+
+// A pointer moving onto the next row, with the menu still up, raises nothing:
+// the popup would cover it.
+await commitRows.nth(1).hover()
+await page.waitForTimeout(400)
+assert.equal(await page.locator('.gp-hovercard').count(), 0, 'no card is raised while the menu is open')
+
+// Dismissing the popup restores the hover.
+await page.evaluate(() => window.__contextMenusStub.close())
+await page.mouse.move(4, 4)
+await page.waitForTimeout(120)
+await commitRows.first().hover()
+await page.waitForSelector('.gp-hovercard', { timeout: 3000 })
+assert.equal(await page.locator('.gp-hovercard').count(), 1, 'the card returns once the menu is gone')
+
+// The binding answers the keyboard gesture too (Shift+F10 / the ContextMenu
+// key): a row that only opens a menu on right-click is unreachable without a
+// mouse, and the platform's own binding is the only thing that makes it work.
+await page.locator('.gp-tabbar [role="tab"]', { hasText: '文件' }).click()
+await page.waitForTimeout(300)
+await page.evaluate(() => { window.__menuStub.clear() })
+await row.focus()
+await page.keyboard.press('Shift+F10')
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+const keyboardTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.ok(keyboardTarget, 'Shift+F10 opens the same menu')
+assert.equal(keyboardTarget.kind, 'gitPanel.file')
+assert.equal(keyboardTarget.value.path, 'README.md')
+await page.evaluate(() => { window.__menuStub.clear() })
 
 // ── P8: the repository selector's rows ────────────────────────────────────
 // The repo list needs two choices and a ready snapshot (ReposSection hides

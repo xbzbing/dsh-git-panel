@@ -24,6 +24,7 @@ import { buildBranchTree, buildLocalBranchSection, pinPrimaryFirst, primaryBranc
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime } from './time.js'
 import { useBranchTree, useCommitDetail, useHistory, type HistoryFilter } from './overview-hooks.js'
+import { useMenuActive } from './use-menu-active.js'
 import { searchPublish } from './history-filter.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
@@ -357,7 +358,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     if (!snapshot.dirty) { void runBranchSwitch(option, false); return }
     setSwitchTarget(option)
   }
-  const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
+  // The shared popup is an overlay above everything the panel draws, including
+  // the pointer-anchored commit card: keep the card out of its way while it is
+  // open instead of letting it peek out from underneath.
+  const menuOpen = useMenuActive(panelMenu?.active)
+  const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible, menuOpen)
   // Branch rows bind through the panel's face; the value carries only what the
   // menu needs, and the panel adds the identity at gesture time.
   const branchMenu = useMemo(

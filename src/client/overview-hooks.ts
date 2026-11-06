@@ -319,8 +319,13 @@ export function useHistory(
  * diffs. Owns an LRU `show` cache (immutable per hash) shared by the detail
  * pane and the hover card, the full-width file-diff overlay (generation-guarded
  * + Esc-to-close), and the hover fetch (debounced, unmount-safe).
+ *
+ * `menuOpen` is the shared context-menu popup's presence: the card is anchored
+ * to the pointer, so while a popup is up it would be drawn underneath it. The
+ * hook drops the card and refuses new ones for that stretch (see the two
+ * `menuOpenRef` reads below).
  */
-export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defaultDiffView: DiffViewMode, visible = true): {
+export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defaultDiffView: DiffViewMode, visible = true, menuOpen = false): {
   selected: GraphCommit | null
   detail: CommitDetail | null
   detailError: boolean
@@ -445,11 +450,16 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   const hoverHash = useRef<string | null>(null)
   const visibleRef = useRef(visible)
   visibleRef.current = visible
+  // Read by the debounced timer and by the enter gesture: the popup can open
+  // or close between the pointer entering a row and the 260ms elapse.
+  const menuOpenRef = useRef(menuOpen)
+  menuOpenRef.current = menuOpen
 
   const onHoverEnter = useCallback((commit: GraphCommit, x: number, y: number) => {
+    if (menuOpenRef.current) return
     if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current)
     hoverTimer.current = setTimeout(() => {
-      if (!visibleRef.current || !pageVisibility.isVisible()) return
+      if (menuOpenRef.current || !visibleRef.current || !pageVisibility.isVisible()) return
       hoverHash.current = commit.hash
       setHover({ commit, x, y })
       const cached = detailCache.current.get(commit.hash)
@@ -474,6 +484,11 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   }, [])
 
   useEffect(() => { if (!visible) onHoverLeave() }, [visible, onHoverLeave])
+  // A right-click drops the card before the popup opens (the commit row's own
+  // handler); this covers the rest of the stretch — the pointer usually stays
+  // over the list, so moving across rows would otherwise raise a fresh card
+  // behind the open menu.
+  useEffect(() => { if (menuOpen) onHoverLeave() }, [menuOpen, onHoverLeave])
 
   // Clear a pending hover timer on unmount so it can't setState after teardown.
   useEffect(() => () => { if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current) }, [])

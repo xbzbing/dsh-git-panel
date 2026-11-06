@@ -80,8 +80,13 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
   // instead of the closure's render-time value.
   const repoRef = useRef(repo)
   repoRef.current = repo
+  // Read every render rather than once: the menu package may arrive after this
+  // plugin (the panel then re-renders with the injected factory), and the
+  // surfaces only need presence once a popup can exist at all.
+  const active = contextMenusOf(ctx)?.active
 
   const facade = useMemo<PanelMenu>(() => ({
+    active,
     row: (path, kind, ignored, handlers) => {
       if (!hasSession(sessionId)) return handlers ?? {}
       return factory.bind(kind, () => ({
@@ -106,7 +111,7 @@ export function usePanelMenu(inputs: PanelMenuInputs): PanelMenu {
         handlers,
       )
     },
-  }), [factory, sessionId, ownerId, browseRoot])
+  }), [active, factory, sessionId, ownerId, browseRoot])
 
   const callbacksRef = useRef<MenuCallbacks>({ compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory, quote: onQuote })
   callbacksRef.current = { compareRevision: onCompareRevision, compareRef: onCompareRef, showHistory: onShowHistory, quote: onQuote }

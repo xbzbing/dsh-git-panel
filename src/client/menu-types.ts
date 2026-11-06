@@ -78,6 +78,13 @@ export interface MenuSource {
   subscribe: (listener: () => void) => () => void
 }
 
+/** A readable store in the platform's snapshot shape: the value now, plus a
+ * subscription for whoever renders it (a React store, `useSyncExternalStore`). */
+export interface MenuSnapshot<T> {
+  getSnapshot(): T
+  subscribe(listener: () => void): () => void
+}
+
 /** One contribution. `Value` is the target value the family carries: the
  * platform hands the captured value through unchanged, so a contribution
  * declares the shape it expects and the registry stays untyped about it. */
@@ -97,6 +104,10 @@ export interface MenuContribution<Value = never> {
  * their queries. Duplicate ids within a target kind fail.
  */
 export interface ContextMenusService {
+  /** The shared popup's captured target, `null` while no popup is open.
+   * Optional so a stub or an older platform face without it still satisfies
+   * the contract (nothing may assume the popup can be observed). */
+  readonly active?: MenuSnapshot<MenuTrigger | null>
   register<Value>(contribution: MenuContribution<Value>): () => void
   /** Resolve an embedded occurrence for a target (the platform's own kinds
    * included) without opening the shared popup. */

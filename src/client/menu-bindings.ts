@@ -10,7 +10,7 @@
  * never see a call that looks like a conditional hook.
  */
 import type { GitMenuValue, MenuKind, MenuValueSeed } from './menu-owners.js'
-import type { MenuBindings, MenuTriggerHandlers } from './menu-types.js'
+import type { MenuBindings, MenuSnapshot, MenuTriggerHandlers } from './menu-types.js'
 
 export { MENU_KIND } from './menu-owners.js'
 
@@ -52,6 +52,10 @@ export interface PanelMenu {
    * panel identity, and a value that names its own checkout (a repository row)
    * keeps the tag it carries. */
   readonly bind: (kind: MenuKind, value: MenuValueSeed, handlers?: MenuTriggerHandlers) => MenuTriggerHandlers
+  /** The shared popup's captured target (`null` while none is open), for the
+   * surfaces that must stay out of its way while it is up. Absent on hosts
+   * without the menu package, and on a platform face that cannot be observed. */
+  readonly active?: MenuSnapshot<unknown>
 }
 
 /**
