@@ -541,7 +541,7 @@ export const es: Record<GitKey, string> = {
   'menu.resetToHere': 'Restablecer la rama actual aquí…',
   'menu.checkoutCommit': 'Extraer este commit…',
   'checkout.title': 'Extraer este commit',
-  'checkout.body': 'HEAD se separa de su rama; el árbol de trabajo no cambia. Puedes crear una rama aquí cuando quieras.',
+  'checkout.body': 'HEAD se separa de su rama y pasa a este commit; el árbol de trabajo también se actualiza. Git lo rechaza si se sobrescribirían cambios sin confirmar.',
   'checkout.confirm': 'Extraer',
   'menu.copySubject': 'Copiar mensaje del commit',
   'common.operationFailed': 'La operación falló',

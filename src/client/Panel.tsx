@@ -586,12 +586,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // so the group waits for the same-root case.
   const viewRootIsGit = useRef(false)
   viewRootIsGit.current = !filesOnly && filesSelector === repo && view.state === 'ready'
-  const capabilitiesRef = useRef<{ revDiff: boolean; pathHistory: boolean; commitCheckout: boolean }>({ revDiff: false, pathHistory: false, commitCheckout: false })
+  const capabilitiesRef = useRef<{ revDiff: boolean; pathHistory: boolean }>({ revDiff: false, pathHistory: false })
   if (view.state === 'ready') {
     capabilitiesRef.current = {
       revDiff: view.snapshot.capabilities?.revDiff === true,
       pathHistory: view.snapshot.capabilities?.pathHistory === true,
-      commitCheckout: view.snapshot.capabilities?.commitCheckout === true,
     }
   }
   const browseRootOf = useCallback((): string | null => filesRootRef.current, [])
@@ -642,7 +641,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // neither.
   useEffect(() => { setCompare(null); setHistoryRequest(null) }, [sessionId, repo])
   const isGitRoot = useCallback((): boolean => filesRootRef.current !== null && viewRootIsGit.current, [])
-  const capabilities = useCallback((): { revDiff: boolean; pathHistory: boolean; commitCheckout: boolean } => capabilitiesRef.current, [])
+  const capabilities = useCallback((): { revDiff: boolean; pathHistory: boolean } => capabilitiesRef.current, [])
   // The overview's own runs and busy flag are published by the tab into this
   // ref each render (it owns the switch map, the filter and the dialogs); the
   // menu owner reads them at resolve time.

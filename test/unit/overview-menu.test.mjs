@@ -76,10 +76,19 @@ test('a commit row copies its identities, quotes it, then the write dialogs', ()
   assert.equal(actions[6].danger, true)
   assert.equal(actions[7].danger, true)
   assert.equal(actions[6].separatorBefore, true, 'the rewrites sit below one separator')
+  assert.equal(actions[7].separatorBefore, undefined, 'reset shares that separator instead of adding a second one')
+})
+
+test('a host without commit-checkout offers no checkout entry', () => {
+  const actions = commitMenuActions(commit, env(true), commands([]), { busy: false })
+  assert.ok(!actions.some((a) => a.id === 'checkout'), 'the entry is only offered when the host implements the action')
+  assert.ok(actions.some((a) => a.id === 'reset'), 'the other entries stay')
 })
 
 test('the commit HEAD already points at offers no checkout', () => {
-  const actions = commitMenuActions(commit, env(true), commands([]), { busy: false, head: 'a1b2c3d4e5', commitCheckout: true })
+  // The snapshot carries the short hash; the row carries the full one. Equality
+  // never holds in production, so the check has to compare prefixes.
+  const actions = commitMenuActions(commit, env(true), commands([]), { busy: false, head: 'a1b2c3d', commitCheckout: true })
   assert.ok(!actions.some((a) => a.id === 'checkout'), 'detaching a HEAD that is already there is a no-op')
   assert.ok(actions.some((a) => a.id === 'reset'), 'the other entries stay')
 })

@@ -37,11 +37,10 @@ export interface OverviewMenuCommands {
  * work tree or HEAD, so they are offered but disabled while busy. */
 export interface OverviewMenuFacts {
   readonly busy: boolean
-  /** HEAD's commit: checking it out would detach a HEAD that is already there,
-   * so the entry is not offered for it. */
+  /** The short hash HEAD resolves to: checking out that commit would detach a
+   * HEAD that is already there, so the entry is not offered for it. Short
+   * because that is what the snapshot carries (`rev-parse --short HEAD`). */
   readonly head?: string | null
-  /** The host declared `capabilities.revDiff`; compare entries are gated on it. */
-  readonly revDiff?: boolean
   /** The host declared `capabilities.commitCheckout`. */
   readonly commitCheckout?: boolean
 }
@@ -82,6 +81,11 @@ export function branchMenuActions(
 export function commitMenuActions(
   value: CommitTargetValue, env: MenuEnv, cmds: OverviewMenuCommands, facts: OverviewMenuFacts,
 ): MenuAction[] {
+  // The snapshot carries HEAD as the *short* hash and the row carries the full
+  // one, so equality would never hold: compare as a prefix. A row on HEAD's
+  // commit would otherwise be offered a detach that lands nowhere.
+  const atHead = facts.head !== undefined && facts.head !== null && facts.head !== ''
+    && value.hash.startsWith(facts.head)
   return [
     {
       id: 'copy-hash',
@@ -122,7 +126,7 @@ export function commitMenuActions(
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.openTagCreate(value),
     },
-    ...(facts.head === value.hash || facts.commitCheckout !== true ? [] : [{
+    ...(atHead || facts.commitCheckout !== true ? [] : [{
       id: 'checkout',
       label: env.t('menu.checkoutCommit'),
       icon: menuIcon('checkout'),
@@ -146,8 +150,8 @@ export function commitMenuActions(
       id: 'reset',
       label: env.t('menu.resetToHere'),
       icon: menuIcon('reset'),
-      // Destructive: separated from the entries above it.
-      separatorBefore: true,
+      // Revert already opened the destructive band: a second separator here
+      // would split the two rewrites instead of fencing them off together.
       danger: true,
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),

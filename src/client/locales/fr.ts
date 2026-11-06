@@ -541,7 +541,7 @@ export const fr: Record<GitKey, string> = {
   'menu.resetToHere': 'Réinitialiser la branche courante ici…',
   'menu.checkoutCommit': 'Extraire ce commit…',
   'checkout.title': 'Extraire ce commit',
-  'checkout.body': "HEAD se détache de sa branche ; l'arbre de travail reste inchangé. Vous pouvez créer une branche ici à tout moment.",
+  'checkout.body': "HEAD se détache de sa branche et se place sur ce commit ; l'arbre de travail suit. Git refuse si des modifications non validées seraient écrasées.",
   'checkout.confirm': 'Extraire',
   'menu.copySubject': 'Copier le message du commit',
   'common.operationFailed': 'L’opération a échoué',

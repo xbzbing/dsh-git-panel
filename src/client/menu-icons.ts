@@ -21,58 +21,47 @@ interface IconProps {
   readonly className?: string
 }
 
-/** Stable icon keys. Changing one silently drops that entry's glyph (the slot
- * has no fallback), so they are pinned by a unit test. */
-export const MENU_ICONS = {
-  compare: 'git-panel.compare',
-  history: 'git-panel.history',
-  copy: 'git-panel.copy',
-  quote: 'git-panel.quote',
-  branch: 'git-panel.branch',
-  tag: 'git-panel.tag',
-  revert: 'git-panel.revert',
-  reset: 'git-panel.reset',
-  checkout: 'git-panel.checkout',
-  stage: 'git-panel.stage',
-  discard: 'git-panel.discard',
-  stash: 'git-panel.stash',
-  fetch: 'git-panel.fetch',
-  overview: 'git-panel.overview',
-  changes: 'git-panel.changes',
-  files: 'git-panel.files',
+/** The one table a menu glyph lives in: the stable key plus the component that
+ * paints it. Two parallel maps used to drift — a name could gain a key and no
+ * glyph, and the platform has no fallback for a missing key. */
+const MENU_ICON_TABLE = {
+  compare: { key: 'git-panel.compare', Icon: DiffIcon },
+  history: { key: 'git-panel.history', Icon: HistoryIcon },
+  copy: { key: 'git-panel.copy', Icon: CopyIcon },
+  quote: { key: 'git-panel.quote', Icon: QuoteIcon },
+  branch: { key: 'git-panel.branch', Icon: BranchIcon },
+  tag: { key: 'git-panel.tag', Icon: TagIcon },
+  revert: { key: 'git-panel.revert', Icon: RevertIcon },
+  reset: { key: 'git-panel.reset', Icon: ResetIcon },
+  checkout: { key: 'git-panel.checkout', Icon: CommitIcon },
+  stage: { key: 'git-panel.stage', Icon: StagePickedIcon },
+  discard: { key: 'git-panel.discard', Icon: TrashIcon },
+  stash: { key: 'git-panel.stash', Icon: StashIcon },
+  fetch: { key: 'git-panel.fetch', Icon: SyncIcon },
+  overview: { key: 'git-panel.overview', Icon: ListIcon },
+  changes: { key: 'git-panel.changes', Icon: DiffIcon },
+  files: { key: 'git-panel.files', Icon: FilesIcon },
 } as const
 
-export type MenuIconName = keyof typeof MENU_ICONS
+type MenuIconEntry = (typeof MENU_ICON_TABLE)[keyof typeof MENU_ICON_TABLE]
+
+/** Stable icon keys. Changing one silently drops that entry's glyph (the slot
+ * has no fallback), so they are pinned by a unit test. */
+export type MenuIconName = keyof typeof MENU_ICON_TABLE
+export const MENU_ICONS = Object.fromEntries(
+  Object.entries(MENU_ICON_TABLE).map(([name, entry]) => [name, entry.key]),
+) as { readonly [K in MenuIconName]: (typeof MENU_ICON_TABLE)[K]['key'] }
 
 /** The icon a menu action names. The platform resolves the key; a picture that
  * comes with the action (`src`) is not used here. */
 export function menuIcon(name: MenuIconName): { readonly key: string } {
-  return { key: MENU_ICONS[name] }
+  return { key: MENU_ICON_TABLE[name].key }
 }
 
 /** One entry of the platform's `contextMenu.icon` slot. */
 interface IconSlotProps extends IconProps {
   /** The action's own icon value (unused: this plugin's glyphs carry no image). */
   readonly icon?: { readonly key: string; readonly src?: string }
-}
-
-const SLOT_ICONS: Readonly<Record<MenuIconName, (props: IconSlotProps) => JSX.Element>> = {
-  compare: DiffIcon,
-  history: HistoryIcon,
-  copy: CopyIcon,
-  quote: QuoteIcon,
-  branch: BranchIcon,
-  tag: TagIcon,
-  revert: RevertIcon,
-  reset: ResetIcon,
-  checkout: CommitIcon,
-  stage: StagePickedIcon,
-  discard: TrashIcon,
-  stash: StashIcon,
-  fetch: SyncIcon,
-  overview: ListIcon,
-  changes: DiffIcon,
-  files: FilesIcon,
 }
 
 /**
@@ -84,11 +73,11 @@ const SLOT_ICONS: Readonly<Record<MenuIconName, (props: IconSlotProps) => JSX.El
  */
 export function registerMenuIcons(ctx: ClientCtx): () => void {
   const released: Array<() => void> = []
-  for (const [name, Icon] of Object.entries(SLOT_ICONS) as Array<[MenuIconName, (props: IconSlotProps) => JSX.Element]>) {
+  for (const [name, entry] of Object.entries(MENU_ICON_TABLE) as Array<[MenuIconName, MenuIconEntry]>) {
     try {
       const handle = ctx.slots.inject('contextMenu.icon', () => ctx.slots.register(
         { name: 'contextMenu.icon', key: MENU_ICONS[name] },
-        Icon,
+        entry.Icon as (props: IconSlotProps) => JSX.Element,
       ))
       if (typeof handle === 'function') released.push(handle as () => void)
     } catch {

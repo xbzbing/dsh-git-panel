@@ -541,7 +541,7 @@ export const de: Record<GitKey, string> = {
   'menu.resetToHere': 'Aktuellen Branch hierher zurücksetzen…',
   'menu.checkoutCommit': 'Diesen Commit auschecken…',
   'checkout.title': 'Diesen Commit auschecken',
-  'checkout.body': 'HEAD wird vom Branch abgekoppelt (detached HEAD); der Arbeitsbaum bleibt unverändert. Ein Branch lässt sich hier jederzeit anlegen.',
+  'checkout.body': 'HEAD wird vom Branch abgekoppelt und auf diesen Commit gesetzt; der Arbeitsbaum folgt ihm. Git lehnt ab, wenn nicht committete Änderungen überschrieben würden.',
   'checkout.confirm': 'Auschecken',
   'menu.copySubject': 'Commit-Nachricht kopieren',
   'common.operationFailed': 'Aktion fehlgeschlagen',

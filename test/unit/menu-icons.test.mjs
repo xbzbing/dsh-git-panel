@@ -9,7 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  MENU_ICONS, menuIcon, fileMenuActions, directoryMenuActions, branchMenuActions,
+  MENU_ICONS, menuIcon, registerMenuIcons, fileMenuActions, directoryMenuActions, branchMenuActions,
   commitMenuActions, changeMenuActions, changeDirMenuActions, stashMenuActions,
   repoRowMenuActions, pillMenuActions,
 } from '../../lib/testkit.mjs'
@@ -26,20 +26,25 @@ const changesCommands = { openDiff: () => {}, stage: () => {}, openDiscard: () =
 const reposCommands = { fetch: () => {} }
 const pillCommands = { openTab: () => {}, fetch: () => {} }
 
+/** Every menu this plugin can offer, kept as separate families: the position of
+ * an entry is only meaningful inside the menu it belongs to. */
+function everyMenu() {
+  return [
+    ['file', fileMenuActions(value, env, [{ id: 'open-in-app.file/float', label: 'x' }])],
+    ['directory', directoryMenuActions(value, env, [])],
+    ['branch', branchMenuActions({ ...identity, name: 'main', isCurrent: false, isRemote: false }, env, overviewCommands, { busy: false })],
+    ['commit', commitMenuActions({ ...identity, hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 's' }, env, overviewCommands, { busy: false })],
+    ['change', changeMenuActions({ ...identity, path: 'a.ts', staged: false }, env, changesCommands, { busy: false }, new Set())],
+    ['changeDir', changeDirMenuActions({ ...identity, path: 'src', staged: false, paths: ['src/a.ts'], discardable: ['src/a.ts'] }, env, changesCommands, { busy: false })],
+    ['stash', stashMenuActions({ ...identity, sha: 'abc', label: 'WIP' }, env, changesCommands, { busy: false })],
+    ['repos', repoRowMenuActions({ ...identity, root: '/work' }, env, [], reposCommands, { canFetch: true })],
+    ['pill', pillMenuActions({ ...identity, root: '/work', branch: 'main' }, env, pillCommands, { canFetch: true })],
+  ]
+}
+
 /** Every action this plugin can offer, across all families. */
 function everyAction() {
-  const rows = [
-    ...fileMenuActions(value, env, [{ id: 'open-in-app.file/float', label: 'x' }]),
-    ...directoryMenuActions(value, env, []),
-    ...branchMenuActions({ ...identity, name: 'main', isCurrent: false, isRemote: false }, env, overviewCommands, { busy: false }),
-    ...commitMenuActions({ ...identity, hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 's' }, env, overviewCommands, { busy: false }),
-    ...changeMenuActions({ ...identity, path: 'a.ts', staged: false }, env, changesCommands, { busy: false }, new Set()),
-    ...changeDirMenuActions({ ...identity, path: 'src', staged: false, paths: ['src/a.ts'], discardable: ['src/a.ts'] }, env, changesCommands, { busy: false }),
-    ...stashMenuActions({ ...identity, sha: 'abc', label: 'WIP' }, env, changesCommands, { busy: false }),
-    ...repoRowMenuActions({ ...identity, root: '/work' }, env, [], reposCommands, { canFetch: true }),
-    ...pillMenuActions({ ...identity, root: '/work', branch: 'main' }, env, pillCommands, { canFetch: true }),
-  ]
-  return rows.flatMap((action) => [action, ...(action.children ?? [])])
+  return everyMenu().flatMap(([, actions]) => actions.flatMap((action) => [action, ...(action.children ?? [])]))
 }
 
 test('every entry that copies, navigates or writes carries a glyph', () => {
@@ -73,6 +78,29 @@ test('each family uses its own glyph, not one shared blob', () => {
   assert.equal(icons.get('fetch-remote'), MENU_ICONS.fetch)
 })
 
+test('every declared glyph is registered into the platform icon slot', () => {
+  const registrations = []
+  const ctx = {
+    slots: {
+      inject: (_name, thunk) => thunk(),
+      register: (reg, component) => { registrations.push({ reg, component }); return () => {} },
+    },
+  }
+  const released = registerMenuIcons(ctx)
+  const keys = Object.values(MENU_ICONS)
+  assert.equal(registrations.length, keys.length, 'one registration per declared key')
+  assert.deepEqual(registrations.map((r) => r.reg.key).sort(), [...keys].sort(), 'the slot receives exactly the declared keys')
+  for (const { reg, component } of registrations) {
+    assert.equal(reg.name, 'contextMenu.icon', 'the platform slot this plugin fills')
+    assert.equal(typeof component, 'function', 'a glyph, not a placeholder')
+  }
+  // A shell that predates the icon slot must not take the menu down with it.
+  const bare = { slots: { inject: () => { throw new Error('no slot'); }, register: () => {} } }
+  const noop = registerMenuIcons(bare)
+  assert.doesNotThrow(() => noop())
+  released()
+})
+
 test('the keys are namespaced and unique', () => {
   const keys = Object.values(MENU_ICONS)
   assert.equal(new Set(keys).size, keys.length, 'no two names share a key')
@@ -80,16 +108,24 @@ test('the keys are namespaced and unique', () => {
   assert.deepEqual(menuIcon('copy'), { key: 'git-panel.copy' })
 })
 
-test('a destructive entry is separated from the ones above it', () => {
-  const all = everyAction()
-  const destructive = all.filter((a) => a.danger === true)
-  assert.ok(destructive.length >= 4, 'discard, reset, revert and the stash drop')
-  for (const action of destructive) {
-    // The first entry of a menu cannot need a separator above it.
-    const siblings = all
-    if (siblings[0] === action) continue
-    assert.equal(action.separatorBefore, true, `${action.id} is separated from the entries above it`)
+test('each menu fences its destructive band with one separator', () => {
+  let fenced = 0
+  for (const [family, actions] of everyMenu()) {
+    const first = actions.findIndex((a) => a.danger === true)
+    if (first === -1) continue
+    fenced += 1
+    assert.notEqual(first, 0, `${family}: the destructive band never opens the menu`)
+    assert.equal(actions[first].separatorBefore, true, `${family}: a separator opens the destructive band`)
+    // One separator covers the band: a second one would split the rewrites
+    // instead of fencing them off together.
+    for (const action of actions.slice(first + 1)) {
+      assert.equal(action.separatorBefore, undefined, `${family}: ${action.id} adds no second separator`)
+    }
+    for (const action of actions.slice(0, first)) {
+      assert.equal(action.separatorBefore, undefined, `${family}: ${action.id} is not set off from the entry above`)
+    }
   }
-  // And the separator is never on the entry that merely opens a diff.
-  assert.equal(all.find((a) => a.id === 'open-diff')?.separatorBefore, undefined)
+  assert.ok(fenced >= 3, 'commit, change, changeDir and stash carry destructive entries')
+  // The separator never rides on the entry that merely opens a diff.
+  assert.equal(everyAction().find((a) => a.id === 'open-diff')?.separatorBefore, undefined)
 })

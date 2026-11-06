@@ -18,8 +18,6 @@ export interface MenuFacts {
   /** The host declared `capabilities.revDiff` / `capabilities.pathHistory`. */
   readonly revDiff: boolean
   readonly pathHistory: boolean
-  /** The host implements `commit-checkout` (see the overview's entry). */
-  readonly commitCheckout?: boolean
   /** The session has a composer the menu may quote into (quote.ts). */
   readonly canQuote?: boolean
 }

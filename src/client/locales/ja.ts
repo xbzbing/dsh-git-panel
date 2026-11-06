@@ -540,7 +540,7 @@ export const ja: Record<GitKey, string> = {
   'menu.resetToHere': '現在のブランチをここにリセット…',
   'menu.checkoutCommit': 'このコミットをチェックアウト…',
   'checkout.title': 'このコミットをチェックアウト',
-  'checkout.body': 'HEAD はブランチから切り離されます（detached HEAD）。作業ツリーは変更されません。必要ならここからブランチを作成できます。',
+  'checkout.body': 'HEAD は現在のブランチから切り離され、このコミットに移動します。作業ツリーもその内容に更新され、未コミットの変更が上書きされる場合は Git が拒否します。',
   'checkout.confirm': 'チェックアウト',
   'menu.copySubject': 'コミットメッセージをコピー',
   'common.operationFailed': '操作に失敗しました',

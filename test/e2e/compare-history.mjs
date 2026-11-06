@@ -46,6 +46,7 @@ async function boot(page, capabilities, history, snap = SNAP) {
     document.getElementById('panel').innerHTML = ''
     window.__menuStub.contributions.splice(0)
     window.__queries = []
+    window.__runs = []
     const entry = window.__getLoaded()
     const connection = {
       rpc: {
@@ -102,7 +103,10 @@ async function boot(page, capabilities, history, snap = SNAP) {
               return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
             }
           }
-          if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+          if (endpoint === 'gitPanel/run') {
+            window.__runs.push(request.action)
+            return { ok: true, value: { ok: true, snapshot: snap } }
+          }
           if (endpoint === 'gitPanel/version') {
             return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
           }
@@ -249,6 +253,28 @@ await page.waitForTimeout(400)
 const chipAgain = await page.evaluate(() => window.__queries.filter((q) => q.kind === 'history').pop())
 assert.equal(chipAgain.exactPath, 'README.md', 'the chip comes back for a second request of the same file')
 assert.equal(await page.locator('.gp-chip--filter').count(), 1)
+
+// ── the commit row's checkout entry ───────────────────────────────────────
+// Offered only on a host that declares `capabilities.commitCheckout`; like the
+// other writes it opens the existing confirmation, and the detach runs only
+// once that is answered.
+await boot(page, CAPS, COMMITS.length)
+await page.locator('.gp-tabbar [role="tab"]', { hasText: '总览' }).click()
+await page.waitForTimeout(500)
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-commit-row').first().click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(150)
+const commitOffered = await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id))
+assert.ok(commitOffered.includes('checkout'), `a capable host offers the checkout entry (offered: ${commitOffered.join(', ')})`)
+await page.evaluate(() => window.__menuStub.invoke('checkout'))
+await page.waitForSelector('.gp-modal__confirmtext', { timeout: 3000 })
+assert.equal(await page.evaluate(() => window.__runs.length), 0, 'the entry only opens the confirmation')
+await page.locator('.gp-modal__footer button').last().click()
+await page.waitForTimeout(300)
+const checkoutRun = await page.evaluate(() => window.__runs.filter((a) => a.kind === 'commit-checkout'))
+assert.equal(checkoutRun.length, 1, 'answering the confirmation runs the detach')
+assert.equal(checkoutRun[0].commit, 'a'.repeat(40), 'the run names the row it was opened from')
 
 // ── capability gating ─────────────────────────────────────────────────────
 // An old host declares nothing; the entries must be absent rather than offered

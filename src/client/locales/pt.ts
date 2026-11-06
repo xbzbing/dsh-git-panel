@@ -541,7 +541,7 @@ export const pt: Record<GitKey, string> = {
   'menu.resetToHere': 'Redefinir o branch atual para aqui…',
   'menu.checkoutCommit': 'Fazer checkout deste commit…',
   'checkout.title': 'Fazer checkout deste commit',
-  'checkout.body': 'O HEAD se desprende do branch; a árvore de trabalho não muda. Você pode criar um branch aqui a qualquer momento.',
+  'checkout.body': 'O HEAD se desprende do branch e passa para este commit; a árvore de trabalho acompanha. O Git recusa se alterações não confirmadas forem sobrescritas.',
   'checkout.confirm': 'Checkout',
   'menu.copySubject': 'Copiar mensagem do commit',
   'common.operationFailed': 'Falha na operação',

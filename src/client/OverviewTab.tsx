@@ -428,7 +428,16 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // each render is the contract: the owner reads the published one at resolve
   // time, so whatever this render built is what the menu runs.
   if (menuCommandsRef !== undefined) menuCommandsRef.current = overviewMenuCommands
-  if (menuFactsRef !== undefined) menuFactsRef.current = { busy: opInFlight, head: snapshot.head }
+  if (menuFactsRef !== undefined) {
+    // The host capability travels with the facts: the owner gates the checkout
+    // entry on it, and a host without the action must not be offered an entry
+    // whose run it would reject.
+    menuFactsRef.current = {
+      busy: opInFlight,
+      head: snapshot.head,
+      commitCheckout: snapshot.capabilities?.commitCheckout === true,
+    }
+  }
   useEffect(() => {
     if (!opDialogOpen) { opScopeRef.current = null; return }
     // An in-flight write keeps its dialog: the failure text renders only inside
