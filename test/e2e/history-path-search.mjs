@@ -51,7 +51,7 @@ async function boot({ host = 'conversation', width = 1400, height = 900, fontDel
     const success = (value) => ({ ok: true, value: { ok: true, value } })
     connection.rpc.call = async (channel, endpoint, payload) => {
       const query = payload?.args?.request?.query
-      if (endpoint === 'gitPanel/query' && query?.kind === 'history') {
+      if (endpoint === 'dbGitPanel/query' && query?.kind === 'history') {
         const id = requests.length
         const hash = (id + 1).toString(16).padStart(40, '0')
         const subject = `${query.pathSearch ? 'path' : 'message'}:${query.pathSearch || query.search || 'all'}:reply-${id}`

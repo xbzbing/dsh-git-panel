@@ -474,7 +474,7 @@ async function stackedScenario() {
     window.ReactDOM.createRoot(panel).render(entry({
       sessionId: 'changes-tree-session',
       useTabInfo: () => ({ tab: { visible: true } }),
-      t: ctx.locale.bind('gitPanel'),
+      t: ctx.locale.bind('dbGitPanel'),
     }))
   }, DIRTY)
   await page.locator('.gp-panel [role="tab"]', { hasText: '变更记录' }).click()

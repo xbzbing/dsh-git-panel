@@ -28,7 +28,7 @@ try {
       let remote = ['origin/feature', `origin/${primary}`].map((name) => ({ name, shortHash: 'abc1234' }))
       const call = connection.rpc.call
       connection.rpc.call = async (channel, endpoint, payload) => {
-        if (endpoint === 'gitPanel/query' && payload.args.request.query.kind === 'branches') {
+        if (endpoint === 'dbGitPanel/query' && payload.args.request.query.kind === 'branches') {
           return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'feature', defaultBranch: primary, local, remote } } }
         }
         return call(channel, endpoint, payload)

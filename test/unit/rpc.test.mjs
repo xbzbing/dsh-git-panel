@@ -56,7 +56,7 @@ test('transport-ok with no inner value → typed failure (no undefined leak)', a
 test('two-envelope success unwraps the inner business value', async () => {
   const snap = { root: '/r', dirty: false, kind: 'snap' }
   const remote = gitPanelRemoteOf(ctxWith(async (_ch, ep) => {
-    assert.equal(ep, 'gitPanel/snapshot')
+    assert.equal(ep, 'dbGitPanel/snapshot')
     return { ok: true, value: { ok: true, value: snap } }
   }))
   const res = await remote.snapshot({ sessionId: 's' })

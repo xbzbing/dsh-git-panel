@@ -64,7 +64,7 @@ const out = await page.evaluate(async (snap) => {
   const mockCall = connection.rpc.call
   connection.rpc.call = async (channel, endpoint, payload) => {
     const q = payload && payload.args && payload.args.request && payload.args.request.query
-    if (endpoint === 'gitPanel/query' && q && q.kind === 'history') historyQueries.push(q)
+    if (endpoint === 'dbGitPanel/query' && q && q.kind === 'history') historyQueries.push(q)
     return mockCall(channel, endpoint, payload)
   }
   const entry = window.__getLoaded()

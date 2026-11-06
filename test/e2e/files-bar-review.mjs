@@ -52,8 +52,8 @@ await page.evaluate(async (snap) => {
     rpc: {
       call: async (_c, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
-        if (endpoint === 'gitPanel/query') {
+        if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+        if (endpoint === 'dbGitPanel/query') {
           const q = request.query
           if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 0, commits: [] } } }
           if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'main', shortHash: 'de54fc0' }], remote: [] } } }
@@ -75,8 +75,8 @@ await page.evaluate(async (snap) => {
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
         }
-        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
-        if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
+        if (endpoint === 'dbGitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+        if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
     },

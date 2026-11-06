@@ -46,8 +46,8 @@ const out = await page.evaluate(async ({ snap, diff }) => {
     rpc: {
       call: async (_ch, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
-        if (endpoint === 'gitPanel/query') {
+        if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+        if (endpoint === 'dbGitPanel/query') {
           const q = request.query
           if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'feature', shortHash: 'd196623' }, { name: 'main', shortHash: 'de54fc0' }], remote: [] } } }
           if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }

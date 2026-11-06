@@ -1,7 +1,7 @@
-/** `gitPanel` namespace dictionaries. zh is the key-set source of truth. */
+/** `dbGitPanel` namespace dictionaries. zh is the key-set source of truth. */
 
 /** The locale namespace these dictionaries register under. */
-export const NS = 'gitPanel'
+export const NS = 'dbGitPanel'
 
 export const zh = {
   // panel + tabs

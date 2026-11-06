@@ -2,8 +2,9 @@
  * Plugin contract tests: the built host and client bundles honor the dsh
  * loader contracts.
  *
- *  - host: default export is a class named after the service; declares the
- *    subprocess/sessions/sessionPersistence injects; carries @Remote markers.
+ *  - host: default export is an object plugin ({ apply, inject, Config }) that
+ *    constructs the service; the service declares the
+ *    subprocess/sessions/sessionPersistence injects and carries @Remote markers.
  *  - client: the bundle is a window.__ModuleLoader__.load({ id, factory })
  *    registration whose factory returns { apply, inject }, inject declares
  *    only the services apply() uses, and apply() registers both the
@@ -15,14 +16,18 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import * as host from '../../lib/host/index.js'
 
-test('host bundle exports the GitPanelService + endpoints', () => {
-  const Service = host.default ?? host.GitPanelService
-  assert.equal(typeof Service, 'function', 'default export is a class')
-  assert.equal(Service.name, 'GitPanelService')
-  assert.ok(Array.isArray(Service.inject), 'static inject is declared')
+test('host bundle exports the plugin object + GitPanelService', () => {
+  const plugin = host.default
+  assert.equal(typeof plugin.apply, 'function', 'default export is an object plugin')
+  assert.equal(plugin.name, 'git-panel')
+  assert.equal(typeof host.GitPanelService, 'function', 'the service class is still exported')
+  assert.equal(host.GitPanelService.name, 'GitPanelService')
+  assert.ok(plugin.Config !== undefined, 'the plugin object carries the config schema')
   for (const dep of ['subprocess', 'sessions', 'sessionPersistence']) {
-    assert.ok(Service.inject.includes(dep), `inject must include ${dep}`)
+    assert.ok(host.GitPanelService.inject.includes(dep), `static inject must include ${dep}`)
+    assert.ok(plugin.inject.includes(dep), `plugin inject must include ${dep}`)
   }
+  assert.equal(host.SERVICE_KEY, 'dbGitPanel')
   // Pure endpoint functions are re-exported for standalone use / testing.
   assert.equal(typeof host.runAction, 'function')
   assert.equal(typeof host.runQuery, 'function')

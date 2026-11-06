@@ -66,8 +66,8 @@ async function boot(page, opts = {}) {
     const listing = (path) => (ctl.tree[path] ?? []).map(([name, dir]) => dir ? { name, dir } : { name, dir, size: 12 })
     const connection = { rpc: { call: async (_channel, endpoint, payload) => {
       const request = payload && payload.args && payload.args.request
-      if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
-      if (endpoint === 'gitPanel/query') {
+      if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+      if (endpoint === 'dbGitPanel/query') {
         const q = request.query
         if (q.kind === 'dir-list') {
           ctl.dirCalls.push(q.path)
@@ -93,8 +93,8 @@ async function boot(page, opts = {}) {
         if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 0, commits: [] } } }
         if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
       }
-      if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
-      if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '1.8.1', repositoryUrl: '', updateAvailable: false, checkedRemote: false } }
+      if (endpoint === 'dbGitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+      if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '1.8.1', repositoryUrl: '', updateAvailable: false, checkedRemote: false } }
       return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
     } } }
     const registered = {}

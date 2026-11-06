@@ -64,7 +64,7 @@ async function openPanel(snapshot, { tab = 1 } = {}) {
     const call = connection.rpc.call
     connection.rpc.call = async (channel, endpoint, payload) => {
       const request = payload?.args?.request
-      if (endpoint === 'gitPanel/run' && request?.action?.kind === 'publish') {
+      if (endpoint === 'dbGitPanel/run' && request?.action?.kind === 'publish') {
         fixture.actions.push(request.action)
         fixture.publishCalls++
         if (fixture.holdPublish) await new Promise((done) => { fixture.releasePublish = done })

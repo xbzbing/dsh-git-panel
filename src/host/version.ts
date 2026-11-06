@@ -1,5 +1,5 @@
 /**
- * Plugin version + update-check support for the `gitPanel/version` endpoint.
+ * Plugin version + update-check support for the `dbGitPanel/version` endpoint.
  *
  * The local view reads this package's own package.json; the remote check
  * queries the GitHub releases API and compares tags. Network or parse

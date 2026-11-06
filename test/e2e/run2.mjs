@@ -41,7 +41,7 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   // Case 1: clean repo → synced (green) pill + jump click.
   let cleanFileListings = 0
   const cleanConn = { rpc: { call: async (_c, ep, payload) => {
-    if (ep === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+    if (ep === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
     if (payload?.args?.request?.query?.kind === 'dir-list') cleanFileListings++
     return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [], remote: [] } } }
   } } }
@@ -173,7 +173,7 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   document.getElementById('tabbar').appendChild(fakeTab)
 
   // Case 2: a non-git directory has no input marker but opens the Files view.
-  const notGitConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
+  const notGitConn = { rpc: { call: async (_c, ep) => ep === 'dbGitPanel/snapshot'
     ? { ok: true, value: { ok: false, error: { code: 'not-a-git-repo', cwd: nonGitDir } } }
     : { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [{ name: 'note.md', dir: false }] } } } } }
   entry.apply(mkCtx(notGitConn))
@@ -192,7 +192,7 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   // Case 3: showInputPill=false → the input-bar marker is hidden and the Git
   // tab shows a status dot instead (pill ↔ tab-dot mutual exclusion, T5).
   const dirtySnap = { ...snap, dirty: true, modified: 1, showInputPill: false, changes: [{ path: 'x.txt', status: 'modified', staged: false, isDirectory: false }] }
-  const dotConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
+  const dotConn = { rpc: { call: async (_c, ep) => ep === 'dbGitPanel/snapshot'
     ? { ok: true, value: { ok: true, value: dirtySnap } }
     : { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [], remote: [] } } } } }
   entry.apply(mkCtx(dotConn))
@@ -242,7 +242,7 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   // fallback must not bring its own; the repo→branch gap stays one tight
   // interval instead of reading as two spaces.
   const detachedSnap = { ...snap, branch: null, dirty: false }
-  const detachedConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
+  const detachedConn = { rpc: { call: async (_c, ep) => ep === 'dbGitPanel/snapshot'
     ? { ok: true, value: { ok: true, value: detachedSnap } }
     : { ok: true, value: { ok: true, value: { kind: 'branches', current: null, defaultBranch: null, local: [], remote: [] } } } } }
   entry.apply(mkCtx(detachedConn))

@@ -132,15 +132,15 @@ async function mount(repos, action, options = {}) {
         kind: request && request.query ? request.query.kind : null,
         repo: request && typeof request.repo === 'string' ? request.repo : '',
       })
-      if (probe.active && endpoint === 'gitPanel/snapshot') {
+      if (probe.active && endpoint === 'dbGitPanel/snapshot') {
         const tag = request && typeof request.repo === 'string' ? request.repo : ''
         return { ok: true, value: { ok: true, value: { ...snap, detectCheckouts: !probe.off, root: tag === '' ? snap.root : 'fixture-repo/' + tag } } }
       }
-      if (probe.active && endpoint === 'gitPanel/query' && request && request.query && request.query.kind === 'repo-list') {
+      if (probe.active && endpoint === 'dbGitPanel/query' && request && request.query && request.query.kind === 'repo-list') {
         const rows = probe.off ? listed.filter((entry) => entry.path === '') : listed
         return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: '/mock/workspace', repos: rows } } }
       }
-      if ((taggedRoot || follow.active) && endpoint === 'gitPanel/snapshot') {
+      if ((taggedRoot || follow.active) && endpoint === 'dbGitPanel/snapshot') {
         const tag = request && typeof request.repo === 'string' ? request.repo : ''
         // Every sample is stamped when it is taken, the way the host does: the
         // follow flip is read off the newest sample.
@@ -152,7 +152,7 @@ async function mount(repos, action, options = {}) {
       // repository of its own, only nested ones, so only the untagged request
       // fails. A pick of a nested checkout answers normally, which is what lets
       // the panel's default pick land on a git view.
-      if (snapshotFails && endpoint === 'gitPanel/snapshot') {
+      if (snapshotFails && endpoint === 'dbGitPanel/snapshot') {
         const tag = request && typeof request.repo === 'string' ? request.repo : ''
         const fails = snapshotFails === true ? tag === '' : tag !== ''
         if (fails) return { ok: true, value: { ok: false, error: { code: snapshotFails === true ? 'not-a-git-repo' : snapshotFails, cwd: '/mock/workspace' } } }
@@ -481,7 +481,7 @@ async function mount(repos, action, options = {}) {
       observed.disabledTap = {
         switching: switchingNow(),
         active: listRows().map((row) => row.active),
-        snapshots: calls.slice(mark).filter((call) => call.endpoint === 'gitPanel/snapshot'),
+        snapshots: calls.slice(mark).filter((call) => call.endpoint === 'dbGitPanel/snapshot'),
       }
       // A worktree pick rides every repository-scoped request, exactly like a
       // nested repository pick does.
@@ -524,7 +524,7 @@ async function mount(repos, action, options = {}) {
       await wait(400)
       observed.disabledTap = {
         active: sheetRows().map((row) => row.active),
-        snapshots: calls.slice(mark).filter((call) => call.endpoint === 'gitPanel/snapshot'),
+        snapshots: calls.slice(mark).filter((call) => call.endpoint === 'dbGitPanel/snapshot'),
       }
       // The sheet stays open with the rows on screen for the hover probe.
       return { observed, calls }
@@ -556,7 +556,7 @@ async function mount(repos, action, options = {}) {
     if (action === 'files-only') {
       // No interaction yet: the default entered the first sub-repository, the
       // block boots collapsed naming it, and the list has no workspace-root row.
-      observed.snapshotTags = calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo)
+      observed.snapshotTags = calls.filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo)
       observed.optionRows = listRows().map((row) => row.name)
       observed.statusAfterPick = textOf(document, '.gp-panel .gp-files__statusbar .gp-files__status-code')
       // Boot, before any interaction: the collapsed block keeps its path line
@@ -581,7 +581,7 @@ async function mount(repos, action, options = {}) {
       await wait(700)
       observed.steady = {
         head: headInfo(),
-        newSnapshotTags: calls.slice(steadyMark).filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo),
+        newSnapshotTags: calls.slice(steadyMark).filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo),
       }
       // Tabs / status bar / repository rows, read for either landing state.
       observed.state = {
@@ -639,7 +639,7 @@ async function mount(repos, action, options = {}) {
         rows: listRows().map((row) => row.name),
         headPresent: headInfo().present,
         repoListCalls: calls.slice(mark).filter((call) => call.kind === 'repo-list').length,
-        lastSnapshotTag: calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo).at(-1),
+        lastSnapshotTag: calls.filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo).at(-1),
       }
       return { observed, calls }
     }
@@ -737,7 +737,7 @@ async function mount(repos, action, options = {}) {
         activeTab: activeTabLabel(),
         switching: switchingNow(),
         expanded: headInfo().expanded,
-        scoped: calls.slice(pickMark).filter((call) => call.endpoint === 'gitPanel/snapshot'),
+        scoped: calls.slice(pickMark).filter((call) => call.endpoint === 'dbGitPanel/snapshot'),
         inert: document.querySelector('.gp-panel .gp-body')?.hasAttribute('inert') ?? null,
       }
       return { observed, calls }
@@ -767,7 +767,7 @@ async function mount(repos, action, options = {}) {
       observed.afterSwitch = {
         status: statusbarInfo(),
         tree: treeText(),
-        snapshotTags: calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo),
+        snapshotTags: calls.filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo),
       }
       // File properties describe the browser's files: the path hangs off the
       // browse root, and the Git facts belong to the followed checkout only
@@ -823,7 +823,7 @@ async function mount(repos, action, options = {}) {
       await wait(400)
       observed.afterGitSwitch = {
         status: statusbarInfo(),
-        lastSnapshotTag: calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo).at(-1),
+        lastSnapshotTag: calls.filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo).at(-1),
       }
       await openRootMenu()
       observed.menuAfterSwitch = rootMenuInfo()
@@ -896,7 +896,7 @@ async function mount(repos, action, options = {}) {
       // A browse-root pick is a directory switch: when the root is a checkout,
       // Git switches with it while the browser stays in front. The reverse
       // stays the follow setting's call (off here: the browser keeps its root).
-      const snapTags = (from) => calls.slice(from).filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo ?? '')
+      const snapTags = (from) => calls.slice(from).filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo ?? '')
       clickTab('tab.files')
       await wait(400)
       let mark = calls.length
@@ -1043,7 +1043,7 @@ const failures = []
     assert.equal(out.observed.tabCount, '3', 'the bar reports its three tabs')
     assert.equal(out.observed.inLeftColumn, false, 'nothing to list')
     assert.ok(out.calls.length > 0, 'the panel still asked for a snapshot')
-    assert.ok(out.calls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the panel sampled the checkout')
+    assert.ok(out.calls.some((call) => call.endpoint === 'dbGitPanel/snapshot'), 'the panel sampled the checkout')
     assert.ok(out.calls.every((call) => call.repo === ''), 'a single checkout never tags requests')
     assert.equal(out.observed.trackWidths.length, 3, 'every tab was selected once')
     assert.ok(Math.max(...out.observed.trackWidths) - Math.min(...out.observed.trackWidths) < 0.5, 'the tab track keeps its width whichever tab is selected: ' + JSON.stringify(out.observed.trackWidths))
@@ -1064,7 +1064,7 @@ const failures = []
     assert.deepEqual(seen.tabs, ['tab.overview', 'tab.changes', 'tab.files'], 'one checkout needs no tab')
     assert.equal(seen.inLeftColumn, false, 'and no list either')
     assert.deepEqual(seen.rows, [], 'no rows are rendered')
-    assert.ok(out.calls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the panel sampled the checkout')
+    assert.ok(out.calls.some((call) => call.endpoint === 'dbGitPanel/snapshot'), 'the panel sampled the checkout')
     assert.ok(out.calls.every((call) => call.repo === ''), 'nothing is tagged while only one checkout exists')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
@@ -1110,7 +1110,7 @@ const failures = []
     assert.equal(seen.afterNested.switching, false, 'the badge clears once the new sample lands')
     assert.deepEqual(seen.afterNested.rows.map((row) => row.active), [false, true, false], 'the list marks the checkout the panes act on')
     assert.equal(seen.afterNested.head.expanded, true, 'the pick leaves the block open: the next switch stays one click away')
-    assert.ok(nestedCalls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the switch refetched a snapshot')
+    assert.ok(nestedCalls.some((call) => call.endpoint === 'dbGitPanel/snapshot'), 'the switch refetched a snapshot')
     // The scan answers "which repositories does this cwd offer", not "which one
     // is picked": a switch must not walk the tree again for an answer that has
     // already arrived.
@@ -1118,10 +1118,10 @@ const failures = []
     assert.ok(scoped(nestedCalls).every((call) => call.repo === 'site'), 'every repository-scoped request carries the picked checkout: ' + JSON.stringify(nestedCalls))
     assert.equal(seen.backDuring.switching, false, 'a checkout read moments ago turns the page without dimming')
     assert.equal(seen.backDuring.rows[0].active, true, 'the replayed sample checks the workspace row at once')
-    assert.deepEqual(scoped(seen.backDuring.calls).map((call) => call.endpoint), ['gitPanel/snapshot'], 'the replay starts no sub-query before the calibrating sample lands: ' + JSON.stringify(seen.backDuring.calls))
+    assert.deepEqual(scoped(seen.backDuring.calls).map((call) => call.endpoint), ['dbGitPanel/snapshot'], 'the replay starts no sub-query before the calibrating sample lands: ' + JSON.stringify(seen.backDuring.calls))
     assert.equal(seen.afterBack.activeTab, 'tab.overview', 'switching back stays on the overview')
     assert.deepEqual(seen.afterBack.rows.map((row) => row.active), [true, false, false], 'and marks the workspace checkout again')
-    assert.ok(scoped(seen.afterBack.calls).some((call) => call.endpoint === 'gitPanel/snapshot'), 'the way back samples the workspace again: ' + JSON.stringify(seen.afterBack.calls))
+    assert.ok(scoped(seen.afterBack.calls).some((call) => call.endpoint === 'dbGitPanel/snapshot'), 'the way back samples the workspace again: ' + JSON.stringify(seen.afterBack.calls))
     assert.ok(scoped(seen.afterBack.calls).every((call) => call.repo === ''), 'the workspace checkout sends no tag: ' + JSON.stringify(seen.afterBack.calls))
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
@@ -1160,7 +1160,7 @@ const failures = []
     assert.equal(seen.rootLineCopy, 'fixture-repo/site', 'clicking the path line writes it to the clipboard')
     assert.equal(seen.rootLineCopiedClass, true, 'and confirms on the button')
     assert.ok(seen.steady.newSnapshotTags.every((tag) => tag === 'site'), 'the default never re-samples the root: ' + JSON.stringify(seen.steady.newSnapshotTags))
-    const snapTags = out.calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo)
+    const snapTags = out.calls.filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo)
     assert.ok(!snapTags.slice(snapTags.indexOf('site')).includes(''), 'once the pick landed no sample walks back to the root: ' + JSON.stringify(snapTags))
     assert.equal(seen.steady.head.expanded, true, 'the block stays where it was left')
     assert.equal(seen.state.activeTab, 'tab.overview', 'the panel stays on the overview')
@@ -1238,7 +1238,7 @@ const failures = []
     // `repo-list` is the one query that spans the whole workspace, so it stays
     // untagged; everything else has to follow the pick.
     const scoped = seen.afterPick.calls.filter((call) => call.kind !== 'repo-list')
-    assert.ok(scoped.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the pick refetched a snapshot')
+    assert.ok(scoped.some((call) => call.endpoint === 'dbGitPanel/snapshot'), 'the pick refetched a snapshot')
     assert.ok(scoped.every((call) => call.repo === 'site'), 'every repository-scoped request carries the pick: ' + JSON.stringify(seen.afterPick.calls))
     assert.equal(seen.changesList, false, 'the compact changes page docks no repository list')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
@@ -1263,7 +1263,7 @@ const failures = []
     assert.equal(rejected.activeTab, 'tab.overview', 'a repair is not a navigation: the page stays')
     assert.equal(rejected.empties.includes('pill.unavailable'), false, 'a stale pick is never reported as a missing git: ' + JSON.stringify(rejected.empties))
     assert.equal(seen.tabCount, '3', 'a rejected pick does not collapse the bar into the browser')
-    const tags = rejected.calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo)
+    const tags = rejected.calls.filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo)
     assert.ok(tags.includes('site'), 'the rejected pick was sampled: ' + JSON.stringify(tags))
     assert.ok(tags.slice(tags.indexOf('site')).includes(''), 'the workspace checkout was sampled again: ' + JSON.stringify(tags))
     assert.equal(tags[tags.length - 1], '', 'and the panel settles on it: ' + JSON.stringify(tags))
@@ -1327,7 +1327,7 @@ const failures = []
     assert.equal(seen.afterPick.rows.find((row) => row.name === 'sidebar').active, true, 'the worktree row is checked')
     assert.equal(seen.afterPick.activeTab, 'tab.overview', 'picking a worktree stays on the overview')
     assert.equal(seen.afterPick.switching, false, 'the switch completes')
-    assert.ok(scoped(seen.afterBack.calls).some((call) => call.endpoint === 'gitPanel/snapshot'), 'the way back samples the workspace again: ' + JSON.stringify(seen.afterBack.calls))
+    assert.ok(scoped(seen.afterBack.calls).some((call) => call.endpoint === 'dbGitPanel/snapshot'), 'the way back samples the workspace again: ' + JSON.stringify(seen.afterBack.calls))
     assert.ok(scoped(seen.afterBack.calls).every((call) => call.repo === ''), 'the way back sends no tag: ' + JSON.stringify(seen.afterBack.calls))
     assert.equal(seen.afterBack.rows[0].active, true, 'and the workspace checkout is checked again')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))

@@ -57,10 +57,10 @@ window.runPanelAriaScenarios = async ({ snap, nonGitDir }) => {
     rpc: {
       call: async (_channel, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') return snapshotReply()
-        if (endpoint === 'gitPanel/query') return answerQuery(request)
-        if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.0.0', checkedRemote: false } }
-        if (endpoint === 'gitPanel/suggest') return { ok: true, value: { ok: true, value: { message: '', truncated: false } } }
+        if (endpoint === 'dbGitPanel/snapshot') return snapshotReply()
+        if (endpoint === 'dbGitPanel/query') return answerQuery(request)
+        if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '0.0.0', checkedRemote: false } }
+        if (endpoint === 'dbGitPanel/suggest') return { ok: true, value: { ok: true, value: { message: '', truncated: false } } }
         return okValue(branches)
       },
     },

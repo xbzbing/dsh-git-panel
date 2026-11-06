@@ -72,7 +72,7 @@ try {
       const call = connection.rpc.call
       connection.rpc.call = async (channel, endpoint, payload) => {
         const query = payload && payload.args && payload.args.request && payload.args.request.query
-        if (endpoint === 'gitPanel/query' && query && query.kind === 'branches') {
+        if (endpoint === 'dbGitPanel/query' && query && query.kind === 'branches') {
           return { ok: true, value: { ok: true, value: { kind: 'branches', current: branchesCurrent, defaultBranch: primary, local, remote } } }
         }
         return call(channel, endpoint, payload)

@@ -49,8 +49,8 @@ const out = await page.evaluate(async (snap) => {
     rpc: {
       call: async (_channel, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
-        if (endpoint === 'gitPanel/query') {
+        if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+        if (endpoint === 'dbGitPanel/query') {
           const q = request.query
           if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'feature', shortHash: 'd196623' }, { name: 'main', shortHash: 'de54fc0' }], remote: [] } } }
           if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
@@ -76,7 +76,7 @@ const out = await page.evaluate(async (snap) => {
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
         }
-        if (endpoint === 'gitPanel/run') {
+        if (endpoint === 'dbGitPanel/run') {
           runActions.push(request?.action ?? {})
           // Delay the fast-forward pull so the busy overlay is observable; keep
           // the dirty fixture (ff pull doesn't touch the work tree) so later
@@ -87,7 +87,7 @@ const out = await page.evaluate(async (snap) => {
           }
           return { ok: true, value: { ok: true, snapshot: snap } }
         }
-        if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
+        if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
     },

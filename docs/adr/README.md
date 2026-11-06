@@ -44,6 +44,7 @@
 | [ADR-0026](0026-history-path-search-contract.md) | 历史文件 / 路径搜索：受控 pathspec 与响应能力门控 | 契约 |
 | [ADR-0027](0027-changes-list-two-views.md) | 变更列表的平铺 / 树形两种视图 | UI |
 | [ADR-0028](0028-context-menu-ownership.md) | 右键菜单：自有目标族、平台动作借用、面板实例归属 | UI |
+| [ADR-0029](0029-unique-service-key-and-idempotent-mount.md) | 服务键与 RPC / locale 命名空间唯一化，重复挂载保持惰性 | 架构 |
 
 ## 有效期
 

@@ -57,7 +57,7 @@ try {
     const requests = []
     connection.rpc.call = async (channel, endpoint, payload) => {
       const query = payload?.args?.request?.query
-      if (endpoint === 'gitPanel/query') {
+      if (endpoint === 'dbGitPanel/query') {
         if (query.kind === 'branches') return success({ kind: 'branches', current: 'main', defaultBranch: null, local: [], remote: [] })
         if (query.kind === 'tags') return success({ kind: 'tags', tags: [] })
         if (query.kind === 'authors') return success({ kind: 'authors', authors: [author1, author2] })

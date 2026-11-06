@@ -22,7 +22,7 @@ Pre-release versions carry a `-` suffix (e.g. `1.8.0-rc.1`): they ship only as G
 
 After a first install the **Git** panel appears in the workspace tab bar with no restart or page refresh. On update, a version that only changes the client half takes effect immediately; one that changes the host half needs a dsh restart. Settings on the detail page apply immediately.
 
-> **Compatibility**: verified on `dsh@0.2.1-rc.2` and `dsh@0.2.2-alpha.2` — installation, the Git panel, the input-bar marker, the host RPC, and the plugin detail page all work normally.
+> **Compatibility**: verified on `dsh@0.2.1-rc.2`, `dsh@0.2.2-alpha.2` and `dsh@0.2.2-rc.1` — installation, the Git panel, the input-bar marker, the host RPC, and the plugin detail page all work normally.
 
 ## Features
 
@@ -66,7 +66,7 @@ The client bundle (`lib/client.js`) makes no network requests of its own — it 
 
 Two halves communicating over the typert Remote gateway.
 
-- **Host** (`lib/host/`) — a Cordis + typert `GitPanelService` on the `gitPanel` namespace, exposing `snapshot` / `run` / `query` / `suggest` / `version` and doing only endpoint delegation and lifecycle wiring; git runs through the host `subprocess` service (argv arrays, no shell, cwd locked to the repository root, timeout + output caps); the `suggest` endpoint makes a one-shot commit-message call through the host `llm` service with your configured model.
+- **Host** (`lib/host/`) — a Cordis + typert `GitPanelService` on the `dbGitPanel` namespace (the service key is globally unique; a duplicate mount stays inert), exposing `snapshot` / `run` / `query` / `suggest` / `version` / `openFile` / `writeFile` and doing only endpoint delegation and lifecycle wiring; git runs through the host `subprocess` service (argv arrays, no shell, cwd locked to the repository root, timeout + output caps); the `suggest` endpoint makes a one-shot commit-message call through the host `llm` service with your configured model.
 - **Client** (`lib/client.js`) — a React bundle that registers the `conversation.view` panel and the `conversation.input.left` marker. One snapshot controller per session (polling + a refresh after each turn + a reload on connection reset) feeds the marker, the changes page, and the stats bar from a single snapshot, avoiding duplicate git commands.
 
 ## Development
@@ -96,7 +96,7 @@ src/
     parser.ts       git output parsed into structured data
     version.ts      package version + GitHub release update check
   client/
-    rpc.ts          the client face of the gitPanel endpoints
+    rpc.ts          the client face of the dbGitPanel endpoints
     controller.ts   per-session snapshot controller
     Panel.tsx       panel shell: sub-tab routing + version bar
     OverviewTab.tsx Overview three columns + hover card

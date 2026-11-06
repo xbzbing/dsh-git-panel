@@ -1,5 +1,5 @@
 /**
- * The `gitPanel` dictionaries: every locale DSH ships carries the full key set
+ * The `dbGitPanel` dictionaries: every locale DSH ships carries the full key set
  * of the zh source (the base dictionary the other seven translate from, per
  * AGENTS.md), with the same `{placeholders}` and no empty text. The platform
  * falls back to English per key, so a gap would not show a raw key — but it

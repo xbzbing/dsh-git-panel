@@ -90,7 +90,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     rpc: {
       call: async (_channel, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') {
+        if (endpoint === 'dbGitPanel/snapshot') {
           fixture.snapshotCalls++
           fixture.lastSnapshotFullChanges = request != null && request.fullChanges === true
           if (fixture.holdSnapshot) await park('releaseSnapshot')
@@ -106,7 +106,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           }
           return { ok: true, value: { ok: true, value: snapshotValue() } }
         }
-        if (endpoint === 'gitPanel/query') {
+        if (endpoint === 'dbGitPanel/query') {
           const q = request.query
           if (q.kind === fixture.secondaryQueryFailure) {
             fixture.secondaryFailures.push(q.kind)
@@ -221,7 +221,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           // runner; a fixture that needs the switcher opts in below.
           if (q.kind === 'repo-list') return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: '/mock', repos: fixture.repos ?? [] } } }
         }
-        if (endpoint === 'gitPanel/run') {
+        if (endpoint === 'dbGitPanel/run') {
           const act = request.action
           fixture.actions.push(act)
           // Park the call so a test can assert the dialog's busy state before
@@ -249,16 +249,16 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           if (act.kind === 'branch-checkout') fixture.snapshot = { ...fixture.snapshot, branch: act.name }
           return { ok: true, value: { ok: true, snapshot: snapshotValue() } }
         }
-        if (endpoint === 'gitPanel/suggest') {
+        if (endpoint === 'dbGitPanel/suggest') {
           fixture.suggestCalls++
           // Park until the test has observed the commit box's in-flight lock.
           await park('releaseSuggest')
           return { ok: true, value: { ok: true, value: { message: 'feat: suggested', truncated: fixture.suggestTruncated === true } } }
         }
-        if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
+        if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
         // "Open in the system browser": the harness records the request so a
         // test can prove the panel asked the host instead of mounting a frame.
-        if (endpoint === 'gitPanel/openFile') {
+        if (endpoint === 'dbGitPanel/openFile') {
           fixture.openedFiles.push(request.path)
           if (fixture.openFileFailure !== null) return { ok: true, value: { ok: false, error: fixture.openFileFailure } }
           return { ok: true, value: { ok: true, absolutePath: '/abs/' + request.path } }

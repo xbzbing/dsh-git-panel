@@ -22,7 +22,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 首次安装后，工作区标签栏会直接出现 **Git** 面板，无需重启或刷新页面。更新时，只改了 client 端的版本立即生效；含 host 端改动的版本需重启 dsh。详情页的配置改动即时生效。
 
-> **兼容性**：已在 `dsh@0.2.1-rc.2` 与 `dsh@0.2.2-alpha.2` 上实测，安装、Git 面板、输入框标记、host RPC 与插件详情页均可正常使用。
+> **兼容性**：已在 `dsh@0.2.1-rc.2`、`dsh@0.2.2-alpha.2` 与 `dsh@0.2.2-rc.1` 上实测，安装、Git 面板、输入框标记、host RPC 与插件详情页均可正常使用。
 
 ## 功能
 
@@ -66,7 +66,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 插件分 host / client 两半，通过 typert Remote 网关通信。
 
-- **Host**（`lib/host/`）：`gitPanel` 命名空间上的 Cordis + typert `GitPanelService`，暴露 `snapshot` / `run` / `query` / `suggest` / `version` 五个端点，仅做端点委托与生命周期接线；git 命令经宿主 `subprocess` 服务执行（argv 数组、无 shell、cwd 锁仓库根、超时 + 输出上限）；`suggest` 端点经宿主 `llm` 服务用你已配置的模型一次性生成提交信息。
+- **Host**（`lib/host/`）：`dbGitPanel` 命名空间上的 Cordis + typert `GitPanelService`（服务键全局唯一，重复挂载的条目保持惰性），暴露 `snapshot` / `run` / `query` / `suggest` / `version` / `openFile` / `writeFile` 七个端点，仅做端点委托与生命周期接线；git 命令经宿主 `subprocess` 服务执行（argv 数组、无 shell、cwd 锁仓库根、超时 + 输出上限）；`suggest` 端点经宿主 `llm` 服务用你已配置的模型一次性生成提交信息。
 - **Client**（`lib/client.js`）：一个 React 包，注册 `conversation.view` 面板和 `conversation.input.left` 标记。每会话一个快照控制器（轮询 + turn 完成后刷新 + 连接重置重拉），标记、变更记录页和统计条共用同一份快照，避免重复 git 命令。
 
 ## 开发
@@ -96,7 +96,7 @@ src/
     parser.ts       git 输出解析为结构化数据
     version.ts      本包版本 + GitHub release 更新检查
   client/
-    rpc.ts          gitPanel 端点的 client 面
+    rpc.ts          dbGitPanel 端点的 client 面
     controller.ts   每会话快照控制器
     Panel.tsx       主面板壳：子 tab 路由 + 版本条
     OverviewTab.tsx Git 总览三栏 + hover 卡片

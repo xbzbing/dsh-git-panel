@@ -19,7 +19,7 @@ function setup(t) {
   }
   bindContext({ get: () => ({ rpc: {
     call: async (_, endpoint, { args: { request } }) => {
-      assert.equal(endpoint, 'gitPanel/snapshot')
+      assert.equal(endpoint, 'dbGitPanel/snapshot')
       calls++
       return { ok: true, value: { ok: true, value: {
         root: `/${request.sessionId}`, checkedAt: calls, stateFingerprint: 'same',

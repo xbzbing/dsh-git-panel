@@ -52,10 +52,10 @@ async function boot(page, capabilities, history, snap = SNAP) {
       rpc: {
         call: async (_c, endpoint, payload) => {
           const request = payload && payload.args && payload.args.request
-          if (endpoint === 'gitPanel/snapshot') {
+          if (endpoint === 'dbGitPanel/snapshot') {
             return { ok: true, value: { ok: true, value: { ...snap, ...(capabilities === null ? {} : { capabilities }) } } }
           }
-          if (endpoint === 'gitPanel/query') {
+          if (endpoint === 'dbGitPanel/query') {
             const q = request.query
             window.__queries.push(q)
             if (q.kind === 'repo-list') {
@@ -103,11 +103,11 @@ async function boot(page, capabilities, history, snap = SNAP) {
               return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
             }
           }
-          if (endpoint === 'gitPanel/run') {
+          if (endpoint === 'dbGitPanel/run') {
             window.__runs.push(request.action)
             return { ok: true, value: { ok: true, snapshot: snap } }
           }
-          if (endpoint === 'gitPanel/version') {
+          if (endpoint === 'dbGitPanel/version') {
             return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
           }
           return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }

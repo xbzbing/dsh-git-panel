@@ -98,7 +98,7 @@ async function boot(page, opts = {}) {
     const connection = { rpc: { call: async (_channel, endpoint, payload) => {
       const request = payload && payload.args && payload.args.request
       const inNested = request !== undefined && typeof request.repo === 'string' && request.repo.startsWith('nested')
-      if (endpoint === 'gitPanel/snapshot') {
+      if (endpoint === 'dbGitPanel/snapshot') {
         ctl.snapshots++
         // The nested checkout answers only its own placeholder sample: the
         // git-pill state is never asserted in this runner, but the snapshot
@@ -107,7 +107,7 @@ async function boot(page, opts = {}) {
         const base = inNested ? { ...fastSnap, root: '/w/nested' } : fastSnap
         return { ok: true, value: { ok: true, value: { ...base, detectCheckouts: !ctl.dropNested } } }
       }
-      if (endpoint === 'gitPanel/writeFile') {
+      if (endpoint === 'dbGitPanel/writeFile') {
         ctl.writes.push(request)
         // A write whose root disappeared must never reach the host: the client
         // derives the tag from the draft's root key, and the request only goes
@@ -134,7 +134,7 @@ async function boot(page, opts = {}) {
         ctl.version[request.path] += 1
         return { ok: true, value: { ok: true, value: inNested ? nestedContent(request.path) : content(request.path) } }
       }
-      if (endpoint === 'gitPanel/query') {
+      if (endpoint === 'dbGitPanel/query') {
         const q = request.query
         if (q.kind === 'dir-list') {
           if (inNested) {
@@ -157,8 +157,8 @@ async function boot(page, opts = {}) {
         }
         if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
       }
-      if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: { ...fastSnap, detectCheckouts: !ctl.dropNested } } }
-      if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '1.10.0', repositoryUrl: '', updateAvailable: false, checkedRemote: false } }
+      if (endpoint === 'dbGitPanel/run') return { ok: true, value: { ok: true, snapshot: { ...fastSnap, detectCheckouts: !ctl.dropNested } } }
+      if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '1.10.0', repositoryUrl: '', updateAvailable: false, checkedRemote: false } }
       return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
     } } }
     const registered = {}

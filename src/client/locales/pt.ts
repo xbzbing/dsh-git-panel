@@ -1,4 +1,4 @@
-/** `gitPanel` namespace dictionary: Portuguese. Keys mirror `zh` in ../locales.ts. */
+/** `dbGitPanel` namespace dictionary: Portuguese. Keys mirror `zh` in ../locales.ts. */
 import type { GitKey } from '../locales.js'
 
 export const pt: Record<GitKey, string> = {

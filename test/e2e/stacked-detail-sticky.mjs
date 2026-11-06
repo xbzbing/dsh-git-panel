@@ -60,7 +60,7 @@ await page.evaluate(async (snap) => {
   const inner = connection.rpc.call.bind(connection.rpc)
   connection.rpc.call = async (channel, endpoint, payload) => {
     const request = payload && payload.args && payload.args.request
-    if (endpoint === 'gitPanel/query' && request != null && request.query != null && request.query.kind === 'show') {
+    if (endpoint === 'dbGitPanel/query' && request != null && request.query != null && request.query.kind === 'show') {
       const q = request.query
       return { ok: true, value: { ok: true, value: {
         kind: 'show',

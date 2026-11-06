@@ -64,9 +64,9 @@ async function boot(page, opts = {}) {
     window.__ctl = ctl
 
     const connection = { rpc: { call: async (_channel, endpoint) => {
-      if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
-      if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
-      if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '1.8.1', repositoryUrl: '', updateAvailable: false, checkedRemote: false } }
+      if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+      if (endpoint === 'dbGitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+      if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '1.8.1', repositoryUrl: '', updateAvailable: false, checkedRemote: false } }
       return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
     } } }
 

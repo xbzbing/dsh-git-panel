@@ -5,7 +5,7 @@
  *   conversation.view (order 30)   → the Git panel (Overview / Changes tabs)
  *   conversation.input.left        → the zsh-style Git branch marker pill
  *   plugins.bundle.config          → the detail-page config form (showInputPill)
- * Dictionaries for every DSH language are registered under the `gitPanel`
+ * Dictionaries for every DSH language are registered under the `dbGitPanel`
  * namespace (English is the fallback for any other locale); the
  * per-session snapshot controller registry is bound to this context.
  *

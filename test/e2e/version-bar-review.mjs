@@ -45,10 +45,10 @@ await page.evaluate(async (snap) => {
   const connection = {
     rpc: {
       call: async (_c, endpoint) => {
-        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
-        if (endpoint === 'gitPanel/query') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
-        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
-        if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '1.6.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: true } }
+        if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+        if (endpoint === 'dbGitPanel/query') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
+        if (endpoint === 'dbGitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+        if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '1.6.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: true } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
     },

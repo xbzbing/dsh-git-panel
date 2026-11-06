@@ -50,8 +50,8 @@ await page.evaluate(async ({ snap, tree }) => {
     rpc: {
       call: async (_c, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
-        if (endpoint === 'gitPanel/query') {
+        if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+        if (endpoint === 'dbGitPanel/query') {
           const q = request.query
           if (q.kind === 'dir-list') {
             const entries = (tree[q.path] || []).map(([name, dir]) => (dir ? { name, dir } : { name, dir, size: 12 }))
@@ -78,11 +78,11 @@ await page.evaluate(async ({ snap, tree }) => {
           ] } } }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
         }
-        if (endpoint === 'gitPanel/run') {
+        if (endpoint === 'dbGitPanel/run') {
           window.__runs.push({ repo: request.repo, action: request.action })
           return { ok: true, value: { ok: true, snapshot: snap } }
         }
-        if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
+        if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
     },
@@ -413,11 +413,11 @@ await page.evaluate(async ({ snap }) => {
     rpc: {
       call: async (_c, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') {
+        if (endpoint === 'dbGitPanel/snapshot') {
           const repo = request.repo || ''
           return { ok: true, value: { ok: true, value: repo === '' ? snap : snap2 } }
         }
-        if (endpoint === 'gitPanel/query') {
+        if (endpoint === 'dbGitPanel/query') {
           const q = request.query
           if (q.kind === 'repo-list') {
             return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: window.__fixtureRoot, repos: [
@@ -427,7 +427,7 @@ await page.evaluate(async ({ snap }) => {
           }
           return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [], remote: [] } } }
         }
-        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
+        if (endpoint === 'dbGitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
     },
@@ -554,8 +554,8 @@ await page.evaluate(async ({ snap }) => {
     rpc: {
       call: async (_c, endpoint, payload) => {
         const request = payload && payload.args && payload.args.request
-        if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: changed } }
-        if (endpoint === 'gitPanel/query') {
+        if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: changed } }
+        if (endpoint === 'dbGitPanel/query') {
           const q = request.query
           if (q.kind === 'repo-list') {
             return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: window.__fixtureRoot, repos: [
@@ -576,7 +576,7 @@ await page.evaluate(async ({ snap }) => {
           }
           if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: '', truncated: false } } }
         }
-        if (endpoint === 'gitPanel/run') {
+        if (endpoint === 'dbGitPanel/run') {
           window.__runs.push({ action: request.action })
           return { ok: true, value: { ok: true, snapshot: changed } }
         }

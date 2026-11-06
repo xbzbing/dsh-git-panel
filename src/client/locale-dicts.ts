@@ -1,5 +1,5 @@
 /**
- * Every dictionary the `gitPanel` namespace registers, by locale id. zh and en
+ * Every dictionary the `dbGitPanel` namespace registers, by locale id. zh and en
  * are the platform's baseline pair; the rest match the languages DSH ships
  * (ja / es / fr / de / ru / pt). A locale outside this set — a language pack
  * added later — falls back to English through the platform's per-key fallback

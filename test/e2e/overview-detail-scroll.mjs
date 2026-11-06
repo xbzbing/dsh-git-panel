@@ -57,7 +57,7 @@ try {
     const LONG = Array.from({ length: 60 }, (_, i) => `body line ${i + 1}`).join('\n')
     connection.rpc.call = async (channel, endpoint, payload) => {
       const request = payload && payload.args && payload.args.request
-      if (endpoint === 'gitPanel/query' && request?.query?.kind === 'show') {
+      if (endpoint === 'dbGitPanel/query' && request?.query?.kind === 'show') {
         const q = request.query
         if (!bodies.has(q.ref)) bodies.set(q.ref, bodies.size === 0 ? '' : LONG)
         return { ok: true, value: { ok: true, value: {

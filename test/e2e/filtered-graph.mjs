@@ -43,7 +43,7 @@ try {
     let topologyAvailable = true
     connection.rpc.call = async (channel, endpoint, payload) => {
       const q = payload?.args?.request?.query
-      if (endpoint === 'gitPanel/query' && q.kind === 'history') {
+      if (endpoint === 'dbGitPanel/query' && q.kind === 'history') {
         historyQueries.push(q)
         const filtered = q.search !== '1111111' && (q.author || q.since || q.search)
         const commits = q.search === 'exclude-head'

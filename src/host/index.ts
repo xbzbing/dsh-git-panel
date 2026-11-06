@@ -1,7 +1,7 @@
 /**
  * dsh-git-panel host half: Cordis + typert Remote service.
  *
- * `GitPanelService` binds the `gitPanel` namespace and exposes seven @Remote
+ * `GitPanelService` binds the `dbGitPanel` namespace and exposes seven @Remote
  * endpoints (snapshot / run / query / suggest / version / openFile / writeFile) that
  * delegate to the framework-neutral command layer. Host services (subprocess / sessions / sessionPersistence)
  * are adapted into a structural `SnapshotDeps` face.
@@ -81,6 +81,12 @@ interface SessionPersistenceLike {
   stat(id: string): Promise<{ readonly header?: { readonly cwd?: string } } | undefined>
 }
 
+/** Cordis service key; also the Typert wire namespace the client calls. */
+export const SERVICE_KEY = 'dbGitPanel'
+
+/** Fiber label; install identity lives in package.json and cordis.patch.yml. */
+const PLUGIN_NAME = 'git-panel'
+
 export class GitPanelService extends TypertRemoteService {
   static inject = ['subprocess', 'sessions', 'sessionPersistence']
 
@@ -143,7 +149,7 @@ export class GitPanelService extends TypertRemoteService {
   private readonly rawConfig: unknown
 
   constructor(ctx: Context, config: unknown) {
-    super(ctx, 'gitPanel')
+    super(ctx, SERVICE_KEY)
     this.rawConfig = config
     this.config = normalizeConfig(config)
     this.deps = this.buildDeps(ctx, this.config)
@@ -273,4 +279,28 @@ export class GitPanelService extends TypertRemoteService {
   }
 }
 
-export default GitPanelService
+/**
+ * Guard a second mount of the same service key.
+ *
+ * The service key is global to the plugin tree: a profile that composes this
+ * package twice (a duplicate entry, or a diagnostic row next to the real one)
+ * would otherwise fail the second activation with a registration error. That
+ * mount has nothing to add — the first instance already serves every session —
+ * so it stays inert and says so once. The service belongs to the applying
+ * fiber and unregisters with it, so a config change never meets this guard: the
+ * old fiber is torn down before the new one applies.
+ */
+function apply(ctx: Context, config: unknown): void {
+  if (ctx.get(SERVICE_KEY) !== undefined) {
+    ctx.logger.warn('%s: %s is already registered; this mount leaves the existing service in place', PLUGIN_NAME, SERVICE_KEY)
+    return
+  }
+  new GitPanelService(ctx, config)
+}
+
+export default {
+  name: PLUGIN_NAME,
+  inject: GitPanelService.inject,
+  Config: GitPanelService.Config,
+  apply,
+}

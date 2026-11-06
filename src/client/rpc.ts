@@ -1,8 +1,8 @@
 /**
  * Thin client-side RPC wrapper over the harness generic Connection RPC.
  *
- * The host `gitPanel` @Remote methods are served by the typert Gateway on the
- * shared `/api` channel as `gitPanel/<method>`; the payload is `{ args: {
+ * The host `dbGitPanel` @Remote methods are served by the typert Gateway on the
+ * shared `/api` channel as `dbGitPanel/<method>`; the payload is `{ args: {
  * request } }` (args keyed by the method's parameter names). Every read is
  * guarded, so a hostile or absent connection degrades to a typed failure
  * instead of throwing.
@@ -15,7 +15,7 @@ import type {
 } from './types.js'
 
 const API_CHANNEL = '/api'
-const NS = 'gitPanel'
+const NS = 'dbGitPanel'
 
 interface ConnectionFace {
   rpc?: {
@@ -99,7 +99,7 @@ function unwrap<T>(result: unknown): T | { ok: false; error: { code: string; mes
   return r.value as T
 }
 
-/** The bound gitPanel remote face used by the client controller and views. */
+/** The bound Git panel remote face used by the client controller and views. */
 export interface GitPanelRemote {
   snapshot(request: GitSnapshotRequest, signal?: AbortSignal): Promise<GitSnapshotResult>
   run(request: GitActionRequest, signal?: AbortSignal): Promise<GitActionResult>
