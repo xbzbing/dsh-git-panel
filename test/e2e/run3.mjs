@@ -727,7 +727,7 @@ try {
   assert.equal(out.wideDetailSummaryInFiles, true, 'the wide detail keeps the summary above the changed-file tree')
   assert.equal(out.wideStatusBarInLeft, true, 'the wide left column keeps the status bar below the scrolling branch list')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
-  // The phone-sized portaled-modal scenarios live next door (run4) and share
+  // The phone-sized portaled-modal scenarios live next door (phone-modals-scenario.mjs) and share
   // this browser: one Chromium launch covers both phone suites.
   await runModalSizing(browser)
   await browser.close()

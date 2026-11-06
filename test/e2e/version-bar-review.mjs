@@ -60,7 +60,7 @@ await page.evaluate(async (snap) => {
   const ctx = {
     get: (k) => k === 'connection' ? connection : k === 'configForms' ? {
       describe: () => ({
-        getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
+        getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
         subscribe: () => () => {},
         ensure: async () => {},
       }),

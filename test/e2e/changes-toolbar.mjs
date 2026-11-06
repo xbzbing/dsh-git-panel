@@ -103,7 +103,7 @@ async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewpor
     const ctx = {
       get: (key) => key === 'connection' ? connection : key === 'configForms' ? {
         describe: () => ({
-          getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
+          getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
           subscribe: () => () => {},
           ensure: async () => {},
         }),

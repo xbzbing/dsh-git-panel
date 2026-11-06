@@ -50,7 +50,7 @@ try {
     const { connection } = window.createGitPanelMock(snap)
     const registered = {}
     const value = { showInputPill: true, placement: 'all' }
-    const settings = { view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value }] }, status: 'ready' }
+    const settings = { view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value }] }, status: 'ready' }
     const configForms = {
       describe: () => ({ getSnapshot: () => settings, subscribe: () => () => {}, ensure: async () => {} }),
       get: () => ({ getSnapshot: () => ({ status: 'ready', value, revision: 0, writable: true }), subscribe: () => () => {}, set: async () => true }),

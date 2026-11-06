@@ -5,16 +5,23 @@
  * silently skipped every runner after it: one pre-existing failure (the two
  * filtered-graph runners, whose fixtures predated the `remote === null` guard)
  * hid nine later runners, including the ones covering the batch discard. Each
- * runner is still a standalone script — run one directly while iterating; this
- * only aggregates them and makes the whole set always execute.
+ * runner is still a standalone script — run one directly while iterating (the
+ * imported scenario modules are the exception, described below); this only
+ * aggregates them and makes the whole set always execute.
  *
  * Runners are independent processes over file:// fixtures, so a small pool runs
- * them at once: the suite is 33 browser launches and the wall clock was dominated
+ * them at once: each launches its own Chromium, and the wall clock was dominated
  * by starting them one after another. `E2E_CONCURRENCY` overrides the pool size
- * (default 3) — raise it only on a machine with cores to spare, because each
- * slot holds a headless Chromium.
+ * (default 3, capped by the available CPUs) — raise it only on a machine with
+ * cores to spare. `E2E_TIMEOUT_MS` caps one runner (default 240 s) so a hang
+ * cannot swallow the whole job silently.
+ *
+ * The scenario modules next to the runners (clean-states-scenario,
+ * phone-modals-scenario) are imported by run / run3 and are NOT runners: they
+ * are deliberately absent from the list and refuse to run on their own.
  */
 import { spawn } from 'node:child_process'
+import { availableParallelism } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 // Historical `test:e2e` order. The helpers next to these (assert-panel-results,
@@ -76,7 +83,9 @@ const RUNNERS = [
   'local-open',
 ]
 
-const CONCURRENCY = Math.max(1, Number.parseInt(process.env.E2E_CONCURRENCY ?? '', 10) || 3)
+const requested = Number.parseInt(process.env.E2E_CONCURRENCY ?? '', 10) || 3
+const CONCURRENCY = Math.max(1, Math.min(requested, RUNNERS.length, availableParallelism()))
+const TIMEOUT_MS = Number.parseInt(process.env.E2E_TIMEOUT_MS ?? '', 10) || 240_000
 
 /** Run one runner and resolve with its exit status; logs stay buffered. */
 function run(runner) {
@@ -84,10 +93,16 @@ function run(runner) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [file], { stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, TIMEOUT_MS)
+    const finish = (result) => {
+      clearTimeout(timer)
+      resolve(result)
+    }
     child.stdout.on('data', (chunk) => { out += chunk })
     child.stderr.on('data', (chunk) => { out += chunk })
-    child.on('error', (error) => { resolve({ code: null, signal: null, out: out + String(error) }) })
-    child.on('close', (code, signal) => { resolve({ code, signal, out }) })
+    child.on('error', (error) => { finish({ code: null, signal: null, out: out + String(error) }) })
+    child.on('close', (code, signal) => { finish({ code, signal, out, timedOut }) })
   })
 }
 
@@ -96,15 +111,20 @@ const failed = []
 const worker = async () => {
   while (queue.length > 0) {
     const runner = queue.shift()
-    const { code, signal, out } = await run(runner)
+    process.stdout.write(`… ${runner}\n`)
+    const { code, signal, out, timedOut } = await run(runner)
     // Emit one runner's log as one block, after it settles: concurrent runners
     // would otherwise interleave characters and hide which one failed.
-    process.stdout.write(`\n── ${runner} ──\n${out}`)
-    if (code !== 0) failed.push(`${runner} (${code === null ? `signal ${signal ?? 'unknown'}` : `exit ${code}`})`)
+    process.stdout.write(`\n── ${runner}${timedOut ? ` (killed after ${TIMEOUT_MS} ms)` : ''} ──\n${out}`)
+    if (code !== 0) {
+      const reason = timedOut ? `timeout after ${TIMEOUT_MS} ms`
+        : code === null ? `signal ${signal ?? 'unknown'}` : `exit ${code}`
+      failed.push(`${runner} (${reason})`)
+    }
   }
 }
 
-console.log(`e2e: ${RUNNERS.length} runners, ${CONCURRENCY} at a time`)
+console.log(`e2e: ${RUNNERS.length} runners, ${CONCURRENCY} at a time` + (requested !== CONCURRENCY ? ` (requested ${requested})` : ''))
 await Promise.all(Array.from({ length: Math.min(CONCURRENCY, RUNNERS.length) }, worker))
 
 if (failed.length > 0) {

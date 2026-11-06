@@ -3,8 +3,15 @@
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
 import assert from 'node:assert/strict'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
+
+// Merged into run.mjs: there is no standalone scenario here to run. Fail
+// loudly if someone points a script or a gate at this file directly.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  console.error('clean-states-scenario is merged into run.mjs: run node test/e2e/run.mjs')
+  process.exit(1)
+}
 
 const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
@@ -330,7 +337,7 @@ try {
   assert.equal(aria.noSession.tabCount, 3, 'no session still renders the tab list')
   assert.equal(aria.noSession.statePlaceholderText, 'error.noCwd', 'no session shows the no-cwd placeholder in its pane')
   assert.equal(errors.length, 0, 'no page errors: ' + JSON.stringify(errors))
-  console.log('e2e run2 (merged in run): PASS')
+  console.log('e2e clean-states (in run): PASS')
 } finally {
   await page.close()
 }

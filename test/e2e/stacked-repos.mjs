@@ -80,7 +80,7 @@ const boot = (width) => page.evaluate(async ({ snap, repos, w }) => {
   const ctl = { registered: {}, sidebarTypes: [], openedTabs: [] }
   window.__ctl = ctl
   const settings = {
-    view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value: { showInputPill: true, placement: 'sidebar' } }] },
+    view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value: { showInputPill: true, placement: 'sidebar' } }] },
     status: 'ready',
   }
   const configForms = {

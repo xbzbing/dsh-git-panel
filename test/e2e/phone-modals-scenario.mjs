@@ -9,8 +9,15 @@
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
 import assert from 'node:assert/strict'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
+
+// Merged into run3.mjs: there is no standalone scenario here to run. Fail
+// loudly if someone points a script or a gate at this file directly.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  console.error('phone-modals-scenario is merged into run3.mjs: run node test/e2e/run3.mjs')
+  process.exit(1)
+}
 
 const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
@@ -186,7 +193,7 @@ try {
   assert.equal(out.barCloseAtRowEnd, true, 'the close button sits at the far right of the second row')
   assert.equal(out.barModesOneLine, true, 'the mode switches sit side by side on one line')
   assert.equal(out.barModesEvenWidth, true, 'the mode switches are evenly sized')
-  console.log('e2e run4 (merged in run3): PASS', JSON.stringify(out))
+  console.log('e2e phone-modals (in run3): PASS', JSON.stringify(out))
 } finally {
   await page.close()
 }

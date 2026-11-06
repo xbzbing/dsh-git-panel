@@ -120,7 +120,7 @@ async function openPanel(snapshot, options = {}) {
     window.__gpConfigForms = () => ({
       describe: () => ({
         getSnapshot: () => ({
-          view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {}, placement: {}, changesView: {} } }, value: {} }] },
+          view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, placement: {}, changesView: {} } }, value: {} }] },
           status: 'ready',
         }),
         subscribe: () => () => {},
@@ -426,7 +426,7 @@ async function stackedScenario() {
     window.__gpConfigWrites = []
     const registered = {}
     const settings = {
-      view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {}, placement: {}, changesView: {} } }, value: {} }] },
+      view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, placement: {}, changesView: {} } }, value: {} }] },
       status: 'ready',
     }
     const configForms = {

@@ -54,10 +54,10 @@ test('the other placements are unaffected by the sidebar being absent', () => {
 })
 
 test('the namespace is found by any of our own fields', () => {
-  const ns = (fields) => [{ ns: 'gitPanel', schema: { dict: fields } }]
-  assert.equal(findNamespace(ns({ showInputPill: {} })), 'gitPanel')
-  assert.equal(findNamespace(ns({ placement: {} })), 'gitPanel')
-  assert.equal(findNamespace(ns({ showInputPill: {}, placement: {} })), 'gitPanel')
+  const ns = (fields) => [{ ns: 'dbGitPanel', schema: { dict: fields } }]
+  assert.equal(findNamespace(ns({ showInputPill: {} })), 'dbGitPanel')
+  assert.equal(findNamespace(ns({ placement: {} })), 'dbGitPanel')
+  assert.equal(findNamespace(ns({ showInputPill: {}, placement: {} })), 'dbGitPanel')
   assert.equal(findNamespace(ns({ somethingElse: {} })), undefined)
   assert.equal(findNamespace([]), undefined)
 })
@@ -65,8 +65,8 @@ test('the namespace is found by any of our own fields', () => {
 test('the namespace is found when the schema is not in dict form', () => {
   // The serialized path may only match the unique field name. Our own schema
   // always declares `showInputPill`, so it is the reliable marker there.
-  const rows = [{ ns: 'gitPanel', schema: { type: 'object', properties: { showInputPill: {}, placement: {} } } }]
-  assert.equal(findNamespace(rows), 'gitPanel')
+  const rows = [{ ns: 'dbGitPanel', schema: { type: 'object', properties: { showInputPill: {}, placement: {} } } }]
+  assert.equal(findNamespace(rows), 'dbGitPanel')
 })
 
 test('a foreign schema that merely mentions placement is not mistaken for ours', () => {
@@ -75,7 +75,7 @@ test('a foreign schema that merely mentions placement is not mistaken for ours',
   // ours into it. Only the unique field name may match on the serialized path.
   const rows = [
     { ns: 'other-plugin', schema: { type: 'object', dict: { position: {} }, title: 'Cursor placement for the widget' } },
-    { ns: 'gitPanel', schema: { dict: { showInputPill: {}, placement: {} } } },
+    { ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, placement: {} } } },
   ]
-  assert.equal(findNamespace(rows), 'gitPanel')
+  assert.equal(findNamespace(rows), 'dbGitPanel')
 })

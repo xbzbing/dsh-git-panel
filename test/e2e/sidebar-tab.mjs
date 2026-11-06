@@ -77,7 +77,7 @@ async function boot(page, opts = {}) {
     const settings = {
       view: {
         namespaces: [{
-          ns: 'gitPanel',
+          ns: 'dbGitPanel',
           schema: { dict: { showInputPill: {}, placement: {} } },
           value: { showInputPill: true, placement },
         }],

@@ -82,7 +82,7 @@ const out = await page.evaluate(async (snap) => {
     connection,
     configForms: {
       describe: () => ({
-        getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
+        getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
         subscribe: () => () => {},
         ensure: async () => {},
       }),
@@ -117,7 +117,10 @@ const out = await page.evaluate(async (snap) => {
 
   // Wait for React to commit and effects to run instead of sleeping a fixed
   // settle time: two frames cover the commit + passive effects, and the short
-  // tail covers the microtask that follows a mocked RPC answer.
+  // tail covers the microtask that follows a mocked RPC answer. It only covers
+  // same-task / microtask work — real timers, fetches and iframe loads need an
+  // explicit wait. The helper is inlined in each evaluate because they do not
+  // share a scope.
   const settle = async () => {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
     await new Promise((r) => setTimeout(r, 40))
@@ -2228,9 +2231,16 @@ const copyTip = await (async () => {
 })()
 out.copyTip = copyTip
 
-// The clean-repo / non-git / no-session states live next door (run2) and share
-// this browser: one Chromium launch covers both desktop suites.
-await runCleanStates(browser)
+// The clean-repo / non-git / no-session states live next door
+// (clean-states-scenario.mjs) and share this browser: one Chromium launch covers
+// both desktop suites. A failure there is reported under this runner's name
+// instead of escaping as an uncaught rejection before the assertion block.
+try {
+  await runCleanStates(browser)
+} catch (error) {
+  console.error('e2e run.mjs (clean states): FAIL', error instanceof Error ? error.message : error)
+  process.exit(1)
+}
 await browser.close()
 
 try {

@@ -78,7 +78,7 @@ async function boot({ host = 'conversation', width = 1400, height = 900, fontDel
     const value = { showInputPill: true, placement: host === 'sidebar' ? 'sidebar' : 'conversation' }
     const configForms = {
       describe: () => ({
-        getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value }] } }),
+        getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value }] } }),
         subscribe: () => () => {}, ensure: async () => {},
       }),
       get: () => ({ getSnapshot: () => ({ status: 'ready', value, revision: 0, writable: true }), subscribe: () => () => {}, set: async () => true }),

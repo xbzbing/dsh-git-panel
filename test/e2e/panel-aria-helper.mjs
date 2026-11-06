@@ -1,5 +1,5 @@
 /**
- * Injected by run2.mjs with addScriptTag (classic script, no module imports).
+ * Injected by clean-states-scenario.mjs with addScriptTag (classic script, no module imports).
  *
  * Regression for the sub-tab ARIA panel relationship: EVERY visible tab must own
  * a resolvable `role="tabpanel"` in EVERY view state — ready, loading, no-cwd,

@@ -104,7 +104,8 @@ async function mount(repos, action, options = {}) {
   const polled = options.pollMs === undefined ? snap : { ...snap, refreshIntervalMs: options.pollMs }
   const snapUsed = options.foldOnPick === true ? { ...polled, collapseReposOnPick: true } : polled
   const scene = options.scene || 'scene'
-  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn }) => {
+  const expectedTabs = options.expectedTabs ?? 3
+  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn, expectedTabs }) => {
     const React = window.React
     const origWarn = console.warn.bind(console)
     console.warn = (...args) => origWarn('[' + scene + ']', ...args)
@@ -183,12 +184,12 @@ async function mount(repos, action, options = {}) {
     window.ReactDOM.createRoot(document.getElementById('panel'))
       .render(view.component({ sessionId: 'sess-1' }))
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    // Wait for the shell to commit its three tabs instead of sleeping a fixed
-    // half second per scenario; the short settle afterwards covers the first
-    // sample's effects. A condition that never comes true still fails the
-    // scenario through the assertions it guards, rather than hanging here.
+    // Wait for the shell to commit its expected tabs instead of sleeping a
+    // fixed half second per scenario; the short settle afterwards covers the
+    // first sample's effects. A files-only landing has one tab, so the count is
+    // supplied by the caller (default three) rather than assumed.
     const started = Date.now()
-    while (document.querySelectorAll('.gp-panel .gp-tabbar__tabs [role="tab"]').length !== 3 && Date.now() - started < 5000) {
+    while (document.querySelectorAll('.gp-panel .gp-tabbar__tabs [role="tab"]').length !== expectedTabs && Date.now() - started < 2000) {
       await wait(20)
     }
     await wait(150)
@@ -998,7 +999,7 @@ async function mount(repos, action, options = {}) {
       observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
     }
     return { observed, calls }
-  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip' })
+  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip', expectedTabs })
   // A row's hover tip needs a real pointer, so the probe runs after the page
   // script finished and before the page goes away; failures stay out of the
   // scene's own try/catch.
@@ -1187,7 +1188,7 @@ const failures = []
 // one tab, no repository rows — and the status bar roots itself at the cwd
 // (absolute path + refresh, as the tree column's header).
 {
-  const { out, errors } = await mount([], 'files-only', { snapshotFails: true, scene: 'S4b' })
+  const { out, errors } = await mount([], 'files-only', { snapshotFails: true, scene: 'S4b', expectedTabs: 1 })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
