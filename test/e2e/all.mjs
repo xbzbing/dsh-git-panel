@@ -7,8 +7,14 @@
  * hid nine later runners, including the ones covering the batch discard. Each
  * runner is still a standalone script — run one directly while iterating; this
  * only aggregates them and makes the whole set always execute.
+ *
+ * Runners are independent processes over file:// fixtures, so a small pool runs
+ * them at once: the suite is 33 browser launches and the wall clock was dominated
+ * by starting them one after another. `E2E_CONCURRENCY` overrides the pool size
+ * (default 3) — raise it only on a machine with cores to spare, because each
+ * slot holds a headless Chromium.
  */
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 // Historical `test:e2e` order. The helpers next to these (assert-panel-results,
@@ -69,14 +75,36 @@ const RUNNERS = [
   'local-open',
 ]
 
-const failed = []
-for (const runner of RUNNERS) {
+const CONCURRENCY = Math.max(1, Number.parseInt(process.env.E2E_CONCURRENCY ?? '', 10) || 3)
+
+/** Run one runner and resolve with its exit status; logs stay buffered. */
+function run(runner) {
   const file = fileURLToPath(new URL(`./${runner}.mjs`, import.meta.url))
-  const result = spawnSync(process.execPath, [file], { stdio: 'inherit' })
-  if (result.status !== 0) {
-    failed.push(`${runner} (${result.status === null ? `signal ${result.signal}` : `exit ${result.status}`})`)
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [file], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    child.stdout.on('data', (chunk) => { out += chunk })
+    child.stderr.on('data', (chunk) => { out += chunk })
+    child.on('error', (error) => { resolve({ code: null, signal: null, out: out + String(error) }) })
+    child.on('close', (code, signal) => { resolve({ code, signal, out }) })
+  })
+}
+
+const queue = [...RUNNERS]
+const failed = []
+const worker = async () => {
+  while (queue.length > 0) {
+    const runner = queue.shift()
+    const { code, signal, out } = await run(runner)
+    // Emit one runner's log as one block, after it settles: concurrent runners
+    // would otherwise interleave characters and hide which one failed.
+    process.stdout.write(`\n── ${runner} ──\n${out}`)
+    if (code !== 0) failed.push(`${runner} (${code === null ? `signal ${signal ?? 'unknown'}` : `exit ${code}`})`)
   }
 }
+
+console.log(`e2e: ${RUNNERS.length} runners, ${CONCURRENCY} at a time`)
+await Promise.all(Array.from({ length: Math.min(CONCURRENCY, RUNNERS.length) }, worker))
 
 if (failed.length > 0) {
   console.error(`\ne2e: ${failed.length}/${RUNNERS.length} runners FAILED:\n  - ${failed.join('\n  - ')}`)

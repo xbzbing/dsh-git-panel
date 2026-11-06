@@ -74,7 +74,7 @@ npm run check         # lint + typecheck + 单测 + e2e
 ## 验证与测试
 
 - host 改动至少跑 typecheck 和相关端点单测；client 改动构建后用隔离浏览器或隔离 DSH 验证，不直接把运行中的 GUI 当 e2e。
-- `test:e2e` 必须经 `test/e2e/all.mjs` 汇总所有 runner，禁止改回 `&&` 串联；零断言截图 / 度量脚本不加入门禁。
+- `test:e2e` 必须经 `test/e2e/all.mjs` 汇总所有 runner，禁止改回 `&&` 串联；runner 由并发池执行（`E2E_CONCURRENCY`，默认 3），日志按 runner 成块输出，新 runner 必须自带隔离（file:// 夹具、不共享固定端口或输出路径）。零断言截图 / 度量脚本不加入门禁。
 - `test:unit` 不加 `--test-force-exit`；该参数会静默丢失并行测试。
 - 建 git 临时夹具时导入 `test/unit/_tmp-ceiling.mjs`；符号链接用 `linkOrSkip`；跨平台路径比较使用 `realpathSync.native`。
 - `package-lock.json` 必须与 `package.json` 同步；版本只用 `npm version <v> --no-git-tag-version`，由 lock-sync 测试守住。
