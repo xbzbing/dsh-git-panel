@@ -108,6 +108,14 @@ test('the keys are namespaced and unique', () => {
   assert.deepEqual(menuIcon('copy'), { key: 'git-panel.copy' })
 })
 
+test('every menu family builds at least one entry', () => {
+  // The icon and separator sweeps below walk whatever the builders return; an
+  // empty family would make them silently pass without covering it.
+  for (const [family, actions] of everyMenu()) {
+    assert.ok(actions.length > 0, `${family} builds a menu for this fixture`)
+  }
+})
+
 test('each menu fences its destructive band with one separator', () => {
   let fenced = 0
   for (const [family, actions] of everyMenu()) {
