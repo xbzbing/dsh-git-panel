@@ -142,6 +142,11 @@ export function ArrowLeftIcon({ size }: IconProps): JSX.Element {
 }
 
 /** Funnel glyph for the compact branch/ref filter trigger. */
+/** Magnifier: the filter box of the comparison pickers. */
+export function SearchIcon({ size }: IconProps): JSX.Element {
+  return svg([h('circle', { key: 'a', cx: 7, cy: 7, r: 4.3 }), h('path', { key: 'b', d: 'M10.3 10.3 13.8 13.8' })], size, true)
+}
+
 export function FilterIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M2 3h12l-4.5 5.5V13L6.5 11V8.5z' })], size)
 }

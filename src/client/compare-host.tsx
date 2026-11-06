@@ -120,14 +120,17 @@ export function CompareHost({ remote, sessionId, request, compact, defaultDiffVi
   )
 
   const loadMoreEl = request.mode === 'revision' && hasMore
-    ? h('button', {
-      key: 'more', type: 'button', className: 'gp-compare__more',
+    ? h('div', { key: 'more', className: 'gp-compare__more' }, h('button', {
+      type: 'button', className: 'gp-btn gp-compare__more-btn', disabled: loading,
+      // Keep focus in the filter box: it is what the keyboard cursor talks to.
+      onMouseDown: (event: { preventDefault: () => void }) => event.preventDefault(),
       onClick: () => loadMore(),
-    }, t('common.loadMore'))
+    }, loading ? t('common.loading') : t('common.loadMore')))
     : null
 
   const picker = h(ComparePicker, {
     key: 'picker',
+    mode: request.mode,
     title: request.mode === 'ref' ? t('menu.compareTitle') : t('menu.revisionsTitle'),
     path: request.path,
     candidates: rows,

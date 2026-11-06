@@ -123,6 +123,9 @@ export interface ModalShellProps {
   /** Take focus on open, keep Tab inside, restore it on close
    * (`useDialogFocus`): for a dialog raised over another focus-trapping one. */
   trapFocus?: boolean
+  /** A modifier class for the frame (`gp-modal--sm` stays): a dialog whose body
+   * is a list rather than a form sizes and pads itself through it. */
+  variant?: string
   t: OpT
 }
 
@@ -136,7 +139,7 @@ export function renderModalShell(props: ModalShellProps): JSX.Element | null {
   return h(ModalShell, props)
 }
 
-function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, overlay, portalKey, container, trapFocus, t }: ModalShellProps): JSX.Element {
+function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, overlay, portalKey, container, trapFocus, variant, t }: ModalShellProps): JSX.Element {
   // Busy is declared, never inferred: an overlay only exists for dialogs that
   // also pass a label, and inferring from it left reset/revert/tag-delete
   // dismissible mid-flight (their error line then had no dialog to render in).
@@ -180,7 +183,7 @@ function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, 
     // Escape handler (the branch drawer) can yield the keystroke to it.
     [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (!busy && e.target === e.currentTarget) onClose() },
-  }, h('div', { ref: frameRef, className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
+  }, h('div', { ref: frameRef, className: `gp-modal gp-modal--sm${variant === undefined ? '' : ` ${variant}`}`, role: 'dialog', 'aria-modal': true, 'aria-label': title }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, [
       icon !== undefined ? h('span', { key: 'ic', className: 'gp-modal__fileicon' }, icon) : null,
       h('span', { key: 'title', className: 'gp-modal__path' }, title),

@@ -179,11 +179,4 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-chip__x{flex:none;opacity:.7}
 .gp-chip:hover{border-color:var(--dsw-alias-border-l3)}
 .gp-chip:hover .gp-chip__x{opacity:1;color:var(--dsw-alias-state-error-primary)}
-.gp-compare__path{color:var(--dsw-alias-label-secondary);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gp-compare__filter{width:100%;margin:8px 0}
-.gp-compare__list{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column}
-.gp-compare__row{display:flex;align-items:center;gap:10px;padding:0 10px;border:none;background:none;color:inherit;font:inherit;cursor:pointer;text-align:left}
-.gp-compare__row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.gp-compare__group{flex:none;min-width:52px;color:var(--dsw-alias-label-tertiary);font-size:11px}
-.gp-compare__label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 `

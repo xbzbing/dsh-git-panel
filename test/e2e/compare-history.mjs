@@ -34,8 +34,8 @@ const SNAP = {
 
 const TREE = { '': [['docs', true], ['README.md', false]], docs: [['notes.md', false]] }
 const COMMITS = [
-  { hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 'first commit', author: 'A', email: 'a@x', date: '2026-01-01T00:00:00Z', parents: [], refs: [] },
-  { hash: 'b'.repeat(40), shortHash: 'bbbbbbb', subject: 'second commit', author: 'A', email: 'a@x', date: '2026-01-02T00:00:00Z', parents: ['a'.repeat(40)], refs: [] },
+  { hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 'first commit', author: 'A', email: 'a@x', dateIso: '2026-01-01T00:00:00Z', parents: [], refs: [] },
+  { hash: 'b'.repeat(40), shortHash: 'bbbbbbb', subject: 'second commit', author: 'A', email: 'a@x', dateIso: '2026-01-02T00:00:00Z', parents: ['a'.repeat(40)], refs: [] },
 ]
 
 /** Boot one panel; `capabilities` decides whether the Git entries exist, and
@@ -178,11 +178,55 @@ await boot(page, CAPS, COMMITS.length)
 await runRowEntry(page, 'README.md', 'compare-ref')
 await page.waitForSelector('.gp-compare__row', { timeout: 5000 })
 
-const pickerRows = await page.evaluate(() => [...document.querySelectorAll('.gp-compare__row')]
-  .map((row) => ({ label: row.querySelector('.gp-compare__label')?.textContent ?? '', heading: row.querySelector('.gp-compare__group')?.textContent ?? null })))
-assert.deepEqual(pickerRows.map((r) => r.label), ['main', 'heads/same-name', 'origin/main', 'tags/same-name', 'v1'], 'the labels are the short names')
-assert.deepEqual(pickerRows.map((r) => r.heading), ['本地', null, '远程', '标签', null], 'one heading per group (zh), none repeated inside a group')
-assert.ok(!pickerRows.some((r) => r.label === 'origin'), 'a remote-tracking HEAD is not a candidate')
+const picker = await page.evaluate(() => {
+  const list = document.querySelector('.gp-compare__list')
+  return {
+    title: document.querySelector('.gp-modal--picker .gp-modal__path')?.textContent ?? '',
+    file: document.querySelector('.gp-compare__file')?.textContent ?? '',
+    // Headings and rows in document order, so the grouping is checked as drawn.
+    order: [...list.children].filter((el) => el.matches('.gp-compare__heading, .gp-compare__row')).map((el) => (el.matches('.gp-compare__heading')
+      ? `#${el.querySelector('.gp-compare__heading-title')?.textContent}:${el.querySelector('.gp-compare__count')?.textContent}`
+      : el.querySelector('.gp-compare__label')?.textContent)),
+    current: [...document.querySelectorAll('.gp-compare__row')].filter((row) => row.querySelector('.gp-compare__badge') !== null).map((row) => row.querySelector('.gp-compare__label')?.textContent),
+    active: [...document.querySelectorAll('.gp-compare__row--active')].map((row) => row.querySelector('.gp-compare__label')?.textContent),
+    listHeight: list.getBoundingClientRect().height,
+    focusInFilter: document.activeElement?.classList.contains('gp-compare__filter') === true,
+  }
+})
+assert.equal(picker.title, '与分支或标签比较', 'the title carries no trailing ellipsis')
+assert.equal(picker.file, 'README.md', 'the file the comparison is about is named under the bar')
+assert.deepEqual(picker.order, ['#本地:2', 'main', 'heads/same-name', '#远程:1', 'origin/main', '#标签:2', 'tags/same-name', 'v1'],
+  'one counted heading above each group (zh), the labels are the short names')
+assert.ok(!picker.order.includes('origin'), 'a remote-tracking HEAD is not a candidate')
+assert.deepEqual(picker.current, ['main'], 'the checked-out branch carries the HEAD badge')
+assert.deepEqual(picker.active, ['main'], 'the cursor starts on the first candidate')
+assert.ok(picker.listHeight > 100, 'the list has a bounded height of its own')
+assert.equal(picker.focusInFilter, true, 'the filter box has the keyboard')
+
+// The keyboard drives the cursor; the filter narrows and resets it.
+await page.keyboard.press('ArrowDown')
+await page.keyboard.press('ArrowDown')
+assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.gp-compare__row--active')].map((row) => row.querySelector('.gp-compare__label')?.textContent)),
+  ['origin/main'], 'two steps down skip the heading')
+await page.keyboard.type('same')
+await page.waitForTimeout(80)
+const narrowed = await page.evaluate(() => ({
+  labels: [...document.querySelectorAll('.gp-compare__row .gp-compare__label')].map((el) => el.textContent),
+  active: [...document.querySelectorAll('.gp-compare__row--active .gp-compare__label')].map((el) => el.textContent),
+  total: document.querySelector('.gp-compare__total')?.textContent ?? '',
+}))
+assert.deepEqual(narrowed.labels, ['heads/same-name', 'tags/same-name'])
+assert.deepEqual(narrowed.active, ['heads/same-name'], 'a new needle puts the cursor back on the first match')
+assert.equal(narrowed.total, '2 / 5', 'the box shows how many candidates are left')
+await page.keyboard.press('ArrowDown')
+await page.keyboard.press('Enter')
+await page.waitForFunction(() => document.querySelectorAll('[data-gp-overlay]').length === 2, null, { timeout: 5000 })
+const enterQuery = await page.evaluate(() => window.__queries.filter((q) => q.kind === 'diff' && q.base === 'rev').pop())
+assert.equal(enterQuery?.rev, 'refs/tags/same-name', 'Enter compares against the row under the cursor')
+await page.keyboard.press('Escape')
+await page.waitForTimeout(250)
+await page.locator('.gp-compare__filter').fill('')
+await page.waitForTimeout(80)
 
 // Picking one opens a revision comparison of that ref, with the working file as
 // the new side.
@@ -211,10 +255,28 @@ assert.equal(await page.evaluate(() => document.querySelectorAll('[data-gp-overl
 // ── the revision picker: commits, and no heading for a single group ───────
 await runRowEntry(page, 'README.md', 'compare-revision')
 await page.waitForSelector('.gp-compare__row', { timeout: 5000 })
-const revisionRows = await page.evaluate(() => [...document.querySelectorAll('.gp-compare__row')]
-  .map((row) => ({ label: row.querySelector('.gp-compare__label')?.textContent ?? '', heading: row.querySelector('.gp-compare__group')?.textContent ?? null })))
-assert.deepEqual(revisionRows.map((r) => r.heading), [null, null], 'a single-group list carries no heading')
-assert.deepEqual(revisionRows.map((r) => r.label), ['aaaaaaa  first commit', 'bbbbbbb  second commit'])
+const revisions = await page.evaluate(() => ({
+  title: document.querySelector('.gp-modal--picker .gp-modal__path')?.textContent ?? '',
+  headings: document.querySelectorAll('.gp-compare__heading').length,
+  placeholder: document.querySelector('.gp-compare__filter')?.getAttribute('placeholder') ?? '',
+  rows: [...document.querySelectorAll('.gp-compare__row--commit')].map((row) => ({
+    subject: row.querySelector('.gp-compare__label')?.textContent ?? '',
+    hash: row.querySelector('.gp-compare__meta .gp-compare__hash')?.textContent ?? '',
+    author: row.querySelector('.gp-compare__author')?.textContent ?? '',
+    when: (row.querySelector('.gp-compare__when')?.textContent ?? '') !== '',
+  })),
+}))
+assert.equal(revisions.title, '与修订版本比较', 'the title carries no trailing ellipsis')
+assert.equal(revisions.headings, 0, 'a single-group list carries no heading')
+assert.match(revisions.placeholder, /提交/, 'the filter talks about commits, not branches')
+assert.deepEqual(revisions.rows, [
+  { subject: 'first commit', hash: 'aaaaaaa', author: 'A', when: true },
+  { subject: 'second commit', hash: 'bbbbbbb', author: 'A', when: true },
+], 'a commit row: subject on top, then short hash, author and relative time')
+// A short hash narrows the commits too.
+await page.keyboard.type('bbbb')
+await page.waitForTimeout(80)
+assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.gp-compare__row--commit .gp-compare__label')].map((el) => el.textContent)), ['second commit'])
 // The list is HEAD-only: a revision comparison is about this line of work.
 const revisionQuery = await page.evaluate(() => window.__queries.filter((q) => q.kind === 'history').pop())
 assert.equal(revisionQuery.ref, 'HEAD')

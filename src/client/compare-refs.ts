@@ -1,26 +1,34 @@
 /**
- * The ref candidates behind the「与分支或标签比较」picker, and the rows it draws.
+ * The candidates behind the two comparison pickers (「与分支或标签比较」 and
+ * 「与修订版本比较」), and the rows they draw.
  *
  * Pure: no React, no DOM. The dialog in compare-flow.tsx only renders what these
- * return, so the grouping, the filtering and the "single group carries no
- * heading" rule are asserted directly (test/unit/compare-refs.test.mjs).
+ * return, so the grouping, the filtering, the row heights and the keyboard
+ * cursor are asserted directly (test/unit/compare-refs.test.mjs).
  */
 import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { GitBranch, GraphCommit } from './types.js'
 import type { GitKey } from './locales.js'
 
-/** One candidate ref. */
+/** One candidate: a ref (branch / remote-tracking branch / tag) or a commit. */
 export interface CompareRef {
-  /** The revision handed to the host (a full ref name, so a branch and a tag
-   * spelled the same never collide). */
+  /** The revision handed to the host: a full ref name (so a branch and a tag
+   * spelled the same never collide), or a commit's full hash. */
   readonly rev: string
-  /** The name shown, without the `refs/…` prefix. */
+  /** The name shown: the ref without its `refs/…` prefix, or a commit's subject. */
   readonly label: string
-  readonly group: 'local' | 'remote' | 'tag'
+  readonly group: 'local' | 'remote' | 'tag' | 'commit'
+  /** The abbreviated object the ref points at (absent when the host had none). */
+  readonly shortHash?: string | null
+  /** The branch HEAD is on. */
+  readonly current?: boolean
+  /** Commit rows only: who wrote it and when (ISO 8601). */
+  readonly author?: string
+  readonly dateIso?: string
 }
 
-/** Display order of the three groups. */
+/** Display order of the ref groups (the revisions picker is all `commit`). */
 export const COMPARE_GROUPS = ['local', 'remote', 'tag'] as const
 
 /** `refs/remotes/<remote>/HEAD` is the remote's symbolic default, not a branch. */
@@ -42,7 +50,10 @@ export function compareCandidates(
   // as `heads/foo` / `tags/foo`, and a remote-tracking HEAD spells as its
   // remote (`origin`), which is not a ref at all. The prefix is only the
   // fallback for a host that predates the field.
-  const local = branches.local.map((b: GitBranch) => ({ rev: b.ref ?? `refs/heads/${b.name}`, label: b.name, group: 'local' as const }))
+  const local = branches.local.map((b: GitBranch): CompareRef => ({
+    rev: b.ref ?? `refs/heads/${b.name}`, label: b.name, group: 'local', shortHash: b.shortHash,
+    ...(b.name === branches.current ? { current: true } : {}),
+  }))
   const remote = branches.remote
     // A remote-tracking HEAD spells as its remote alone (`origin`), and an old
     // host has no `ref` to tell it apart, so the shape of the name is the only
@@ -54,73 +65,103 @@ export function compareCandidates(
       && (b.ref !== undefined
         ? !SYMBOLIC_REMOTE_HEAD.test(b.ref)
         : !b.name.endsWith('/HEAD')))
-    .map((b: GitBranch) => ({ rev: b.ref ?? `refs/remotes/${b.name}`, label: b.name, group: 'remote' as const }))
-  const tagRefs = tags.tags.map((tag: GitBranch) => ({ rev: tag.ref ?? `refs/tags/${tag.name}`, label: tag.name, group: 'tag' as const }))
+    .map((b: GitBranch): CompareRef => ({ rev: b.ref ?? `refs/remotes/${b.name}`, label: b.name, group: 'remote', shortHash: b.shortHash }))
+  const tagRefs = tags.tags.map((tag: GitBranch): CompareRef => ({ rev: tag.ref ?? `refs/tags/${tag.name}`, label: tag.name, group: 'tag', shortHash: tag.shortHash }))
   return [...local, ...remote, ...tagRefs]
 }
 
-/** Case-insensitive substring filter over the displayed label. */
+/** Case-insensitive substring filter. A ref matches on its name; a commit also
+ * on its short hash and author, which is how people remember a revision. */
 export function filterCandidates(candidates: readonly CompareRef[], needle: string): readonly CompareRef[] {
   const query = needle.trim().toLowerCase()
   if (query === '') return candidates
-  return candidates.filter((ref) => ref.label.toLowerCase().includes(query))
+  return candidates.filter((ref) => [ref.label, ref.group === 'commit' ? ref.shortHash : null, ref.author]
+    .some((field) => typeof field === 'string' && field.toLowerCase().includes(query)))
 }
 
-/** Rows to draw: each group's first candidate carries its heading. */
-export interface CompareRow {
-  readonly ref: CompareRef
-  readonly heading: GitKey | null
-}
-
-/**
- * Flatten candidates into rows, one heading per non-empty group. A list that
- * holds a single group carries no headings at all: a lone「本地」above a list of
- * commits names nothing the dialog does not already say.
- */
-export function compareRows(candidates: readonly CompareRef[]): readonly CompareRow[] {
-  let groups = 0
-  let seen: CompareRef['group'] | null = null
-  for (const ref of candidates) {
-    if (ref.group !== seen) { groups += 1; seen = ref.group }
-  }
-  const rows: CompareRow[] = []
-  if (groups < 2) {
-    for (const ref of candidates) rows.push({ ref, heading: null })
-    return rows
-  }
-  let last: CompareRef['group'] | null = null
-  for (const ref of candidates) {
-    const heading = ref.group === last ? null : GROUP_LABEL[ref.group]
-    rows.push({ ref, heading })
-    last = ref.group
-  }
-  return rows
-}
+/** One drawn row: a group heading, or a pickable candidate. `index` counts
+ * pickable rows only, so the keyboard cursor never lands on a heading. */
+export type CompareRow =
+  | { readonly kind: 'heading'; readonly title: GitKey; readonly count: number }
+  | { readonly kind: 'ref'; readonly ref: CompareRef; readonly index: number }
 
 const GROUP_LABEL: Readonly<Record<CompareRef['group'], GitKey>> = {
   local: 'overview.local',
   remote: 'overview.remote',
   tag: 'overview.tags',
+  commit: 'menu.revisionsGroup',
 }
 
-/** Row height, matching `.gp-compare__row`. */
-export const COMPARE_ROW_H = 30
+/**
+ * Flatten candidates into rows, a heading above each non-empty group. A list
+ * that holds a single group carries no heading at all: a lone「本地」above the
+ * only list there is names nothing the dialog title does not already say.
+ */
+export function compareRows(candidates: readonly CompareRef[]): readonly CompareRow[] {
+  const counts = new Map<CompareRef['group'], number>()
+  for (const ref of candidates) counts.set(ref.group, (counts.get(ref.group) ?? 0) + 1)
+  const headed = counts.size > 1
+  const rows: CompareRow[] = []
+  let last: CompareRef['group'] | null = null
+  let index = 0
+  for (const ref of candidates) {
+    if (headed && ref.group !== last) rows.push({ kind: 'heading', title: GROUP_LABEL[ref.group], count: counts.get(ref.group) ?? 0 })
+    last = ref.group
+    rows.push({ kind: 'ref', ref, index })
+    index += 1
+  }
+  return rows
+}
 
-/** The revisions picker's rows: one row per commit of this file's history.
- * `compareRows` drops the heading for a single-group list, and the label
- * carries the short hash next to the subject so two same-titled commits stay
- * distinguishable. */
+/** Row heights in px, matching `.gp-compare__heading` / `__row` / `__row--commit`. */
+export const COMPARE_ROW_HEIGHTS = { heading: 28, ref: 32, commit: 48 } as const
+
+/** The height one row takes in the virtualized list. */
+export function compareRowHeight(row: CompareRow): number {
+  if (row.kind === 'heading') return COMPARE_ROW_HEIGHTS.heading
+  return row.ref.group === 'commit' ? COMPARE_ROW_HEIGHTS.commit : COMPARE_ROW_HEIGHTS.ref
+}
+
+/** Move the keyboard cursor by `delta` pickable rows, clamped to the list.
+ * An empty list has no cursor (-1). */
+export function moveCursor(cursor: number, delta: number, count: number): number {
+  if (count <= 0) return -1
+  return Math.max(0, Math.min(count - 1, (cursor < 0 ? (delta > 0 ? -1 : count) : cursor) + delta))
+}
+
+/**
+ * The scroll offset that brings one row fully into view, or null when it is
+ * already visible. Used for the keyboard cursor: the list is virtualized, so
+ * `scrollIntoView` on a row that is not mounted would do nothing.
+ */
+export function revealOffset(tops: readonly number[], row: number, viewTop: number, viewHeight: number): number | null {
+  const top = tops[row]
+  const bottom = tops[row + 1]
+  if (top === undefined || bottom === undefined || viewHeight <= 0) return null
+  if (top < viewTop) return top
+  if (bottom > viewTop + viewHeight) return bottom - viewHeight
+  return null
+}
+
+/** The revisions picker's rows: one per commit of this file's history, newest
+ * first. The subject is the label; hash, author and date ride along for the
+ * second line and for the filter. */
 export function revisionCandidates(commits: readonly GraphCommit[]): readonly CompareRef[] {
-  return commits.map((commit) => ({
+  return commits.map((commit): CompareRef => ({
     rev: commit.hash,
-    label: `${commit.shortHash}  ${commit.subject}`,
-    group: 'local' as const,
+    label: commit.subject,
+    group: 'commit',
+    shortHash: commit.shortHash,
+    author: commit.author,
+    dateIso: commit.dateIso,
   }))
 }
 
-/** A commit its own revision comparison: the label shown in the overlay bar. */
-export function revisionLabel(commit: { shortHash: string }): string {
-  return commit.shortHash
+/** What the comparison overlay calls the old side once a candidate is picked:
+ * a ref by its name, a commit by its short hash (a subject is too long for the
+ * bar and not unique). */
+export function pickedLabel(ref: CompareRef): string {
+  return ref.group === 'commit' ? (ref.shortHash ?? ref.rev.slice(0, 7)) : ref.label
 }
 
 /** Read the candidates for one session; null while loading or after a failure. */
