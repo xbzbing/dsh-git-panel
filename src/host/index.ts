@@ -37,7 +37,7 @@ export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, 
 export { createGitRunner } from './git.js'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 export { parseRemote, classifyHost } from './remote.js'
-export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.js'
+export { isSafePath, planAction, runAction, classifyActionFailure, splitRemoteTrackingRef, planRemoteBranchDelete } from './actions.js'
 export { openerArgv, canOpenWithSystem, openWithSystem } from './open-file.js'
 export { writeWorkspaceFile } from './write-file.js'
 export { editInfo, encodeEdit, eolStyle, sha256Hex } from './edit-info.js'

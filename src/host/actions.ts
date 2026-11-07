@@ -25,6 +25,37 @@ function withPaths(prefixes: readonly (readonly string[])[], paths: readonly str
   return { argv: prefixes.map((prefix) => [...prefix, ...paths]) }
 }
 
+/**
+ * Split a remote-tracking ref into its configured remote and the branch below
+ * it. The remote is matched against the configured names with the longest
+ * prefix winning, because a remote name may itself contain `/`: splitting at
+ * the first slash would address the wrong server (`foo/bar` vs `foo`). Null
+ * when the ref names no configured remote or no safe branch below it.
+ */
+export function splitRemoteTrackingRef(
+  ref: string, remotes: readonly string[],
+): { readonly remote: string; readonly branch: string } | null {
+  const prefix = 'refs/remotes/'
+  if (!ref.startsWith(prefix)) return null
+  const rest = ref.slice(prefix.length)
+  let best: string | null = null
+  for (const remote of remotes) {
+    if (!isSafeRemoteName(remote) || !rest.startsWith(`${remote}/`)) continue
+    if (best === null || remote.length > best.length) best = remote
+  }
+  if (best === null) return null
+  const branch = rest.slice(best.length + 1)
+  return branch !== '' && isSafeBranchName(branch) ? { remote: best, branch } : null
+}
+
+/** Plan a remote branch deletion. The destination is the full `refs/heads/…`
+ * ref, so a tag sharing the branch's name can never be what `--delete` hits. */
+export function planRemoteBranchDelete(remote: string, branch: string): PlanResult {
+  if (!isSafeRemoteName(remote)) return { error: 'invalid-name', message: `unsafe remote name: ${remote}` }
+  if (!isSafeBranchName(branch)) return { error: 'invalid-name', message: `unsafe branch name: ${branch}` }
+  return { argv: [['git', 'push', '--delete', remote, `refs/heads/${branch}`]] }
+}
+
 /** Build the git command sequence for an action. */
 export function planAction(action: GitAction, unborn: boolean): PlanResult {
   switch (action.kind) {
@@ -123,6 +154,19 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
     case 'tag-delete':
       if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe tag name: ${action.name}` }
       return { argv: [['git', 'tag', '-d', '--end-of-options', action.name]] }
+    case 'branch-delete': {
+      if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe branch name: ${action.name}` }
+      // `-d` is git's own safety check: it refuses a branch that is not fully
+      // merged (and one still checked out anywhere). `-D` is only sent after the
+      // client's second, explicit acknowledgement. Only refs/heads is touched:
+      // no remote ref is ever deleted from the panel.
+      return { argv: [['git', 'branch', action.force === true ? '-D' : '-d', '--end-of-options', action.name]] }
+    }
+    case 'branch-delete-remote':
+      // Resolved in runAction against the configured remotes before planning:
+      // the wire carries the full tracking ref, and guessing the remote/branch
+      // boundary from a slash could name the wrong server.
+      return { error: 'invalid-name', message: 'branch-delete-remote must be resolved before planning' }
     case 'stash-push': {
       const msg = action.message?.trim() ?? ''
       // `-m` makes the stash subject the user's text; without it git auto-labels
@@ -209,6 +253,8 @@ export function scrubCredentials(text: string): string {
  *  - not-found (missing ref / tag / stash, or a checkout target that resolves
  *    to neither a ref nor a path).
  *  - branch-in-use (the target branch is checked out in another worktree).
+ *  - branch-checked-out / branch-unmerged (a branch delete git refused: the
+ *    branch is still somebody's HEAD, or it holds unmerged commits).
  *  - local-changes-block (a dirty-worktree refusal; neutral wording covers both
  *    `git checkout` and `git stash apply`).
  *  - revert-merge (reverting a merge commit without a mainline parent — git
@@ -232,13 +278,25 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   if (/nothing to commit|nothing added to commit|no changes added/i.test(combined)) {
     return { code: 'nothing-to-commit', message: err }
   }
-  if (/No such ref|not a valid reference|invalid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument|did not match any file\(s\) known to git/i.test(combined)) {
+  if (/No such ref|not a valid reference|invalid reference|is not a stash|no tag|tag .* not found|branch '[^']*' not found|remote ref does not exist|unknown revision|bad revision|Could not parse object|ambiguous argument|did not match any file\(s\) known to git/i.test(combined)) {
     return { code: 'not-found', message: err || 'not found' }
   }
   // The branch exists but is checked out in another worktree of this repo:
   // git refuses the switch (detaching it there would corrupt that worktree).
   if (/is already used by worktree|already checked out at/i.test(combined)) {
     return { code: 'branch-in-use', message: err || 'branch is checked out in another worktree' }
+  }
+  // A branch delete git refused because the branch is still a HEAD somewhere:
+  // this worktree ("used by worktree at …") or a linked one ("checked out at …",
+  // older wording). Deleting it would leave that checkout without its branch.
+  if (/cannot delete branch .* (?:used by .*worktree|checked out at)/i.test(combined)) {
+    return { code: 'branch-checked-out', message: err || 'branch is checked out' }
+  }
+  // Safe delete (`-d`) refused: the branch has commits not merged into its
+  // upstream (or HEAD). Nothing was deleted, so the client may ask again with an
+  // explicit force acknowledgement.
+  if (/is not fully merged/i.test(combined)) {
+    return { code: 'branch-unmerged', message: err || 'branch is not fully merged' }
   }
   // A network git command (fetch/pull/push) that failed because no usable
   // credentials were available. GIT_TERMINAL_PROMPT=0 turns an interactive
@@ -484,7 +542,30 @@ export async function runAction(
     return { ok: true, snapshot: snap.value, output: committed.output }
   }
 
-  const plan = planAction(request.action, unborn)
+  // A remote branch delete names a tracking ref; resolve it to the configured
+  // remote + branch here so `--delete` addresses refs/heads/<branch> on the
+  // exact server. `git remote` is local and cheap; the longest configured name
+  // wins (`foo/bar` over `foo`) because a remote name may contain a slash.
+  let plan: PlanResult
+  if (request.action.kind === 'branch-delete-remote') {
+    const remotesRes = await runCommand(deps.run, ['git', 'remote'], root, 'remote-list', deps.signal)
+    if ('failure' in remotesRes) {
+      return { ok: false, error: { code: 'git-unavailable', message: remotesRes.failure instanceof Error ? remotesRes.failure.message : String(remotesRes.failure) } }
+    }
+    if (remotesRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+    if (remotesRes.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+    if (remotesRes.run.exitCode !== 0) {
+      return { ok: false, error: { code: 'git-error', message: scrubCredentials(remotesRes.run.stderr.trim()) || 'git remote failed' } }
+    }
+    const remotes = remotesRes.run.stdout.split('\n').map((line: string) => line.trim()).filter((line: string) => line !== '')
+    const target = splitRemoteTrackingRef(request.action.ref, remotes)
+    if (target === null) {
+      return { ok: false, error: { code: 'not-found', message: 'the remote-tracking ref names no configured remote' } }
+    }
+    plan = planRemoteBranchDelete(target.remote, target.branch)
+  } else {
+    plan = planAction(request.action, unborn)
+  }
   if ('error' in plan) return { ok: false, error: { code: plan.error, ...(plan.message ? { message: plan.message } : {}) } }
 
   // A "stash then switch" checkout is planned as [stash, checkout]; both the

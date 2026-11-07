@@ -200,6 +200,11 @@ export interface GitSnapshot {
     /** `commit-checkout` runs here. An older host has no such action, so the
      * client does not offer the entry rather than sending it and failing. */
     readonly commitCheckout?: true
+    /** `branch-delete` runs here (same reasoning as `commitCheckout`). */
+    readonly branchDelete?: true
+    /** `branch-delete-remote` runs here. Kept separate from `branchDelete`:
+     * deleting on a server is a network write and the client gates it alone. */
+    readonly remoteBranchDelete?: true
   }
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
@@ -323,6 +328,17 @@ export type GitAction =
   // Tag write operations (issue #12). `message` non-empty → annotated tag (-a).
   | { readonly kind: 'tag-create'; readonly name: string; readonly commit: string; readonly message?: string }
   | { readonly kind: 'tag-delete'; readonly name: string }
+  // Delete one *local* branch. `force` (git's `-D`) is only ever sent after the
+  // user acknowledged that the branch has unmerged commits; the first attempt is
+  // always the safe `-d`, which git refuses for a branch not fully merged. The
+  // remote side is never touched.
+  | { readonly kind: 'branch-delete'; readonly name: string; readonly force?: boolean }
+  // Delete one remote branch: `git push --delete <remote> refs/heads/<branch>`.
+  // The wire names the *full remote-tracking ref* (`refs/remotes/origin/x`); the
+  // host resolves remote + branch against the configured remotes instead of
+  // splitting at a slash, because a remote name may itself contain one. Nothing
+  // local is deleted: the local branch (if any) and its commits stay.
+  | { readonly kind: 'branch-delete-remote'; readonly ref: string }
   // Stash operations (issue #12). `index` is the stash stack position (0 = top);
   // `sha` is the stash commit the client saw, so the host can reject a stale
   // index (the stack may have shifted under a shared worktree) before acting.
@@ -388,6 +404,14 @@ export type GitErrorCode =
   // The target branch is checked out in another worktree of the same repo, so
   // git refuses to switch to it here.
   | 'branch-in-use'
+  // Deleting a branch git still considers checked out: the current branch, or
+  // one checked out in another worktree of the same repository. Deleting it
+  // there would leave that worktree without its HEAD, so git refuses.
+  | 'branch-checked-out'
+  // `git branch -d` refused because the branch holds commits that are not merged
+  // into its upstream (or HEAD when it has none). Nothing was deleted; the
+  // client offers a forced `-D` only after an explicit acknowledgement.
+  | 'branch-unmerged'
   // A stash-then-switch checkout stashed the local changes but the switch still
   // failed: the work tree changed, and the stash is kept (recoverable).
   | 'stash-switch-failed'
