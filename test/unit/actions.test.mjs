@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isSafePath, isSafeRev, isSafeBranchName, planAction, classifyActionFailure } from '../../lib/testkit.mjs'
+import { isSafePath, isSafeRev, isSafeBranchName, planAction, planRemoteBranchDelete, splitRemoteTrackingRef, classifyActionFailure } from '../../lib/testkit.mjs'
 
 test('isSafePath rejects absolute paths and .. traversal', () => {
   // POSIX assumptions: dsh runs on POSIX, so `C:\x` is a relative name here
@@ -166,6 +166,50 @@ test('tag-delete guards the name and passes it after --end-of-options', () => {
   assert.equal(planAction({ kind: 'tag-delete', name: '-d' }, false).error, 'invalid-name')
 })
 
+test('branch-delete plans the safe -d first and the forced -D only when asked', () => {
+  assert.deepEqual(
+    planAction({ kind: 'branch-delete', name: 'feature/x' }, false).argv,
+    [['git', 'branch', '-d', '--end-of-options', 'feature/x']],
+  )
+  assert.deepEqual(
+    planAction({ kind: 'branch-delete', name: 'feature/x', force: true }, false).argv,
+    [['git', 'branch', '-D', '--end-of-options', 'feature/x']],
+  )
+  // The name reaches argv only after the same guard checkout/tag deletion uses.
+  assert.equal(planAction({ kind: 'branch-delete', name: '-f' }, false).error, 'invalid-name')
+  assert.equal(planAction({ kind: 'branch-delete', name: '--force' }, false).error, 'invalid-name')
+  assert.equal(planAction({ kind: 'branch-delete', name: 'a b' }, false).error, 'invalid-name')
+})
+
+test('branch-delete-remote plans a server-side delete of the full heads ref', () => {
+  assert.deepEqual(
+    planRemoteBranchDelete('origin', 'feature/x').argv,
+    [['git', 'push', '--delete', 'origin', 'refs/heads/feature/x']],
+  )
+  // The full destination ref is what makes a same-named tag unreachable.
+  assert.equal(planRemoteBranchDelete('--upload-pack=/tmp/pwn', 'x').error, 'invalid-name')
+  assert.equal(planRemoteBranchDelete('origin', '-f').error, 'invalid-name')
+  assert.equal(planRemoteBranchDelete('origin', '').error, 'invalid-name')
+})
+
+test('splitRemoteTrackingRef resolves the remote from the configured names, longest first', () => {
+  assert.deepEqual(splitRemoteTrackingRef('refs/remotes/origin/feature/x', ['origin']), { remote: 'origin', branch: 'feature/x' })
+  // A remote name may contain '/': the longest configured prefix wins instead of
+  // splitting at the first slash (which would address remote 'foo').
+  assert.deepEqual(splitRemoteTrackingRef('refs/remotes/foo/bar/topic/x', ['foo', 'foo/bar']), { remote: 'foo/bar', branch: 'topic/x' })
+  assert.deepEqual(splitRemoteTrackingRef('refs/remotes/origin/x', ['origin', 'upstream']), { remote: 'origin', branch: 'x' })
+  assert.equal(splitRemoteTrackingRef('refs/remotes/origin/x', ['upstream']), null, 'no configured remote matches')
+  assert.equal(splitRemoteTrackingRef('refs/remotes/origin/x', []), null)
+  assert.equal(splitRemoteTrackingRef('refs/heads/origin/x', ['origin']), null, 'not a remote-tracking ref')
+  assert.equal(splitRemoteTrackingRef('refs/remotes/origin/', ['origin']), null, 'empty branch')
+  assert.equal(splitRemoteTrackingRef('refs/remotes/origin/-f', ['origin']), null, 'unsafe branch stays out')
+})
+
+test('planAction refuses an unresolved remote delete instead of guessing', () => {
+  const plan = planAction({ kind: 'branch-delete-remote', ref: 'refs/remotes/origin/x' }, false)
+  assert.equal(plan.error, 'invalid-name')
+})
+
 test('stash-push builds push with/without a message', () => {
   assert.deepEqual(planAction({ kind: 'stash-push' }, false).argv, [['git', 'stash', 'push']])
   assert.deepEqual(planAction({ kind: 'stash-push', message: 'wip' }, false).argv, [['git', 'stash', 'push', '-m', 'wip']])
@@ -209,7 +253,19 @@ test('classifyActionFailure orders conflict before nothing-to-commit, and maps c
   assert.equal(nothing.message, '')
   assert.equal(classifyActionFailure('', 'nothing added to commit but untracked files present', 1).code, 'nothing-to-commit')
   assert.equal(classifyActionFailure('', "error: tag 'nope' not found.", 1).code, 'not-found')
+  assert.equal(classifyActionFailure('', "error: branch 'nope' not found", 1).code, 'not-found')
   assert.equal(classifyActionFailure('', 'is not a valid reference', 1).code, 'not-found')
+  // Branch delete: an unmerged branch is a refusal the dialog turns into its
+  // forced step, while a branch that is still a HEAD anywhere is a hard stop
+  // (the older and newer git wordings are both classified).
+  assert.equal(classifyActionFailure('', "error: the branch 'dev' is not fully merged", 1).code, 'branch-unmerged')
+  // Remote delete: a ref the remote no longer has is a not-found (it wins over
+  // the generic "failed to push" line), while a server-side refusal stays a
+  // push rejection.
+  assert.equal(classifyActionFailure('', "error: unable to delete 'refs/heads/x': remote ref does not exist\nerror: failed to push some refs", 1).code, 'not-found')
+  assert.equal(classifyActionFailure('', ' ! [remote rejected] x (deletion prohibited)\nerror: failed to push some refs', 1).code, 'push-rejected')
+  assert.equal(classifyActionFailure('', "error: cannot delete branch 'dev' used by worktree at '/tmp/wt'", 1).code, 'branch-checked-out')
+  assert.equal(classifyActionFailure('', "error: Cannot delete branch 'dev' checked out at '/tmp/wt'", 1).code, 'branch-checked-out')
   assert.equal(classifyActionFailure('', 'error: Your local changes to the following files would be overwritten by merge', 1).code, 'local-changes-block')
   // A switch refused because the target branch is checked out in another worktree.
   assert.equal(classifyActionFailure('', "fatal: 'dev' is already used by worktree at '/tmp/wt'", 128).code, 'branch-in-use')

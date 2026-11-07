@@ -21,6 +21,8 @@ function commands(log) {
     switchBranch: (value) => log.push(['switch', value.name]),
     filterRef: (ref) => log.push(['filter', ref]),
     openTagCreate: (value) => log.push(['tag', value.hash]),
+    openBranchDelete: (value) => log.push(['delete', value.name]),
+    openRemoteBranchDelete: (value) => log.push(['deleteRemote', value.ref]),
     openRevert: (value) => log.push(['revert', value.hash]),
     openReset: (value) => log.push(['reset', value.hash]),
     openCheckout: (value) => log.push(['checkout', value.hash]),
@@ -57,6 +59,75 @@ test('a remote row switches through the tracking map, not as a local name', () =
 test('a busy overview offers the writes but disabled', () => {
   const actions = branchMenuActions(branch, env(), commands([]), { busy: true })
   assert.equal(actions[0].disabled, true)
+})
+
+test('a host with the branch-delete capability offers the delete for a local row', () => {
+  const log = []
+  const actions = branchMenuActions(branch, env(), commands(log), { busy: false, branchDelete: true })
+  assert.deepEqual(actions.map((a) => a.id), ['switch-branch', 'show-history', 'copy-branch', 'delete-branch'])
+  const del = actions[3]
+  assert.equal(del.danger, true)
+  assert.equal(del.separatorBefore, true, 'the delete sits below its own separator')
+  assert.equal(del.disabled, false)
+  void del.run()
+  assert.deepEqual(log, [['delete', 'main']], 'the entry only opens the confirmation')
+})
+
+test('the branch-delete entry is gated on the host capability', () => {
+  const actions = branchMenuActions(branch, env(), commands([]), { busy: false })
+  assert.ok(!actions.some((a) => a.id === 'delete-branch'))
+})
+
+test('the checked-out branch and remote rows offer no delete', () => {
+  const current = branchMenuActions({ ...branch, isCurrent: true }, env(), commands([]), { busy: false, branchDelete: true })
+  assert.ok(!current.some((a) => a.id === 'delete-branch'), 'git refuses deleting the checked-out branch')
+  const remote = branchMenuActions({ ...branch, isRemote: true }, env(), commands([]), { busy: false, branchDelete: true })
+  assert.ok(!remote.some((a) => a.id === 'delete-branch'), 'the panel never deletes a remote ref')
+})
+
+test('a busy overview disables the branch delete too', () => {
+  const actions = branchMenuActions(branch, env(), commands([]), { busy: true, branchDelete: true })
+  assert.equal(actions.find((a) => a.id === 'delete-branch').disabled, true)
+})
+
+test('a remote row offers the remote delete only with the capability and its full ref', () => {
+  const remote = { ...branch, isRemote: true, ref: 'refs/remotes/origin/feature/x' }
+  const log = []
+  const actions = branchMenuActions(remote, env(), commands(log), { busy: false, remoteBranchDelete: true })
+  assert.deepEqual(actions.map((a) => a.id), ['switch-branch', 'show-history', 'copy-branch', 'delete-remote-branch'])
+  const del = actions[3]
+  assert.equal(del.danger, true)
+  assert.equal(del.separatorBefore, true)
+  void del.run()
+  assert.deepEqual(log, [['deleteRemote', 'refs/remotes/origin/feature/x']], 'the entry only opens the confirmation')
+})
+
+test('the remote delete is gated on its capability and on the tracking ref', () => {
+  const withRef = { ...branch, isRemote: true, ref: 'refs/remotes/origin/feature/x' }
+  for (const facts of [{ busy: false }, { busy: false, remoteBranchDelete: true }]) {
+    const actions = branchMenuActions(withRef, env(), commands([]), facts)
+    const offered = actions.some((a) => a.id === 'delete-remote-branch')
+    assert.equal(offered, facts.remoteBranchDelete === true, 'capability gates the entry')
+  }
+  const noRef = branchMenuActions({ ...branch, isRemote: true }, env(), commands([]), { busy: false, remoteBranchDelete: true })
+  assert.ok(!noRef.some((a) => a.id === 'delete-remote-branch'), 'an older host without ref offers no entry')
+  const local = branchMenuActions({ ...branch, ref: 'refs/heads/main' }, env(), commands([]), { busy: false, remoteBranchDelete: true })
+  assert.ok(!local.some((a) => a.id === 'delete-remote-branch'), 'a local row uses the local entry instead')
+})
+
+test('a busy overview disables the remote delete too', () => {
+  const remote = { ...branch, isRemote: true, ref: 'refs/remotes/origin/x' }
+  const actions = branchMenuActions(remote, env(), commands([]), { busy: true, remoteBranchDelete: true })
+  assert.equal(actions.find((a) => a.id === 'delete-remote-branch').disabled, true)
+})
+
+test('a tag row shares the branch menu but offers no branch delete', () => {
+  // Tags render through the branch row, so they reach this builder: a tag is
+  // not a refs/heads entry and `git branch -d <tag>` would name a same-named
+  // branch or fail, so the delete must not be offered for one.
+  const actions = branchMenuActions({ ...branch, isTag: true }, env(), commands([]), { busy: false, branchDelete: true })
+  assert.ok(!actions.some((a) => a.id === 'delete-branch'))
+  assert.deepEqual(actions.map((a) => a.id), ['show-history', 'copy-branch'], 'neither branch-only entry is offered')
 })
 
 test('a commit row copies its identities, quotes it, then the write dialogs', () => {

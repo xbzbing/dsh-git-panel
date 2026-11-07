@@ -26,7 +26,7 @@ const SNAP = {
   remote: null, lastCommit: null, changes: [],
   stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true,
-  defaultDiffView: 'unified', checkedAt: Date.now(),
+  defaultDiffView: 'unified', capabilities: { branchDelete: true, remoteBranchDelete: true }, checkedAt: Date.now(),
 }
 
 const TREE = { '': [['docs', true], ['README.md', false], ['logo.png', false]], docs: [['notes.md', false]] }
@@ -69,8 +69,10 @@ await page.evaluate(async ({ snap, tree }) => {
           if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [
             { name: 'main', shortHash: '44638f7' },
             { name: 'feature/x', shortHash: 'aaaaaaa' },
-          ], remote: [] } } }
-          if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
+          ], remote: [
+            { name: 'origin/feature/x', shortHash: 'ddddddd', ref: 'refs/remotes/origin/feature/x' },
+          ] } } }
+          if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [{ name: 'v1.0', shortHash: 'ccccccc' }] } } }
           if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
           if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 2, commits: [
             { hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 'first commit', author: 'A', email: 'a@x', date: '2026-01-01T00:00:00Z', parents: [], refs: [] },
@@ -80,6 +82,11 @@ await page.evaluate(async ({ snap, tree }) => {
         }
         if (endpoint === 'dbGitPanel/run') {
           window.__runs.push({ repo: request.repo, action: request.action })
+          // Issue #112: the safe branch delete is refused as "not fully merged"
+          // so the dialog's forced step runs; only the acknowledged `-D` succeeds.
+          if (request.action.kind === 'branch-delete' && request.action.force !== true) {
+            return { ok: true, value: { ok: false, error: { code: 'branch-unmerged', message: 'not fully merged' } } }
+          }
           return { ok: true, value: { ok: true, snapshot: snap } }
         }
         if (endpoint === 'dbGitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
@@ -298,9 +305,12 @@ assert.equal(branchTarget.value.sessionId, 'sess-menu')
 assert.ok(typeof branchTarget.value.owner === 'string' && branchTarget.value.owner.length > 0, 'the branch row names its panel instance')
 assert.deepEqual(
   await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
-  ['switch-branch', 'show-history', 'copy-branch'],
-  'switching away from the current branch, then this branch\'s history, then its name',
+  ['switch-branch', 'show-history', 'copy-branch', 'delete-branch'],
+  'switching away from the current branch, then its history, its name, then the delete (issue #112)',
 )
+const deleteEntry = await page.evaluate(() => window.__menuStub.state.actions.find((a) => a.id === 'delete-branch'))
+assert.equal(deleteEntry.danger, true, 'the delete is a destructive entry')
+assert.equal(deleteEntry.separatorBefore, true, 'and sits below its own separator')
 
 // The copy goes through the panel's clipboard supplier.
 await page.evaluate(() => { window.__clipboard = null })
@@ -317,6 +327,79 @@ const switched = await page.evaluate(() => window.__runs.filter((r) => r.action 
 assert.equal(switched.length, 1, 'the menu switch reaches the host')
 assert.equal(switched[0].action.name, 'feature/x')
 
+// Issue #112: the delete entry only opens a confirmation. The first confirm
+// runs the safe `-d`; this fixture refuses it as "not fully merged", so the
+// dialog reveals its second stage and only the acknowledged `-D` reaches the
+// host as force:true.
+const deletes = () => page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'branch-delete').map((r) => [r.action.name, r.action.force === true]))
+await page.evaluate(() => { window.__menuStub.clear() })
+await featureRow.click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('delete-branch')), 'ok')
+await page.waitForSelector('.gp-modal-backdrop', { timeout: 3000 })
+assert.deepEqual(await deletes(), [], 'the menu entry acts on nothing until the dialog is answered')
+const confirm = page.locator('.gp-modal__footer .gp-btn--danger')
+assert.ok((await confirm.textContent()).includes('删除分支'), 'the first stage offers the safe delete')
+await confirm.click()
+await page.waitForTimeout(300)
+assert.deepEqual(await deletes(), [['feature/x', false]], 'the first attempt is the safe -d (no force flag)')
+assert.equal(await page.locator('.gp-modal__check input[type="checkbox"]').count(), 1, 'the unmerged refusal reveals the force acknowledgement')
+assert.equal(await confirm.isDisabled(), true, 'the forced confirm stays locked until it is acknowledged')
+assert.ok((await confirm.textContent()).includes('强制删除'), 'and names the forced step')
+await page.locator('.gp-modal__check input[type="checkbox"]').check()
+assert.equal(await confirm.isDisabled(), false, 'acknowledging unlocks the forced delete')
+await confirm.click()
+await page.waitForTimeout(300)
+assert.deepEqual(await deletes(), [['feature/x', false], ['feature/x', true]], 'only the acknowledged second press forces -D')
+assert.equal(await page.locator('.gp-modal-backdrop').count(), 0, 'a successful delete closes the dialog')
+
+// Tag rows render through the same branch-row component, so they reach the
+// same menu builder: the delete must not follow them there (a tag is not a
+// refs/heads entry). The row carries its section for exactly this gate.
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-branch-group__head', { hasText: '标签' }).click()
+await page.waitForTimeout(150)
+await page.locator('.gp-branch-row[title="v1.0"]').click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+assert.equal(await page.evaluate(() => window.__menuStub.state.last.value.isTag), true, 'a tag row names its section')
+assert.ok(
+  !(await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id))).includes('delete-branch'),
+  'the branch delete is not offered for a tag',
+)
+await page.evaluate(() => { window.__menuStub.clear() })
+
+// A remote row deletes on the server: one stage, and the acknowledgement is
+// mandatory before the confirm unlocks (there is no safe `-d` on a remote).
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-branch-group__head', { hasText: '远程' }).click()
+await page.waitForTimeout(150)
+await page.locator('.gp-branch-row[title="origin/feature/x"]').click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+const remoteTarget = await page.evaluate(() => window.__menuStub.state.last)
+assert.equal(remoteTarget.value.isRemote, true)
+assert.equal(remoteTarget.value.ref, 'refs/remotes/origin/feature/x', 'the row carries the full tracking ref')
+assert.deepEqual(
+  await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
+  ['switch-branch', 'show-history', 'copy-branch', 'delete-remote-branch'],
+  'the remote delete sits below the copy with its own separator',
+)
+const remoteDeletes = () => page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'branch-delete-remote').map((r) => r.action.ref))
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('delete-remote-branch')), 'ok')
+await page.waitForSelector('.gp-modal-backdrop', { timeout: 3000 })
+assert.deepEqual(await remoteDeletes(), [], 'opening the dialog reaches no host')
+const remoteConfirm = page.locator('.gp-modal__footer .gp-btn--danger')
+assert.equal(await remoteConfirm.isDisabled(), true, 'the remote delete starts locked')
+await page.locator('.gp-modal__check input[type="checkbox"]').check()
+assert.equal(await remoteConfirm.isDisabled(), false, 'acknowledging unlocks it')
+await remoteConfirm.click()
+await page.waitForTimeout(300)
+assert.deepEqual(await remoteDeletes(), ['refs/remotes/origin/feature/x'], 'the full ref reaches the host')
+assert.equal(await page.locator('.gp-modal-backdrop').count(), 0, 'a successful remote delete closes the dialog')
+await page.evaluate(() => { window.__menuStub.clear() })
+
 // A commit row carries the copy entries, the composer entry and the three
 // write dialogs.
 await page.evaluate(() => { window.__menuStub.clear() })
@@ -332,7 +415,7 @@ assert.equal(commitTarget.value.subject, 'first commit')
 assert.deepEqual(
   await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
   ['copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'revert', 'reset'],
-  'copies and the composer first, then the write dialogs (this fixture declares no capabilities, so the checkout entry is gated out)',
+  'copies and the composer first, then the write dialogs (this fixture declares only the branch-delete capabilities, so the checkout entry is gated out)',
 )
 
 // A destructive entry opens the existing confirmation instead of acting: no
@@ -563,7 +646,7 @@ await page.evaluate(async ({ snap }) => {
             ] } } }
           }
           if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'main', shortHash: '44638f7' }], remote: [] } } }
-          if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
+          if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [{ name: 'v1.0', shortHash: 'ccccccc' }] } } }
           if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: [] } } }
           if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 0, commits: [] } } }
           if (q.kind === 'stash-list') {

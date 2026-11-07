@@ -2334,6 +2334,90 @@ test('tag-delete of a missing tag maps to not-found', async () => {
   }
 })
 
+test('branch-delete: safe -d, the unmerged refusal, then the acknowledged -D', async () => {
+  const dir = await freshRepo('gp-branch-del-')
+  try {
+    const d = depsAt(dir)
+    const current = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir }).toString().trim()
+    await runGit(dir, ['branch', 'merged-work'])
+
+    // A merged branch deletes on the first (safe) attempt.
+    const safe = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-delete', name: 'merged-work' } })
+    assert.equal(safe.ok, true, 'a branch merged into HEAD deletes with -d')
+
+    // An unmerged branch is refused by -d and keeps existing; nothing is lost.
+    await runGit(dir, ['checkout', '-qb', 'unmerged-work'])
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'branch-only.txt'), 'work\n')
+    await runGit(dir, ['add', 'branch-only.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: unmerged branch work'])
+    await runGit(dir, ['checkout', '-q', current])
+    const refused = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-delete', name: 'unmerged-work' } })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.error.code, 'branch-unmerged')
+    const stillThere = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'branches' } })
+    assert.ok(stillThere.value.local.some((b) => b.name === 'unmerged-work'), 'the refusal deleted nothing')
+
+    // The acknowledged force deletes it.
+    const forced = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-delete', name: 'unmerged-work', force: true } })
+    assert.equal(forced.ok, true, 'the forced -D deletes the unmerged branch')
+    const after = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'branches' } })
+    assert.ok(!after.value.local.some((b) => b.name === 'unmerged-work'))
+
+    // git refuses to delete the branch this worktree has checked out.
+    const checkedOut = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-delete', name: current } })
+    assert.equal(checkedOut.ok, false)
+    assert.equal(checkedOut.error.code, 'branch-checked-out')
+
+    const missing = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-delete', name: 'nope' } })
+    assert.equal(missing.ok, false)
+    assert.equal(missing.error.code, 'not-found')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('branch-delete-remote deletes on the configured remote and prunes the tracking ref', async () => {
+  const dir = await freshRepo('gp-remote-del-')
+  const bare = mkdtempSync(join(tmpdir(), 'gp-remote-bare-'))
+  try {
+    const current = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir }).toString().trim()
+    await runGit(bare, ['init', '-q', '--bare'])
+    // Make the bare repository's HEAD the branch we push, so deleting it there
+    // is refused by git's own "current branch" rule.
+    await runGit(bare, ['symbolic-ref', 'HEAD', `refs/heads/${current}`])
+    await runGit(dir, ['remote', 'add', 'origin', bare])
+    await runGit(dir, ['push', '-q', '-u', 'origin', current])
+    await runGit(dir, ['branch', 'feat/x'])
+    await runGit(dir, ['push', '-q', 'origin', 'feat/x'])
+    await runGit(dir, ['fetch', '-q', 'origin'])
+
+    const d = depsAt(dir)
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-delete-remote', ref: 'refs/remotes/origin/feat/x' } })
+    assert.equal(res.ok, true, 'the remote branch is deleted')
+    const remoteBranches = execFileSync('git', ['--git-dir', bare, 'for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd: dir }).toString().trim().split('\n')
+    assert.ok(!remoteBranches.includes('feat/x'), 'the remote ref is gone')
+    const tracking = execFileSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/remotes'], { cwd: dir }).toString().trim().split('\n')
+    assert.ok(!tracking.includes('origin/feat/x'), 'the local tracking ref is pruned by the push')
+    const local = execFileSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd: dir }).toString().trim().split('\n')
+    assert.ok(local.includes('feat/x'), 'the local branch and its commits are untouched')
+
+
+    // The server refuses deleting the branch its HEAD points at.
+    const refused = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-delete-remote', ref: `refs/remotes/origin/${current}` } })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.error.code, 'push-rejected')
+
+    // A ref naming no configured remote is refused before any push runs.
+    const unknown = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-delete-remote', ref: 'refs/remotes/nope/x' } })
+    assert.equal(unknown.ok, false)
+    assert.equal(unknown.error.code, 'not-found')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(bare, { recursive: true, force: true })
+  }
+})
+
 test('stash push → list → apply → drop lifecycle', async () => {
   const dir = await freshRepo('gp-stash-')
   try {
@@ -3504,5 +3588,5 @@ test('history exactPath guards: exclusive with other filters, safe path only', a
 test('the snapshot declares the menu capabilities', async () => {
   const res = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
   assert.equal(res.ok, true)
-  assert.deepEqual(res.value.capabilities, { revDiff: true, pathHistory: true, commitCheckout: true })
+  assert.deepEqual(res.value.capabilities, { revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true })
 })
