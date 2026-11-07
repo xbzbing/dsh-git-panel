@@ -33,6 +33,7 @@ import { opErrorText, renderConfirmModal } from './ops-modals.js'
 import { runRemoteAction, runSnapshotAction } from './op-runner.js'
 import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
 import { renderBranchSwitchConfirm } from './branch-switch.js'
+import { renderBranchDeleteConfirm, renderRemoteBranchDeleteConfirm } from './branch-delete.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
 import { renderStatusBar } from './overview-statusbar.js'
 import { RepoBar } from './overview-repobar.js'
@@ -237,15 +238,24 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       return next
     })
   }, [])
-  // Tag write ops (create/delete) don't change the work tree, so they never bump
-  // the business snapshot; a local counter folds into the query key so the
-  // history graph and branch/tag list pick up the new ref set.
+  // Ref-only writes (tag create/delete, branch delete) don't change the work
+  // tree, so they never bump the business snapshot; a local counter folds into
+  // the query key so the history graph and branch/tag list pick up the new ref
+  // set.
   const [opBump, setOpBump] = useState(0)
   const overviewQueryKey: QueryKey = [...queryKey, opBump]
-  const afterTagOp = (): void => setOpBump((n) => n + 1)
+  const afterRefOp = (): void => setOpBump((n) => n + 1)
   // Tag create modal (anchored to a commit) and tag delete confirm.
   const [tagForm, setTagForm] = useState<{ hash: string; shortHash: string } | null>(null)
   const [tagToDelete, setTagToDelete] = useState<string | null>(null)
+  // Branch delete confirm; `deleteNeedsForce` means the safe `-d` refused the
+  // branch as not fully merged and the dialog now asks for the forced `-D`.
+  const [branchToDelete, setBranchToDelete] = useState<string | null>(null)
+  const [deleteNeedsForce, setDeleteNeedsForce] = useState(false)
+  // Remote delete confirm: the tracking ref the host resolves plus the row's
+  // short name for display. One stage, acknowledgement mandatory (no server-side
+  // merged check exists).
+  const [remoteBranchToDelete, setRemoteBranchToDelete] = useState<{ ref: string; label: string } | null>(null)
   // Commit-undo targets (revert confirm + reset mode dialog), each a selected commit.
   const [revertTarget, setRevertTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   const [resetTarget, setResetTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
@@ -373,7 +383,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const branchMenu = useMemo(
     () => (panelMenu === undefined
       ? undefined
-      : (value: { name: string; isCurrent: boolean; isRemote: boolean }) => panelMenu.bind(MENU_KIND.branch, value)),
+      : (value: { name: string; isCurrent: boolean; isRemote: boolean; isTag: boolean; ref?: string }) => panelMenu.bind(MENU_KIND.branch, value)),
     [panelMenu],
   )
   const commitMenu = useMemo(
@@ -413,7 +423,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }
   }
   const opScopeRef = useRef<string | null>(null)
-  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null
+  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null || branchToDelete !== null || remoteBranchToDelete !== null
   const opInFlight = opBusy || switchBusy
   // The runs the menu offers, closing over this render's state (the owner reads
   // the published object at resolve time, so a fresh one each render is enough).
@@ -424,6 +434,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     },
     filterRef: (ref) => setRef(ref),
     openTagCreate: (value) => { setOpError(null); setTagForm({ hash: value.hash, shortHash: value.shortHash }) },
+    openBranchDelete: (value) => { setOpError(null); setDeleteNeedsForce(false); setBranchToDelete(value.name) },
+    openRemoteBranchDelete: (value) => {
+      if (value.ref === undefined) return
+      setOpError(null); setRemoteBranchToDelete({ ref: value.ref, label: value.name })
+    },
     openRevert: (value) => { setOpError(null); setRevertTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     openReset: (value) => { setOpError(null); setResetTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     openCheckout: (value) => { setOpError(null); setCheckoutTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
@@ -434,13 +449,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // time, so whatever this render built is what the menu runs.
   if (menuCommandsRef !== undefined) menuCommandsRef.current = overviewMenuCommands
   if (menuFactsRef !== undefined) {
-    // The host capability travels with the facts: the owner gates the checkout
-    // entry on it, and a host without the action must not be offered an entry
-    // whose run it would reject.
+    // Host capabilities travel with the facts: the owner gates the checkout and
+    // branch-delete entries on them, and a host without the action must not be
+    // offered an entry whose run it would reject.
     menuFactsRef.current = {
       busy: opInFlight,
       head: snapshot.head,
       commitCheckout: snapshot.capabilities?.commitCheckout === true,
+      branchDelete: snapshot.capabilities?.branchDelete === true,
+      remoteBranchDelete: snapshot.capabilities?.remoteBranchDelete === true,
     }
   }
   useEffect(() => {
@@ -458,6 +475,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     setResetTarget(null)
     setRevertTarget(null)
     setSwitchTarget(null)
+    setBranchToDelete(null)
+    setDeleteNeedsForce(false)
+    setRemoteBranchToDelete(null)
     setOpError(null)
   }, [opScope, opDialogOpen, opInFlight, opError])
 
@@ -578,14 +598,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const setRef = (ref: string | null): void => writeFilter({ ref })
 
   // Tag write ops go straight through `run` (the work tree is untouched, so no
-  // snapshot is needed); afterTagOp reloads the history graph + branch/tag list.
+  // snapshot is needed); afterRefOp reloads the history graph + branch/tag list.
   const runTagCreate = (name: string, message: string): Promise<void> => {
     if (tagForm === null) return Promise.resolve()
     return runRemoteAction(
       { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
       remote, sessionId,
       { kind: 'tag-create', name, commit: tagForm.hash, ...(message.trim() !== '' ? { message } : {}) },
-      () => { setTagForm(null); afterTagOp() },
+      () => { setTagForm(null); afterRefOp() },
       (code, msg) => opErrorText(code, msg, t),
       t('error.generic'),
     )
@@ -595,10 +615,46 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
       remote, sessionId,
       { kind: 'tag-delete', name },
-      () => { setTagToDelete(null); afterTagOp() },
+      () => { setTagToDelete(null); afterRefOp() },
       (code, msg) => opErrorText(code, msg, t),
       t('error.generic'),
     )
+
+  // Branch delete (issue #112). The ref set is the only thing that changes, so
+  // it goes straight through `run` like the tag ops; the branch tree reloads
+  // through `opBump`. The first press runs git's safe `-d`; when git refuses
+  // because the branch is not fully merged, the dialog switches to its forced
+  // step instead of printing an error — the acknowledgement there is the only
+  // way `-D` is ever sent.
+  const runBranchDelete = (name: string, force: boolean): Promise<void> =>
+    runRemoteAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      remote, sessionId,
+      { kind: 'branch-delete', name, ...(force ? { force: true as const } : {}) },
+      () => { setBranchToDelete(null); setDeleteNeedsForce(false); afterRefOp() },
+      (code, msg) => {
+        if (code === 'branch-unmerged') { setDeleteNeedsForce(true); return null }
+        return opErrorText(code, msg, t)
+      },
+      t('error.generic'),
+    )
+
+  // Remote delete (issue #112 follow-up). A network write with no safe mode:
+  // the dialog's acknowledgement is the only gate, and the row's full tracking
+  // ref lets the host resolve the exact remote instead of splitting its short
+  // name at a slash. The local branch and its commits are untouched.
+  const runRemoteBranchDelete = (): Promise<void> => {
+    if (remoteBranchToDelete === null) return Promise.resolve()
+    const target = remoteBranchToDelete
+    return runRemoteAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      remote, sessionId,
+      { kind: 'branch-delete-remote', ref: target.ref },
+      () => { setRemoteBranchToDelete(null); afterRefOp() },
+      (code, msg) => opErrorText(code, msg, t),
+      t('error.generic'),
+    )
+  }
 
   // Revert / reset move HEAD or the work tree, so they go through `onAction`
   // (controller accepts the fresh snapshot → query signal advances → history
@@ -773,6 +829,21 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       confirmBusy: opBusy,
       onConfirm: () => void runTagDelete(tagToDelete),
       onClose: () => setTagToDelete(null),
+      t,
+    }) : null,
+    branchToDelete !== null ? renderBranchDeleteConfirm({ name: branchToDelete }, {
+      needsForce: deleteNeedsForce,
+      busy: opBusy,
+      error: opError,
+      onConfirm: (force) => void runBranchDelete(branchToDelete, force),
+      onClose: () => { setBranchToDelete(null); setDeleteNeedsForce(false) },
+      t,
+    }) : null,
+    remoteBranchToDelete !== null ? renderRemoteBranchDeleteConfirm({ label: remoteBranchToDelete.label }, {
+      busy: opBusy,
+      error: opError,
+      onConfirm: () => void runRemoteBranchDelete(),
+      onClose: () => setRemoteBranchToDelete(null),
       t,
     }) : null,
     revertTarget !== null ? renderConfirmModal({

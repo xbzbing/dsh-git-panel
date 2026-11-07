@@ -29,6 +29,13 @@ export interface OverviewMenuCommands {
   readonly openReset: (value: CommitTargetValue) => void
   /** Open the "detach HEAD here" confirmation for one commit. */
   readonly openCheckout: (value: CommitTargetValue) => void
+  /** Open the "delete branch" confirmation for one local branch (issue #112);
+   * the safe `-d` runs first and only an unmerged refusal unlocks the forced
+   * `-D` step. */
+  readonly openBranchDelete: (value: BranchTargetValue) => void
+  /** Open the "delete remote branch" confirmation for one remote row. The host
+   * resolves the tracking ref to a configured remote; nothing local is deleted. */
+  readonly openRemoteBranchDelete: (value: BranchTargetValue) => void
   /** Put the commit's reference into the session's composer (quote.ts). */
   readonly quote: (text: string) => void
 }
@@ -43,6 +50,10 @@ export interface OverviewMenuFacts {
   readonly head?: string | null
   /** The host declared `capabilities.commitCheckout`. */
   readonly commitCheckout?: boolean
+  /** The host declared `capabilities.branchDelete`. */
+  readonly branchDelete?: boolean
+  /** The host declared `capabilities.remoteBranchDelete`. */
+  readonly remoteBranchDelete?: boolean
 }
 
 /** Branch-row entries: switch, history filter, copy, and the compare entry when
@@ -51,7 +62,12 @@ export function branchMenuActions(
   value: BranchTargetValue, env: MenuEnv, cmds: OverviewMenuCommands, facts: OverviewMenuFacts,
 ): MenuAction[] {
   const group: MenuAction[] = []
-  if (!value.isCurrent) {
+  // A tag row reaches this builder through the shared row renderer. Its
+  // `isCurrent` is false and its name is not in the switch map, so the entries
+  // that address a local branch are gated on `isTag` explicitly rather than
+  // relying on a silent no-op lookup.
+  const isBranch = value.isTag !== true
+  if (isBranch && !value.isCurrent) {
     group.push({
       id: 'switch-branch',
       label: env.t(value.isRemote ? 'menu.switchToTracking' : 'menu.switchBranch'),
@@ -74,6 +90,42 @@ export function branchMenuActions(
     failureLabel: env.t('menu.copyFailed'),
     run: () => copyText(env, value.name),
   })
+  // Local branches only: the panel deletes a ref under `refs/heads` and never
+  // touches the remote, so a remote row has nothing this entry could delete.
+  // Tags share the branch list's row renderer, so they reach this builder too;
+  // a tag delete has its own path, and `git branch -d <tag>` would name a
+  // same-named branch or fail. The checked-out branch is git's own refusal
+  // (`branch-checked-out`), but the row already says HEAD, so the entry is not
+  // offered for it at all.
+  if (facts.branchDelete === true && isBranch && !value.isRemote && !value.isCurrent) {
+    group.push({
+      id: 'delete-branch',
+      label: env.t('menu.deleteBranch'),
+      icon: menuIcon('delete'),
+      // Below one separator: the delete is never one slip away from "copy".
+      separatorBefore: true,
+      danger: true,
+      disabled: facts.busy,
+      failureLabel: env.t('common.operationFailed'),
+      run: () => cmds.openBranchDelete(value),
+    })
+  }
+  // A remote row can only be deleted on its server, and the entry needs the
+  // full tracking ref to name it: the row's short name is ambiguous when a
+  // remote name itself contains a slash. Older host data without `ref` keeps
+  // the entry out instead of guessing.
+  if (facts.remoteBranchDelete === true && value.isRemote && value.ref?.startsWith('refs/remotes/') === true) {
+    group.push({
+      id: 'delete-remote-branch',
+      label: env.t('menu.deleteRemoteBranch'),
+      icon: menuIcon('delete'),
+      separatorBefore: true,
+      danger: true,
+      disabled: facts.busy,
+      failureLabel: env.t('common.operationFailed'),
+      run: () => cmds.openRemoteBranchDelete(value),
+    })
+  }
   return group
 }
 

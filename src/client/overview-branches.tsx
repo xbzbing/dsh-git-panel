@@ -29,7 +29,7 @@ export interface BranchCbs {
   onToggle: (section: string) => void
   onRetry: () => void
   /** Right-click props for one branch row (absent on hosts without menus). */
-  menu?: (value: { name: string; isCurrent: boolean; isRemote: boolean }) => Record<string, unknown>
+  menu?: (value: { name: string; isCurrent: boolean; isRemote: boolean; isTag: boolean; ref?: string }) => Record<string, unknown>
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -92,7 +92,7 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       : null
     return h('div', {
       key: b.name, className: cls, style: { paddingLeft: BRANCH_BASE + depth * BRANCH_INDENT }, title: b.name,
-      ...cb.menu?.({ name: b.name, isCurrent, isRemote: sectionKey === 'remote' }),
+      ...cb.menu?.({ name: b.name, isCurrent, isRemote: sectionKey === 'remote', isTag: sectionKey === 'tags', ...(b.ref === undefined ? {} : { ref: b.ref }) }),
       'data-current': isCurrent ? 'true' : undefined, 'data-primary': isPrimary ? 'true' : undefined,
       // Keyboard parity with the dir rows below: a leaf row is a toggle button
       // (filter on/off), and inside a focus trap (the compact sheet) it must be

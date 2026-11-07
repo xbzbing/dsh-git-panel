@@ -39,6 +39,11 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'index-busy': return t('error.indexBusy')
     case 'not-found': return t('error.notFound')
     case 'branch-in-use': return t('error.branchInUse')
+    // A branch delete git refused: the branch is still a HEAD somewhere, or it
+    // holds unmerged commits. The second one is what promotes the delete dialog
+    // to its forced step; the text states the condition, not a raw git message.
+    case 'branch-checked-out': return t('error.branchCheckedOut')
+    case 'branch-unmerged': return t('branchDelete.unmergedWarn')
     case 'nested-repo': return t('error.nestedRepo')
     // The same refusal raised mid-loop, after earlier paths were deleted: the
     // copy must not read as "nothing happened".
@@ -220,6 +225,10 @@ export interface ConfirmCbs {
   error: string | null
   /** Disable confirm while an op is in flight (parity with ResetModal). */
   confirmBusy?: boolean
+  /** An extra client-side gate on the confirm button (an acknowledgement
+   * checkbox the caller renders in `extra`), separate from `confirmBusy`: the
+   * button is disabled but the dialog stays dismissible. */
+  confirmDisabled?: boolean
   /** When set with confirmBusy, show a busy overlay carrying this label. */
   busyLabel?: string
   onConfirm: () => void
@@ -231,7 +240,8 @@ export interface ConfirmCbs {
 }
 
 /** Portaled confirm dialog for a low-frequency destructive op (tag delete,
- * stash drop). A plain text body + the shared AI hint over the shell. */
+ * stash drop, branch delete). A plain text body + the shared AI hint over the
+ * shell. */
 export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
   const showOverlay = cb.confirmBusy === true && cb.busyLabel !== undefined
   return renderModalShell({
@@ -247,7 +257,7 @@ export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
       renderAiHint(cb.t),
       cb.error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, cb.error) : null,
     ],
-    footer: renderModalFooter({ onClose: cb.onClose, onConfirm: cb.onConfirm, confirmLabel: cb.confirmLabel, confirmDisabled: cb.confirmBusy === true, danger: cb.danger, t: cb.t }),
+    footer: renderModalFooter({ onClose: cb.onClose, onConfirm: cb.onConfirm, confirmLabel: cb.confirmLabel, confirmDisabled: cb.confirmBusy === true || cb.confirmDisabled === true, danger: cb.danger, t: cb.t }),
     ...(cb.confirmBusy === true ? { busy: true } : {}),
     ...(showOverlay ? { overlay: renderBusyOverlay(cb.busyLabel!) } : {}),
   })

@@ -64,6 +64,13 @@ export interface BranchTargetValue extends MenuIdentity {
   readonly name: string
   readonly isCurrent: boolean
   readonly isRemote: boolean
+  /** The row is a tag: tags share the branch list's row renderer, but the
+   * branch-only actions (switch, delete) must not be offered for one. */
+  readonly isTag?: boolean
+  /** Full ref (`refs/heads/x`, `refs/remotes/o/x`). The remote delete needs it
+   * to name the exact tracking ref: the host resolves remote + branch from the
+   * configured remotes rather than guessing at a slash. */
+  readonly ref?: string
 }
 
 /** One commit row (history list or the detail header). */

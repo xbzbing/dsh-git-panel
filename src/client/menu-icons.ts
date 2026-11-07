@@ -36,6 +36,7 @@ const MENU_ICON_TABLE = {
   checkout: { key: 'git-panel.checkout', Icon: CommitIcon },
   stage: { key: 'git-panel.stage', Icon: StagePickedIcon },
   discard: { key: 'git-panel.discard', Icon: TrashIcon },
+  delete: { key: 'git-panel.delete', Icon: TrashIcon },
   stash: { key: 'git-panel.stash', Icon: StashIcon },
   fetch: { key: 'git-panel.fetch', Icon: SyncIcon },
   overview: { key: 'git-panel.overview', Icon: ListIcon },

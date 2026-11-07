@@ -39,7 +39,7 @@ export async function runRemoteAction(
   sessionId: string,
   action: GitAction,
   onOk: () => void,
-  describe: (code: string, message: string | undefined) => string,
+  describe: (code: string, message: string | undefined) => string | null,
   fallback: string,
 ): Promise<void> {
   if (!claim(env)) return
@@ -47,6 +47,9 @@ export async function runRemoteAction(
   try {
     const res = await remote.run({ sessionId, action })
     if (res.ok) onOk()
+    // A caller may turn one wire code into a dialog step instead of an error
+    // line (branch delete's "not fully merged" opens the force stage); `null`
+    // leaves the error slot empty rather than printing a second copy of it.
     else env.setError(describe(res.error.code, res.error.message))
   } catch (error) {
     env.setError(error instanceof Error ? error.message : fallback)
