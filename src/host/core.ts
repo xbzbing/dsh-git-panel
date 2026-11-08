@@ -844,7 +844,7 @@ export async function snapshotForSession(
     filesFollowRepo: config.filesFollowRepo,
     collapseReposOnPick: config.collapseReposOnPick,
     allowFileEdit: config.allowFileEdit,
-    capabilities: { revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true },
+    capabilities: { revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true, branchCreate: true, branchMerge: true, cherryPick: true },
     checkedAt: Date.now(),
   }
   return { ok: true, value: { ...snapshot, stateFingerprint: snapshotFingerprint(snapshot) } }
