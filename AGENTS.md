@@ -30,7 +30,7 @@
 - `dir-list`、`file-content`、`writeFile` 和未跟踪删除是直接触碰工作区的入口：必须做安全路径校验、realpath 包含检查，拒绝越界软链和 `.git`。
 - 编辑规则单源在 `types.ts`：白名单、`.env` / `.env.*`、2 MiB、UTF-8 往返、只读检查、`baseSha256` 比对写；写入使用同目录 `wx` 临时文件再 rename，失败清理临时文件。详见 ADR-0024。
 - push 不得 force，且只在严格领先时提供；pull 只允许 `--ff-only`；不直接检出远程引用；远程链接必须去除内嵌凭据。删远端分支只经配置的 remote 解析（远端名可含 `/`），目标固定为 `refs/heads/<branch>`，不得按短名或同名标签猜测。
-- discard、reset、stash-drop、删标签、删本地分支（未合并时的强制 `-D` 需在确认框里再次勾选）、删远端分支（必须勾选确认）和带贮藏的切换必须二次确认。未跟踪条目若本身是嵌套仓库或子模块必须拒绝，并报告批量删除中的部分失败。
+- discard、reset、stash-drop、删标签、删本地分支（未合并时的强制 `-D` 需在确认框里再次勾选）、删远端分支（必须勾选确认）、合并分支、拣选提交和带贮藏的切换必须二次确认。合并 / 拣选冲突由 host 自动 `git merge --abort` / `git cherry-pick --abort` 恢复操作前状态，中止失败分别报 `merge-stuck` / `pick-stuck`（空拣选取消为 `pick-empty`）。未跟踪条目若本身是嵌套仓库或子模块必须拒绝，并报告批量删除中的部分失败。
 - HTML 预览遵守 ADR-0015、ADR-0020：交互预览使用 `blob:` iframe，不用 `srcdoc`，不授予 `allow-same-origin`；静态模式才使用受限 `srcdoc`。大内联脚本先确认，等待可停止。
 
 ## 数据流约束
