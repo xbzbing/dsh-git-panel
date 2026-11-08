@@ -44,6 +44,21 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // to its forced step; the text states the condition, not a raw git message.
     case 'branch-checked-out': return t('error.branchCheckedOut')
     case 'branch-unmerged': return t('branchDelete.unmergedWarn')
+    // `git branch` refused a taken name: nothing was created (issue #118).
+    case 'branch-exists': return t('error.branchExists')
+    // A merge conflicted and the host auto-aborted it (the panel has no
+    // conflict UI), so the work tree is back to the pre-merge state; the
+    // "stuck" half says the abort itself failed and the repo is mid-merge.
+    case 'merge-conflict': return t('error.mergeConflict')
+    case 'merge-stuck': return t('error.mergeStuck')
+    // The same contract for cherry-pick, plus the empty-result cancellation
+    // (its change is already in the current branch; the sequencer was cleared).
+    case 'pick-conflict': return t('error.pickConflict')
+    case 'pick-stuck': return t('error.pickStuck')
+    case 'pick-empty': return t('error.pickEmpty')
+    // Cherry-picking a merge commit: a mainline parent is required, which the
+    // panel cannot choose (the twin of reverting one).
+    case 'pick-merge': return t('error.pickMerge')
     case 'nested-repo': return t('error.nestedRepo')
     // The same refusal raised mid-loop, after earlier paths were deleted: the
     // copy must not read as "nothing happened".
