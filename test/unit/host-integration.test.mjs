@@ -3588,5 +3588,169 @@ test('history exactPath guards: exclusive with other filters, safe path only', a
 test('the snapshot declares the menu capabilities', async () => {
   const res = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
   assert.equal(res.ok, true)
-  assert.deepEqual(res.value.capabilities, { revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true })
+  assert.deepEqual(res.value.capabilities, {
+    revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true,
+    branchCreate: true, branchMerge: true, cherryPick: true,
+  })
+})
+
+// ── issue #118: create branch / merge / cherry-pick ─────────────────────────
+
+test('branch-create writes a ref without switching (#118)', async () => {
+  const dir = await freshRepo('gp-branch-create-')
+  const { existsSync } = await import('node:fs')
+  try {
+    const d = depsAt(dir)
+    const current = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir }).toString().trim()
+    const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim()
+    const before = head()
+
+    const created = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-create', name: 'feature/x', start: `refs/heads/${current}` } })
+    assert.equal(created.ok, true, 'the branch is created at the start point')
+    const branches = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'branches' } })
+    assert.ok(branches.value.local.some((b) => b.name === 'feature/x'), 'the branch list carries it')
+    assert.equal(head(), before, 'creating moves nothing: HEAD stays where it was')
+    assert.equal(execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir }).toString().trim(), current, 'the current branch is unchanged')
+
+    // A taken name is refused with its own code; nothing about the repo changed.
+    const dup = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-create', name: 'feature/x', start: `refs/heads/${current}` } })
+    assert.equal(dup.ok, false)
+    assert.equal(dup.error.code, 'branch-exists')
+
+    // An unknown start point resolves nowhere.
+    const unknown = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-create', name: 'y', start: 'nosuchref' } })
+    assert.equal(unknown.ok, false)
+    assert.equal(unknown.error.code, 'not-found')
+    assert.equal(existsSync(join(dir, '.git', 'refs', 'heads', 'y')), false, 'nothing was created')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('branch-merge fast-forwards, and a conflict aborts back to the pre-merge state (#118)', async () => {
+  const dir = await freshRepo('gp-merge-')
+  try {
+    const d = depsAt(dir)
+    const current = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir }).toString().trim()
+    const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim()
+    const clean = () => execFileSync('git', ['status', '--porcelain'], { cwd: dir }).toString().trim() === ''
+    const midMerge = () => {
+      try { execFileSync('git', ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { cwd: dir, stdio: 'pipe' }); return true } catch { return false }
+    }
+    const { writeFileSync } = await import('node:fs')
+
+    // Fast-forward: the side branch is strictly ahead of the current one.
+    await runGit(dir, ['checkout', '-qb', 'side'])
+    writeFileSync(join(dir, 'side.txt'), 'side\n')
+    await runGit(dir, ['add', 'side.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: side'])
+    const sideSha = head()
+    await runGit(dir, ['checkout', '-q', current])
+    const before = head()
+    const ff = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-merge', name: 'refs/heads/side' } })
+    assert.equal(ff.ok, true, 'a clean merge lands')
+    assert.equal(head(), sideSha, 'it fast-forwarded to the side tip')
+    assert.ok(clean(), 'a fast-forward leaves no changes behind')
+
+    // Conflict: both branches change the same line of the same file after the
+    // side tip, so git cannot resolve it — the host must abort, not park the
+    // shared worktree mid-merge.
+    await runGit(dir, ['checkout', '-qb', 'other'])
+    writeFileSync(join(dir, 'a.txt'), 'other-version\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'other: rewrite a'])
+    await runGit(dir, ['checkout', '-q', current])
+    writeFileSync(join(dir, 'a.txt'), 'current-version\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'current: rewrite a'])
+    const beforeConflict = head()
+    const conflicted = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-merge', name: 'refs/heads/other' } })
+    assert.equal(conflicted.ok, false)
+    assert.equal(conflicted.error.code, 'merge-conflict', 'the conflict is its own code, not a raw git error')
+    assert.equal(head(), beforeConflict, 'the abort restored HEAD')
+    assert.ok(clean(), 'the work tree is back to the pre-merge state')
+    assert.equal(midMerge(), false, 'no MERGE_HEAD survives the abort')
+
+    // An unknown target resolves nowhere (the full ref never guesses).
+    const unknown = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-merge', name: 'refs/heads/nope' } })
+    assert.equal(unknown.ok, false)
+    assert.equal(unknown.error.code, 'not-found')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('cherry-pick applies a commit; conflict, empty and merge-commit outcomes restore the state (#118)', async () => {
+  const dir = await freshRepo('gp-pick-')
+  try {
+    const d = depsAt(dir)
+    const current = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir }).toString().trim()
+    const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim()
+    const clean = () => execFileSync('git', ['status', '--porcelain'], { cwd: dir }).toString().trim() === ''
+    const inSequencer = () => {
+      try { execFileSync('git', ['rev-parse', '-q', '--verify', 'CHERRY_PICK_HEAD'], { cwd: dir, stdio: 'pipe' }); return true } catch { return false }
+    }
+    const { writeFileSync, existsSync } = await import('node:fs')
+
+    // A side branch edits the same line differently, then the current branch
+    // edits it again: picking the side commit conflicts.
+    await runGit(dir, ['checkout', '-qb', 'side'])
+    writeFileSync(join(dir, 'a.txt'), 'side\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'side: rewrite a'])
+    const sideSha = head()
+    await runGit(dir, ['checkout', '-q', current])
+    writeFileSync(join(dir, 'a.txt'), 'current\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'current: rewrite a'])
+    const before = head()
+
+    const conflicted = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'cherry-pick', commit: sideSha } })
+    assert.equal(conflicted.ok, false)
+    assert.equal(conflicted.error.code, 'pick-conflict')
+    assert.equal(head(), before, 'the abort restored HEAD')
+    assert.ok(clean(), 'the work tree is back to the pre-pick state')
+    assert.equal(inSequencer(), false, 'no CHERRY_PICK_HEAD survives the abort')
+
+    // Picking HEAD's own commit would be an empty change: cancelled, sequencer
+    // cleared, nothing committed.
+    const empty = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'cherry-pick', commit: before } })
+    assert.equal(empty.ok, false)
+    assert.equal(empty.error.code, 'pick-empty')
+    assert.equal(head(), before, 'an empty pick commits nothing')
+    assert.ok(clean())
+    assert.equal(inSequencer(), false, 'the empty pick leaves no sequencer state behind')
+
+    // The happy path: a commit neither branch conflicts with lands as a new one.
+    await runGit(dir, ['checkout', '-qb', 'pick-me'])
+    writeFileSync(join(dir, 'picked.txt'), 'picked\n')
+    await runGit(dir, ['add', 'picked.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: picked content'])
+    const pickSha = head()
+    await runGit(dir, ['checkout', '-q', current])
+    const picked = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'cherry-pick', commit: pickSha } })
+    assert.equal(picked.ok, true, 'a clean pick lands as a new commit on the current branch')
+    assert.ok(existsSync(join(dir, 'picked.txt')), 'its change is in the work tree')
+    assert.notEqual(head(), before, 'HEAD moved to the picked commit')
+    assert.ok(clean())
+
+    // Cherry-picking a merge commit needs a mainline parent the panel cannot
+    // choose; the refusal is named for the pick, not for revert.
+    await runGit(dir, ['checkout', '-qb', 'm-side'])
+    writeFileSync(join(dir, 'side-only.txt'), 'x\n')
+    await runGit(dir, ['add', 'side-only.txt'])
+    await runGit(dir, ['commit', '-qm', 'side: separate file'])
+    await runGit(dir, ['checkout', '-q', current])
+    writeFileSync(join(dir, 'main-only.txt'), 'x\n')
+    await runGit(dir, ['add', 'main-only.txt'])
+    await runGit(dir, ['commit', '-qm', 'current: separate file'])
+    await runGit(dir, ['merge', '--no-ff', 'm-side', '-m', 'merge m-side'])
+    const mergeSha = head()
+    const mergePick = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'cherry-pick', commit: mergeSha } })
+    assert.equal(mergePick.ok, false)
+    assert.equal(mergePick.error.code, 'pick-merge')
+    assert.ok(clean(), 'the refusal never touched the work tree')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

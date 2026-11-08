@@ -21,7 +21,7 @@ const env = { t, menus: { notify: () => {} }, writeClipboard: async () => true, 
 const identity = { sessionId: 's', owner: 'o', repo: '' }
 const value = { ...identity, path: 'src/a.ts', root: '/work', ignored: false }
 
-const overviewCommands = { switchBranch: () => {}, filterRef: () => {}, openTagCreate: () => {}, openBranchDelete: () => {}, openRemoteBranchDelete: () => {}, openRevert: () => {}, openReset: () => {}, quote: () => {} }
+const overviewCommands = { switchBranch: () => {}, filterRef: () => {}, openTagCreate: () => {}, openBranchDelete: () => {}, openRemoteBranchDelete: () => {}, openBranchCreate: () => {}, openBranchMerge: () => {}, openCherryPick: () => {}, openRevert: () => {}, openReset: () => {}, quote: () => {} }
 const changesCommands = { openDiff: () => {}, stage: () => {}, openDiscard: () => {}, stashApply: () => {}, stashPop: () => {}, openStashDrop: () => {} }
 const reposCommands = { fetch: () => {} }
 const pillCommands = { openTab: () => {}, fetch: () => {} }
@@ -32,9 +32,9 @@ function everyMenu() {
   return [
     ['file', fileMenuActions(value, env, [{ id: 'open-in-app.file/float', label: 'x' }])],
     ['directory', directoryMenuActions(value, env, [])],
-    ['branch', branchMenuActions({ ...identity, name: 'main', isCurrent: false, isRemote: false }, env, overviewCommands, { busy: false, branchDelete: true })],
-    ['branch-remote', branchMenuActions({ ...identity, name: 'origin/x', isCurrent: false, isRemote: true, ref: 'refs/remotes/origin/x' }, env, overviewCommands, { busy: false, remoteBranchDelete: true })],
-    ['commit', commitMenuActions({ ...identity, hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 's' }, env, overviewCommands, { busy: false })],
+    ['branch', branchMenuActions({ ...identity, name: 'main', isCurrent: false, isRemote: false }, env, overviewCommands, { busy: false, branchDelete: true, branchCreate: true, branchMerge: true, currentBranch: 'main' })],
+    ['branch-remote', branchMenuActions({ ...identity, name: 'origin/x', isCurrent: false, isRemote: true, ref: 'refs/remotes/origin/x' }, env, overviewCommands, { busy: false, remoteBranchDelete: true, branchCreate: true, branchMerge: true, currentBranch: 'main' })],
+    ['commit', commitMenuActions({ ...identity, hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 's' }, env, overviewCommands, { busy: false, branchCreate: true, cherryPick: true, currentBranch: 'main' })],
     ['change', changeMenuActions({ ...identity, path: 'a.ts', staged: false }, env, changesCommands, { busy: false }, new Set())],
     ['changeDir', changeDirMenuActions({ ...identity, path: 'src', staged: false, paths: ['src/a.ts'], discardable: ['src/a.ts'] }, env, changesCommands, { busy: false })],
     ['stash', stashMenuActions({ ...identity, sha: 'abc', label: 'WIP' }, env, changesCommands, { busy: false })],
@@ -75,6 +75,10 @@ test('each family uses its own glyph, not one shared blob', () => {
   assert.equal(icons.get('delete-branch'), MENU_ICONS.delete)
   assert.equal(icons.get('delete-remote-branch'), MENU_ICONS.delete)
   assert.equal(icons.get('create-tag'), MENU_ICONS.tag)
+  // Issue #118: create reuses the branch glyph, merge and pick draw their own.
+  assert.equal(icons.get('create-branch'), MENU_ICONS.branch)
+  assert.equal(icons.get('merge-branch'), MENU_ICONS.merge)
+  assert.equal(icons.get('cherry-pick'), MENU_ICONS.pick)
   assert.equal(icons.get('reset'), MENU_ICONS.reset)
   assert.equal(icons.get('discard'), MENU_ICONS.discard)
   assert.equal(icons.get('stash-apply'), MENU_ICONS.stash)
