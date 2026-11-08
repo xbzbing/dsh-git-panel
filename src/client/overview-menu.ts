@@ -36,6 +36,16 @@ export interface OverviewMenuCommands {
   /** Open the "delete remote branch" confirmation for one remote row. The host
    * resolves the tracking ref to a configured remote; nothing local is deleted. */
   readonly openRemoteBranchDelete: (value: BranchTargetValue) => void
+  /** Open the "create branch" form for one start point — a branch row's tip or
+   * a commit row's hash (issue #118). The branch is created without switching
+   * to it; `label` is what the dialog shows, `start` what the host resolves. */
+  readonly openBranchCreate: (target: { readonly start: string; readonly label: string }) => void
+  /** Open the merge confirmation: the row's ref merges into the current
+   * branch (issue #118). Same `start`/`label` split as the create form. */
+  readonly openBranchMerge: (target: { readonly start: string; readonly label: string }) => void
+  /** Open the cherry-pick confirmation for one commit onto the current
+   * branch (issue #118). */
+  readonly openCherryPick: (value: CommitTargetValue) => void
   /** Put the commit's reference into the session's composer (quote.ts). */
   readonly quote: (text: string) => void
 }
@@ -54,10 +64,19 @@ export interface OverviewMenuFacts {
   readonly branchDelete?: boolean
   /** The host declared `capabilities.remoteBranchDelete`. */
   readonly remoteBranchDelete?: boolean
+  /** The host declared `capabilities.branchCreate` / `branchMerge` /
+   * `cherryPick` (issue #118). */
+  readonly branchCreate?: boolean
+  readonly branchMerge?: boolean
+  readonly cherryPick?: boolean
+  /** The checked-out local branch; null on a detached HEAD. Merge and pick
+   * land on the current branch, so their entries are offered only while one
+   * exists. */
+  readonly currentBranch?: string | null
 }
 
-/** Branch-row entries: switch, history filter, copy, and the compare entry when
- * the row names a ref the panel can compare against. */
+/** Branch-row entries: switch, create / merge (issue #118), history filter,
+ * copy, then the fenced delete entries. */
 export function branchMenuActions(
   value: BranchTargetValue, env: MenuEnv, cmds: OverviewMenuCommands, facts: OverviewMenuFacts,
 ): MenuAction[] {
@@ -75,6 +94,45 @@ export function branchMenuActions(
       disabled: facts.busy,
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.switchBranch(value),
+    })
+  }
+  // The row's addressable ref (issue #118): local rows fall back to their
+  // short name — git resolves it and the host revalidates it — while a remote
+  // row needs the full tracking ref, because `origin/x` is display text until
+  // it is named as `refs/remotes/origin/x` (a same-named tag or local branch
+  // must never be picked up instead). A row that cannot produce one gets
+  // neither entry below rather than an address git could misread.
+  const start = value.isRemote
+    ? (value.ref?.startsWith('refs/remotes/') === true ? value.ref : null)
+    : (value.ref ?? value.name)
+  // Create a branch at this row's tip without switching to it: a pure ref
+  // write like tag-create, gated on the host capability. The current branch
+  // keeps its entry — starting a branch from the one you are on is the common
+  // case, and creating one moves nothing.
+  if (facts.branchCreate === true && isBranch && start !== null) {
+    group.push({
+      id: 'create-branch',
+      label: env.t('menu.createBranchFrom'),
+      icon: menuIcon('branch'),
+      disabled: facts.busy,
+      failureLabel: env.t('common.operationFailed'),
+      run: () => cmds.openBranchCreate({ start, label: value.name }),
+    })
+  }
+  // Merge this row's branch into the current one: never the row naming the
+  // branch already checked out (a no-op), and only while HEAD sits on a local
+  // branch with somewhere to land. A remote row merges through its full
+  // tracking ref, so `origin/main` on a `main` behind its upstream fast-forwards
+  // without a same-named local tag shadowing the argument.
+  if (facts.branchMerge === true && isBranch && start !== null
+    && facts.currentBranch != null && !value.isCurrent) {
+    group.push({
+      id: 'merge-branch',
+      label: env.t('menu.mergeBranch'),
+      icon: menuIcon('merge'),
+      disabled: facts.busy,
+      failureLabel: env.t('common.operationFailed'),
+      run: () => cmds.openBranchMerge({ start, label: value.name }),
     })
   }
   group.push({
@@ -129,7 +187,9 @@ export function branchMenuActions(
   return group
 }
 
-/** Commit-row entries: copy identities and text, then the write dialogs. */
+/** Commit-row entries: copy identities and text, then the write dialogs —
+ * tag / branch creation at the commit, checkout, cherry-pick (issue #118), and
+ * the fenced revert / reset band. */
 export function commitMenuActions(
   value: CommitTargetValue, env: MenuEnv, cmds: OverviewMenuCommands, facts: OverviewMenuFacts,
 ): MenuAction[] {
@@ -178,6 +238,16 @@ export function commitMenuActions(
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.openTagCreate(value),
     },
+    // Create a branch pointing at this commit, without checking it out: the
+    // start point is the full hash, so no ref of the same name can shadow it.
+    ...(facts.branchCreate === true ? [{
+      id: 'create-branch',
+      label: env.t('menu.createBranchHere'),
+      icon: menuIcon('branch'),
+      disabled: facts.busy,
+      failureLabel: env.t('common.operationFailed'),
+      run: () => cmds.openBranchCreate({ start: value.hash, label: value.shortHash }),
+    }] : []),
     ...(atHead || facts.commitCheckout !== true ? [] : [{
       id: 'checkout',
       label: env.t('menu.checkoutCommit'),
@@ -186,6 +256,17 @@ export function commitMenuActions(
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.openCheckout(value),
     }]),
+    // Apply this commit's change onto the current branch as a new commit.
+    // Offered only while HEAD sits on a local branch: a detached HEAD would
+    // take the picked commit nowhere the user can follow.
+    ...(facts.cherryPick === true && facts.currentBranch != null ? [{
+      id: 'cherry-pick',
+      label: env.t('menu.cherryPickCommit'),
+      icon: menuIcon('pick'),
+      disabled: facts.busy,
+      failureLabel: env.t('common.operationFailed'),
+      run: () => cmds.openCherryPick(value),
+    }] : []),
     {
       id: 'revert',
       label: env.t('menu.revertCommit'),

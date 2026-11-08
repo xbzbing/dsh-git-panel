@@ -34,6 +34,7 @@ import { runRemoteAction, runSnapshotAction } from './op-runner.js'
 import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
 import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { renderBranchDeleteConfirm, renderRemoteBranchDeleteConfirm } from './branch-delete.js'
+import { renderBranchCreateModal } from './branch-create.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
 import { renderStatusBar } from './overview-statusbar.js'
 import { RepoBar } from './overview-repobar.js'
@@ -256,6 +257,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // short name for display. One stage, acknowledgement mandatory (no server-side
   // merged check exists).
   const [remoteBranchToDelete, setRemoteBranchToDelete] = useState<{ ref: string; label: string } | null>(null)
+  // Branch create form (issue #118): anchored to the captured start point like
+  // the tag form, so an unrelated HEAD/branch move does not close it — the
+  // ref or hash it names still resolves wherever HEAD went.
+  const [branchCreateTarget, setBranchCreateTarget] = useState<{ start: string; label: string } | null>(null)
+  // Merge and cherry-pick confirmations (issue #118): both name the current
+  // branch in their body, so a scope move under the dialog closes them through
+  // the shared op-scope effect below (same contract as the switch confirm).
+  const [branchMergeTarget, setBranchMergeTarget] = useState<{ start: string; label: string } | null>(null)
+  const [pickTarget, setPickTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   // Commit-undo targets (revert confirm + reset mode dialog), each a selected commit.
   const [revertTarget, setRevertTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   const [resetTarget, setResetTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
@@ -423,7 +433,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }
   }
   const opScopeRef = useRef<string | null>(null)
-  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null || branchToDelete !== null || remoteBranchToDelete !== null
+  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null || branchToDelete !== null || remoteBranchToDelete !== null || branchMergeTarget !== null || pickTarget !== null
   const opInFlight = opBusy || switchBusy
   // The runs the menu offers, closing over this render's state (the owner reads
   // the published object at resolve time, so a fresh one each render is enough).
@@ -442,6 +452,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     openRevert: (value) => { setOpError(null); setRevertTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     openReset: (value) => { setOpError(null); setResetTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     openCheckout: (value) => { setOpError(null); setCheckoutTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
+    openBranchCreate: (target) => { setOpError(null); setBranchCreateTarget(target) },
+    openBranchMerge: (target) => { setOpError(null); setBranchMergeTarget(target) },
+    openCherryPick: (value) => { setOpError(null); setPickTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     quote: onQuote ?? (() => {}),
   }
   // Publish the overview's runs and busy flag for the menu owner. A fresh object
@@ -458,6 +471,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       commitCheckout: snapshot.capabilities?.commitCheckout === true,
       branchDelete: snapshot.capabilities?.branchDelete === true,
       remoteBranchDelete: snapshot.capabilities?.remoteBranchDelete === true,
+      branchCreate: snapshot.capabilities?.branchCreate === true,
+      branchMerge: snapshot.capabilities?.branchMerge === true,
+      cherryPick: snapshot.capabilities?.cherryPick === true,
+      currentBranch: snapshot.branch,
     }
   }
   useEffect(() => {
@@ -478,6 +495,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     setBranchToDelete(null)
     setDeleteNeedsForce(false)
     setRemoteBranchToDelete(null)
+    setBranchMergeTarget(null)
+    setPickTarget(null)
     setOpError(null)
   }, [opScope, opDialogOpen, opInFlight, opError])
 
@@ -652,6 +671,49 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       { kind: 'branch-delete-remote', ref: target.ref },
       () => { setRemoteBranchToDelete(null); afterRefOp() },
       (code, msg) => opErrorText(code, msg, t),
+      t('error.generic'),
+    )
+  }
+
+  // Branch create (issue #118): a ref-only write like the tag ops — the work
+  // tree is untouched, so it goes straight through `run` and the branch list
+  // reloads through `opBump`.
+  const runBranchCreate = (name: string): Promise<void> => {
+    if (branchCreateTarget === null) return Promise.resolve()
+    return runRemoteAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      remote, sessionId,
+      { kind: 'branch-create', name, start: branchCreateTarget.start },
+      () => { setBranchCreateTarget(null); afterRefOp() },
+      (code, msg) => opErrorText(code, msg, t),
+      t('error.generic'),
+    )
+  }
+
+  // Merge (issue #118): HEAD and the work tree move, so it goes through
+  // `onAction` — the fresh snapshot feeds the controller and every cache
+  // reloads. A conflict is aborted host-side (`merge-conflict` / `merge-stuck`),
+  // so the dialog only ever shows a finished or fully-restored state.
+  const runBranchMerge = (): Promise<void> => {
+    if (branchMergeTarget === null) return Promise.resolve()
+    return runSnapshotAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      onAction,
+      { kind: 'branch-merge', name: branchMergeTarget.start },
+      () => setBranchMergeTarget(null),
+      t('error.generic'),
+    )
+  }
+
+  // Cherry-pick (issue #118): the same shape as merge — one commit applied
+  // onto the current branch, conflicts and empty results aborted host-side.
+  const runCherryPick = (): Promise<void> => {
+    if (pickTarget === null) return Promise.resolve()
+    return runSnapshotAction(
+      { busy: opBusy, setBusy: setOpBusy, setError: setOpError },
+      onAction,
+      { kind: 'cherry-pick', commit: pickTarget.hash },
+      () => setPickTarget(null),
       t('error.generic'),
     )
   }
@@ -844,6 +906,42 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       error: opError,
       onConfirm: () => void runRemoteBranchDelete(),
       onClose: () => setRemoteBranchToDelete(null),
+      t,
+    }) : null,
+    branchCreateTarget !== null ? renderBranchCreateModal({ label: branchCreateTarget.label }, {
+      busy: opBusy,
+      error: opError,
+      onCreate: runBranchCreate,
+      onClose: () => setBranchCreateTarget(null),
+      t,
+    }) : null,
+    branchMergeTarget !== null ? renderConfirmModal({
+      title: t('merge.title'),
+      // The body names both sides; a dirty tree can still make git refuse (or
+      // carry the changes into the merge), so the note rides along like revert's.
+      body: t('merge.body', { name: branchMergeTarget.label, current: snapshot.branch ?? t('switch.detached') })
+        + (snapshot.dirty ? `\n\n${t('ops.dirtyWarn')}` : ''),
+      confirmLabel: t('merge.confirm'),
+      danger: false,
+      error: opError,
+      confirmBusy: opBusy,
+      busyLabel: t('merge.busy'),
+      onConfirm: () => void runBranchMerge(),
+      onClose: () => setBranchMergeTarget(null),
+      t,
+    }) : null,
+    pickTarget !== null ? renderConfirmModal({
+      title: t('pick.title'),
+      body: t('pick.body', { current: snapshot.branch ?? t('switch.detached') })
+        + `\n\n${pickTarget.shortHash} ${pickTarget.subject}`
+        + (snapshot.dirty ? `\n\n${t('ops.dirtyWarn')}` : ''),
+      confirmLabel: t('pick.confirm'),
+      danger: false,
+      error: opError,
+      confirmBusy: opBusy,
+      busyLabel: t('pick.busy'),
+      onConfirm: () => void runCherryPick(),
+      onClose: () => setPickTarget(null),
       t,
     }) : null,
     revertTarget !== null ? renderConfirmModal({

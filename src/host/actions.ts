@@ -167,6 +167,28 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       // the wire carries the full tracking ref, and guessing the remote/branch
       // boundary from a slash could name the wrong server.
       return { error: 'invalid-name', message: 'branch-delete-remote must be resolved before planning' }
+    case 'branch-create': {
+      if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe branch name: ${action.name}` }
+      if (!isSafeRev(action.start)) return { error: 'invalid-name', message: `unsafe start point: ${action.start}` }
+      // No checkout — a pure ref write (issue #118). `--end-of-options` keeps a
+      // name or start point that looks like an option out of the option
+      // position; git branch accepts it (checkout/reset below do not).
+      return { argv: [['git', 'branch', '--end-of-options', action.name, action.start]] }
+    }
+    case 'branch-merge': {
+      if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe branch name: ${action.name}` }
+      // Plain merge: fast-forward when possible, a merge commit otherwise —
+      // never --no-ff / --rebase / --force. A conflict leaves MERGE_HEAD, so
+      // runAction aborts it (see sequenceAbortPlan) instead of parking the
+      // shared worktree mid-merge.
+      return { argv: [['git', 'merge', '--end-of-options', action.name]] }
+    }
+    case 'cherry-pick': {
+      if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
+      // Single commit only (the panel never sends a range). Conflicts and an
+      // empty result both leave sequencer state behind; runAction aborts them.
+      return { argv: [['git', 'cherry-pick', '--end-of-options', action.commit]] }
+    }
     case 'stash-push': {
       const msg = action.message?.trim() ?? ''
       // `-m` makes the stash subject the user's text; without it git auto-labels
@@ -255,6 +277,7 @@ export function scrubCredentials(text: string): string {
  *  - branch-in-use (the target branch is checked out in another worktree).
  *  - branch-checked-out / branch-unmerged (a branch delete git refused: the
  *    branch is still somebody's HEAD, or it holds unmerged commits).
+ *  - branch-exists (`git branch` refused a name that is already taken).
  *  - local-changes-block (a dirty-worktree refusal; neutral wording covers both
  *    `git checkout` and `git stash apply`).
  *  - revert-merge (reverting a merge commit without a mainline parent — git
@@ -278,7 +301,7 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   if (/nothing to commit|nothing added to commit|no changes added/i.test(combined)) {
     return { code: 'nothing-to-commit', message: err }
   }
-  if (/No such ref|not a valid reference|invalid reference|is not a stash|no tag|tag .* not found|branch '[^']*' not found|remote ref does not exist|unknown revision|bad revision|Could not parse object|ambiguous argument|did not match any file\(s\) known to git/i.test(combined)) {
+  if (/No such ref|not a valid reference|not a valid object name|not something we can merge|invalid reference|is not a stash|no tag|tag .* not found|branch '[^']*' not found|remote ref does not exist|unknown revision|bad revision|Could not parse object|ambiguous argument|did not match any file\(s\) known to git/i.test(combined)) {
     return { code: 'not-found', message: err || 'not found' }
   }
   // The branch exists but is checked out in another worktree of this repo:
@@ -297,6 +320,11 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   // explicit force acknowledgement.
   if (/is not fully merged/i.test(combined)) {
     return { code: 'branch-unmerged', message: err || 'branch is not fully merged' }
+  }
+  // `git branch` refused a taken name (issue #118): nothing was created, and
+  // the message names the exact name so the dialog can ask for another one.
+  if (/a branch named .* already exists/i.test(combined)) {
+    return { code: 'branch-exists', message: err || 'branch already exists' }
   }
   // A network git command (fetch/pull/push) that failed because no usable
   // credentials were available. GIT_TERMINAL_PROMPT=0 turns an interactive
@@ -434,6 +462,30 @@ async function runIndexOnlyCommit(
   } finally {
     await deps.fs.remove(indexFile).catch(() => undefined)
   }
+}
+
+/**
+ * The abort plan for a write that parks a sequencer / merge state behind when
+ * it fails: revert, merge and cherry-pick. The panel offers no conflict
+ * resolution — and the state would also block the shared-worktree dsh AI's own
+ * commits — so a conflict is aborted immediately: `--abort` restores the pre-op
+ * state (unrelated dirty changes are preserved). Returns the argv, the probe
+ * label and the codes for "aborted cleanly" / "still stuck"; null for any other
+ * action or failure, where nothing was left behind.
+ *
+ * A cherry-pick whose patch is empty also parks state (CHERRY_PICK_HEAD over a
+ * clean tree); it reports its own code once the abort cleared it.
+ */
+function sequenceAbortPlan(
+  action: GitAction,
+  failure: GitErrorCode,
+): { readonly argv: readonly string[]; readonly probe: string; readonly code: GitErrorCode; readonly stuck: GitErrorCode } | null {
+  const plan = (argv: readonly string[], probe: string, code: GitErrorCode, stuck: GitErrorCode) => ({ argv, probe, code, stuck })
+  if (action.kind === 'revert' && failure === 'conflict') return plan(['git', 'revert', '--abort'], 'revert-abort', 'revert-conflict', 'revert-stuck')
+  if (action.kind === 'branch-merge' && failure === 'conflict') return plan(['git', 'merge', '--abort'], 'merge-abort', 'merge-conflict', 'merge-stuck')
+  if (action.kind === 'cherry-pick' && failure === 'conflict') return plan(['git', 'cherry-pick', '--abort'], 'pick-abort', 'pick-conflict', 'pick-stuck')
+  if (action.kind === 'cherry-pick' && failure === 'nothing-to-commit') return plan(['git', 'cherry-pick', '--abort'], 'pick-abort', 'pick-empty', 'pick-stuck')
+  return null
 }
 
 /** Execute a management action, returning the fresh snapshot on success. */
@@ -611,28 +663,32 @@ export async function runAction(
       if (stashChangedWorkTree) {
         return { ok: false, error: { code: 'stash-switch-failed', message: failure.message + where } }
       }
-      // A conflicting `git revert` leaves the repository in the "reverting"
-      // state (REVERT_HEAD + sequencer), which the panel offers no way to
-      // continue/skip and which also blocks the shared-worktree dsh AI's own
-      // commits. The user has made no resolution yet, so abort immediately to
-      // restore the pre-revert state (unrelated dirty changes are preserved by
-      // --abort). The abort can itself lose the index.lock race (the very
-      // contention this feature guards), so verify it (with the same one-shot
-      // retry) and, only if it cleared the state, report the cancelled
-      // conflict; otherwise tell the user the repo is still mid-revert rather
-      // than falsely claiming the work tree is untouched.
-      if (request.action.kind === 'revert' && failure.code === 'conflict') {
-        let abort = await runCommand(deps.run, ['git', 'revert', '--abort'], root, 'revert-abort', deps.signal)
+      // Cherry-picking a merge commit refuses exactly like reverting one (a
+      // mainline parent is required); remap so the copy names the operation
+      // the user actually ran. That refusal parks no state of its own.
+      const code = request.action.kind === 'cherry-pick' && failure.code === 'revert-merge' ? 'pick-merge' : failure.code
+      // A conflict (or an empty cherry-pick) parks merge/sequencer state the
+      // panel has no way to finish — and which would also block the
+      // shared-worktree dsh AI's own commits. Abort immediately to restore the
+      // pre-op state (unrelated dirty changes are preserved by --abort). The
+      // abort can itself lose the index.lock race (the very contention this
+      // feature guards), so verify it (with the same one-shot retry) and, only
+      // if it cleared the state, report the cancelled operation; otherwise tell
+      // the user the repo is still mid-operation rather than falsely claiming
+      // the work tree is untouched.
+      const seq = sequenceAbortPlan(request.action, code)
+      if (seq !== null) {
+        let abort = await runCommand(deps.run, seq.argv, root, seq.probe, deps.signal)
         if (isIndexBusy(abort)) {
           await new Promise((resolve) => setTimeout(resolve, 150))
-          abort = await runCommand(deps.run, ['git', 'revert', '--abort'], root, 'revert-abort-retry', deps.signal)
+          abort = await runCommand(deps.run, seq.argv, root, `${seq.probe}-retry`, deps.signal)
         }
         const aborted = 'run' in abort && abort.run.exitCode === 0
         return aborted
-          ? { ok: false, error: { code: 'revert-conflict', message: failure.message + where } }
-          : { ok: false, error: { code: 'revert-stuck', message: failure.message + where } }
+          ? { ok: false, error: { code: seq.code, message: failure.message + where } }
+          : { ok: false, error: { code: seq.stuck, message: failure.message + where } }
       }
-      return { ok: false, error: { code: failure.code, message: failure.message + where } }
+      return { ok: false, error: { code, message: failure.message + where } }
     }
     // `git stash push` with nothing to stash (e.g. only untracked files, or only
     // ignored ones) prints "No local changes to save" and exits 0 — a silent

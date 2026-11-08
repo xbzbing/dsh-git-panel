@@ -23,6 +23,9 @@ function commands(log) {
     openTagCreate: (value) => log.push(['tag', value.hash]),
     openBranchDelete: (value) => log.push(['delete', value.name]),
     openRemoteBranchDelete: (value) => log.push(['deleteRemote', value.ref]),
+    openBranchCreate: (target) => log.push(['create', target.start, target.label]),
+    openBranchMerge: (target) => log.push(['merge', target.start, target.label]),
+    openCherryPick: (value) => log.push(['pick', value.hash]),
     openRevert: (value) => log.push(['revert', value.hash]),
     openReset: (value) => log.push(['reset', value.hash]),
     openCheckout: (value) => log.push(['checkout', value.hash]),
@@ -171,4 +174,114 @@ test('without a composer the commit row offers no quote entry', () => {
 
 test('the commit menu names the kind it belongs to', () => {
   assert.equal(MENU_KIND.commit, 'gitPanel.commit')
+})
+
+// ── create branch / merge / cherry-pick (issue #118) ────────────────────────
+
+test('a host with the create/merge capabilities offers both entries for a local row (#118)', () => {
+  const log = []
+  const facts = { busy: false, branchCreate: true, branchMerge: true, currentBranch: 'main' }
+  const actions = branchMenuActions({ ...branch, name: 'feature/x', ref: 'refs/heads/feature/x' }, env(), commands(log), facts)
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['switch-branch', 'create-branch', 'merge-branch', 'show-history', 'copy-branch'],
+    'the two writes sit with the switch, above the history and copy entries',
+  )
+  // Both entries only open their dialogs — and both carry the full ref.
+  void actions[1].run()
+  void actions[2].run()
+  assert.deepEqual(log, [
+    ['create', 'refs/heads/feature/x', 'feature/x'],
+    ['merge', 'refs/heads/feature/x', 'feature/x'],
+  ])
+})
+
+test('the current branch keeps create but gets no merge entry (#118)', () => {
+  const facts = { busy: false, branchCreate: true, branchMerge: true, currentBranch: 'main' }
+  const actions = branchMenuActions({ ...branch, name: 'main', isCurrent: true, ref: 'refs/heads/main' }, env(), commands([]), facts)
+  assert.ok(actions.some((a) => a.id === 'create-branch'), 'creating from the branch you are on is the common case')
+  assert.ok(!actions.some((a) => a.id === 'merge-branch'), 'merging a branch into itself is a no-op')
+})
+
+test('a detached HEAD offers no merge entry (#118)', () => {
+  const facts = { busy: false, branchCreate: true, branchMerge: true, currentBranch: null }
+  const actions = branchMenuActions({ ...branch, name: 'feature/x', ref: 'refs/heads/feature/x' }, env(), commands([]), facts)
+  assert.ok(actions.some((a) => a.id === 'create-branch'), 'a ref write needs no branch to land on')
+  assert.ok(!actions.some((a) => a.id === 'merge-branch'), 'a merge needs somewhere to land')
+})
+
+test('create and merge are gated on the host capabilities (#118)', () => {
+  for (const facts of [{ busy: false }, { busy: false, currentBranch: 'main' }, { busy: false, branchCreate: true }, { busy: false, branchMerge: true, currentBranch: 'main' }]) {
+    const actions = branchMenuActions({ ...branch, name: 'feature/x', ref: 'refs/heads/feature/x' }, env(), commands([]), facts)
+    assert.equal(actions.some((a) => a.id === 'create-branch'), facts.branchCreate === true, `create gating: ${JSON.stringify(facts)}`)
+    assert.equal(actions.some((a) => a.id === 'merge-branch'), facts.branchMerge === true && facts.currentBranch != null, `merge gating: ${JSON.stringify(facts)}`)
+  }
+})
+
+test('a remote row needs its full tracking ref for create and merge (#118)', () => {
+  const facts = { busy: false, branchCreate: true, branchMerge: true, currentBranch: 'main' }
+  const log = []
+  const actions = branchMenuActions({ ...branch, name: 'origin/feature/x', isRemote: true, ref: 'refs/remotes/origin/feature/x' }, env(), commands(log), facts)
+  const create = actions.find((a) => a.id === 'create-branch')
+  const merge = actions.find((a) => a.id === 'merge-branch')
+  assert.ok(create !== undefined && merge !== undefined)
+  void create.run()
+  void merge.run()
+  assert.deepEqual(log, [
+    ['create', 'refs/remotes/origin/feature/x', 'origin/feature/x'],
+    ['merge', 'refs/remotes/origin/feature/x', 'origin/feature/x'],
+  ], 'the remote row acts on the full tracking ref, not the short display name')
+  const noRef = branchMenuActions({ ...branch, name: 'origin/feature/x', isRemote: true }, env(), commands([]), facts)
+  assert.ok(!noRef.some((a) => a.id === 'create-branch'), 'a short origin/x is display text, not an address')
+  assert.ok(!noRef.some((a) => a.id === 'merge-branch'), 'and merging it would guess at the ref')
+})
+
+test('a tag row gets no create or merge entry (#118)', () => {
+  const facts = { busy: false, branchCreate: true, branchMerge: true, currentBranch: 'main' }
+  const actions = branchMenuActions({ ...branch, isTag: true }, env(), commands([]), facts)
+  assert.ok(!actions.some((a) => a.id === 'create-branch'))
+  assert.ok(!actions.some((a) => a.id === 'merge-branch'))
+})
+
+test('a busy overview disables create and merge too (#118)', () => {
+  const actions = branchMenuActions(branch, env(), commands([]), { busy: true, branchCreate: true, branchMerge: true, currentBranch: 'main' })
+  assert.equal(actions.find((a) => a.id === 'create-branch').disabled, true)
+  assert.equal(actions.find((a) => a.id === 'merge-branch').disabled, true)
+})
+
+test('a commit row offers create-branch and cherry-pick with the capabilities (#118)', () => {
+  const log = []
+  const facts = { busy: false, branchCreate: true, cherryPick: true, currentBranch: 'main' }
+  const actions = commitMenuActions(commit, env(), commands(log), facts)
+  assert.deepEqual(actions.map((a) => a.id), [
+    'copy-hash', 'copy-short-hash', 'copy-subject', 'create-tag', 'create-branch', 'cherry-pick', 'revert', 'reset',
+  ])
+  void actions[4].run()
+  void actions[5].run()
+  assert.deepEqual(log, [
+    ['create', 'a1b2c3d4e5', 'a1b2c3d'],
+    ['pick', 'a1b2c3d4e5'],
+  ], 'the create starts at the full hash; the pick only opens its dialog')
+  assert.equal(actions[4].danger, undefined, 'a branch create rewrites nothing')
+  assert.equal(actions[5].danger, undefined, 'a cherry-pick adds a commit; it rewrites nothing')
+})
+
+test('create-branch and cherry-pick are gated on capabilities and a current branch (#118)', () => {
+  for (const facts of [
+    { busy: false },
+    { busy: false, currentBranch: 'main' },
+    { busy: false, branchCreate: true, cherryPick: true },
+  ]) {
+    const actions = commitMenuActions(commit, env(), commands([]), facts)
+    assert.equal(actions.some((a) => a.id === 'create-branch'), facts.branchCreate === true, `create gating: ${JSON.stringify(facts)}`)
+    assert.equal(
+      actions.some((a) => a.id === 'cherry-pick'),
+      facts.cherryPick === true && facts.currentBranch != null,
+      `pick gating: ${JSON.stringify(facts)}`,
+    )
+  }
+  // Detached HEAD: the pick would land nowhere the user can follow.
+  const detached = commitMenuActions(commit, env(), commands([]), { busy: false, branchCreate: true, cherryPick: true, currentBranch: null })
+  assert.ok(detached.some((a) => a.id === 'create-branch'))
+  assert.ok(!detached.some((a) => a.id === 'cherry-pick'))
 })

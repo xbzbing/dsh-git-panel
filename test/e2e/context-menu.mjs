@@ -26,7 +26,7 @@ const SNAP = {
   remote: null, lastCommit: null, changes: [],
   stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true,
-  defaultDiffView: 'unified', capabilities: { branchDelete: true, remoteBranchDelete: true }, checkedAt: Date.now(),
+  defaultDiffView: 'unified', capabilities: { branchDelete: true, remoteBranchDelete: true, branchCreate: true, branchMerge: true, cherryPick: true }, checkedAt: Date.now(),
 }
 
 const TREE = { '': [['docs', true], ['README.md', false], ['logo.png', false]], docs: [['notes.md', false]] }
@@ -305,8 +305,8 @@ assert.equal(branchTarget.value.sessionId, 'sess-menu')
 assert.ok(typeof branchTarget.value.owner === 'string' && branchTarget.value.owner.length > 0, 'the branch row names its panel instance')
 assert.deepEqual(
   await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
-  ['switch-branch', 'show-history', 'copy-branch', 'delete-branch'],
-  'switching away from the current branch, then its history, its name, then the delete (issue #112)',
+  ['switch-branch', 'create-branch', 'merge-branch', 'show-history', 'copy-branch', 'delete-branch'],
+  'the switch and the two writes (issue #118) lead, then history, copy, and the fenced delete (issue #112)',
 )
 const deleteEntry = await page.evaluate(() => window.__menuStub.state.actions.find((a) => a.id === 'delete-branch'))
 assert.equal(deleteEntry.danger, true, 'the delete is a destructive entry')
@@ -326,6 +326,42 @@ await page.waitForTimeout(200)
 const switched = await page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'branch-checkout'))
 assert.equal(switched.length, 1, 'the menu switch reaches the host')
 assert.equal(switched[0].action.name, 'feature/x')
+
+// Issue #118: create and merge open their dialogs and act only once answered —
+// the create is a ref write through `run`, the merge a work-tree write through
+// `onAction` (same path as the switch above).
+const creates = () => page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'branch-create').map((r) => r.action))
+const merges = () => page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'branch-merge').map((r) => r.action))
+await page.evaluate(() => { window.__menuStub.clear() })
+await featureRow.click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('create-branch')), 'ok')
+await page.waitForSelector('.gp-modal-backdrop', { timeout: 3000 })
+assert.deepEqual(await creates(), [], 'the create entry acts on nothing until the dialog is answered')
+const createConfirm = page.locator('.gp-modal__footer .gp-btn--primary')
+assert.equal(await createConfirm.isDisabled(), true, 'an empty branch name keeps the create locked')
+assert.ok((await page.locator('.gp-modal__confirmtext').textContent()).includes('feature/x'), 'the dialog names its start point')
+await page.locator('.gp-modal .gp-input').fill('feature/y')
+await page.waitForTimeout(80)
+assert.equal(await createConfirm.isDisabled(), false, 'a name unlocks it')
+await createConfirm.click()
+await page.waitForTimeout(300)
+assert.deepEqual(await creates(), [{ kind: 'branch-create', name: 'feature/y', start: 'feature/x' }], 'the typed name and the row reach the host')
+assert.equal(await page.locator('.gp-modal-backdrop').count(), 0, 'a successful create closes the dialog')
+
+await page.evaluate(() => { window.__menuStub.clear() })
+await featureRow.click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('merge-branch')), 'ok')
+await page.waitForSelector('.gp-modal-backdrop', { timeout: 3000 })
+assert.deepEqual(await merges(), [], 'the merge entry acts on nothing until the dialog is answered')
+assert.ok((await page.locator('.gp-modal__confirmtext').textContent()).includes('feature/x'), 'the merge dialog names the branch being merged')
+await page.locator('.gp-modal__footer .gp-btn--primary').click()
+await page.waitForTimeout(300)
+assert.deepEqual(await merges(), [{ kind: 'branch-merge', name: 'feature/x' }], 'the merge reaches the host once confirmed')
+assert.equal(await page.locator('.gp-modal-backdrop').count(), 0, 'a successful merge closes the dialog')
 
 // Issue #112: the delete entry only opens a confirmation. The first confirm
 // runs the safe `-d`; this fixture refuses it as "not fully merged", so the
@@ -364,10 +400,10 @@ await page.locator('.gp-branch-row[title="v1.0"]').click({ button: 'right' })
 await page.evaluate(() => window.__menuStub.resolvePending())
 await page.waitForTimeout(120)
 assert.equal(await page.evaluate(() => window.__menuStub.state.last.value.isTag), true, 'a tag row names its section')
-assert.ok(
-  !(await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id))).includes('delete-branch'),
-  'the branch delete is not offered for a tag',
-)
+const tagIds = await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id))
+assert.ok(!tagIds.includes('delete-branch'), 'the branch delete is not offered for a tag')
+assert.ok(!tagIds.includes('create-branch'), 'nor the branch create (issue #118): a tag is not a refs/heads row')
+assert.ok(!tagIds.includes('merge-branch'), 'nor the merge')
 await page.evaluate(() => { window.__menuStub.clear() })
 
 // A remote row deletes on the server: one stage, and the acknowledgement is
@@ -383,8 +419,8 @@ assert.equal(remoteTarget.value.isRemote, true)
 assert.equal(remoteTarget.value.ref, 'refs/remotes/origin/feature/x', 'the row carries the full tracking ref')
 assert.deepEqual(
   await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
-  ['switch-branch', 'show-history', 'copy-branch', 'delete-remote-branch'],
-  'the remote delete sits below the copy with its own separator',
+  ['switch-branch', 'create-branch', 'merge-branch', 'show-history', 'copy-branch', 'delete-remote-branch'],
+  'create and merge act on the full tracking ref (issue #118); the remote delete sits below the copy with its own separator',
 )
 const remoteDeletes = () => page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'branch-delete-remote').map((r) => r.action.ref))
 assert.equal(await page.evaluate(() => window.__menuStub.invoke('delete-remote-branch')), 'ok')
@@ -414,9 +450,42 @@ assert.equal(commitTarget.value.shortHash, 'aaaaaaa')
 assert.equal(commitTarget.value.subject, 'first commit')
 assert.deepEqual(
   await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id)),
-  ['copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'revert', 'reset'],
-  'copies and the composer first, then the write dialogs (this fixture declares only the branch-delete capabilities, so the checkout entry is gated out)',
+  ['copy-hash', 'copy-short-hash', 'copy-subject', 'quote-commit', 'create-tag', 'create-branch', 'cherry-pick', 'revert', 'reset'],
+  'copies and the composer first, then the write dialogs (no commitCheckout capability is declared here, so the checkout entry is gated out; create-branch and cherry-pick are issue #118)',
 )
+
+// Issue #118 on a commit row: the pick and the create both open dialogs and
+// reach the host only once the dialog is answered.
+const picks = () => page.evaluate(() => window.__runs.filter((r) => r.action && r.action.kind === 'cherry-pick').map((r) => r.action))
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-commit-row').first().click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('cherry-pick')), 'ok')
+await page.waitForSelector('.gp-modal-backdrop', { timeout: 3000 })
+assert.deepEqual(await picks(), [], 'the pick entry acts on nothing until the dialog is answered')
+const pickText = await page.locator('.gp-modal__confirmtext').textContent()
+assert.ok(pickText.includes('first commit'), 'the pick dialog names the commit it would apply')
+await page.locator('.gp-modal__footer .gp-btn--primary').click()
+await page.waitForTimeout(300)
+assert.deepEqual(await picks(), [{ kind: 'cherry-pick', commit: 'a'.repeat(40) }], 'the full hash reaches the host')
+assert.equal(await page.locator('.gp-modal-backdrop').count(), 0, 'a successful pick closes the dialog')
+
+await page.evaluate(() => { window.__menuStub.clear() })
+await page.locator('.gp-commit-row').first().click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(120)
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('create-branch')), 'ok')
+await page.waitForSelector('.gp-modal-backdrop', { timeout: 3000 })
+const runsBeforeCreate = await page.evaluate(() => window.__runs.length)
+assert.equal(await page.evaluate(() => window.__runs.length), runsBeforeCreate, 'no run until the dialog is answered')
+await page.locator('.gp-modal .gp-input').fill('at-commit')
+await page.locator('.gp-modal__footer .gp-btn--primary').click()
+await page.waitForTimeout(300)
+const created = await creates()
+assert.deepEqual(created[created.length - 1], { kind: 'branch-create', name: 'at-commit', start: 'a'.repeat(40) }, 'the commit row creates at the full hash')
+assert.equal(await page.locator('.gp-modal-backdrop').count(), 0, 'a successful create closes the dialog')
+// The commit menu stays resolved — the dialog exercise below invokes it next.
 
 // A destructive entry opens the existing confirmation instead of acting: no
 // run reaches the host until the dialog is answered.

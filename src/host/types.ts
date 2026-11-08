@@ -205,6 +205,12 @@ export interface GitSnapshot {
     /** `branch-delete-remote` runs here. Kept separate from `branchDelete`:
      * deleting on a server is a network write and the client gates it alone. */
     readonly remoteBranchDelete?: true
+    /** `branch-create` runs here (same reasoning as `commitCheckout`). */
+    readonly branchCreate?: true
+    /** `branch-merge` runs here. */
+    readonly branchMerge?: true
+    /** `cherry-pick` runs here. */
+    readonly cherryPick?: true
   }
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
@@ -339,6 +345,21 @@ export type GitAction =
   // splitting at a slash, because a remote name may itself contain one. Nothing
   // local is deleted: the local branch (if any) and its commits stay.
   | { readonly kind: 'branch-delete-remote'; readonly ref: string }
+  // Create one local branch at `start` **without switching to it** (issue #118):
+  // a pure ref write like `tag-create`, so it goes through the ref-op path.
+  // `start` is the full ref when the row carries one (`refs/heads/x`,
+  // `refs/remotes/o/x`), a full commit hash from a commit row — never a bare
+  // short name, which git could resolve to a same-named tag.
+  | { readonly kind: 'branch-create'; readonly name: string; readonly start: string }
+  // Merge `name` into the current branch (`git merge <name>`; fast-forward when
+  // possible, a merge commit otherwise — never --no-ff/--rebase/--force). The
+  // wire carries the full ref when the row has one, keeping a same-named tag or
+  // branch out of the ambiguity. On conflict the host aborts the merge (the
+  // panel has no conflict UI) and reports `merge-conflict` / `merge-stuck`.
+  | { readonly kind: 'branch-merge'; readonly name: string }
+  // Apply one commit's change onto the current branch as a new commit
+  // (`git cherry-pick <commit>`). Same conflict contract as `branch-merge`.
+  | { readonly kind: 'cherry-pick'; readonly commit: string }
   // Stash operations (issue #12). `index` is the stash stack position (0 = top);
   // `sha` is the stash commit the client saw, so the host can reject a stale
   // index (the stack may have shifted under a shared worktree) before acting.
@@ -412,6 +433,24 @@ export type GitErrorCode =
   // into its upstream (or HEAD when it has none). Nothing was deleted; the
   // client offers a forced `-D` only after an explicit acknowledgement.
   | 'branch-unmerged'
+  // `git branch` refused because the name is taken. Nothing was created.
+  | 'branch-exists'
+  // A merge conflicted and was auto-aborted: the work tree is back to the
+  // pre-merge state (the panel offers no conflict resolution).
+  | 'merge-conflict'
+  // A merge conflicted AND the auto-abort failed: the repo is still mid-merge.
+  | 'merge-stuck'
+  // A cherry-pick conflicted and was auto-aborted (work tree restored).
+  | 'pick-conflict'
+  // A cherry-pick conflicted AND the auto-abort failed: the repo is still
+  // mid-cherry-pick.
+  | 'pick-stuck'
+  // A cherry-pick would produce an empty commit (its change is already in the
+  // current branch) and was auto-cancelled; the sequencer state is cleared.
+  | 'pick-empty'
+  // Cherry-picking a merge commit: a mainline parent is required, which the
+  // panel cannot choose (the same refusal as reverting one).
+  | 'pick-merge'
   // A stash-then-switch checkout stashed the local changes but the switch still
   // failed: the work tree changed, and the stash is kept (recoverable).
   | 'stash-switch-failed'

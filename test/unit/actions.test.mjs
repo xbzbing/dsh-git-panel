@@ -279,3 +279,53 @@ test('classifyActionFailure orders conflict before nothing-to-commit, and maps c
   assert.equal(classifyActionFailure('', 'error: The following untracked working tree files would be overwritten by checkout:\n\tdev.txt', 1).code, 'local-changes-block')
   assert.equal(classifyActionFailure('', 'something else entirely', 1).code, 'git-error')
 })
+
+test('branch-create plans a plain branch write at the validated start point (#118)', () => {
+  assert.deepEqual(
+    planAction({ kind: 'branch-create', name: 'feature/x', start: 'refs/heads/main' }, false).argv,
+    [['git', 'branch', '--end-of-options', 'feature/x', 'refs/heads/main']],
+  )
+  // The start point may be a full hash (commit row) or a remote-tracking ref —
+  // an address no bare short name could shadow reaches argv only after the guard.
+  assert.deepEqual(
+    planAction({ kind: 'branch-create', name: 'x', start: 'a'.repeat(40) }, false).argv,
+    [['git', 'branch', '--end-of-options', 'x', 'a'.repeat(40)]],
+  )
+  assert.equal(planAction({ kind: 'branch-create', name: '-f', start: 'refs/heads/main' }, false).error, 'invalid-name')
+  assert.equal(planAction({ kind: 'branch-create', name: 'x', start: '--force' }, false).error, 'invalid-name')
+  assert.equal(planAction({ kind: 'branch-create', name: 'x', start: 'a b' }, false).error, 'invalid-name')
+})
+
+test('branch-merge and cherry-pick pass a validated ref after --end-of-options (#118)', () => {
+  assert.deepEqual(
+    planAction({ kind: 'branch-merge', name: 'refs/heads/feature/x' }, false).argv,
+    [['git', 'merge', '--end-of-options', 'refs/heads/feature/x']],
+  )
+  assert.equal(planAction({ kind: 'branch-merge', name: '-X ours' }, false).error, 'invalid-name')
+  assert.equal(planAction({ kind: 'branch-merge', name: 'a b' }, false).error, 'invalid-name')
+  assert.deepEqual(
+    planAction({ kind: 'cherry-pick', commit: 'abc123' }, false).argv,
+    [['git', 'cherry-pick', '--end-of-options', 'abc123']],
+  )
+  assert.equal(planAction({ kind: 'cherry-pick', commit: '--output=x' }, false).error, 'invalid-name')
+})
+
+test('classifyActionFailure maps the branch-create and pick outcomes (#118)', () => {
+  // A taken name: nothing was created, and the dialog asks for another one.
+  assert.equal(classifyActionFailure('', "fatal: a branch named 'main' already exists", 128).code, 'branch-exists')
+  // An unknown start point for `git branch`.
+  assert.equal(classifyActionFailure('', "fatal: not a valid object name: 'nosuchref'", 128).code, 'not-found')
+  // An empty cherry-pick prints git's "nothing to commit" over a clean tree;
+  // the sequencer state it leaves behind is cleaned up by runAction, not here.
+  assert.equal(
+    classifyActionFailure('The previous cherry-pick is now empty, possibly due to conflict resolution.\nnothing to commit, working tree clean', '', 1).code,
+    'nothing-to-commit',
+  )
+  // A merge/cherry-pick conflict classifies as the conflict the abort path keys on.
+  assert.equal(classifyActionFailure('Auto-merging f\nCONFLICT (content): Merge conflict in f', '', 1).code, 'conflict')
+})
+
+test('a merge target that resolves nowhere is a not-found, not a raw git error (#118)', () => {
+  // `git merge` prints this one to stdout (exit 1), unlike most ref misses.
+  assert.equal(classifyActionFailure('merge: refs/heads/nope - not something we can merge', '', 1).code, 'not-found')
+})

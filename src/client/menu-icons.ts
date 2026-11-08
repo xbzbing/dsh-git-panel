@@ -13,7 +13,7 @@
  * rule, and they take the popped menu's sizing like any platform glyph.
  */
 import type { JSX } from 'react'
-import { BranchIcon, CommitIcon, CopyIcon, DiffIcon, FilesIcon, HistoryIcon, ListIcon, QuoteIcon, RevertIcon, ResetIcon, StashIcon, StagePickedIcon, SyncIcon, TagIcon, TrashIcon } from './icons.js'
+import { BranchIcon, CherryPickIcon, CommitIcon, CopyIcon, DiffIcon, FilesIcon, HistoryIcon, ListIcon, MergeIcon, QuoteIcon, RevertIcon, ResetIcon, StashIcon, StagePickedIcon, SyncIcon, TagIcon, TrashIcon } from './icons.js'
 import type { ClientCtx } from './rpc.js'
 /** What a platform glyph takes: the popup passes its own size and class. */
 interface IconProps {
@@ -30,6 +30,8 @@ const MENU_ICON_TABLE = {
   copy: { key: 'git-panel.copy', Icon: CopyIcon },
   quote: { key: 'git-panel.quote', Icon: QuoteIcon },
   branch: { key: 'git-panel.branch', Icon: BranchIcon },
+  merge: { key: 'git-panel.merge', Icon: MergeIcon },
+  pick: { key: 'git-panel.pick', Icon: CherryPickIcon },
   tag: { key: 'git-panel.tag', Icon: TagIcon },
   revert: { key: 'git-panel.revert', Icon: RevertIcon },
   reset: { key: 'git-panel.reset', Icon: ResetIcon },
