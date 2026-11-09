@@ -471,7 +471,7 @@ export const zh = {
   'status.publishing': '发布中…',
   'status.setUpstream': '设置上游',
   'status.setUpstreamTitle': '选择要作为当前分支上游的远端分支（不推送，仅修改本地跟踪配置）',
-  'status.setUpstreamBody': '选择要作为当前分支 {branch} 上游的远端分支。以下远端都有与 HEAD 相同的同名分支；只写本地跟踪配置，不推送、不联网。',
+  'status.setUpstreamBody': '选择要作为当前分支 {branch} 上游的远端分支。以下远端都有指向 HEAD 的同名分支；只写本地跟踪配置，不推送、不联网。',
   'status.settingUpstream': '设置上游中…',
   // plugin detail config form
   'cfg.placementTitle': 'Git 面板入口位置',

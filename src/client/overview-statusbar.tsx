@@ -85,9 +85,9 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
   // Push is offered only when strictly ahead (ahead>0, behind=0): the push can
   // only fast-forward the remote. A diverged branch (both ahead and behind) is
   // deliberately not offered — the user must reconcile first.
-  // A branch with no upstream yet is published instead (push -u): creating a
-  // same-named remote branch cannot overwrite anything, so it needs no
-  // ahead/behind reconciliation. One control, one intent, never both.
+  // A branch with no upstream yet either attaches the same-named remote branch
+  // already at HEAD (set-upstream, config only) or is published (push -u). The
+  // states are mutually exclusive: one control, one intent, never two.
   const intent = pushIntentOf(snapshot)
   const stateNode = ((): JSX.Element => {
     let text: string
@@ -161,8 +161,8 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
   ]
 
   // The publish modal and the set-upstream chooser own their own in-flight
-  // locks, so they do not spin the status-bar check icon behind the overlay;
-  // their busy callbacks still drive the bar's busy state while they run.
+  // locks; their busy callbacks still drive the bar's busy state and label
+  // while the write runs behind the overlay.
   const barBusy = cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy || cb.switchBusy
   return h('div', { key: 'statusbar', className: `gp-statusbar${barBusy ? ' gp-statusbar--busy' : ''}`, 'aria-busy': barBusy }, [
     repoNode,
