@@ -22,7 +22,7 @@
 | [ADR-0004](0004-build-shape.md) | 构建形态：host 逐模块不压缩 + client 单 bundle + 懒加载 chunk | 构建 |
 | [ADR-0005](0005-git-execution-contract.md) | git 执行契约：argv、无 shell、锁仓库根、有界输出 | 安全 |
 | [ADR-0006](0006-trust-boundary-validation.md) | 信任边界单点校验与 `--end-of-options` | 安全 |
-| [ADR-0007](0007-write-operations-stay-in-bounds.md) | 写操作不越权：push / pull / publish / 检出 | 安全 |
+| [ADR-0007](0007-write-operations-stay-in-bounds.md) | 写操作不越权：push / pull / publish / set-upstream / 检出 | 安全 |
 | [ADR-0008](0008-untracked-discard-boundary.md) | 未跟踪条目删除的边界 | 安全 |
 | [ADR-0009](0009-snapshot-single-source.md) | 快照单一来源与业务/刷新分离 | 数据流 |
 | [ADR-0010](0010-visibility-gating-and-on-demand-queries.md) | 可见性门控与按需查询 | 数据流 |

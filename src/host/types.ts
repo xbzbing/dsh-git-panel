@@ -146,6 +146,13 @@ export interface GitSnapshot {
   readonly behind: number
   /** True when the current branch tracks an upstream (@{upstream} resolves). */
   readonly hasUpstream: boolean
+  /** Every remote whose same-named branch points at HEAD, in `git remote -v`
+   * order; empty otherwise. Local refs only (no network). Absent on hosts that
+   * predate the `set-upstream` action → read as empty, so the client keeps
+   * offering `publish`. The client opens one chooser for this list (origin
+   * preselected) and sends the chosen name as the `set-upstream` action's
+   * `remote`. */
+  readonly remoteCandidates?: readonly GitRemote[]
   /** The repository's primary remote; null when none is configured. */
   readonly remote: GitRemote | null
   readonly lastCommit: GitCommit | null
@@ -331,6 +338,14 @@ export type GitAction =
   // remote name comes from the primary-remote the client already holds; the host
   // revalidates it. Offered only when the branch has no upstream yet.
   | { readonly kind: 'publish'; readonly remote: string }
+  // Attach the current branch to the same-named branch that already exists on
+  // one of the candidate remotes: `git branch --set-upstream-to
+  // refs/remotes/<remote>/<name>`. No push and no network — offered when at
+  // least one remote's same-named branch points at HEAD and only the local
+  // tracking config is missing. The client chooses among the candidates (origin
+  // preselected); the branch is resolved from HEAD on the host and only the
+  // chosen remote name crosses the wire.
+  | { readonly kind: 'set-upstream'; readonly remote: string }
   // Tag write operations (issue #12). `message` non-empty → annotated tag (-a).
   | { readonly kind: 'tag-create'; readonly name: string; readonly commit: string; readonly message?: string }
   | { readonly kind: 'tag-delete'; readonly name: string }
@@ -468,9 +483,17 @@ export type GitErrorCode =
   // clipped) means "every change" cannot be proven, so the action is refused
   // instead of silently discarding a prefix.
   | 'status-lossy'
-  // A publish was requested but HEAD names no branch to create on the remote:
-  // a detached HEAD, or a repository with no commits yet (unborn).
+  // A publish / set-upstream was requested but HEAD names no branch to create
+  // on the remote or attach to: a detached HEAD, or a repository with no commits
+  // yet (unborn).
   | 'no-branch'
+  // set-upstream found a tracking configuration that appeared after the client's
+  // snapshot (another terminal, another panel). The button was rendered for a
+  // branch without one; replacing a deliberate upstream silently would lose it.
+  | 'has-upstream'
+  // set-upstream re-checked the same-named remote-tracking branch and it is
+  // gone: the snapshot that offered the action is stale. Nothing was changed.
+  | 'upstream-missing'
   // AI commit-message suggestion endpoint.
   | 'empty-diff'
   | 'llm-unavailable'

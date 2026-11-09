@@ -318,6 +318,15 @@ export function UploadIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M8 10.5v-7' }), h('path', { key: 'b', d: 'M4.5 6L8 2.5 11.5 6' }), h('path', { key: 'c', d: 'M3 13h10' })], size)
 }
 
+/** Chain link — attach the branch to an existing remote branch (set upstream). */
+export function LinkIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'a', d: 'M6.2 9.8l3.6-3.6' }),
+    h('path', { key: 'b', d: 'M5.4 8.2L4 9.6a2.3 2.3 0 0 0 3.3 3.3l1.4-1.4' }),
+    h('path', { key: 'c', d: 'M10.6 7.8L12 6.4a2.3 2.3 0 0 0-3.3-3.3L7.3 4.5' }),
+  ], size)
+}
+
 /** Two-arrow sync glyph for the status-check action. */
 export function SyncIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M12.5 7a4.5 4.5 0 0 0-8-2.3' }), h('path', { key: 'b', d: 'M3.5 9a4.5 4.5 0 0 0 8 2.3' }), h('path', { key: 'c', d: 'M4.3 2.2v2.5h2.5' }), h('path', { key: 'd', d: 'M11.7 13.8v-2.5H9.2' })], size)

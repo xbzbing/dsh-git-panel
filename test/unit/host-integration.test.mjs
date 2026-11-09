@@ -2891,6 +2891,165 @@ test('publish refuses a repository with no commits to send', async () => {
   }
 })
 
+test('snapshot flags a same-named remote branch at HEAD when the branch has no upstream', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const base = mkdtempSync(join(tmpdir(), 'gp-su-snapshot-'))
+  const origin = join(base, 'origin.git')
+  const a = join(base, 'a')
+  try {
+    execFileSync('git', ['init', '-q', '--bare', origin])
+    execFileSync('git', ['clone', '-q', origin, a])
+    await runGit(a, ['config', 'user.email', 't@t.co'])
+    await runGit(a, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(a, 'f1.txt'), 'x\n')
+    await runGit(a, ['add', 'f1.txt'])
+    await runGit(a, ['commit', '-qm', 'c1'])
+    await runGit(a, ['branch', '-M', 'feature/x'])
+    await runGit(a, ['push', '-q', '-u', 'origin', 'feature/x'])
+    await runGit(a, ['branch', '--unset-upstream'])
+    await runGit(a, ['fetch', '-q', 'origin'])
+    const snap = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
+    assert.equal(snap.ok, true)
+    assert.equal(snap.value.hasUpstream, false)
+    assert.deepEqual(snap.value.remoteCandidates.map((r) => r.name), ['origin'], 'the candidate list names the remote at HEAD')
+    // A local commit moves HEAD away: publishing is the right action again.
+    writeFileSync(join(a, 'f2.txt'), 'y\n')
+    await runGit(a, ['add', 'f2.txt'])
+    await runGit(a, ['commit', '-qm', 'c2'])
+    const moved = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
+    assert.equal(moved.ok, true)
+    assert.equal(moved.value.hasUpstream, false)
+    assert.deepEqual(moved.value.remoteCandidates, [], 'a moved HEAD leaves no candidate')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('snapshot lists every remote with the same-named branch at HEAD, not just origin', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const base = mkdtempSync(join(tmpdir(), 'gp-su-multi-'))
+  const origin = join(base, 'origin.git')
+  const icode = join(base, 'icode.git')
+  const a = join(base, 'a')
+  try {
+    execFileSync('git', ['init', '-q', '--bare', origin])
+    execFileSync('git', ['init', '-q', '--bare', icode])
+    execFileSync('git', ['clone', '-q', origin, a])
+    await runGit(a, ['config', 'user.email', 't@t.co'])
+    await runGit(a, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(a, 'f.txt'), 'x\n')
+    await runGit(a, ['add', 'f.txt'])
+    await runGit(a, ['commit', '-qm', 'c1'])
+    await runGit(a, ['branch', '-M', 'feature/x'])
+    await runGit(a, ['remote', 'add', 'icode', icode])
+    await runGit(a, ['push', '-q', 'icode', 'feature/x'])
+    await runGit(a, ['fetch', '-q', 'icode'])
+
+    // Only icode has the branch; origin is configured but has no same-named
+    // ref. The candidate list still offers icode even though it is not primary.
+    const onlyIcode = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
+    assert.equal(onlyIcode.ok, true)
+    assert.equal(onlyIcode.value.remote.name, 'origin', 'origin stays the primary remote')
+    assert.deepEqual(onlyIcode.value.remoteCandidates.map((r) => r.name), ['icode'], 'the candidate list still offers icode')
+
+    // Push to origin as well: both remotes are candidates now.
+    await runGit(a, ['push', '-q', 'origin', 'feature/x'])
+    await runGit(a, ['fetch', '-q', 'origin'])
+    const both = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
+    assert.equal(both.ok, true)
+    assert.deepEqual(both.value.remoteCandidates.map((r) => r.name).sort(), ['icode', 'origin'])
+
+    // The action accepts the non-primary candidate and writes its tracking ref.
+    const res = await runAction(depsAt(a), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'icode' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.snapshot.hasUpstream, true)
+    assert.equal(execFileSync('git', ['-C', a, 'config', '--get', 'branch.feature/x.remote']).toString().trim(), 'icode')
+    assert.equal(execFileSync('git', ['-C', a, 'config', '--get', 'branch.feature/x.merge']).toString().trim(), 'refs/heads/feature/x')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('set-upstream attaches an existing remote-tracking branch without touching the remote', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'gp-su-action-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(dir, 'a.txt'), 'one\n')
+    await runGit(dir, ['add', 'a.txt'])
+    await runGit(dir, ['commit', '-qm', 'init'])
+    await runGit(dir, ['branch', '-M', 'feature/x'])
+    // A URL that cannot be reached: the action must be a local config write. If
+    // it tried to push or fetch, this test would fail instead of passing.
+    await runGit(dir, ['remote', 'add', 'origin', join(dir, 'missing.git')])
+    await runGit(dir, ['update-ref', 'refs/remotes/origin/feature/x', 'HEAD'])
+    const before = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(before.ok, true)
+    assert.deepEqual(before.value.remoteCandidates.map((r) => r.name), ['origin'])
+
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'origin' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.snapshot.hasUpstream, true)
+    assert.deepEqual(res.snapshot.remoteCandidates, [], 'tracked branches stop offering the action')
+    assert.equal(res.snapshot.ahead, 0)
+    assert.equal(res.snapshot.behind, 0)
+    const remoteName = execFileSync('git', ['-C', dir, 'config', '--get', 'branch.feature/x.remote']).toString().trim()
+    const mergeRef = execFileSync('git', ['-C', dir, 'config', '--get', 'branch.feature/x.merge']).toString().trim()
+    assert.equal(remoteName, 'origin')
+    assert.equal(mergeRef, 'refs/heads/feature/x')
+
+    // A second press in another window is stale: the host refuses to replace a
+    // tracking config that appeared after the snapshot.
+    const again = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'origin' } })
+    assert.equal(again.ok, false)
+    assert.equal(again.error.code, 'has-upstream')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('set-upstream refuses a remote branch that no longer exists', async () => {
+  const dir = await freshRepo('gp-su-missing-')
+  try {
+    await runGit(dir, ['remote', 'add', 'origin', join(dir, 'missing.git')])
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'origin' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'upstream-missing')
+    // A tracking ref under an unconfigured remote must not become an upstream.
+    const branch = execFileSync('git', ['-C', dir, 'symbolic-ref', '--short', 'HEAD']).toString().trim()
+    await runGit(dir, ['update-ref', `refs/remotes/fake/${branch}`, 'HEAD'])
+    const fake = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'fake' } })
+    assert.equal(fake.ok, false)
+    assert.equal(fake.error.code, 'upstream-missing')
+    let remoteConfig = ''
+    try {
+      remoteConfig = execFileSync('git', ['-C', dir, 'config', '--get', `branch.${branch}.remote`]).toString().trim()
+    } catch {
+      // exit 1 means the key is absent — exactly what this asserts.
+    }
+    assert.equal(remoteConfig, '', 'no config was written')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('set-upstream rejects a hostile remote name and a detached HEAD', async () => {
+  const dir = await freshRepo('gp-su-bad-')
+  try {
+    const hostile = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: '--upload-pack=touch /tmp/pwn' } })
+    assert.equal(hostile.ok, false)
+    assert.equal(hostile.error.code, 'invalid-name')
+    await runGit(dir, ['checkout', '-q', '--detach'])
+    const detached = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'origin' } })
+    assert.equal(detached.ok, false)
+    assert.equal(detached.error.code, 'no-branch')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 // ── literals, ceilings and partial reads (review 2026-10-31) ───────────────
 
 /** A fresh repo with the given files committed; returns its path. */

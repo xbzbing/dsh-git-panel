@@ -33,7 +33,7 @@ export type {
   GitWriteFileRequest, GitWriteFileResult, FileEditInfo, FileEditBlock,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from './types.js'
-export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, listSessionRepos, parsePrimaryRemote, readSuggestLanguage, readPlacement } from './core.js'
+export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, listSessionRepos, parseFetchRemotes, parsePrimaryRemote, readSuggestLanguage, readPlacement } from './core.js'
 export { createGitRunner } from './git.js'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 export { parseRemote, classifyHost } from './remote.js'

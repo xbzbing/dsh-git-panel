@@ -3,7 +3,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitKey } from './locales.js'
 import type { ChangesViewMode, GitSnapshot } from './types.js'
-import { ListIcon, RefreshIcon, StageAllIcon, StagePickedIcon, StashIcon, TrashAllIcon, TrashIcon, TreeIcon, UnstageAllIcon, UploadIcon } from './icons.js'
+import { LinkIcon, ListIcon, RefreshIcon, StageAllIcon, StagePickedIcon, StashIcon, TrashAllIcon, TrashIcon, TreeIcon, UnstageAllIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { pushIntent } from './push-policy.js'
 
@@ -24,6 +24,8 @@ interface ChangesToolbarProps {
   readonly onStash: () => void
   /** Ordinary push (`git push`) to the upstream. */
   readonly onPush: () => void
+  /** Attach the branch to a same-named remote branch already at HEAD. */
+  readonly onSetUpstream: () => void
   /** Publish a branch that only exists locally (`git push -u`). */
   readonly onPublish: () => void
   readonly onRefresh: () => Promise<void>
@@ -45,20 +47,31 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
   }
   const disabled = busy || refreshing
   // The upload control carries whichever remote write this branch can take: a
-  // push when strictly ahead, a publish when the branch has no upstream yet.
-  // Both intents are unavailable otherwise, so the button never reads as a dead
+  // push when strictly ahead, a set-upstream when a remote already has the
+  // same-named branch at HEAD, a publish when the branch has no upstream yet.
+  // All intents are unavailable otherwise, so the button never reads as a dead
   // control on a freshly committed local-only branch (issue #63).
   const intent = pushIntent(snapshot)
-  const remoteLabel: GitKey = intent === 'publish' ? 'status.publishTitle' : 'status.pushTitle'
+  const remoteLabel: GitKey = intent === 'set-upstream'
+    ? 'status.setUpstream'
+    : intent === 'publish' ? 'status.publishTitle' : 'status.pushTitle'
   // An unavailable control keeps its action name (aria-label) and explains
   // itself on hover instead — the accessible name states what the control is,
   // the tip states why it is off (issue #61).
-  const remoteTip: GitKey = intent === null ? 'changes.noRemoteTarget' : remoteLabel
-  const remoteAction = (): void => { if (intent === 'publish') props.onPublish(); else if (intent === 'push') props.onPush() }
+  const remoteTip = intent === null
+    ? t('changes.noRemoteTarget')
+    : intent === 'set-upstream'
+      ? t('status.setUpstreamTitle')
+      : t(remoteLabel)
+  const remoteAction = (): void => {
+    if (intent === 'set-upstream') props.onSetUpstream()
+    else if (intent === 'publish') props.onPublish()
+    else if (intent === 'push') props.onPush()
+  }
   // Tip handlers live on a non-disabled wrapper: a `disabled` button swallows
   // mouse events, so hover would never reach the button itself (issue #61).
-  const button = (key: string, label: GitKey, icon: JSX.Element, unavailable: boolean, onClick: () => void, extraClass = '', tipLabel?: GitKey): JSX.Element => h(TipWrapper, {
-    key, tipProps: tipProps(t(tipLabel ?? label)),
+  const button = (key: string, label: GitKey, icon: JSX.Element, unavailable: boolean, onClick: () => void, extraClass = '', tipText?: string): JSX.Element => h(TipWrapper, {
+    key, tipProps: tipProps(tipText ?? t(label)),
   }, h('button', {
     type: 'button', className: `gp-icon-btn gp-changes__${key}${extraClass}`,
     'aria-label': t(label), disabled: disabled || unavailable,
@@ -86,7 +99,7 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     // Stages only the checked working-tree rows — the batch form of each row's
     // own "+" (issue #82). Unavailable until a stageable row is picked, and
     // scoped to the picked paths so it never stages the rest of the work tree.
-    button('stage-picked', 'changes.stagePicked', h(StagePickedIcon, { size: 16 }), props.stageTargets.length === 0, () => props.onStagePicked(props.stageTargets), '', 'changes.stagePickedTip'),
+    button('stage-picked', 'changes.stagePicked', h(StagePickedIcon, { size: 16 }), props.stageTargets.length === 0, () => props.onStagePicked(props.stageTargets), '', t('changes.stagePickedTip')),
     button('stage-all', 'changes.stageAll', h(StageAllIcon, { size: 16 }), snapshot.changes.length === 0, props.onStageAll),
     button('unstage-all', 'changes.unstageAll', h(UnstageAllIcon, { size: 16 }), snapshot.staged === 0, props.onUnstageAll),
     button('discard-picked', 'changes.discardPicked', h(TrashIcon, { size: 16 }), !props.hasDiscardTargets, props.onDiscard),
@@ -94,7 +107,7 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     // list is truncated (the host re-resolves the full change set itself).
     button('discard-all', 'changes.discardAll', h(TrashAllIcon, { size: 16 }), snapshot.modified === 0 && snapshot.untracked === 0, props.onDiscardAll),
     button('stash', 'changes.stash', h(StashIcon, { size: 16 }), snapshot.staged === 0 && snapshot.modified === 0, props.onStash),
-    button('push', remoteLabel, h(UploadIcon, { size: 16 }), intent === null, remoteAction, '', remoteTip),
+    button('push', remoteLabel, h(intent === 'set-upstream' ? LinkIcon : UploadIcon, { size: 16 }), intent === null, remoteAction, '', remoteTip),
     button('refresh', 'changes.refresh', h(RefreshIcon, { size: 16 }), false, () => void refresh(), refreshing ? ' gp-changes__refresh--busy' : ''),
     viewToggle,
     tipNode,

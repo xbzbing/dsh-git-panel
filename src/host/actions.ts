@@ -143,6 +143,12 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       // current branch as the destination (no refspec to validate).
       if (!isSafeRemoteName(action.remote)) return { error: 'invalid-name', message: `unsafe remote name: ${action.remote}` }
       return { argv: [['git', 'push', '-u', action.remote, 'HEAD']] }
+    case 'set-upstream':
+      // Resolved in runAction: the branch must come from HEAD (never the wire),
+      // and the probes need the repository. The remote name is still validated
+      // here, so a hostile value cannot reach that later argv.
+      if (!isSafeRemoteName(action.remote)) return { error: 'invalid-name', message: `unsafe remote name: ${action.remote}` }
+      return { error: 'invalid-name', message: 'set-upstream must be resolved before planning' }
     case 'tag-create': {
       if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe tag name: ${action.name}` }
       if (!isSafeRev(action.commit)) return { error: 'invalid-name', message: `unsafe commit: ${action.commit}` }
@@ -488,6 +494,87 @@ function sequenceAbortPlan(
   return null
 }
 
+/**
+ * Attach the current branch to its same-named remote-tracking branch without
+ * touching the remote. Offered when that branch already exists at HEAD on at
+ * least one candidate remote, so `publish` would push nothing and only the
+ * local tracking config is missing.
+ *
+ * The probes run here rather than in `planAction` because the branch must be
+ * resolved from HEAD, never taken from the request. A tracking config that
+ * appeared after the snapshot refuses the write: replacing a deliberate
+ * upstream with the chosen remote would silently lose that choice.
+ */
+async function runSetUpstream(
+  deps: SnapshotDeps,
+  config: GitPanelConfig,
+  request: GitActionRequest,
+  action: Extract<GitAction, { kind: 'set-upstream' }>,
+  root: string,
+  headProbe: Awaited<ReturnType<typeof runCommand>>,
+  unborn: boolean,
+): Promise<GitActionResult> {
+  if (!isSafeRemoteName(action.remote)) {
+    return { ok: false, error: { code: 'invalid-name', message: `unsafe remote name: ${action.remote}` } }
+  }
+  const headBroke = probeFailure(headProbe)
+  if (headBroke !== null) return headBroke
+  if (unborn) return { ok: false, error: { code: 'no-branch', message: 'no commits to set an upstream on' } }
+
+  const branchProbe = await runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'set-upstream-branch', deps.signal)
+  const branchBroke = probeFailure(branchProbe)
+  if (branchBroke !== null) return branchBroke
+  const branch = 'run' in branchProbe && branchProbe.run.exitCode === 0 ? branchProbe.run.stdout.trim() : ''
+  if (branch === '') return { ok: false, error: { code: 'no-branch', message: 'detached HEAD: no branch to attach' } }
+  if (!isSafeBranchName(branch)) return { ok: false, error: { code: 'invalid-name', message: 'HEAD names an unsafe branch' } }
+
+  // Non-zero means `@{upstream}` does not resolve (the expected "no upstream");
+  // exit 0 means another actor configured one after the snapshot.
+  const upstreamProbe = await runCommand(deps.run, ['git', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], root, 'set-upstream-existing', deps.signal)
+  const upstreamBroke = probeFailure(upstreamProbe)
+  if (upstreamBroke !== null) return upstreamBroke
+  if ('run' in upstreamProbe && upstreamProbe.run.exitCode === 0) {
+    return { ok: false, error: { code: 'has-upstream', message: 'branch already has an upstream' } }
+  }
+
+  // The wire carries a remote *name*; a stale or hostile request must not name
+  // an arbitrary tracking ref. `git branch --set-upstream-to` would refuse an
+  // unconfigured remote anyway, but checking here reports a localized condition
+  // and never reaches the config write.
+  const remotesProbe = await runCommand(deps.run, ['git', 'remote'], root, 'set-upstream-remotes', deps.signal)
+  const remotesBroke = probeFailure(remotesProbe)
+  if (remotesBroke !== null) return remotesBroke
+  if (!('run' in remotesProbe) || remotesProbe.run.exitCode !== 0) {
+    return { ok: false, error: { code: 'git-error', message: 'git remote failed' } }
+  }
+  const remotes = remotesProbe.run.stdout.split('\n').map((line) => line.trim()).filter((line) => line !== '')
+  if (!remotes.includes(action.remote)) {
+    return { ok: false, error: { code: 'upstream-missing', message: 'the remote is not configured' } }
+  }
+
+  const ref = `refs/remotes/${action.remote}/${branch}`
+  const existsProbe = await runCommand(deps.run, ['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', ref], root, 'set-upstream-ref', deps.signal)
+  const existsBroke = probeFailure(existsProbe)
+  if (existsBroke !== null) return existsBroke
+  if (!('run' in existsProbe) || existsProbe.run.exitCode !== 0) {
+    return { ok: false, error: { code: 'upstream-missing', message: 'the same-named remote branch no longer exists' } }
+  }
+
+  const res = await runCommand(deps.run, ['git', 'branch', `--set-upstream-to=${ref}`, '--end-of-options', branch], root, 'set-upstream', deps.signal)
+  if ('failure' in res) {
+    return { ok: false, error: { code: 'git-unavailable', message: res.failure instanceof Error ? res.failure.message : String(res.failure) } }
+  }
+  if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+  if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  if (res.run.exitCode !== 0) {
+    return { ok: false, error: classifyActionFailure(res.run.stdout, res.run.stderr, res.run.exitCode ?? -1) }
+  }
+
+  const snapshot = await snapshotForSession(deps, config, request.sessionId, { repo: request.repo })
+  if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
+  return { ok: true, snapshot: snapshot.value, output: res.run.stdout.trim() }
+}
+
 /** Execute a management action, returning the fresh snapshot on success. */
 export async function runAction(
   deps: SnapshotDeps,
@@ -519,6 +606,10 @@ export async function runAction(
     if (branchBroke !== null) return branchBroke
     const branch = 'run' in branchProbe && branchProbe.run.exitCode === 0 ? branchProbe.run.stdout.trim() : ''
     if (branch === '') return { ok: false, error: { code: 'no-branch', message: 'detached HEAD: no branch to publish' } }
+  }
+
+  if (request.action.kind === 'set-upstream') {
+    return runSetUpstream(deps, config, request, request.action, root, headProbe, unborn)
   }
 
   // Stash is a stack addressed by position; under a shared worktree another

@@ -5,7 +5,7 @@
  */
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseTags, parseStashList, sumNumstat, parseRefs } from '../host/parser.js'
 export { parseRemote, classifyHost } from '../host/remote.js'
-export { parsePrimaryRemote } from '../host/core.js'
+export { parsePrimaryRemote, parseFetchRemotes } from '../host/core.js'
 export { isSafePath, isSafeRev, isSafeBranchName, isSafeRemoteName } from '../host/validate.js'
 export { openerArgv, canOpenWithSystem } from '../host/open-file.js'
 export { planAction, classifyActionFailure, splitRemoteTrackingRef, planRemoteBranchDelete } from '../host/actions.js'
@@ -27,7 +27,7 @@ export { changeKey, sideOf, pathOfKey, pickDiscardTargets, pickStageTargets, pic
 export { formatBytes } from './bytes.js'
 export { langLabel } from './lang-label.js'
 export { isUntrackedPath } from './status.js'
-export { canPush, canPublish, pushIntent } from './push-policy.js'
+export { canPush, canSetUpstream, canPublish, pushIntent, upstreamCandidates } from './push-policy.js'
 export { COMPACT_BP, PHONE_SCREEN_BP, SHORT_BP, SIDEBAR_WIDE_BP, STACKED_TIGHT_BP, isCramped, panelMode, isPhoneScreen } from './panel-fit.js'
 export { CSS_PARTS, STYLESHEET } from './styles.js'
 export { wrapCapOk, MAX_WRAP_LINES, MAX_WRAP_BYTES } from './wrap-cap.js'

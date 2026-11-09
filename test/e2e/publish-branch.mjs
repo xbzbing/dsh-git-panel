@@ -1,17 +1,20 @@
 /**
- * E2E: publishing a branch that only exists locally (issue #63).
+ * E2E: publishing a branch that only exists locally (issue #63), and attaching
+ * the upstream when the same-named remote branch already points at HEAD.
  *
  * A fresh local branch has no upstream, so the ordinary push is (correctly)
  * unavailable — but creating a same-named remote branch cannot overwrite
- * anything, and that is exactly the moment a user wants a "publish" entry. Both
- * surfaces must offer it:
- *   - the overview status bar button (publish replaces push),
+ * anything, and that is exactly the moment a user wants a "publish" entry. When
+ * that remote branch already exists at HEAD, pushing would send nothing: the
+ * same control attaches the tracking config instead (`set-upstream`). Both
+ * surfaces must offer either intent:
+ *   - the overview status bar button (publish / set-upstream replaces push),
  *   - the changes page toolbar upload icon, which switches intent instead of
  *     sitting there disabled.
  *
- * Also pins the states that must NOT publish: detached HEAD, an unborn repo
- * (no commits to send), no remote at all, and a branch that already has an
- * upstream.
+ * Also pins the states that must NOT offer a remote write: detached HEAD, an
+ * unborn repo (no commits to send), no remote at all, and a branch that already
+ * has an upstream.
  *
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
@@ -24,6 +27,7 @@ const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
 
 const REMOTE = { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' }
+const ICODE = { name: 'icode', url: 'ssh://xubingzhen@icode.baidu.com:8235/baidu/personal-code/repo', webUrl: null, host: 'icode.baidu.com', hostKind: 'other' }
 
 /** A local-only branch: one commit, no upstream, a remote to publish to. */
 const LOCAL_ONLY = {
@@ -60,21 +64,40 @@ async function openPanel(snapshot, { tab = 1 } = {}) {
     fixture.holdPublish = false
     fixture.releasePublish = null
     fixture.publishFailure = null
+    fixture.setUpstreamCalls = 0
+    fixture.holdSetUpstream = false
+    fixture.releaseSetUpstream = null
+    fixture.setUpstreamFailure = null
     window.__gpFixture = fixture
     const call = connection.rpc.call
     connection.rpc.call = async (channel, endpoint, payload) => {
       const request = payload?.args?.request
-      if (endpoint === 'dbGitPanel/run' && request?.action?.kind === 'publish') {
+      const kind = request?.action?.kind
+      if (endpoint === 'dbGitPanel/run' && (kind === 'publish' || kind === 'set-upstream')) {
         fixture.actions.push(request.action)
-        fixture.publishCalls++
-        if (fixture.holdPublish) await new Promise((done) => { fixture.releasePublish = done })
-        fixture.releasePublish = null
-        if (fixture.publishFailure !== null) {
-          const failure = fixture.publishFailure
-          fixture.publishFailure = null
-          return { ok: true, value: { ok: false, error: failure } }
+        if (kind === 'publish') {
+          fixture.publishCalls++
+          if (fixture.holdPublish) await new Promise((done) => { fixture.releasePublish = done })
+          fixture.releasePublish = null
+          if (fixture.publishFailure !== null) {
+            const failure = fixture.publishFailure
+            fixture.publishFailure = null
+            return { ok: true, value: { ok: false, error: failure } }
+          }
+        } else {
+          fixture.setUpstreamCalls++
+          if (fixture.holdSetUpstream) await new Promise((done) => { fixture.releaseSetUpstream = done })
+          fixture.releaseSetUpstream = null
+          if (fixture.setUpstreamFailure !== null) {
+            const failure = fixture.setUpstreamFailure
+            fixture.setUpstreamFailure = null
+            // The real host refuses a stale ref and the client resyncs; clear
+            // the candidates so the refreshed snapshot loses the precondition.
+            fixture.snapshot = { ...fixture.snapshot, hasUpstream: true, remoteCandidates: [] }
+            return { ok: true, value: { ok: false, error: failure } }
+          }
         }
-        fixture.snapshot = { ...fixture.snapshot, hasUpstream: true }
+        fixture.snapshot = { ...fixture.snapshot, hasUpstream: true, remoteCandidates: [] }
         return { ok: true, value: { ok: true, snapshot: fixture.snapshot } }
       }
       return call(channel, endpoint, payload)
@@ -124,6 +147,7 @@ async function feed(page, patch, control = '.gp-statusbar__btn') {
 async function counts(page) {
   return page.evaluate(() => ({
     publishCalls: window.__gpFixture.publishCalls,
+    setUpstreamCalls: window.__gpFixture.setUpstreamCalls,
     actions: window.__gpFixture.actions.map((a) => a.kind),
   }))
 }
@@ -235,11 +259,182 @@ async function statusBarScenario() {
   await page.close()
 }
 
+/** A same-named remote branch at HEAD opens the chooser even with one
+ * candidate; confirming attaches tracking and the control falls back to push. */
+async function setUpstreamChangesScenario() {
+  const page = await openPanel({ ...LOCAL_ONLY, remoteCandidates: [REMOTE] })
+  const button = page.locator('.gp-changes__push')
+  assert.equal(await button.isEnabled(), true, 'the toolbar control is live')
+  assert.equal(await button.getAttribute('aria-label'), '设置上游', 'the control is named for attaching, not publishing')
+  await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  assert.equal(await page.locator('.gp-modal__path').textContent(), '设置上游', 'the dialog is the chooser')
+  const dialog = await page.locator('.gp-modal--sm').evaluate((modal) => ({
+    body: modal.querySelector('.gp-modal__confirmtext').textContent,
+    options: [...modal.querySelectorAll('.gp-upstream__option')].map((o) => o.textContent),
+    checked: [...modal.querySelectorAll('.gp-upstream__option input')].findIndex((i) => i.checked),
+  }))
+  assert.match(dialog.body, /feature\/new/, 'the body names the current branch')
+  assert.match(dialog.body, /不推送/, 'the body states the config-only contract')
+  assert.equal(dialog.options.length, 1, 'a single candidate still opens the chooser')
+  assert.equal(dialog.checked, 0, 'the only candidate is preselected')
+  await page.locator('.gp-modal__footer .gp-btn--primary').click()
+  await page.waitForFunction(() => window.__gpFixture.setUpstreamCalls === 1)
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  assert.deepEqual((await counts(page)).actions, ['set-upstream'], 'the changes page sends set-upstream')
+  assert.equal(await page.evaluate(() => window.__gpFixture.actions[0].remote), 'origin', 'the action carries the chosen remote')
+  // The mock reports a tracked snapshot: the control falls back to push and is
+  // unavailable because the branch is now synced.
+  await page.waitForFunction(() => document.querySelector('.gp-changes__push')?.getAttribute('aria-label') === '推送本地提交到远程')
+  assert.equal(await button.isDisabled(), true, 'a synced branch has no remote write to offer')
+  await page.close()
+}
+
+/** The status bar opens the same chooser and reports the in-flight write. */
+async function setUpstreamStatusBarScenario() {
+  const page = await openPanel({ ...LOCAL_ONLY, remoteCandidates: [REMOTE] }, { tab: 0 })
+  const button = page.locator('.gp-col--left .gp-statusbar__sync button[aria-label="设置上游"]')
+  assert.equal(await button.count(), 1, 'the status bar offers set-upstream')
+  assert.equal(await page.locator('.gp-statusbar button[aria-label="发布分支并设置上游"]').count(), 0, 'publish is not offered alongside it')
+  await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  await page.evaluate(() => { window.__gpFixture.holdSetUpstream = true })
+  await page.locator('.gp-modal__footer .gp-btn--primary').click()
+  await page.waitForFunction(() => window.__gpFixture.releaseSetUpstream !== null)
+  assert.equal(await page.locator('.gp-statusbar__state').textContent(), '设置上游中…', 'the status bar names the in-flight config write')
+  assert.equal(await page.locator('.gp-modal__overlay').count(), 1, 'the chooser stays up while the write runs')
+  assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isDisabled(), true, 'the confirm locks while the write is in flight')
+  assert.equal(await page.evaluate(() => window.__gpFixture.setUpstreamCalls), 1, 'one press sends one action')
+  // The disabled attribute can trail the click by a paint; the in-flight ref is
+  // the real lock. Re-enable it by hand and press again while the first write is
+  // still held: the second press must be dropped.
+  await page.locator('.gp-modal__footer .gp-btn--primary').evaluate((button) => { button.disabled = false })
+  // The busy overlay makes the button unclickable by pointer; dispatch the
+  // click directly so the handler still sees the second press.
+  await page.locator('.gp-modal__footer .gp-btn--primary').dispatchEvent('click')
+  assert.equal(await page.evaluate(() => window.__gpFixture.setUpstreamCalls), 1, 'a second press during the same write is dropped')
+  await page.keyboard.press('Escape')
+  assert.equal(await page.locator('.gp-modal--sm').count(), 1, 'Escape does not dismiss an in-flight write')
+  await page.evaluate(() => {
+    window.__gpFixture.holdSetUpstream = false
+    window.__gpFixture.releaseSetUpstream()
+  })
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  await page.waitForFunction(() => document.querySelector('.gp-statusbar button[aria-label="设置上游"]') === null)
+  assert.equal(await page.locator('.gp-statusbar__state').textContent(), '已与远程同步', 'the fresh snapshot reads as synced')
+  assert.deepEqual((await counts(page)).actions, ['set-upstream'], 'the status bar sends exactly one set-upstream')
+  await page.close()
+}
+
+/** A stale candidate is refused by the host; the refreshed snapshot loses the
+ * precondition, but the dialog must keep the error visible instead of closing
+ * and swallowing the reason. Covers both refusals a stale chooser can hit:
+ * the remote branch vanished, or another tab attached an upstream first. */
+async function setUpstreamFailureScenario(code, message, expected) {
+  const page = await openPanel({ ...LOCAL_ONLY, remoteCandidates: [REMOTE] })
+  const button = page.locator('.gp-changes__push')
+  await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  await page.evaluate(({ code, message }) => {
+    window.__gpFixture.setUpstreamFailure = { code, message }
+  }, { code, message })
+  const before = await page.evaluate(() => window.__gpFixture.snapshotReplies)
+  await page.locator('.gp-modal__footer .gp-btn--primary').click()
+  await page.waitForFunction(() => window.__gpFixture.setUpstreamCalls === 1)
+  // Wait for the resync that drops the stale candidate; the dialog used to
+  // close on that render and take the error with it.
+  await page.waitForFunction((n) => window.__gpFixture.snapshotReplies > n, before)
+  await flush(page)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 1, 'the failed dialog stays open')
+  assert.equal(
+    await page.locator('.gp-modal--sm .gp-feedback').first().textContent(),
+    expected,
+    'the failure reason stays visible',
+  )
+  assert.equal(
+    await page.locator('.gp-modal__footer .gp-btn--primary').isDisabled(),
+    true,
+    'the stale confirmation cannot be sent again',
+  )
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  await page.close()
+}
+
+/** Default selection is origin even when it is not listed first, and a single
+ * non-origin candidate is used as-is. Real `git remote -v` sorts names, so
+ * origin is normally after icode. */
+async function setUpstreamDefaultScenario() {
+  const ordered = await openPanel({ ...LOCAL_ONLY, remoteCandidates: [ICODE, REMOTE] })
+  await ordered.locator('.gp-changes__push').click()
+  await ordered.locator('.gp-modal--sm').waitFor()
+  const options = ordered.locator('.gp-upstream__option input')
+  assert.equal(await options.count(), 2, 'both candidates are listed')
+  assert.equal(await options.nth(1).isChecked(), true, 'origin is preselected even when listed second')
+  assert.equal(await options.nth(0).isChecked(), false, 'the first listed candidate is not preselected over origin')
+  assert.equal(
+    await ordered.locator('.gp-upstream__list').getAttribute('role'),
+    'radiogroup',
+    'the choices are one named radio group',
+  )
+  assert.equal(
+    await ordered.evaluate(() => document.activeElement === document.querySelector('.gp-upstream__option:nth-child(2) input')),
+    true,
+    'focus starts on the preselected remote, not the first row',
+  )
+  await ordered.keyboard.press('Escape')
+  await ordered.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  await ordered.close()
+
+  const single = await openPanel({ ...LOCAL_ONLY, remoteCandidates: [ICODE] })
+  await single.locator('.gp-changes__push').click()
+  await single.locator('.gp-modal--sm').waitFor()
+  assert.equal(await single.locator('.gp-upstream__option').count(), 1, 'a single non-origin candidate still opens the chooser')
+  assert.equal(await single.locator('.gp-upstream__option input').isChecked(), true, 'the only candidate is preselected')
+  await single.locator('.gp-modal__footer .gp-btn--primary').click()
+  await single.waitForFunction(() => window.__gpFixture.setUpstreamCalls === 1)
+  assert.equal(await single.evaluate(() => window.__gpFixture.actions[0].remote), 'icode', 'the single non-origin remote crosses the wire')
+  await single.close()
+}
+
+/** Two candidates: origin is preselected, cancel sends nothing, and choosing
+ * icode sends that name instead of the primary remote. */
+async function setUpstreamMultiRemoteScenario() {
+  const page = await openPanel({ ...LOCAL_ONLY, remoteCandidates: [REMOTE, ICODE] })
+  const button = page.locator('.gp-changes__push')
+  await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  const options = page.locator('.gp-upstream__option')
+  assert.equal(await options.count(), 2, 'both candidates are listed')
+  assert.equal(await page.locator('.gp-upstream__option input').nth(0).isChecked(), true, 'origin is preselected')
+  assert.match(await options.nth(0).textContent(), /origin\/feature\/new/, 'the option names the remote branch')
+  // Cancel first: the dialog closes and nothing is sent.
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  assert.equal((await counts(page)).setUpstreamCalls, 0, 'cancelling writes nothing')
+  // Reopen, choose the non-primary candidate, and confirm.
+  await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  await page.locator('.gp-upstream__option', { hasText: 'icode/feature/new' }).click()
+  assert.equal(await page.locator('.gp-upstream__option input').nth(1).isChecked(), true, 'the clicked candidate is selected')
+  await page.locator('.gp-modal__footer .gp-btn--primary').click()
+  await page.waitForFunction(() => window.__gpFixture.setUpstreamCalls === 1)
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  assert.equal(await page.evaluate(() => window.__gpFixture.actions[0].remote), 'icode', 'the chosen non-primary remote crosses the wire')
+  await page.close()
+}
+
 try {
   await changesPageScenario()
   await publishFailureScenario()
   await unavailableScenario()
   await statusBarScenario()
+  await setUpstreamChangesScenario()
+  await setUpstreamStatusBarScenario()
+  await setUpstreamMultiRemoteScenario()
+  await setUpstreamDefaultScenario()
+  await setUpstreamFailureScenario('upstream-missing', 'the same-named remote branch no longer exists', '远端同名分支已不存在，请刷新后再试')
+  await setUpstreamFailureScenario('has-upstream', 'branch already has an upstream', '当前分支已有上游分支，请刷新后再试')
   assert.deepEqual(consoleErrors, [], 'no frontend errors')
   console.log('e2e publish-branch.mjs: PASS')
 } catch (error) {
