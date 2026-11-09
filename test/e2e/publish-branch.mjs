@@ -1,17 +1,20 @@
 /**
- * E2E: publishing a branch that only exists locally (issue #63).
+ * E2E: publishing a branch that only exists locally (issue #63), and attaching
+ * the upstream when the same-named remote branch already points at HEAD.
  *
  * A fresh local branch has no upstream, so the ordinary push is (correctly)
  * unavailable — but creating a same-named remote branch cannot overwrite
- * anything, and that is exactly the moment a user wants a "publish" entry. Both
- * surfaces must offer it:
- *   - the overview status bar button (publish replaces push),
+ * anything, and that is exactly the moment a user wants a "publish" entry. When
+ * that remote branch already exists at HEAD, pushing would send nothing: the
+ * same control attaches the tracking config instead (`set-upstream`). Both
+ * surfaces must offer either intent:
+ *   - the overview status bar button (publish / set-upstream replaces push),
  *   - the changes page toolbar upload icon, which switches intent instead of
  *     sitting there disabled.
  *
- * Also pins the states that must NOT publish: detached HEAD, an unborn repo
- * (no commits to send), no remote at all, and a branch that already has an
- * upstream.
+ * Also pins the states that must NOT offer a remote write: detached HEAD, an
+ * unborn repo (no commits to send), no remote at all, and a branch that already
+ * has an upstream.
  *
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
@@ -60,21 +63,37 @@ async function openPanel(snapshot, { tab = 1 } = {}) {
     fixture.holdPublish = false
     fixture.releasePublish = null
     fixture.publishFailure = null
+    fixture.setUpstreamCalls = 0
+    fixture.holdSetUpstream = false
+    fixture.releaseSetUpstream = null
+    fixture.setUpstreamFailure = null
     window.__gpFixture = fixture
     const call = connection.rpc.call
     connection.rpc.call = async (channel, endpoint, payload) => {
       const request = payload?.args?.request
-      if (endpoint === 'dbGitPanel/run' && request?.action?.kind === 'publish') {
+      const kind = request?.action?.kind
+      if (endpoint === 'dbGitPanel/run' && (kind === 'publish' || kind === 'set-upstream')) {
         fixture.actions.push(request.action)
-        fixture.publishCalls++
-        if (fixture.holdPublish) await new Promise((done) => { fixture.releasePublish = done })
-        fixture.releasePublish = null
-        if (fixture.publishFailure !== null) {
-          const failure = fixture.publishFailure
-          fixture.publishFailure = null
-          return { ok: true, value: { ok: false, error: failure } }
+        if (kind === 'publish') {
+          fixture.publishCalls++
+          if (fixture.holdPublish) await new Promise((done) => { fixture.releasePublish = done })
+          fixture.releasePublish = null
+          if (fixture.publishFailure !== null) {
+            const failure = fixture.publishFailure
+            fixture.publishFailure = null
+            return { ok: true, value: { ok: false, error: failure } }
+          }
+        } else {
+          fixture.setUpstreamCalls++
+          if (fixture.holdSetUpstream) await new Promise((done) => { fixture.releaseSetUpstream = done })
+          fixture.releaseSetUpstream = null
+          if (fixture.setUpstreamFailure !== null) {
+            const failure = fixture.setUpstreamFailure
+            fixture.setUpstreamFailure = null
+            return { ok: true, value: { ok: false, error: failure } }
+          }
         }
-        fixture.snapshot = { ...fixture.snapshot, hasUpstream: true }
+        fixture.snapshot = { ...fixture.snapshot, hasUpstream: true, remoteBranchAtHead: false }
         return { ok: true, value: { ok: true, snapshot: fixture.snapshot } }
       }
       return call(channel, endpoint, payload)
@@ -124,6 +143,7 @@ async function feed(page, patch, control = '.gp-statusbar__btn') {
 async function counts(page) {
   return page.evaluate(() => ({
     publishCalls: window.__gpFixture.publishCalls,
+    setUpstreamCalls: window.__gpFixture.setUpstreamCalls,
     actions: window.__gpFixture.actions.map((a) => a.kind),
   }))
 }
@@ -235,11 +255,55 @@ async function statusBarScenario() {
   await page.close()
 }
 
+/** A same-named remote branch at HEAD attaches tracking from the changes page
+ * without a dialog, and falls back to push once the config lands. */
+async function setUpstreamChangesScenario() {
+  const page = await openPanel({ ...LOCAL_ONLY, remoteBranchAtHead: true })
+  const button = page.locator('.gp-changes__push')
+  assert.equal(await button.isEnabled(), true, 'the toolbar control is live')
+  assert.equal(await button.getAttribute('aria-label'), '设置上游', 'the control is named for attaching, not publishing')
+  // The direct write asks for no confirmation and sends exactly one action.
+  await button.click()
+  await page.waitForFunction(() => window.__gpFixture.setUpstreamCalls === 1)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 0, 'set-upstream needs no confirmation dialog')
+  assert.deepEqual((await counts(page)).actions, ['set-upstream'], 'the changes page sends set-upstream')
+  assert.equal(await page.evaluate(() => window.__gpFixture.actions[0].remote), 'origin', 'the action carries the primary remote')
+  // The mock reports a tracked snapshot: the control falls back to push and is
+  // unavailable because the branch is now synced.
+  await page.waitForFunction(() => document.querySelector('.gp-changes__push')?.getAttribute('aria-label') === '推送本地提交到远程')
+  assert.equal(await button.isDisabled(), true, 'a synced branch has no remote write to offer')
+  await page.close()
+}
+
+/** The status bar offers the same direct attach, with its own busy state. */
+async function setUpstreamStatusBarScenario() {
+  const page = await openPanel({ ...LOCAL_ONLY, remoteBranchAtHead: true }, { tab: 0 })
+  const button = page.locator('.gp-col--left .gp-statusbar__sync button[aria-label="设置上游"]')
+  assert.equal(await button.count(), 1, 'the status bar offers set-upstream')
+  assert.equal(await page.locator('.gp-statusbar button[aria-label="发布分支并设置上游"]').count(), 0, 'publish is not offered alongside it')
+  await page.evaluate(() => { window.__gpFixture.holdSetUpstream = true })
+  await button.click()
+  await page.waitForFunction(() => window.__gpFixture.releaseSetUpstream !== null)
+  assert.equal(await page.locator('.gp-statusbar__state').textContent(), '设置上游中…', 'the status bar names the in-flight config write')
+  assert.equal(await button.isDisabled(), true, 'the control locks while the write is in flight')
+  assert.equal(await page.evaluate(() => window.__gpFixture.setUpstreamCalls), 1, 'one press sends one action')
+  await page.evaluate(() => {
+    window.__gpFixture.holdSetUpstream = false
+    window.__gpFixture.releaseSetUpstream()
+  })
+  await page.waitForFunction(() => document.querySelector('.gp-statusbar button[aria-label="设置上游"]') === null)
+  assert.equal(await page.locator('.gp-statusbar__state').textContent(), '已与远程同步', 'the fresh snapshot reads as synced')
+  assert.deepEqual((await counts(page)).actions, ['set-upstream'], 'the status bar sends exactly one set-upstream')
+  await page.close()
+}
+
 try {
   await changesPageScenario()
   await publishFailureScenario()
   await unavailableScenario()
   await statusBarScenario()
+  await setUpstreamChangesScenario()
+  await setUpstreamStatusBarScenario()
   assert.deepEqual(consoleErrors, [], 'no frontend errors')
   console.log('e2e publish-branch.mjs: PASS')
 } catch (error) {

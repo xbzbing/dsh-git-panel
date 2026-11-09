@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isSafePath, isSafeRev, isSafeBranchName, planAction, planRemoteBranchDelete, splitRemoteTrackingRef, classifyActionFailure } from '../../lib/testkit.mjs'
+import { isSafePath, isSafeRev, isSafeBranchName, isSafeRemoteName, planAction, planRemoteBranchDelete, splitRemoteTrackingRef, classifyActionFailure } from '../../lib/testkit.mjs'
 
 test('isSafePath rejects absolute paths and .. traversal', () => {
   // POSIX assumptions: dsh runs on POSIX, so `C:\x` is a relative name here
@@ -179,6 +179,14 @@ test('branch-delete plans the safe -d first and the forced -D only when asked', 
   assert.equal(planAction({ kind: 'branch-delete', name: '-f' }, false).error, 'invalid-name')
   assert.equal(planAction({ kind: 'branch-delete', name: '--force' }, false).error, 'invalid-name')
   assert.equal(planAction({ kind: 'branch-delete', name: 'a b' }, false).error, 'invalid-name')
+})
+
+test('set-upstream validates the remote before runAction resolves the branch', () => {
+  // The branch never crosses the wire; the planner only screens the one field
+  // the request carries, so a hostile remote can never reach the later argv.
+  assert.equal(planAction({ kind: 'set-upstream', remote: '--upload-pack=/tmp/pwn' }, false).error, 'invalid-name')
+  assert.equal(isSafeRemoteName('origin'), true)
+  assert.equal(isSafeRemoteName('origin name'), false, 'whitespace cannot reach an argv element')
 })
 
 test('branch-delete-remote plans a server-side delete of the full heads ref', () => {
