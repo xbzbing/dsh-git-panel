@@ -6,7 +6,7 @@
 
 `dsh-git-panel` 是一个 DSH Web GUI 插件，在对话工作区里提供 IDE 风格的 Git 面板。它把分支列表、提交历史图、未提交变更的提交与 amend、语法高亮的差异对照集中到一个常驻标签页，并在输入框左侧放一个 zsh 风格的分支标记，让你在对话过程中随手查看仓库状态、提交改动，不必切到终端或另开 IDE。
 
-面板只读取当前会话工作目录所在的 Git 仓库，所有 git 命令都以 argv 数组经宿主的 subprocess 服务执行，不拼接 shell 字符串，工作目录锁定在仓库根，并带超时与输出上限。插件默认不改动 git 配置；写入 tracking 配置（`branch.<name>.remote` / `merge`）只有两处：你点击「设置上游」（不推送、不联网），以及从远端分支创建本地分支时 git 的 `--track` 行为。写操作（提交、amend、暂存、丢弃）都有明确入口。
+面板只读取当前会话工作目录所在的 Git 仓库，所有 git 命令都以 argv 数组经宿主的 subprocess 服务执行，不拼接 shell 字符串，工作目录锁定在仓库根，并带超时与输出上限。插件默认不改动 git 配置；写入 tracking 配置（`branch.<name>.remote` / `merge`）只有三处：你点击「设置上游」（不推送、不联网）、你点击「发布」（`git push -u`，会联网并在远端创建同名分支），以及从远端分支创建本地分支时 git 的 `--track` 行为。写操作（提交、amend、暂存、丢弃）都有明确入口。
 
 ## 安装
 
@@ -42,7 +42,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 面板以 DSH 进程的权限运行，安装前值得知道这些边界：
 
-- **Git 命令**：所有 git 命令都经宿主的 `subprocess` 服务执行——argv 数组、不拼接 shell 字符串、工作目录锁定在仓库根，每条命令带超时与输出上限；不使用 `--force` 推送或重置，删除本地分支默认走 git 的安全删除（`-d`），只在确认框中再次勾选强制后才会使用 `-D`；删除远端分支用 `git push --delete` 删除 `refs/heads/` 下的目标引用，必须勾选确认；合并与拣选只走 git 默认行为（能快进则快进、否则生成合并提交，不加 `--no-ff` / 变基 / 强制参数），冲突时自动 `git merge --abort` / `git cherry-pick --abort` 恢复操作前状态，中止失败会明确报错提示仓库仍在操作中；除「设置上游」和从远端分支创建本地分支（`--track`）写入 tracking 配置外，不改动 git 配置。
+- **Git 命令**：所有 git 命令都经宿主的 `subprocess` 服务执行——argv 数组、不拼接 shell 字符串、工作目录锁定在仓库根，每条命令带超时与输出上限；不使用 `--force` 推送或重置，删除本地分支默认走 git 的安全删除（`-d`），只在确认框中再次勾选强制后才会使用 `-D`；删除远端分支用 `git push --delete` 删除 `refs/heads/` 下的目标引用，必须勾选确认；合并与拣选只走 git 默认行为（能快进则快进、否则生成合并提交，不加 `--no-ff` / 变基 / 强制参数），冲突时自动 `git merge --abort` / `git cherry-pick --abort` 恢复操作前状态，中止失败会明确报错提示仓库仍在操作中；除「设置上游」、你确认的「发布」（`git push -u`）和从远端分支创建本地分支（`--track`）写入 tracking 配置外，不改动 git 配置。
 - **文件访问**：只读工作区内的文件（差异、文件浏览、AI 生成的输入），路径经校验并做 realpath 包含检查——软链指向仓库外一律拒绝，`.git` 不可浏览。插件只有两种写盘动作：
   - 「放弃未跟踪条目」：按你的确认直接删除工作区文件，条目本身是 Git 仓库时整批拒绝。
   - 在文件浏览中编辑已有文件：只限 `json` `yaml` `yml` `xml` `properties` `md` `markdown` `txt` `toml` `conf` `ini` `cfg` 与 `.gitignore` `.gitattributes` `.editorconfig` `.env`，单个文件不超过 2 MiB、UTF-8 编码，只读文件不可编辑。`.env` 与 `.env.local` 等 `.env.*` 变体可编辑（它们通常含密钥）。保存时先比对文件版本，编辑期间文件被 AI 或其他程序改过就不会直接覆盖；写入经临时文件原子替换，保留换行风格、BOM 与权限位。可在插件配置「基础配置」里关闭。
