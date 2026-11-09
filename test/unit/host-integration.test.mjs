@@ -2911,8 +2911,7 @@ test('snapshot flags a same-named remote branch at HEAD when the branch has no u
     const snap = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
     assert.equal(snap.ok, true)
     assert.equal(snap.value.hasUpstream, false)
-    assert.equal(snap.value.remoteBranchAtHead, true, 'the remote branch and HEAD are the same commit')
-    assert.deepEqual(snap.value.remoteCandidates.map((r) => r.name), ['origin'], 'the candidate list names the remote')
+    assert.deepEqual(snap.value.remoteCandidates.map((r) => r.name), ['origin'], 'the candidate list names the remote at HEAD')
     // A local commit moves HEAD away: publishing is the right action again.
     writeFileSync(join(a, 'f2.txt'), 'y\n')
     await runGit(a, ['add', 'f2.txt'])
@@ -2920,7 +2919,6 @@ test('snapshot flags a same-named remote branch at HEAD when the branch has no u
     const moved = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
     assert.equal(moved.ok, true)
     assert.equal(moved.value.hasUpstream, false)
-    assert.equal(moved.value.remoteBranchAtHead, false, 'a different commit is not "already on the remote"')
     assert.deepEqual(moved.value.remoteCandidates, [], 'a moved HEAD leaves no candidate')
   } finally {
     rmSync(base, { recursive: true, force: true })
@@ -2948,12 +2946,10 @@ test('snapshot lists every remote with the same-named branch at HEAD, not just o
     await runGit(a, ['fetch', '-q', 'icode'])
 
     // Only icode has the branch; origin is configured but has no same-named
-    // ref. The legacy flag keeps its primary-remote meaning, while the new list
-    // still offers icode.
+    // ref. The candidate list still offers icode even though it is not primary.
     const onlyIcode = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
     assert.equal(onlyIcode.ok, true)
     assert.equal(onlyIcode.value.remote.name, 'origin', 'origin stays the primary remote')
-    assert.equal(onlyIcode.value.remoteBranchAtHead, false, 'legacy flag only covers the primary remote')
     assert.deepEqual(onlyIcode.value.remoteCandidates.map((r) => r.name), ['icode'], 'the candidate list still offers icode')
 
     // Push to origin as well: both remotes are candidates now.
@@ -2962,7 +2958,6 @@ test('snapshot lists every remote with the same-named branch at HEAD, not just o
     const both = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
     assert.equal(both.ok, true)
     assert.deepEqual(both.value.remoteCandidates.map((r) => r.name).sort(), ['icode', 'origin'])
-    assert.equal(both.value.remoteBranchAtHead, true, 'the primary remote is at HEAD too')
 
     // The action accepts the non-primary candidate and writes its tracking ref.
     const res = await runAction(depsAt(a), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'icode' } })
@@ -2992,14 +2987,12 @@ test('set-upstream attaches an existing remote-tracking branch without touching 
     await runGit(dir, ['update-ref', 'refs/remotes/origin/feature/x', 'HEAD'])
     const before = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
     assert.equal(before.ok, true)
-    assert.equal(before.value.remoteBranchAtHead, true)
     assert.deepEqual(before.value.remoteCandidates.map((r) => r.name), ['origin'])
 
     const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'origin' } })
     assert.equal(res.ok, true)
     assert.equal(res.snapshot.hasUpstream, true)
-    assert.equal(res.snapshot.remoteBranchAtHead, false, 'tracked branches stop offering the action')
-    assert.deepEqual(res.snapshot.remoteCandidates, [], 'tracked branches have no candidates')
+    assert.deepEqual(res.snapshot.remoteCandidates, [], 'tracked branches stop offering the action')
     assert.equal(res.snapshot.ahead, 0)
     assert.equal(res.snapshot.behind, 0)
     const remoteName = execFileSync('git', ['-C', dir, 'config', '--get', 'branch.feature/x.remote']).toString().trim()

@@ -7,12 +7,11 @@ export function canPush(snapshot: GitSnapshot): boolean {
 
 /**
  * The remotes that can be attached as upstream: every remote whose same-named
- * branch points at HEAD. New hosts send the full list; older hosts only send
- * the boolean for the primary remote, so they degrade to that one candidate.
+ * branch points at HEAD. A host that predates the list sends nothing, which
+ * reads as "no candidate" — the panel then keeps offering `publish`.
  */
 export function upstreamCandidates(snapshot: GitSnapshot): readonly GitRemote[] {
-  if (snapshot.remoteCandidates !== undefined) return snapshot.remoteCandidates
-  return snapshot.remoteBranchAtHead === true && snapshot.remote !== null ? [snapshot.remote] : []
+  return snapshot.remoteCandidates ?? []
 }
 
 /**
@@ -41,7 +40,6 @@ export function canSetUpstream(snapshot: GitSnapshot): boolean {
  */
 export function canPublish(snapshot: GitSnapshot): boolean {
   return snapshot.hasUpstream !== true
-    && snapshot.remoteBranchAtHead !== true
     && upstreamCandidates(snapshot).length === 0
     && snapshot.branch !== null
     && snapshot.unborn !== true

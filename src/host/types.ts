@@ -146,16 +146,12 @@ export interface GitSnapshot {
   readonly behind: number
   /** True when the current branch tracks an upstream (@{upstream} resolves). */
   readonly hasUpstream: boolean
-  /** True when the primary remote already has a same-named branch pointing at
-   * HEAD, so the only missing piece is the local tracking configuration. Local
-   * refs only (no network). Absent on older hosts → read as false. Kept for
-   * clients that predate `remoteCandidates`; the new list is authoritative. */
-  readonly remoteBranchAtHead?: boolean
   /** Every remote whose same-named branch points at HEAD, in `git remote -v`
-   * order. Absent on older hosts → the client falls back to the primary remote
-   * named by `remote` when `remoteBranchAtHead` is true. The client opens one
-   * chooser for this list (origin preselected) and sends the chosen name as the
-   * `set-upstream` action's `remote`. */
+   * order; empty otherwise. Local refs only (no network). Absent on hosts that
+   * predate the `set-upstream` action → read as empty, so the client keeps
+   * offering `publish`. The client opens one chooser for this list (origin
+   * preselected) and sends the chosen name as the `set-upstream` action's
+   * `remote`. */
   readonly remoteCandidates?: readonly GitRemote[]
   /** The repository's primary remote; null when none is configured. */
   readonly remote: GitRemote | null

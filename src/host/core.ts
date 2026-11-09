@@ -674,6 +674,10 @@ export function mapWorkspaceFailure(
  * True when `refs/remotes/<remote>/<branch>` resolves and points at the same
  * commit as HEAD. Local refs only: no fetch, no network. A missing ref or a
  * failed probe is simply "not a candidate".
+ *
+ * `--max-count=1` caps the symmetric-difference walk at one commit: the two
+ * sides are equal only when both sets are empty, so `0 0` still means "same
+ * tip", while a large diverged history no longer has to be walked to count it.
  */
 async function probeRemoteBranchAtHead(
   deps: SnapshotDeps,
@@ -683,7 +687,7 @@ async function probeRemoteBranchAtHead(
 ): Promise<boolean> {
   const probe = await runCommand(
     deps.run,
-    ['git', 'rev-list', '--count', '--left-right', '--end-of-options', `refs/remotes/${remote}/${branch}...HEAD`],
+    ['git', 'rev-list', '--count', '--left-right', '--max-count=1', '--end-of-options', `refs/remotes/${remote}/${branch}...HEAD`],
     root,
     'remote-branch-at-head',
     deps.signal,
@@ -819,11 +823,6 @@ export async function snapshotForSession(
     )
     remoteCandidates = probes.filter((p) => p.atHead).map((p) => p.remote)
   }
-  // Legacy flag for clients that predate `remoteCandidates`: it keeps its old
-  // meaning (the primary remote is at HEAD), so an old client only sends a
-  // remote it can actually name. The new client reads the full list instead.
-  const remoteBranchAtHead = remote !== null && remoteCandidates.some((r) => r.name === remote.name)
-
   let lastCommit: GitCommit | null = null
   if ('run' in lastCommitRes && lastCommitRes.run.exitCode === 0) {
     lastCommit = commitFromFields(lastCommitRes.run.stdout.trim().split('\x1f'))
@@ -879,7 +878,6 @@ export async function snapshotForSession(
     ahead,
     behind,
     hasUpstream,
-    remoteBranchAtHead,
     remoteCandidates,
     remote,
     lastCommit,

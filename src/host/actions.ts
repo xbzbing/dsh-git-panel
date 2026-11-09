@@ -496,14 +496,14 @@ function sequenceAbortPlan(
 
 /**
  * Attach the current branch to its same-named remote-tracking branch without
- * touching the remote. Offered when that branch already exists at HEAD on the
- * primary remote, so `publish` would push nothing and only the local tracking
- * config is missing.
+ * touching the remote. Offered when that branch already exists at HEAD on at
+ * least one candidate remote, so `publish` would push nothing and only the
+ * local tracking config is missing.
  *
  * The probes run here rather than in `planAction` because the branch must be
  * resolved from HEAD, never taken from the request. A tracking config that
  * appeared after the snapshot refuses the write: replacing a deliberate
- * upstream with the primary remote would silently lose that choice.
+ * upstream with the chosen remote would silently lose that choice.
  */
 async function runSetUpstream(
   deps: SnapshotDeps,
