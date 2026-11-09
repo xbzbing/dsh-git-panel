@@ -43,7 +43,7 @@ import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 import { useRowSlider } from './row-slider.js'
 import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
-import { canPush } from './push-policy.js'
+import { canPush, canSetUpstream } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
 import { BranchScroll, renderBranchSheet, type BranchTrees } from './overview-branches.js'
@@ -286,6 +286,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Double-click window guard for the direct status-bar push (see runPushDirect).
   const pushInFlight = useRef(false)
   const [pushBusy, setPushBusy] = useState(false)
+  // The set-upstream control writes a local config and returns at once; its own
+  // guard keeps two synchronous presses from issuing two writes. `publishBusy`
+  // belongs to the modal, which owns its own confirm lock.
+  const setUpstreamInFlight = useRef(false)
+  const [setUpstreamBusy, setSetUpstreamBusy] = useState(false)
   const [publishBusy, setPublishBusy] = useState(false)
   const [publishConfirm, setPublishConfirm] = useState(false)
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
@@ -830,12 +835,27 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       t('error.generic'),
     )
   }
+  // Set-upstream is config-only: the host refuses a branch without a
+  // same-named remote-tracking ref, but the click path still re-checks the
+  // snapshot it was rendered from so a moved branch sends nothing.
+  const runSetUpstream = (): Promise<void> => {
+    const remote = snapshot.remote
+    if (remote === null || !canSetUpstream(snapshot)) return Promise.resolve()
+    return runSnapshotAction(
+      { busy: setUpstreamBusy, setBusy: setSetUpstreamBusy, inFlight: setUpstreamInFlight, setError: statusReporter() },
+      onAction,
+      { kind: 'set-upstream', remote: remote.name },
+      () => {},
+      t('error.generic'),
+    )
+  }
   // One status-bar callback set, shared by the wide and compact placements.
   const statusCbs = {
-    syncBusy, syncError, pullBusy, pushBusy, publishBusy, switchBusy,
+    syncBusy, syncError, pullBusy, pushBusy, publishBusy, setUpstreamBusy, switchBusy,
     onCheck: () => void runCheckSync(),
     onPull: () => void runPullFf(),
     onPush: () => void runPushDirect(),
+    onSetUpstream: () => void runSetUpstream(),
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
     t,
     // Narrow panels drop the repo link: the compact footer and the tight

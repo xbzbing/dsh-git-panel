@@ -32,7 +32,7 @@ import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
 import { PublishModal } from './PublishModal.js'
-import { canPush } from './push-policy.js'
+import { canPush, canSetUpstream } from './push-policy.js'
 import { ChangesDiffPane } from './ChangesDiffPane.js'
 import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
@@ -419,9 +419,11 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     void onSetChangesView(next).then((ok) => { if (!ok) setViewMode(prev) })
   }
 
-  // Double-click window guard for the direct push: `run`'s `busy` state lags a
-  // synchronous second press by one paint, and two pushes must not both fire.
+  // Double-click window guards for the direct remote controls: `run`'s `busy`
+  // state lags a synchronous second press by one paint, and two writes must not
+  // both fire.
   const pushInFlight = useRef(false)
+  const setUpstreamInFlight = useRef(false)
   const run = async (action: GitAction): Promise<boolean> => {
     if (busy) return false
     setBusy(true)
@@ -802,6 +804,15 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
         if (pushInFlight.current || !canPush(snapshot)) return
         pushInFlight.current = true
         void run({ kind: 'push' }).finally(() => { pushInFlight.current = false })
+      },
+      // Config-only, so it runs straight from the toolbar like push: no dialog,
+      // no network. The host re-checks the tracking ref before writing.
+      onSetUpstream: () => {
+        hideTip()
+        const remote = snapshot.remote
+        if (setUpstreamInFlight.current || remote === null || !canSetUpstream(snapshot)) return
+        setUpstreamInFlight.current = true
+        void run({ kind: 'set-upstream', remote: remote.name }).finally(() => { setUpstreamInFlight.current = false })
       },
       onPublish: () => { hideTip(); setPublishOpen(true) },
       onRefresh, t,

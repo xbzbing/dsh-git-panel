@@ -70,8 +70,15 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // message rides along — the localized text alone would not say why.
     case 'stash-switch-failed': return t('error.stashSwitchFailed', { reason: message ?? '' })
     // Publishing needs a branch to name the remote side after: a detached HEAD
-    // or a repository without commits has none.
+    // or a repository without commits has none. The same applies to attaching
+    // an upstream to HEAD.
     case 'no-branch': return t('error.noBranch')
+    // The set-upstream control was rendered for a branch without tracking; if a
+    // config appeared meanwhile, replacing it silently would lose that choice.
+    case 'has-upstream': return t('error.hasUpstream')
+    // The remote-tracking ref that justified the action disappeared: refresh
+    // will recompute which remote write (if any) still applies.
+    case 'upstream-missing': return t('error.upstreamMissing')
     case 'invalid-name':
     case 'invalid-index': return t('error.invalidName')
     // A rejected path came from the panel's own selection: it is outside the

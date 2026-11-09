@@ -7,7 +7,7 @@ import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons.js'
+import { DownloadIcon, GitHubIcon, LinkIcon, SyncIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { pushIntent as pushIntentOf } from './push-policy.js'
 
@@ -19,11 +19,13 @@ export interface StatusBarCbs {
   readonly pullBusy: boolean
   readonly pushBusy: boolean
   readonly publishBusy: boolean
+  readonly setUpstreamBusy: boolean
   readonly switchBusy: boolean
   readonly onCheck: () => void
   readonly onPull: () => void
   readonly onPush: () => void
   readonly onPublish: () => void
+  readonly onSetUpstream: () => void
   readonly t: Translate
   /** Drop the GitHub repo link: a narrow panel (compact footer, the tight
    * tier's drawer) spends the row on the sync state instead. */
@@ -96,8 +98,12 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     else if (ahead > 0 && behind > 0) { text = t('status.diverged', { ahead, behind }); tone = ' gp-statusbar__state--warn' }
     else if (behind > 0) { text = t('status.behind', { n: behind }); tone = ' gp-statusbar__state--warn' }
     else { text = t('status.ahead', { n: ahead }) }
-    if (cb.switchBusy || cb.pullBusy || cb.pushBusy) {
-      const text = cb.switchBusy ? t('status.switching') : cb.pullBusy ? t('status.pulling') : t('status.pushing')
+    if (cb.switchBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy) {
+      const text = cb.switchBusy
+        ? t('status.switching')
+        : cb.pullBusy
+          ? t('status.pulling')
+          : cb.setUpstreamBusy ? t('status.settingUpstream') : t('status.pushing')
       // The whole bar already marks the busy window with `aria-busy`, and the
       // check button spins for exactly as long (`.gp-statusbar--busy`): a second
       // loader next to the label would say the same thing twice, one of them
@@ -137,6 +143,14 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
       disabled: cb.pushBusy, 'aria-label': t('status.pushTitle'),
       onClick: () => { hideTip(); cb.onPush() },
     }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.push')])) : null,
+    intent === 'set-upstream' ? h(TipWrapper, {
+      key: 'set-upstream',
+      tipProps: tipProps(t('status.setUpstreamTitle', { remote: remote?.name ?? '', branch: branch ?? '' })),
+    }, h('button', {
+      type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
+      disabled: cb.setUpstreamBusy, 'aria-label': t('status.setUpstream'),
+      onClick: () => { hideTip(); cb.onSetUpstream() },
+    }, [h(LinkIcon, { key: 'i', size: 12 }), t('status.setUpstream')])) : null,
     intent === 'publish' ? h(TipWrapper, {
       key: 'publish', tipProps: tipProps(t('status.publishTitle')),
     }, h('button', {
@@ -146,7 +160,11 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.publish')])) : null,
   ]
 
-  return h('div', { key: 'statusbar', className: `gp-statusbar${cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.switchBusy ? ' gp-statusbar--busy' : ''}`, 'aria-busy': cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.switchBusy }, [
+  // The publish modal owns its own in-flight lock, so it does not spin the
+  // status-bar check icon behind the overlay; the direct set-upstream write has
+  // no dialog and therefore does.
+  const barBusy = cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy || cb.switchBusy
+  return h('div', { key: 'statusbar', className: `gp-statusbar${barBusy ? ' gp-statusbar--busy' : ''}`, 'aria-busy': barBusy }, [
     repoNode,
     h('div', { key: 'sync', className: 'gp-statusbar__sync' }, [stateNode, ...actions]),
     tipNode,
