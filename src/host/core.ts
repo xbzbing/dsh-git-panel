@@ -7,7 +7,7 @@ import type { AgentDefaultModelFace, LlmFace, SessionModelSelection } from './ll
 import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
-import { isSafePath } from './validate.js'
+import { isSafeBranchName, isSafePath, isSafeRemoteName } from './validate.js'
 import { repoDirCertified, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
 import { parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
 import type { WorktreeCheckout, WorktreeInfo } from './worktrees.js'
@@ -771,6 +771,27 @@ export async function snapshotForSession(
 
   const remote = 'run' in remoteRes && remoteRes.run.exitCode === 0 ? parsePrimaryRemote(remoteRes.run.stdout) : null
 
+  // A same-named branch already on the primary remote at HEAD means publishing
+  // would push nothing; only the local tracking config is missing, so the panel
+  // can offer `set-upstream` (a local `git branch --set-upstream-to`) instead.
+  // The check is local (remote-tracking refs only, no fetch) and only runs for
+  // the state that can use it: no upstream, a real branch, a commit, a remote.
+  let remoteBranchAtHead = false
+  if (!hasUpstream && branch !== null && !unborn && remote !== null
+    && isSafeBranchName(branch) && isSafeRemoteName(remote.name)) {
+    const probe = await runCommand(
+      deps.run,
+      ['git', 'rev-list', '--count', '--left-right', '--end-of-options', `refs/remotes/${remote.name}/${branch}...HEAD`],
+      root,
+      'remote-branch-at-head',
+      deps.signal,
+    )
+    if ('run' in probe && probe.run.exitCode === 0) {
+      const parts = probe.run.stdout.trim().split(/\s+/)
+      remoteBranchAtHead = parts.length === 2 && parts[0] === '0' && parts[1] === '0'
+    }
+  }
+
   let lastCommit: GitCommit | null = null
   if ('run' in lastCommitRes && lastCommitRes.run.exitCode === 0) {
     lastCommit = commitFromFields(lastCommitRes.run.stdout.trim().split('\x1f'))
@@ -826,6 +847,7 @@ export async function snapshotForSession(
     ahead,
     behind,
     hasUpstream,
+    remoteBranchAtHead,
     remote,
     lastCommit,
     changes,
