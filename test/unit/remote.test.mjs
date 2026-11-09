@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseRemote, classifyHost, parsePrimaryRemote, planAction, classifyActionFailure, isSafeRemoteName } from '../../lib/testkit.mjs'
+import { parseRemote, classifyHost, parsePrimaryRemote, parseFetchRemotes, planAction, classifyActionFailure, isSafeRemoteName } from '../../lib/testkit.mjs'
 
 test('parseRemote collapses every URL shape to one https page link', () => {
   const cases = [
@@ -77,6 +77,21 @@ test('parsePrimaryRemote prefers origin, else the first fetch remote', () => {
   assert.equal(f.hostKind, 'gitee')
 
   assert.equal(parsePrimaryRemote(''), null)
+})
+
+test('parseFetchRemotes keeps every fetch remote in output order', () => {
+  const output = [
+    'icode\tssh://xubingzhen@icode.baidu.com:8235/baidu/personal-code/repo (fetch)',
+    'icode\tssh://xubingzhen@icode.baidu.com:8235/baidu/personal-code/repo (push)',
+    'origin\tgit@github.com:me/repo.git (fetch)',
+    'origin\tgit@github.com:me/repo.git (push)',
+    'fork\thttps://gitee.com/me/repo.git (fetch)',
+  ].join('\n')
+  const remotes = parseFetchRemotes(output)
+  assert.deepEqual(remotes.map((r) => r.name), ['icode', 'origin', 'fork'])
+  assert.equal(remotes[0].host, 'icode.baidu.com')
+  assert.equal(remotes[1].hostKind, 'github')
+  assert.deepEqual(parseFetchRemotes(''), [])
 })
 
 test('pull-ff plans a fast-forward-only pull', () => {

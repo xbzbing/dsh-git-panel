@@ -24,6 +24,16 @@ export const CSS = `
 .gp-reset__ack{color:var(--dsw-alias-state-error-primary)}
 .gp-reset__dirtywarn{font-size:11px;line-height:1.5;color:var(--dsw-alias-state-warn-primary,#e0982e)}
 
+/* set-upstream dialog: one radio row per candidate remote (always shown, even
+ * for a single candidate — the user confirms the config write explicitly) */
+.gp-upstream__list{display:flex;flex-direction:column;gap:6px}
+.gp-upstream__option{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;cursor:pointer}
+.gp-upstream__option--on{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-bg-layer-2)}
+.gp-upstream__option .gp-check{margin-top:2px;flex:none}
+.gp-upstream__text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.gp-upstream__label{font-size:12px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-upstream__hint{font-size:11px;line-height:1.4;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 /* branch-switch confirm: tracking note + dirty-work-tree warning + the switch mode radios */
 .gp-bpick__extra{display:flex;flex-direction:column;gap:8px}
 .gp-bpick__note{font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary)}

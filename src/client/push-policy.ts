@@ -1,4 +1,4 @@
-import type { GitSnapshot } from './types.js'
+import type { GitRemote, GitSnapshot } from './types.js'
 
 /** Offer only ordinary pushes from a branch strictly ahead of its upstream. */
 export function canPush(snapshot: GitSnapshot): boolean {
@@ -6,19 +6,28 @@ export function canPush(snapshot: GitSnapshot): boolean {
 }
 
 /**
- * Offer attaching the upstream when the primary remote already carries a
+ * The remotes that can be attached as upstream: every remote whose same-named
+ * branch points at HEAD. New hosts send the full list; older hosts only send
+ * the boolean for the primary remote, so they degrade to that one candidate.
+ */
+export function upstreamCandidates(snapshot: GitSnapshot): readonly GitRemote[] {
+  if (snapshot.remoteCandidates !== undefined) return snapshot.remoteCandidates
+  return snapshot.remoteBranchAtHead === true && snapshot.remote !== null ? [snapshot.remote] : []
+}
+
+/**
+ * Offer attaching the upstream when at least one remote already carries a
  * same-named branch at HEAD: the only missing piece is the local tracking
- * config, so `push -u` would push nothing. The snapshot's flag proves both the
- * remote branch and the identical commit from local refs; the host re-checks
- * that the ref still exists before writing the config.
+ * config, so `push -u` would push nothing. The client always asks which remote
+ * to attach (origin preselected); the host re-checks the chosen ref before
+ * writing the config.
  */
 export function canSetUpstream(snapshot: GitSnapshot): boolean {
   return snapshot.hasUpstream !== true
-    && snapshot.remoteBranchAtHead === true
     && snapshot.branch !== null
     && snapshot.unborn !== true
     && snapshot.head !== null && snapshot.head !== ''
-    && snapshot.remote !== null
+    && upstreamCandidates(snapshot).length > 0
 }
 
 /**
@@ -33,6 +42,7 @@ export function canSetUpstream(snapshot: GitSnapshot): boolean {
 export function canPublish(snapshot: GitSnapshot): boolean {
   return snapshot.hasUpstream !== true
     && snapshot.remoteBranchAtHead !== true
+    && upstreamCandidates(snapshot).length === 0
     && snapshot.branch !== null
     && snapshot.unborn !== true
     && snapshot.head !== null && snapshot.head !== ''

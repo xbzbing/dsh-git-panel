@@ -145,7 +145,7 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.push')])) : null,
     intent === 'set-upstream' ? h(TipWrapper, {
       key: 'set-upstream',
-      tipProps: tipProps(t('status.setUpstreamTitle', { remote: remote?.name ?? '', branch: branch ?? '' })),
+      tipProps: tipProps(t('status.setUpstreamTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.setUpstreamBusy, 'aria-label': t('status.setUpstream'),
@@ -160,9 +160,9 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.publish')])) : null,
   ]
 
-  // The publish modal owns its own in-flight lock, so it does not spin the
-  // status-bar check icon behind the overlay; the direct set-upstream write has
-  // no dialog and therefore does.
+  // The publish modal and the set-upstream chooser own their own in-flight
+  // locks, so they do not spin the status-bar check icon behind the overlay;
+  // their busy callbacks still drive the bar's busy state while they run.
   const barBusy = cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy || cb.switchBusy
   return h('div', { key: 'statusbar', className: `gp-statusbar${barBusy ? ' gp-statusbar--busy' : ''}`, 'aria-busy': barBusy }, [
     repoNode,

@@ -39,6 +39,7 @@ import { buildBranchOptions, isSelectable, type BranchOption } from './branch-op
 import { renderStatusBar } from './overview-statusbar.js'
 import { RepoBar } from './overview-repobar.js'
 import { PublishModal } from './PublishModal.js'
+import { SetUpstreamModal } from './SetUpstreamModal.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 import { useRowSlider } from './row-slider.js'
 import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
@@ -286,11 +287,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Double-click window guard for the direct status-bar push (see runPushDirect).
   const pushInFlight = useRef(false)
   const [pushBusy, setPushBusy] = useState(false)
-  // The set-upstream control writes a local config and returns at once; its own
-  // guard keeps two synchronous presses from issuing two writes. `publishBusy`
-  // belongs to the modal, which owns its own confirm lock.
-  const setUpstreamInFlight = useRef(false)
+  // Set-upstream always opens its chooser; the modal owns the in-flight lock
+  // and reports it back through `setUpstreamBusy` (the status-bar busy state).
   const [setUpstreamBusy, setSetUpstreamBusy] = useState(false)
+  const [setUpstreamOpen, setSetUpstreamOpen] = useState(false)
   const [publishBusy, setPublishBusy] = useState(false)
   const [publishConfirm, setPublishConfirm] = useState(false)
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
@@ -835,19 +835,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       t('error.generic'),
     )
   }
-  // Set-upstream is config-only: the host refuses a branch without a
-  // same-named remote-tracking ref, but the click path still re-checks the
-  // snapshot it was rendered from so a moved branch sends nothing.
-  const runSetUpstream = (): Promise<void> => {
-    const remote = snapshot.remote
-    if (remote === null || !canSetUpstream(snapshot)) return Promise.resolve()
-    return runSnapshotAction(
-      { busy: setUpstreamBusy, setBusy: setSetUpstreamBusy, inFlight: setUpstreamInFlight, setError: statusReporter() },
-      onAction,
-      { kind: 'set-upstream', remote: remote.name },
-      () => {},
-      t('error.generic'),
-    )
+  // Set-upstream is config-only but always asks which remote to attach, even
+  // with one candidate. The modal re-checks the snapshot and owns the busy lock.
+  const openSetUpstream = (): void => {
+    if (canSetUpstream(snapshot)) setSetUpstreamOpen(true)
   }
   // One status-bar callback set, shared by the wide and compact placements.
   const statusCbs = {
@@ -855,7 +846,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     onCheck: () => void runCheckSync(),
     onPull: () => void runPullFf(),
     onPush: () => void runPushDirect(),
-    onSetUpstream: () => void runSetUpstream(),
+    onSetUpstream: openSetUpstream,
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
     t,
     // Narrow panels drop the repo link: the compact footer and the tight
@@ -1012,6 +1003,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onAction,
       onClose: () => setPublishConfirm(false),
       onBusyChange: setPublishBusy,
+      t,
+    }) : null,
+    setUpstreamOpen ? h(SetUpstreamModal, {
+      key: 'set-upstream',
+      snapshot,
+      onAction,
+      onClose: () => setSetUpstreamOpen(false),
+      onBusyChange: setSetUpstreamBusy,
       t,
     }) : null,
     switchTarget !== null ? renderBranchSwitchConfirm(switchTarget, {

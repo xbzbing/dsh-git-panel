@@ -47,10 +47,10 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
   }
   const disabled = busy || refreshing
   // The upload control carries whichever remote write this branch can take: a
-  // push when strictly ahead, a set-upstream when the primary remote already has
-  // the same-named branch at HEAD, a publish when the branch has no upstream
-  // yet. All intents are unavailable otherwise, so the button never reads as a
-  // dead control on a freshly committed local-only branch (issue #63).
+  // push when strictly ahead, a set-upstream when a remote already has the
+  // same-named branch at HEAD, a publish when the branch has no upstream yet.
+  // All intents are unavailable otherwise, so the button never reads as a dead
+  // control on a freshly committed local-only branch (issue #63).
   const intent = pushIntent(snapshot)
   const remoteLabel: GitKey = intent === 'set-upstream'
     ? 'status.setUpstream'
@@ -61,7 +61,7 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
   const remoteTip = intent === null
     ? t('changes.noRemoteTarget')
     : intent === 'set-upstream'
-      ? t('status.setUpstreamTitle', { remote: snapshot.remote?.name ?? '', branch: snapshot.branch ?? '' })
+      ? t('status.setUpstreamTitle')
       : t(remoteLabel)
   const remoteAction = (): void => {
     if (intent === 'set-upstream') props.onSetUpstream()

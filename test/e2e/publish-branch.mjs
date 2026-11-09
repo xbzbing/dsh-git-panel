@@ -27,6 +27,7 @@ const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
 
 const REMOTE = { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' }
+const ICODE = { name: 'icode', url: 'ssh://xubingzhen@icode.baidu.com:8235/baidu/personal-code/repo', webUrl: null, host: 'icode.baidu.com', hostKind: 'other' }
 
 /** A local-only branch: one commit, no upstream, a remote to publish to. */
 const LOCAL_ONLY = {
@@ -93,7 +94,7 @@ async function openPanel(snapshot, { tab = 1 } = {}) {
             return { ok: true, value: { ok: false, error: failure } }
           }
         }
-        fixture.snapshot = { ...fixture.snapshot, hasUpstream: true, remoteBranchAtHead: false }
+        fixture.snapshot = { ...fixture.snapshot, hasUpstream: true, remoteBranchAtHead: false, remoteCandidates: [] }
         return { ok: true, value: { ok: true, snapshot: fixture.snapshot } }
       }
       return call(channel, endpoint, payload)
@@ -255,19 +256,30 @@ async function statusBarScenario() {
   await page.close()
 }
 
-/** A same-named remote branch at HEAD attaches tracking from the changes page
- * without a dialog, and falls back to push once the config lands. */
+/** A same-named remote branch at HEAD opens the chooser even with one
+ * candidate; confirming attaches tracking and the control falls back to push. */
 async function setUpstreamChangesScenario() {
   const page = await openPanel({ ...LOCAL_ONLY, remoteBranchAtHead: true })
   const button = page.locator('.gp-changes__push')
   assert.equal(await button.isEnabled(), true, 'the toolbar control is live')
   assert.equal(await button.getAttribute('aria-label'), '设置上游', 'the control is named for attaching, not publishing')
-  // The direct write asks for no confirmation and sends exactly one action.
   await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  assert.equal(await page.locator('.gp-modal__path').textContent(), '设置上游', 'the dialog is the chooser')
+  const dialog = await page.locator('.gp-modal--sm').evaluate((modal) => ({
+    body: modal.querySelector('.gp-modal__confirmtext').textContent,
+    options: [...modal.querySelectorAll('.gp-upstream__option')].map((o) => o.textContent),
+    checked: [...modal.querySelectorAll('.gp-upstream__option input')].findIndex((i) => i.checked),
+  }))
+  assert.match(dialog.body, /feature\/new/, 'the body names the current branch')
+  assert.match(dialog.body, /不推送/, 'the body states the config-only contract')
+  assert.equal(dialog.options.length, 1, 'a single candidate still opens the chooser')
+  assert.equal(dialog.checked, 0, 'the only candidate is preselected')
+  await page.locator('.gp-modal__footer .gp-btn--primary').click()
   await page.waitForFunction(() => window.__gpFixture.setUpstreamCalls === 1)
-  assert.equal(await page.locator('.gp-modal--sm').count(), 0, 'set-upstream needs no confirmation dialog')
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
   assert.deepEqual((await counts(page)).actions, ['set-upstream'], 'the changes page sends set-upstream')
-  assert.equal(await page.evaluate(() => window.__gpFixture.actions[0].remote), 'origin', 'the action carries the primary remote')
+  assert.equal(await page.evaluate(() => window.__gpFixture.actions[0].remote), 'origin', 'the action carries the chosen remote')
   // The mock reports a tracked snapshot: the control falls back to push and is
   // unavailable because the branch is now synced.
   await page.waitForFunction(() => document.querySelector('.gp-changes__push')?.getAttribute('aria-label') === '推送本地提交到远程')
@@ -275,25 +287,56 @@ async function setUpstreamChangesScenario() {
   await page.close()
 }
 
-/** The status bar offers the same direct attach, with its own busy state. */
+/** The status bar opens the same chooser and reports the in-flight write. */
 async function setUpstreamStatusBarScenario() {
   const page = await openPanel({ ...LOCAL_ONLY, remoteBranchAtHead: true }, { tab: 0 })
   const button = page.locator('.gp-col--left .gp-statusbar__sync button[aria-label="设置上游"]')
   assert.equal(await button.count(), 1, 'the status bar offers set-upstream')
   assert.equal(await page.locator('.gp-statusbar button[aria-label="发布分支并设置上游"]').count(), 0, 'publish is not offered alongside it')
-  await page.evaluate(() => { window.__gpFixture.holdSetUpstream = true })
   await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  await page.evaluate(() => { window.__gpFixture.holdSetUpstream = true })
+  await page.locator('.gp-modal__footer .gp-btn--primary').click()
   await page.waitForFunction(() => window.__gpFixture.releaseSetUpstream !== null)
   assert.equal(await page.locator('.gp-statusbar__state').textContent(), '设置上游中…', 'the status bar names the in-flight config write')
-  assert.equal(await button.isDisabled(), true, 'the control locks while the write is in flight')
+  assert.equal(await page.locator('.gp-modal__overlay').count(), 1, 'the chooser stays up while the write runs')
+  assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isDisabled(), true, 'the confirm locks while the write is in flight')
   assert.equal(await page.evaluate(() => window.__gpFixture.setUpstreamCalls), 1, 'one press sends one action')
   await page.evaluate(() => {
     window.__gpFixture.holdSetUpstream = false
     window.__gpFixture.releaseSetUpstream()
   })
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
   await page.waitForFunction(() => document.querySelector('.gp-statusbar button[aria-label="设置上游"]') === null)
   assert.equal(await page.locator('.gp-statusbar__state').textContent(), '已与远程同步', 'the fresh snapshot reads as synced')
   assert.deepEqual((await counts(page)).actions, ['set-upstream'], 'the status bar sends exactly one set-upstream')
+  await page.close()
+}
+
+/** Two candidates: origin is preselected, cancel sends nothing, and choosing
+ * icode sends that name instead of the primary remote. */
+async function setUpstreamMultiRemoteScenario() {
+  const page = await openPanel({ ...LOCAL_ONLY, remoteBranchAtHead: true, remoteCandidates: [REMOTE, ICODE] })
+  const button = page.locator('.gp-changes__push')
+  await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  const options = page.locator('.gp-upstream__option')
+  assert.equal(await options.count(), 2, 'both candidates are listed')
+  assert.equal(await page.locator('.gp-upstream__option input').nth(0).isChecked(), true, 'origin is preselected')
+  assert.match(await options.nth(0).textContent(), /origin\/feature\/new/, 'the option names the remote branch')
+  // Cancel first: the dialog closes and nothing is sent.
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  assert.equal((await counts(page)).setUpstreamCalls, 0, 'cancelling writes nothing')
+  // Reopen, choose the non-primary candidate, and confirm.
+  await button.click()
+  await page.locator('.gp-modal--sm').waitFor()
+  await page.locator('.gp-upstream__option', { hasText: 'icode/feature/new' }).click()
+  assert.equal(await page.locator('.gp-upstream__option input').nth(1).isChecked(), true, 'the clicked candidate is selected')
+  await page.locator('.gp-modal__footer .gp-btn--primary').click()
+  await page.waitForFunction(() => window.__gpFixture.setUpstreamCalls === 1)
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  assert.equal(await page.evaluate(() => window.__gpFixture.actions[0].remote), 'icode', 'the chosen non-primary remote crosses the wire')
   await page.close()
 }
 
@@ -304,6 +347,7 @@ try {
   await statusBarScenario()
   await setUpstreamChangesScenario()
   await setUpstreamStatusBarScenario()
+  await setUpstreamMultiRemoteScenario()
   assert.deepEqual(consoleErrors, [], 'no frontend errors')
   console.log('e2e publish-branch.mjs: PASS')
 } catch (error) {

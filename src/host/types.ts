@@ -148,8 +148,15 @@ export interface GitSnapshot {
   readonly hasUpstream: boolean
   /** True when the primary remote already has a same-named branch pointing at
    * HEAD, so the only missing piece is the local tracking configuration. Local
-   * refs only (no network). Absent on older hosts → read as false. */
+   * refs only (no network). Absent on older hosts → read as false. Kept for
+   * clients that predate `remoteCandidates`; the new list is authoritative. */
   readonly remoteBranchAtHead?: boolean
+  /** Every remote whose same-named branch points at HEAD, in `git remote -v`
+   * order. Absent on older hosts → the client falls back to the primary remote
+   * named by `remote` when `remoteBranchAtHead` is true. The client opens one
+   * chooser for this list (origin preselected) and sends the chosen name as the
+   * `set-upstream` action's `remote`. */
+  readonly remoteCandidates?: readonly GitRemote[]
   /** The repository's primary remote; null when none is configured. */
   readonly remote: GitRemote | null
   readonly lastCommit: GitCommit | null
@@ -336,10 +343,12 @@ export type GitAction =
   // revalidates it. Offered only when the branch has no upstream yet.
   | { readonly kind: 'publish'; readonly remote: string }
   // Attach the current branch to the same-named branch that already exists on
-  // the primary remote: `git branch --set-upstream-to refs/remotes/<remote>/<name>`.
-  // No push and no network — offered when that remote branch already points at
-  // HEAD and only the local tracking config is missing. The branch is resolved
-  // from HEAD on the host; only the remote name crosses the wire.
+  // one of the candidate remotes: `git branch --set-upstream-to
+  // refs/remotes/<remote>/<name>`. No push and no network — offered when at
+  // least one remote's same-named branch points at HEAD and only the local
+  // tracking config is missing. The client chooses among the candidates (origin
+  // preselected); the branch is resolved from HEAD on the host and only the
+  // chosen remote name crosses the wire.
   | { readonly kind: 'set-upstream'; readonly remote: string }
   // Tag write operations (issue #12). `message` non-empty → annotated tag (-a).
   | { readonly kind: 'tag-create'; readonly name: string; readonly commit: string; readonly message?: string }

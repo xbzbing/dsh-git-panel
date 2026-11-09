@@ -32,6 +32,7 @@ import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
 import { PublishModal } from './PublishModal.js'
+import { SetUpstreamModal } from './SetUpstreamModal.js'
 import { canPush, canSetUpstream } from './push-policy.js'
 import { ChangesDiffPane } from './ChangesDiffPane.js'
 import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
@@ -96,10 +97,14 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   const [actionBusy, setBusy] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishBusy, setPublishBusy] = useState(false)
+  // Set-upstream always opens its chooser; the modal reports its in-flight
+  // state here so the rest of the toolbar locks with it.
+  const [setUpstreamOpen, setSetUpstreamOpen] = useState(false)
+  const [setUpstreamBusy, setSetUpstreamBusy] = useState(false)
   // Expanding a truncated list is itself a snapshot flight: it locks the same
   // controls `busy` does so a pick cannot race the incoming full list.
   const [expanding, setExpanding] = useState(false)
-  const busy = actionBusy || publishBusy || expanding
+  const busy = actionBusy || publishBusy || setUpstreamBusy || expanding
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState<ReadonlySet<ChangeGroupKey>>(new Set())
   // The list's presentation: one row per file, or one per directory. It is an
@@ -423,7 +428,6 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // state lags a synchronous second press by one paint, and two writes must not
   // both fire.
   const pushInFlight = useRef(false)
-  const setUpstreamInFlight = useRef(false)
   const run = async (action: GitAction): Promise<boolean> => {
     if (busy) return false
     setBusy(true)
@@ -805,14 +809,12 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
         pushInFlight.current = true
         void run({ kind: 'push' }).finally(() => { pushInFlight.current = false })
       },
-      // Config-only, so it runs straight from the toolbar like push: no dialog,
-      // no network. The host re-checks the tracking ref before writing.
+      // Config-only, but always asks which remote to attach (even with one
+      // candidate). The modal re-checks the snapshot and owns the busy lock.
       onSetUpstream: () => {
         hideTip()
-        const remote = snapshot.remote
-        if (setUpstreamInFlight.current || remote === null || !canSetUpstream(snapshot)) return
-        setUpstreamInFlight.current = true
-        void run({ kind: 'set-upstream', remote: remote.name }).finally(() => { setUpstreamInFlight.current = false })
+        if (!canSetUpstream(snapshot)) return
+        setSetUpstreamOpen(true)
       },
       onPublish: () => { hideTip(); setPublishOpen(true) },
       onRefresh, t,
@@ -916,6 +918,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     // diff) cannot strand a backdrop over the panel.
     diffCard.visible ? h(DiffCardBackdrop, { key: 'diff-backdrop', onClose: diffCard.close }) : null,
     publishOpen ? h(PublishModal, { key: 'remote-publish', snapshot, onAction, onClose: () => setPublishOpen(false), onBusyChange: setPublishBusy, t }) : null,
+    setUpstreamOpen ? h(SetUpstreamModal, { key: 'remote-set-upstream', snapshot, onAction, onClose: () => setSetUpstreamOpen(false), onBusyChange: setSetUpstreamBusy, t }) : null,
     stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,
     stashDrop !== null ? renderConfirmModal({
       title: t('stash.dropTitle'),

@@ -278,22 +278,30 @@ export interface SnapshotDeps {
 const NEG_CACHE_MS = 15_000
 
 /**
+ * Parse every fetch remote from `git remote -v`, preserving the output order.
+ * Lines look like `origin\thttps://…\t(fetch)`; a remote appears once even when
+ * it has several fetch refspecs.
+ */
+export function parseFetchRemotes(stdout: string): GitRemote[] {
+  const byName = new Map<string, GitRemote>()
+  for (const line of stdout.split('\n')) {
+    const m = line.match(/^(\S+)\t(\S+)\s+\(fetch\)$/)
+    if (m === null) continue
+    const name = m[1]!
+    if (!byName.has(name)) byName.set(name, parseRemote(name, m[2]!))
+  }
+  return [...byName.values()]
+}
+
+/**
  * Pick the primary remote from `git remote -v` output and parse its fetch URL.
  * Prefers `origin`; otherwise the first remote listed. Lines look like
  * `origin\thttps://…\t(fetch)` — only `(fetch)` rows are considered.
  */
 export function parsePrimaryRemote(stdout: string): GitRemote | null {
-  const fetchUrls = new Map<string, string>()
-  const order: string[] = []
-  for (const line of stdout.split('\n')) {
-    const m = line.match(/^(\S+)\t(\S+)\s+\(fetch\)$/)
-    if (m === null) continue
-    const name = m[1]!
-    if (!fetchUrls.has(name)) { fetchUrls.set(name, m[2]!); order.push(name) }
-  }
-  if (order.length === 0) return null
-  const name = fetchUrls.has('origin') ? 'origin' : order[0]!
-  return parseRemote(name, fetchUrls.get(name)!)
+  const remotes = parseFetchRemotes(stdout)
+  if (remotes.length === 0) return null
+  return remotes.find((r) => r.name === 'origin') ?? remotes[0]!
 }
 
 /**
@@ -662,6 +670,29 @@ export function mapWorkspaceFailure(
   return { code: error.code, ...(message !== undefined ? { message } : {}) }
 }
 
+/**
+ * True when `refs/remotes/<remote>/<branch>` resolves and points at the same
+ * commit as HEAD. Local refs only: no fetch, no network. A missing ref or a
+ * failed probe is simply "not a candidate".
+ */
+async function probeRemoteBranchAtHead(
+  deps: SnapshotDeps,
+  root: string,
+  remote: string,
+  branch: string,
+): Promise<boolean> {
+  const probe = await runCommand(
+    deps.run,
+    ['git', 'rev-list', '--count', '--left-right', '--end-of-options', `refs/remotes/${remote}/${branch}...HEAD`],
+    root,
+    'remote-branch-at-head',
+    deps.signal,
+  )
+  if (!('run' in probe) || probe.run.exitCode !== 0) return false
+  const parts = probe.run.stdout.trim().split(/\s+/)
+  return parts.length === 2 && parts[0] === '0' && parts[1] === '0'
+}
+
 /** Produce a full snapshot for a session. */
 export async function snapshotForSession(
   deps: SnapshotDeps,
@@ -769,28 +800,29 @@ export async function snapshotForSession(
     ahead = Number(parts[1]) || 0
   }
 
-  const remote = 'run' in remoteRes && remoteRes.run.exitCode === 0 ? parsePrimaryRemote(remoteRes.run.stdout) : null
+  const remotes = 'run' in remoteRes && remoteRes.run.exitCode === 0 ? parseFetchRemotes(remoteRes.run.stdout) : []
+  const remote = remotes.find((r) => r.name === 'origin') ?? remotes[0] ?? null
 
-  // A same-named branch already on the primary remote at HEAD means publishing
-  // would push nothing; only the local tracking config is missing, so the panel
-  // can offer `set-upstream` (a local `git branch --set-upstream-to`) instead.
-  // The check is local (remote-tracking refs only, no fetch) and only runs for
-  // the state that can use it: no upstream, a real branch, a commit, a remote.
-  let remoteBranchAtHead = false
-  if (!hasUpstream && branch !== null && !unborn && remote !== null
-    && isSafeBranchName(branch) && isSafeRemoteName(remote.name)) {
-    const probe = await runCommand(
-      deps.run,
-      ['git', 'rev-list', '--count', '--left-right', '--end-of-options', `refs/remotes/${remote.name}/${branch}...HEAD`],
-      root,
-      'remote-branch-at-head',
-      deps.signal,
+  // A same-named branch already on a remote at HEAD means publishing would push
+  // nothing; only the local tracking config is missing, so the panel can offer
+  // `set-upstream` (a local `git branch --set-upstream-to`) instead. Every
+  // remote is probed, not just the primary one: with `origin` absent from the
+  // remote list, or a branch pushed only to `icode`, the choice still exists.
+  // The probes are local (remote-tracking refs only, no fetch) and only run for
+  // the state that can use them: no upstream, a real branch, a commit.
+  let remoteCandidates: GitRemote[] = []
+  if (!hasUpstream && branch !== null && !unborn && head !== null && isSafeBranchName(branch)) {
+    const probes = await Promise.all(
+      remotes
+        .filter((r) => isSafeRemoteName(r.name))
+        .map(async (r) => ({ remote: r, atHead: await probeRemoteBranchAtHead(deps, root, r.name, branch) })),
     )
-    if ('run' in probe && probe.run.exitCode === 0) {
-      const parts = probe.run.stdout.trim().split(/\s+/)
-      remoteBranchAtHead = parts.length === 2 && parts[0] === '0' && parts[1] === '0'
-    }
+    remoteCandidates = probes.filter((p) => p.atHead).map((p) => p.remote)
   }
+  // Legacy flag for clients that predate `remoteCandidates`: it keeps its old
+  // meaning (the primary remote is at HEAD), so an old client only sends a
+  // remote it can actually name. The new client reads the full list instead.
+  const remoteBranchAtHead = remote !== null && remoteCandidates.some((r) => r.name === remote.name)
 
   let lastCommit: GitCommit | null = null
   if ('run' in lastCommitRes && lastCommitRes.run.exitCode === 0) {
@@ -848,6 +880,7 @@ export async function snapshotForSession(
     behind,
     hasUpstream,
     remoteBranchAtHead,
+    remoteCandidates,
     remote,
     lastCommit,
     changes,

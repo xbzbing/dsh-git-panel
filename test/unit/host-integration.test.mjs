@@ -2912,6 +2912,7 @@ test('snapshot flags a same-named remote branch at HEAD when the branch has no u
     assert.equal(snap.ok, true)
     assert.equal(snap.value.hasUpstream, false)
     assert.equal(snap.value.remoteBranchAtHead, true, 'the remote branch and HEAD are the same commit')
+    assert.deepEqual(snap.value.remoteCandidates.map((r) => r.name), ['origin'], 'the candidate list names the remote')
     // A local commit moves HEAD away: publishing is the right action again.
     writeFileSync(join(a, 'f2.txt'), 'y\n')
     await runGit(a, ['add', 'f2.txt'])
@@ -2920,6 +2921,55 @@ test('snapshot flags a same-named remote branch at HEAD when the branch has no u
     assert.equal(moved.ok, true)
     assert.equal(moved.value.hasUpstream, false)
     assert.equal(moved.value.remoteBranchAtHead, false, 'a different commit is not "already on the remote"')
+    assert.deepEqual(moved.value.remoteCandidates, [], 'a moved HEAD leaves no candidate')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('snapshot lists every remote with the same-named branch at HEAD, not just origin', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const base = mkdtempSync(join(tmpdir(), 'gp-su-multi-'))
+  const origin = join(base, 'origin.git')
+  const icode = join(base, 'icode.git')
+  const a = join(base, 'a')
+  try {
+    execFileSync('git', ['init', '-q', '--bare', origin])
+    execFileSync('git', ['init', '-q', '--bare', icode])
+    execFileSync('git', ['clone', '-q', origin, a])
+    await runGit(a, ['config', 'user.email', 't@t.co'])
+    await runGit(a, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(a, 'f.txt'), 'x\n')
+    await runGit(a, ['add', 'f.txt'])
+    await runGit(a, ['commit', '-qm', 'c1'])
+    await runGit(a, ['branch', '-M', 'feature/x'])
+    await runGit(a, ['remote', 'add', 'icode', icode])
+    await runGit(a, ['push', '-q', 'icode', 'feature/x'])
+    await runGit(a, ['fetch', '-q', 'icode'])
+
+    // Only icode has the branch; origin is configured but has no same-named
+    // ref. The legacy flag keeps its primary-remote meaning, while the new list
+    // still offers icode.
+    const onlyIcode = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
+    assert.equal(onlyIcode.ok, true)
+    assert.equal(onlyIcode.value.remote.name, 'origin', 'origin stays the primary remote')
+    assert.equal(onlyIcode.value.remoteBranchAtHead, false, 'legacy flag only covers the primary remote')
+    assert.deepEqual(onlyIcode.value.remoteCandidates.map((r) => r.name), ['icode'], 'the candidate list still offers icode')
+
+    // Push to origin as well: both remotes are candidates now.
+    await runGit(a, ['push', '-q', 'origin', 'feature/x'])
+    await runGit(a, ['fetch', '-q', 'origin'])
+    const both = await snapshotForSession(depsAt(a), DEFAULT_CONFIG, SID)
+    assert.equal(both.ok, true)
+    assert.deepEqual(both.value.remoteCandidates.map((r) => r.name).sort(), ['icode', 'origin'])
+    assert.equal(both.value.remoteBranchAtHead, true, 'the primary remote is at HEAD too')
+
+    // The action accepts the non-primary candidate and writes its tracking ref.
+    const res = await runAction(depsAt(a), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'icode' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.snapshot.hasUpstream, true)
+    assert.equal(execFileSync('git', ['-C', a, 'config', '--get', 'branch.feature/x.remote']).toString().trim(), 'icode')
+    assert.equal(execFileSync('git', ['-C', a, 'config', '--get', 'branch.feature/x.merge']).toString().trim(), 'refs/heads/feature/x')
   } finally {
     rmSync(base, { recursive: true, force: true })
   }
@@ -2943,11 +2993,13 @@ test('set-upstream attaches an existing remote-tracking branch without touching 
     const before = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
     assert.equal(before.ok, true)
     assert.equal(before.value.remoteBranchAtHead, true)
+    assert.deepEqual(before.value.remoteCandidates.map((r) => r.name), ['origin'])
 
     const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'set-upstream', remote: 'origin' } })
     assert.equal(res.ok, true)
     assert.equal(res.snapshot.hasUpstream, true)
     assert.equal(res.snapshot.remoteBranchAtHead, false, 'tracked branches stop offering the action')
+    assert.deepEqual(res.snapshot.remoteCandidates, [], 'tracked branches have no candidates')
     assert.equal(res.snapshot.ahead, 0)
     assert.equal(res.snapshot.behind, 0)
     const remoteName = execFileSync('git', ['-C', dir, 'config', '--get', 'branch.feature/x.remote']).toString().trim()

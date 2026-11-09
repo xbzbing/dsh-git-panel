@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { canPush, canSetUpstream, canPublish, pushIntent } from '../../lib/testkit.mjs'
+import { canPush, canSetUpstream, canPublish, pushIntent, upstreamCandidates } from '../../lib/testkit.mjs'
 
 const REMOTE = { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' }
 
@@ -37,6 +37,30 @@ test('a same-named remote branch at HEAD attaches the upstream instead of publis
   assert.equal(canSetUpstream(atHead), true)
   assert.equal(canPublish(atHead), false, 'publishing would push nothing')
   assert.equal(pushIntent(atHead), 'set-upstream')
+})
+
+test('every candidate remote is exposed, even when the primary remote is not one', () => {
+  const icode = { ...REMOTE, name: 'icode', host: 'icode.baidu.com', hostKind: 'other' }
+  // The new host list is authoritative: origin is absent, icode is the only
+  // same-named branch at HEAD, and the legacy boolean (primary = origin) stays
+  // false. The chooser still offers icode.
+  const onlyIcode = snap({ remoteBranchAtHead: false, remoteCandidates: [icode] })
+  assert.deepEqual(upstreamCandidates(onlyIcode).map((r) => r.name), ['icode'])
+  assert.equal(canSetUpstream(onlyIcode), true)
+  assert.equal(canPublish(onlyIcode), false)
+  assert.equal(pushIntent(onlyIcode), 'set-upstream')
+
+  const both = snap({ remoteCandidates: [icode, REMOTE] })
+  assert.deepEqual(upstreamCandidates(both).map((r) => r.name), ['icode', 'origin'])
+  assert.equal(pushIntent(both), 'set-upstream')
+})
+
+test('an older host without the candidate list falls back to the primary remote', () => {
+  const legacy = snap({ remoteBranchAtHead: true })
+  assert.deepEqual(upstreamCandidates(legacy).map((r) => r.name), ['origin'])
+  // An explicit empty list is authoritative and disables the action.
+  assert.deepEqual(upstreamCandidates(snap({ remoteBranchAtHead: true, remoteCandidates: [] })), [])
+  assert.equal(canSetUpstream(snap({ remoteBranchAtHead: true, remoteCandidates: [] })), false)
 })
 
 test('set-upstream still needs a branch, a commit and a remote', () => {
