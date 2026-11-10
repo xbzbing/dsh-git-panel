@@ -19,8 +19,12 @@ export interface RepoChoice {
   /** Absolute repository root. */
   readonly root: string
   /** `workspace` = the workspace's own checkout, `worktree` = a linked
-   * worktree of a repository, `repo` = a repository of its own. */
-  readonly kind: 'workspace' | 'worktree' | 'repo'
+   * worktree of a repository, `external` = a repository the `.code-workspace`
+   * file certifies outside the cwd, `repo` = a repository of its own inside
+   * the cwd. */
+  readonly kind: 'workspace' | 'worktree' | 'external' | 'repo'
+  /** Display name the workspace file chose for this root; absent → use `name`. */
+  readonly label?: string
   /** Identity inside a repository family (see GitRepoEntry.role); absent on an
    * older host that predates the field. */
   readonly role?: 'main' | 'linked' | 'repo'
@@ -48,7 +52,10 @@ export function repoChoices(repos: readonly GitRepoEntry[]): readonly RepoChoice
     // worktrees rather than under the unrelated repositories.
     kind: entry.kind === 'workspace'
       ? 'workspace'
-      : entry.role === 'linked' || entry.role === 'main' ? 'worktree' : 'repo',
+      : entry.kind === 'external'
+        ? 'external'
+        : entry.role === 'linked' || entry.role === 'main' ? 'worktree' : 'repo',
+    ...(entry.label !== undefined ? { label: entry.label } : {}),
     ...(entry.role !== undefined ? { role: entry.role } : {}),
     ...(entry.branch !== undefined ? { branch: entry.branch } : {}),
     ...(entry.disabled !== undefined ? { disabled: entry.disabled } : {}),
@@ -77,7 +84,7 @@ export interface RepoGroup {
  */
 export function repoGroups(choices: readonly RepoChoice[]): readonly RepoGroup[] {
   const own = choices.filter((c) => c.kind === 'workspace' || c.kind === 'worktree')
-  const foreign = choices.filter((c) => c.kind === 'repo')
+  const foreign = choices.filter((c) => c.kind === 'repo' || c.kind === 'external')
   const groups: RepoGroup[] = []
   if (own.length > 0) groups.push({ key: 'own', items: own, selectable: own.filter((c) => c.disabled === undefined).length })
   if (foreign.length > 0) groups.push({ key: 'foreign', items: foreign, selectable: foreign.filter((c) => c.disabled === undefined).length })
@@ -90,6 +97,9 @@ export function repoGroups(choices: readonly RepoChoice[]): readonly RepoGroup[]
  * path only adds noise.
  */
 export function repoLabel(choice: RepoChoice): string {
+  // A workspace file can name a root (`folders[].name`); that name is the one
+  // the user sees in their editor, so it wins over the basename/path pair.
+  if (choice.label !== undefined) return choice.label
   // Worktrees already get their path on the detail line; putting it into the
   // label too would print "pr-85 (.agents/worktrees/review/pr-85)" in a
   // column narrow enough that the name alone is all that fits.

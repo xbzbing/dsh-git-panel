@@ -564,8 +564,13 @@ export interface GitRepoEntry {
   /** Display name: the work-tree top's basename. */
   readonly name: string
   /** 'workspace' = the cwd's own (or enclosing) repository; 'nested' = a
-   * repository found inside the cwd. */
-  readonly kind: 'workspace' | 'nested'
+   * repository found inside the cwd; 'external' = a repository the session's
+   * `.code-workspace` file names outside the cwd (ADR-0030; absent on older
+   * hosts). */
+  readonly kind: 'workspace' | 'nested' | 'external'
+  /** Display override from the workspace file's `folders[].name`; absent when
+   * the file has none (or the host predates the field). */
+  readonly label?: string
   /** Which checkout this row is inside a repository family: `main` = the
    * primary work tree, `linked` = a worktree of a repository, `repo` = a
    * repository of its own. Absent on hosts that predate the field. */
@@ -586,8 +591,22 @@ export interface GitRepoEntry {
 export interface GitRepoList {
   readonly cwd: string
   /** The workspace repository first (when the cwd is inside one), then nested
-   * ones by path. Empty outside any repository with no nested repositories. */
+   * ones by path, then the roots a `.code-workspace` file certifies. Empty
+   * outside any repository with nothing to scan or certify. */
   readonly repos: readonly GitRepoEntry[]
+  /**
+   * Recognition state of the session's `.code-workspace` file (ADR-0030).
+   * Absent when the setting is `off`, or `auto` found no candidate: those are
+   * "not configured", not failures. `applied` means the file was parsed and
+   * its folders resolved — the list may still be empty if none is a checkout.
+   * `file` is the absolute path when one can be named (for `ambiguous` there
+   * is no single file). The switcher renders this as one non-selectable hint
+   * row; a host that predates the field simply sends nothing.
+   */
+  readonly codeWorkspace?: {
+    readonly state: 'applied' | 'missing' | 'invalid' | 'ambiguous'
+    readonly file?: string
+  }
 }
 
 export type GitQuery =

@@ -8,13 +8,13 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import './_tmp-ceiling.mjs'
 import { linkOrSkip } from './_fs-helpers.mjs'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { listSessionRepos, resolveBrowseRoot, resolveWorkspace } from '../../lib/host/core.js'
-import { repoDirCertified, repoDirFor, scanRepos } from '../../lib/host/repos.js'
-import { DEFAULT_CONFIG, runQuery, snapshotForSession } from '../../lib/host/index.js'
+import { repoDirCertified, repoDirExternal, repoDirFor, scanRepos } from '../../lib/host/repos.js'
+import { DEFAULT_CONFIG, normalizeConfig, runAction, runQuery, snapshotForSession } from '../../lib/host/index.js'
 import { gitRunner, runGit } from './_git-fixture.mjs'
 
 /** A deps face locked to `dir`, using the production wiring. */
@@ -31,6 +31,7 @@ let tmp
 let ws
 let outer
 let wtRepo
+let hub
 
 before(async () => {
   tmp = realpathSync.native(mkdtempSync(join(tmpdir(), 'gp-repos-')))
@@ -62,6 +63,24 @@ before(async () => {
   mkdirSync(join(wtRepo, 'vendor', 'lib', '.git'), { recursive: true })
   await runGit(wtRepo, ['worktree', 'add', '-q', '-b', 'wt-a', join(wtRepo, '.agents', 'worktrees', 'feat-a')])
   await runGit(wtRepo, ['worktree', 'add', '-q', '-b', 'wt-out', join(tmp, 'wt-outside')])
+
+  // Scenario C (issue #121): a hub directory whose project model is a
+  // `.code-workspace` file naming repositories beside it. `other` is a sibling
+  // the file does not name, so it must stay unreachable.
+  hub = join(tmp, 'hub')
+  mkdirSync(hub, { recursive: true })
+  mkdirSync(join(hub, 'inner'), { recursive: true })
+  await runGit(join(hub, 'inner'), ['init', '-q'])
+  mkdirSync(join(tmp, 'other'), { recursive: true })
+  await runGit(join(tmp, 'other'), ['init', '-q'])
+  writeFileSync(join(hub, 'hub.code-workspace'), JSON.stringify({
+    folders: [
+      { path: '../outer', name: 'api' },
+      { path: '../wt-repo' },
+      { path: 'inner' },
+      { path: '..' },
+    ],
+  }))
 })
 
 after(() => {
@@ -439,4 +458,192 @@ test('a shallow worktree does not use up the scan slot a deeper repository needs
     'one worktree row plus one scanned repository fill a ceiling of two')
   const tight = await listSessionRepos(depsAt(repo), SID, true, 1)
   assert.deepEqual(tight.value.repos.map((r) => r.path), ['', 'a-wt'], 'the worktree rows alone may fill the ceiling')
+})
+
+
+// ── external roots from a .code-workspace file (issue #121, ADR-0030) ──────
+
+/** The hub config: the workspace file is discovered, not named. */
+const HUB_CONFIG = { ...DEFAULT_CONFIG, codeWorkspace: 'auto' }
+
+test('repoDirExternal admits only an allow-listed directory outside the cwd', async () => {
+  const fs = createFsDeps()
+  const allow = [realpathSync.native(outer), realpathSync.native(wtRepo)]
+  assert.deepEqual(await repoDirExternal(fs, hub, '../outer', allow), { ok: true, dir: realpathSync.native(outer) })
+  for (const bad of ['', '.', '..', 'inner', '../other', '../outer/sub', join(outer), realpathSync.native(outer), '../outer/.git']) {
+    assert.deepEqual(
+      await repoDirExternal(fs, hub, bad, allow),
+      { ok: false },
+      'must refuse ' + JSON.stringify(bad),
+    )
+  }
+})
+
+test('the workspace file adds external rows the scan cannot reach', async () => {
+  const listed = await listSessionRepos(depsAt(hub), SID, true, undefined, 'auto')
+  assert.equal(listed.ok, true)
+  const rows = listed.value.repos.map((r) => [r.path, r.kind])
+  assert.deepEqual(rows, [
+    ['inner', 'nested'],
+    ['../outer', 'external'],
+    ['../wt-repo', 'external'],
+  ])
+  const api = listed.value.repos.find((r) => r.path === '../outer')
+  assert.equal(api.label, 'api', 'folders[].name becomes the row label')
+  assert.equal(api.role, 'repo')
+  assert.equal(api.name, 'outer')
+})
+
+test('repo-list reports how the workspace file was recognised', async () => {
+  const applied = await listSessionRepos(depsAt(hub), SID, true, undefined, 'auto')
+  assert.equal(applied.ok, true)
+  assert.deepEqual(applied.value.codeWorkspace, {
+    state: 'applied',
+    file: realpathSync.native(join(hub, 'hub.code-workspace')),
+  })
+
+  const off = await listSessionRepos(depsAt(hub), SID, true, undefined, 'off')
+  assert.equal(off.ok, true)
+  assert.equal(off.value.codeWorkspace, undefined, 'off is not configured, so it says nothing')
+
+  const missing = await listSessionRepos(depsAt(hub), SID, true, undefined, 'typo.code-workspace')
+  assert.equal(missing.ok, true)
+  assert.equal(missing.value.codeWorkspace?.state, 'missing')
+  assert.equal(missing.value.codeWorkspace?.file, join(realpathSync.native(hub), 'typo.code-workspace'))
+
+  const invalid = await listSessionRepos(depsAt(hub), SID, true, undefined, '../outside.code-workspace')
+  assert.equal(invalid.ok, true)
+  assert.equal(invalid.value.codeWorkspace?.state, 'invalid')
+  assert.equal(invalid.value.codeWorkspace?.file, undefined)
+})
+
+test('the setting keeps a malformed value so the session can report it', () => {
+  assert.equal(normalizeConfig({}).codeWorkspace, 'off')
+  assert.equal(normalizeConfig({ codeWorkspace: 'auto' }).codeWorkspace, 'auto')
+  assert.equal(normalizeConfig({ codeWorkspace: '  hub.code-workspace ' }).codeWorkspace, 'hub.code-workspace')
+  assert.equal(normalizeConfig({ codeWorkspace: 'hub.json' }).codeWorkspace, 'hub.json', 'a typo is reported, not coerced to off')
+  assert.equal(normalizeConfig({ codeWorkspace: '' }).codeWorkspace, 'off')
+})
+
+test('the workspace file stays off by default', async () => {
+  const listed = await listSessionRepos(depsAt(hub), SID, true)
+  assert.deepEqual(listed.value.repos.map((r) => [r.path, r.kind]), [['inner', 'nested']])
+})
+
+test('an external root is selectable only when the setting is on', async () => {
+  const on = await snapshotForSession(depsAt(hub), HUB_CONFIG, SID, { repo: '../outer' })
+  assert.equal(on.ok, true)
+  assert.equal(on.value.root, realpathSync.native(outer))
+
+  const off = await snapshotForSession(depsAt(hub), DEFAULT_CONFIG, SID, { repo: '../outer' })
+  assert.equal(off.ok, false)
+  assert.equal(off.error.code, 'invalid-repo')
+})
+
+test('the allow-list is compared by realpath equality, not by prefix', async () => {
+  // `outer-extra` shares the `outer` prefix: a startsWith-based membership test
+  // would admit it. The door must not.
+  const near = join(tmp, 'outer-extra')
+  mkdirSync(near, { recursive: true })
+  await runGit(near, ['init', '-q'])
+  const allow = [realpathSync.native(outer)]
+  assert.deepEqual(await repoDirExternal(createFsDeps(), hub, '../outer-extra', allow), { ok: false })
+})
+
+test('a sibling the workspace file does not name stays unreachable', async () => {
+  // `other` exists next to the hub and is a repository, but no folder entry
+  // names it: the selector must fail rather than let a `..` guess a directory.
+  const snap = await snapshotForSession(depsAt(hub), HUB_CONFIG, SID, { repo: '../other' })
+  assert.equal(snap.ok, false)
+  assert.equal(snap.error.code, 'invalid-repo')
+})
+
+test('a symlink inside the cwd cannot stand in for an external selector', async (t) => {
+  if (!linkOrSkip(t, join(tmp, 'other'), join(hub, 'linked'), 'dir')) return
+  for (const repo of ['linked', '../linked']) {
+    const snap = await snapshotForSession(depsAt(hub), HUB_CONFIG, SID, { repo })
+    assert.equal(snap.ok, false, 'must refuse ' + repo)
+    assert.equal(snap.error.code, 'invalid-repo')
+  }
+})
+
+test('the file browser follows an external root', async () => {
+  writeFileSync(join(outer, 'notes.md'), '# notes\n')
+  const browsed = await resolveBrowseRoot(depsAt(hub), SID, '../outer', 'auto')
+  assert.equal(browsed.ok, true)
+  assert.equal(browsed.root, realpathSync.native(outer))
+  assert.equal(browsed.isGitRepo, true)
+
+  const listed = await runQuery(depsAt(hub), HUB_CONFIG, {
+    sessionId: SID,
+    repo: '../outer',
+    query: { kind: 'dir-list', path: '' },
+  })
+  assert.equal(listed.ok, true)
+  assert.ok(listed.value.entries.some((entry) => entry.name === 'notes.md'))
+})
+
+test('a file inside an external root is readable, a traversal path is not', async () => {
+  const ok = await runQuery(depsAt(hub), HUB_CONFIG, {
+    sessionId: SID,
+    repo: '../outer',
+    query: { kind: 'file-content', path: 'notes.md' },
+  })
+  assert.equal(ok.ok, true)
+  assert.match(ok.value.content, /notes/)
+
+  for (const path of ['../other/notes.md', join(tmp, 'other', 'notes.md')]) {
+    const bad = await runQuery(depsAt(hub), HUB_CONFIG, {
+      sessionId: SID,
+      repo: '../outer',
+      query: { kind: 'file-content', path },
+    })
+    assert.equal(bad.ok, false, 'must refuse ' + path)
+    assert.equal(bad.error.code, 'invalid-path')
+  }
+})
+
+test('the endpoint drops an external row once the workspace file stops naming it', async () => {
+  const deps = depsAt(hub)
+  deps.codeWorkspaceCache = new Map()
+  const before = await listSessionRepos(deps, SID, true, undefined, 'auto')
+  assert.equal(before.ok, true)
+  assert.equal(before.value.repos.some((r) => r.path === '../outer'), true)
+
+  writeFileSync(join(hub, 'hub.code-workspace'), JSON.stringify({ folders: [{ path: '../wt-repo' }] }))
+  const after = await listSessionRepos(deps, SID, true, undefined, 'auto')
+  assert.equal(after.ok, true)
+  assert.equal(after.value.repos.some((r) => r.path === '../outer'), false, 'the removed entry is gone')
+  const rejected = await snapshotForSession(deps, HUB_CONFIG, SID, { repo: '../outer' })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.error.code, 'invalid-repo')
+
+  // Restore for the tests that follow.
+  writeFileSync(join(hub, 'hub.code-workspace'), JSON.stringify({
+    folders: [{ path: '../outer', name: 'api' }, { path: '../wt-repo' }, { path: 'inner' }, { path: '..' }],
+  }))
+})
+
+test('a commit inside an external repository goes through the selected root', async () => {
+  writeFileSync(join(outer, 'committed.txt'), 'external work\n')
+  const staged = await runAction(depsAt(hub), HUB_CONFIG, {
+    sessionId: SID,
+    repo: '../outer',
+    action: { kind: 'stage', paths: ['committed.txt'] },
+  })
+  assert.equal(staged.ok, true)
+  const committed = await runAction(depsAt(hub), HUB_CONFIG, {
+    sessionId: SID,
+    repo: '../outer',
+    action: { kind: 'commit', message: 'chore: external commit', paths: ['committed.txt'] },
+  })
+  assert.equal(committed.ok, true)
+  const snap = await snapshotForSession(depsAt(hub), HUB_CONFIG, SID, { repo: '../outer' })
+  assert.equal(snap.ok, true)
+  assert.equal(snap.value.lastCommit?.subject, 'chore: external commit')
+  assert.equal(
+    snap.value.changes.some((change) => change.path === 'committed.txt'),
+    false,
+    'the committed file left the change list',
+  )
 })

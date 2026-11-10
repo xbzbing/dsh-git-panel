@@ -158,6 +158,38 @@ export async function repoDirFor(
   return { ok: true, dir: real }
 }
 
+/** True when a selector leaves the session cwd (`..` or a `../…` path). These
+ * are the only selectors that can address an external root, and they are never
+ * cacheable: the allow-list behind them comes from a file the user may edit. */
+export function isOutwardSelector(rel: string): boolean {
+  return rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')
+}
+
+/**
+ * Resolve a selector that leaves the cwd to a directory a `.code-workspace`
+ * file certifies (ADR-0030). This is the third door out of the cwd, and it is
+ * the narrowest: the realpath must be a member of the allow-list built for this
+ * request from the workspace file, so a wire value can name neither an
+ * arbitrary parent directory nor a sibling the file does not list.
+ *
+ * `..` is expected here — that is how an external root is addressed — but an
+ * absolute path is still refused, and directories inside the cwd belong to
+ * `repoDirFor`, so exactly one door accepts a given path.
+ */
+export async function repoDirExternal(
+  fs: RepoFs,
+  cwd: string,
+  rel: string,
+  allowList: readonly string[],
+): Promise<{ readonly ok: true; readonly dir: string } | { readonly ok: false }> {
+  if (rel === '' || isAbsolute(rel) || !isOutwardSelector(rel)) return { ok: false }
+  const origin = await fs.realpath(cwd).catch(() => cwd)
+  const real = await fs.realpath(resolve(origin, rel)).catch(() => null)
+  if (real === null || isWithin(origin, real)) return { ok: false }
+  if (basename(real) === '.git') return { ok: false }
+  return allowList.some((allowed) => samePath(allowed, real)) ? { ok: true, dir: real } : { ok: false }
+}
+
 /**
  * Resolve a selector that leaves the cwd, for the one directory the repository
  * still owns above it: its root, the primary work tree.

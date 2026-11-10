@@ -581,7 +581,7 @@ export async function runAction(
   config: GitPanelConfig,
   request: GitActionRequest,
 ): Promise<GitActionResult> {
-  const workspace = await resolveWorkspace(deps, request.sessionId, request.repo)
+  const workspace = await resolveWorkspace(deps, request.sessionId, request.repo, config.codeWorkspace)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
 

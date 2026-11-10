@@ -396,7 +396,7 @@ export async function runSuggest(
   if (!config.suggestEnabled) {
     return { ok: false, error: { code: 'suggest-disabled', message: 'AI suggest is turned off in the plugin config' } }
   }
-  const workspace = await resolveWorkspace(deps, request.sessionId, request.repo)
+  const workspace = await resolveWorkspace(deps, request.sessionId, request.repo, config.codeWorkspace)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
 

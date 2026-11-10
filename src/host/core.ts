@@ -8,7 +8,9 @@ import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafeBranchName, isSafePath, isSafeRemoteName } from './validate.js'
-import { repoDirCertified, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
+import { isOutwardSelector, repoDirCertified, repoDirExternal, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
+import { scanCodeWorkspace } from './code-workspace.js'
+import type { CodeWorkspaceScan, ExternalRoot } from './code-workspace.js'
 import { parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
 import type { WorktreeCheckout, WorktreeInfo } from './worktrees.js'
 import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
@@ -32,6 +34,10 @@ export interface GitPanelConfig {
   readonly collapseReposOnPick: boolean
   /** The file browser may edit allow-listed config / document files. */
   readonly allowFileEdit: boolean
+  /** Which `.code-workspace` file may certify repositories outside the cwd:
+   * `off` (default), `auto` (discover one in the cwd), or an explicit file
+   * name in the cwd. See ADR-0030. */
+  readonly codeWorkspace: string
   /** Whether the input-bar git marker pill is shown. */
   readonly showInputPill: boolean
   /** Where the panel is mounted: the view tab, the right sidebar, or both. */
@@ -71,6 +77,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   filesFollowRepo: false,
   collapseReposOnPick: false,
   allowFileEdit: true,
+  codeWorkspace: 'off',
   showInputPill: true,
   placement: 'all',
   defaultDiffView: 'unified',
@@ -125,6 +132,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     filesFollowRepo: readBool(c.filesFollowRepo, DEFAULT_CONFIG.filesFollowRepo),
     collapseReposOnPick: readBool(c.collapseReposOnPick, DEFAULT_CONFIG.collapseReposOnPick),
     allowFileEdit: readBool(c.allowFileEdit, DEFAULT_CONFIG.allowFileEdit),
+    codeWorkspace: readCodeWorkspace(c.codeWorkspace, DEFAULT_CONFIG.codeWorkspace),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     placement: readPlacement(c.placement, DEFAULT_CONFIG.placement),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
@@ -205,6 +213,22 @@ export function readBool(value: unknown, fallback: boolean): boolean {
   return typeof raw === 'boolean' ? raw : fallback
 }
 
+/**
+ * Read the `.code-workspace` setting, unwrapping a schemastery volatile ref.
+ *
+ * The raw value is preserved (trimmed) rather than coerced to `off` when it
+ * looks wrong: a typo in the file name is the most likely user error, and a
+ * silent fallback would hide it. Classification happens per session, where the
+ * cwd is known and the result can be reported (`GitRepoList.codeWorkspace`) —
+ * no filesystem access happens for a shape that can never name a file.
+ */
+export function readCodeWorkspace(value: unknown, fallback: string): string {
+  const raw = unwrapVolatile(value)
+  if (typeof raw !== 'string') return fallback
+  const trimmed = raw.trim()
+  return trimmed === '' ? 'off' : trimmed
+}
+
 /** Host capabilities the snapshot needs, structurally injected. */
 export interface SnapshotDeps {
   readonly run: GitRunner
@@ -260,6 +284,14 @@ export interface SnapshotDeps {
    * soon after.
    */
   readonly rootNegCache?: Map<string, number>
+  /**
+   * Optional cache for the `.code-workspace` scan, keyed by file path plus its
+   * mtime and size. Resolving an external root costs up to 20 `git rev-parse`
+   * probes; without this, every 30-second snapshot of an external repository
+   * would repeat them. The stamp is part of the key, so an edited file misses
+   * and the deleted file simply stops producing roots.
+   */
+  readonly codeWorkspaceCache?: Map<string, readonly ExternalRoot[]>
   /**
    * Optional per-request resolvers for the host model services (see
    * llm-face.ts). Resolved on every suggest call — never frozen at
@@ -345,8 +377,9 @@ export async function resolveBrowseRoot(
   deps: SnapshotDeps,
   sessionId: string,
   repo?: string,
+  codeWorkspace: string = 'off',
 ): Promise<{ ok: true; root: string; isGitRepo: boolean } | { ok: false; error: { code: GitErrorCode; message?: string } }> {
-  const ws = await resolveWorkspace(deps, sessionId, repo)
+  const ws = await resolveWorkspace(deps, sessionId, repo, codeWorkspace)
   if (ws.ok) return { ok: true, root: ws.root, isGitRepo: true }
   const err = ws.failure.error
   // A selector the host cannot resolve is the picker's own stale state: browsing
@@ -365,6 +398,33 @@ export async function resolveBrowseRoot(
     }
   }
   return { ok: false, error: mapWorkspaceFailure(ws.failure) }
+}
+
+/** Run `git rev-parse --show-toplevel` in `dir` and return its realpath, or
+ * null when git cannot answer. Used to confirm that a `.code-workspace` folder
+ * really is a work-tree top. */
+async function gitToplevel(deps: SnapshotDeps, dir: string): Promise<string | null> {
+  const probe = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], dir, 'toplevel', deps.signal)
+  if ('failure' in probe) return null
+  if (probe.run.cancelled || probe.run.timedOut || probe.run.exitCode !== 0) return null
+  const out = probe.run.stdout.trim()
+  if (out === '') return null
+  return await deps.fs.realpath(out).catch(() => out)
+}
+
+/** External repository roots the session's `.code-workspace` file certifies. */
+export async function sessionExternalRoots(
+  deps: SnapshotDeps,
+  cwd: string,
+  codeWorkspace: string,
+): Promise<CodeWorkspaceScan> {
+  return scanCodeWorkspace(
+    deps.fs,
+    (dir) => gitToplevel(deps, dir),
+    cwd,
+    codeWorkspace,
+    deps.codeWorkspaceCache,
+  )
 }
 
 /** The session's cwd: the live session header first, then the persisted one. */
@@ -402,14 +462,26 @@ function rootCacheKey(cwd: string, repo: string): string {
  * than silently resolving to its parent, because the repository list only ever
  * offers tops.
  */
-export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string, repo?: string): Promise<WorkspaceResolution> {
+export async function resolveWorkspace(
+  deps: SnapshotDeps,
+  sessionId: string,
+  repo?: string,
+  codeWorkspace: string = 'off',
+): Promise<WorkspaceResolution> {
   const resolved = await resolveSessionCwd(deps, sessionId)
   if (!resolved.ok) return resolved
   const cwd = resolved.cwd
   const rel = repo ?? ''
   const key = rootCacheKey(cwd, rel)
-  const cached = deps.rootCache?.get(key)
-  if (cached !== undefined) return { ok: true, root: cached }
+  const outward = isOutwardSelector(rel)
+  // A selector that leaves the cwd is certified by a `.code-workspace` file the
+  // user can edit, so a cached positive answer could outlive the entry that
+  // justified it (`rootCache` has no TTL). Those selectors skip the positive
+  // cache; the short-lived negative one still applies.
+  if (!outward) {
+    const cached = deps.rootCache?.get(key)
+    if (cached !== undefined) return { ok: true, root: cached }
+  }
   const negAt = deps.rootNegCache?.get(key)
   if (negAt !== undefined) {
     if (Date.now() < negAt) {
@@ -418,23 +490,28 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string, re
     deps.rootNegCache?.delete(key)
   }
   // Where git runs: the cwd itself for the default repository, or the selected
-  // checkout's real directory. Two doors lead out of the cwd: a plain nested
-  // directory (`repoDirFor`), and the repository root itself (`repoDirCertified`)
-  // — the latter is what lets a session that moved into a linked worktree get
-  // back to the main checkout. That one directory is the only escape: a sibling
-  // checkout outside the cwd is still reachable, but as a row of the root you
-  // select first.
+  // checkout's real directory. Three doors lead out of the cwd: a plain nested
+  // directory (`repoDirFor`); a root the session's `.code-workspace` file
+  // certifies (`repoDirExternal`, ADR-0030); and the repository root itself
+  // (`repoDirCertified`) — the last one is what lets a session that moved into a
+  // linked worktree get back to the main checkout. Every door answers by
+  // realpath equality, so a wire value cannot name an arbitrary directory.
   let start = cwd
   if (rel !== '') {
     const nested = await repoDirFor(deps.fs, cwd, rel)
     if (nested.ok) start = nested.dir
     else {
-      const certified = await repoDirCertified(deps.fs, cwd, rel, await certifiedRepoRoot(deps, cwd))
-      if (!certified.ok) {
-        deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
-        return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
+      const external = await sessionExternalRoots(deps, cwd, codeWorkspace)
+      const admitted = await repoDirExternal(deps.fs, cwd, rel, external.roots.map((root) => root.root))
+      if (admitted.ok) start = admitted.dir
+      else {
+        const certified = await repoDirCertified(deps.fs, cwd, rel, await certifiedRepoRoot(deps, cwd))
+        if (!certified.ok) {
+          deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
+          return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
+        }
+        start = certified.dir
       }
-      start = certified.dir
     }
   }
   const top = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], start, 'toplevel', deps.signal)
@@ -538,6 +615,7 @@ export async function listSessionRepos(
   sessionId: string,
   detectCheckouts: boolean,
   resultLimit: number = REPO_RESULT_LIMIT,
+  codeWorkspace: string = 'off',
 ): Promise<{ readonly ok: true; readonly value: GitRepoList } | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }> {
   const resolved = await resolveSessionCwd(deps, sessionId)
   if (!resolved.ok) return { ok: false, error: mapWorkspaceFailure(resolved.failure) }
@@ -594,7 +672,34 @@ export async function listSessionRepos(
     repos.push({ path: found.path, root: found.root, name: found.name, kind: 'nested', role: 'repo' })
     foreign += 1
   }
-  return { ok: true, value: { cwd, repos } }
+  // Roots a `.code-workspace` file certifies sit outside the cwd, so neither
+  // probe above can find them. They are explicit rather than detected, which is
+  // why `detectCheckouts` does not gate them; the setting is itself opt-in and
+  // every entry still has to survive git's own toplevel check. The same scan
+  // reports whether the file was recognised, so a typo in the setting surfaces
+  // as a state instead of an unexplained empty list.
+  let recognition: GitRepoList['codeWorkspace']
+  if (codeWorkspace !== 'off') {
+    const external = await sessionExternalRoots(deps, cwd, codeWorkspace)
+    for (const root of external.roots) {
+      if (repos.some((entry) => samePath(entry.root, root.root))) continue
+      repos.push({
+        path: root.path,
+        root: root.root,
+        name: root.name,
+        kind: 'external',
+        role: 'repo',
+        ...(root.label !== undefined ? { label: root.label } : {}),
+      })
+    }
+    if (external.state !== undefined) {
+      recognition = {
+        state: external.state,
+        ...(external.file !== null ? { file: external.file } : {}),
+      }
+    }
+  }
+  return { ok: true, value: { cwd, repos, ...(recognition !== undefined ? { codeWorkspace: recognition } : {}) } }
 }
 
 /** Run one git command; a spawn-level failure returns { failure }.
@@ -708,7 +813,7 @@ export async function snapshotForSession(
   // FULL_CHANGES_MAX so a big-but-sane change set arrives complete; everything
   // else (counts, stats fan-out, status fallback) keeps its normal bounds.
   const changeLimit = opts?.fullChanges === true ? Math.max(config.maxChanges, FULL_CHANGES_MAX) : config.maxChanges
-  const workspace = await resolveWorkspace(deps, sessionId, opts?.repo)
+  const workspace = await resolveWorkspace(deps, sessionId, opts?.repo, config.codeWorkspace)
   if (!workspace.ok) {
     // Surface the pill preference even on the not-a-git-repo path, where the
     // client still renders the directory-name marker.
