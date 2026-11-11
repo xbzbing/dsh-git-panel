@@ -11,7 +11,9 @@
  *    mount a frame or create an object URL;
  *  - a manual refresh keeps the heavy-document approval and the script
  *    preference of the same path, while selecting that path again resets both;
- *  - object URLs are released when the rendered view goes away.
+ *  - object URLs are released when the rendered view goes away;
+ *  - a page that declares no charset still decodes as UTF-8, because the frame
+ *    is a blob: and the blob's own type is the only label it gets.
  *
  * Self-contained: its own fixtures and a file-content route the test can park,
  * so a "delayed" asset read is a genuine in-flight request rather than a sleep.
@@ -57,8 +59,12 @@ const FILES = {
   'light.html': page('LIGHT'),
   // An inline script past the 512 KiB confirmation threshold.
   'heavy.html': `<!doctype html><title>HEAVY</title><p>HEAVY MARK</p><script>/*${'x'.repeat(600 * 1024)}*/parent.postMessage('page-load:HEAVY','*')</script>`,
+  // No `<meta charset>` and no BOM on purpose: a blob: frame carries no headers
+  // and is not encoding-sniffed, so only the blob's own label makes this page
+  // readable.
+  'zh.html': '<!doctype html><title>ZH</title><p>A · Q 版抱鲸鱼</p>',
 }
-const TREE = [['race.html', false], ['race.css', false], ['other.html', false], ['light.html', false], ['heavy.html', false]]
+const TREE = [['race.html', false], ['race.css', false], ['other.html', false], ['light.html', false], ['heavy.html', false], ['zh.html', false]]
 
 const browser = await chromium.launch()
 
@@ -198,6 +204,15 @@ const release = (p) => p.evaluate(() => {
 })
 const waitParked = (p) => p.waitForFunction(() => window.__ctl.parked.length > 0, null, { timeout: 5000 })
 const waitFrame = (p) => p.waitForFunction(() => document.querySelector('.gp-files__html') !== null, null, { timeout: 5000 })
+/** The mounted blob: frame, once its navigation has committed. */
+const waitBlobFrame = async (p) => {
+  for (let tries = 0; tries < 100; tries += 1) {
+    const frame = p.frames().find((candidate) => candidate !== p.mainFrame() && candidate.url().startsWith('blob:'))
+    if (frame !== undefined) return frame
+    await p.waitForTimeout(50)
+  }
+  return undefined
+}
 /** Select a tree row and wait for the toolbar that carries the mode switcher. */
 const selectFile = async (p, name) => {
   await p.evaluate((target) => window.__t.select(target), name)
@@ -428,6 +443,24 @@ const watch = (p) => {
   const after = await p.evaluate(() => ({ created: window.__blob.created.length, loads: window.__loads.RACE ?? 0 }))
   assert.equal(after.created, before, 'a pack that settles after unmount creates no object URL')
   assert.equal(after.loads, 0, 'the abandoned page never ran')
+  await p.close()
+}
+
+// ── 8. A page that declares no charset still decodes as UTF-8 ─────────────
+{
+  const p = await boot()
+  watch(p)
+  await selectFile(p, 'zh.html')
+  await setMode(p, 'files.render')
+  await waitFrame(p)
+  // The frame is a blob: document on an opaque origin, so only the Playwright
+  // frame handle can look inside it — the panel itself never can.
+  const frame = await waitBlobFrame(p)
+  assert.ok(frame !== undefined, 'the rendered page is mounted in a blob: frame')
+  await frame.waitForFunction(() => document.body.innerText.trim() !== '', null, { timeout: 5000 })
+  const seen = await frame.evaluate(() => ({ enc: document.characterSet, text: document.body.innerText.trim() }))
+  assert.equal(seen.enc, 'UTF-8', 'the blob: type declares its encoding, so the browser never falls back to the platform default')
+  assert.equal(seen.text, 'A · Q 版抱鲸鱼', 'text with no <meta charset> renders as authored instead of mojibake')
   await p.close()
 }
 

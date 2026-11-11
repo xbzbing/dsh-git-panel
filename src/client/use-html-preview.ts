@@ -162,10 +162,16 @@ export function useHtmlPreview(options: UseHtmlPreviewOptions): HtmlPreviewResul
   // effect, not a memo: a render React throws away would leak an object URL
   // that pins the whole document. The document it was built from travels with
   // it, so a stale URL is never handed to the frame.
+  //
+  // The blob type carries the charset: a blob: document arrives with no
+  // headers and, unlike a file: page, is not encoding-sniffed, so a page that
+  // declares no `<meta charset>` would fall back to the platform encoding and
+  // render every non-ASCII character as mojibake. The host decodes the file as
+  // UTF-8, so this label is always the truth.
   const [blob, setBlob] = useState<{ readonly doc: string; readonly url: string } | undefined>(undefined)
   useEffect(() => {
     if (interactiveDoc === undefined) { setBlob(undefined); return }
-    const url = URL.createObjectURL(new Blob([withReadyPing(interactiveDoc)], { type: 'text/html' }))
+    const url = URL.createObjectURL(new Blob([withReadyPing(interactiveDoc)], { type: 'text/html;charset=utf-8' }))
     setBlob({ doc: interactiveDoc, url })
     return () => { URL.revokeObjectURL(url) }
   }, [interactiveDoc])
