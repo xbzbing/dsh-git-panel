@@ -460,6 +460,8 @@ export const pt: Record<GitKey, string> = {
   'cfg.diffTitle': 'Exibição padrão das diferenças',
   'cfg.diffHint': 'Escolha o layout com que as diferenças abrem: unificado é uma única coluna embutida, lado a lado mostra as versões em paralelo. Você ainda pode alternar em cada diferença. As alterações salvas entram em vigor imediatamente.',
   'cfg.changesViewHint': 'Visão padrão da lista de alterações: plano mostra uma linha por arquivo; árvore aninha as linhas sob diretórios com contagens. Um ícone no fim da barra mostra a visão atual e alterna ao clicar; ele se oculta quando o espaço é curto.',
+  'cfg.packagesToggle': 'Dobrar caminhos de pacotes Java',
+  'cfg.packagesHint': 'Ligado, o navegador mostra src/main/java como uma única raiz de código e mescla uma sequência de diretórios de pacote com um único filho em uma linha com.example…; desligado, mostra a árvore física. Reconhecido apenas pela convenção de caminhos Java/Kotlin, sem ler arquivos de build.',
   'cfg.diffUnified': 'Unificado (coluna única embutida)',
   'cfg.diffSplit': 'Lado a lado',
   'cfg.graphTitle': 'Estilo de linhas do grafo de commits',

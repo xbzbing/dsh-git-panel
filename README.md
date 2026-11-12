@@ -32,7 +32,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 - **AI 生成提交信息**：参照仓库既有提交风格生成，模型默认跟随当前会话，可在详情页固定。**生成会把 diff 内容发送给所选模型的供应商。**
 - **输入框 Git 标记**：zsh 风格的 `<仓库名> (<分支>)`，绿色为已同步、橙色为有未提交变更，点击跳转面板。空白对话尚未渲染视图标签栏时，点击改为打开右侧边栏的 Git 页签；侧边栏已展开且其中只有 Git 页时，再次点击收起侧边栏（还有其它页时仍只跳到 Git 页）。侧边栏入口也不可用时会提示先发送第一条消息。
 - **多仓库切换**：自动识别 worktree 与子目录里的独立仓库；开启 `codeWorkspace` 后，工作区里的 `.code-workspace` 文件也会贡献它列出的目录——包括工作区旁边或上层的仓库，并优先使用文件里的 `name` 作为显示名；切换后总览、变更记录和输入框标记都作用于所选仓库；点行切换后列表保持展开，连续换仓库不用再点一次，切回读过的仓库直接换回它上一次的内容。
-- **文件浏览**：浏览工作区目录树，预览代码、Markdown（含 mermaid 图表）、HTML 与图片；默认以项目根为根，也可随 Git 切换换根；非 Git 目录同样可用。配置与文档类文件（json / yaml / xml / properties / md / txt / toml / conf / ini / cfg、`.gitignore` 等）可以直接编辑保存。
+- **文件浏览**：浏览工作区目录树，预览代码、Markdown（含 mermaid 图表）、HTML 与图片；默认以项目根为根，也可随 Git 切换换根；非 Git 目录同样可用。配置与文档类文件（json / yaml / xml / properties / md / txt / toml / conf / ini / cfg、`.gitignore` 等）可以直接编辑保存。Java/Kotlin 项目还按路径约定折叠包：`src/main/java` 显示为一个源码根，连续的单子目录包合并成 `com.example…` 一行（默认开启，可在插件配置「视图」里关闭，关闭后回到物理目录树）。
 - **右键菜单**：文件、目录、预览图片、分支、提交、变更、贮藏、仓库行和输入框 Git 标记都能右键。文件与目录借用侧边栏的公开动作——在浮窗打开、在 Finder 中显示、用默认应用打开（带应用图标）、复制路径、下载 / 另存为（没有「在侧栏打开」）；diff 两侧的图片可复制、下载、另存为。分支行可切换、从该分支新建分支、合并到当前分支（issue #118，两者均需确认，新建不切换）、只看该分支历史、复制分支名、删除本地分支（issue #112，删除需二次确认），远端分支行还可按完整 tracking 引用新建 / 合并（issue #118）与删除远程分支（必须勾选确认，只动远端）；提交行可复制哈希与说明、建标签、在此提交创建分支、拣选到当前分支（issue #118，需确认）、还原、重置（issue #107），host 声明能力时还能检出为游离 HEAD；变更行可打开差异、暂存 / 放弃；贮藏行可应用、弹出、复制说明、删除；文件、目录与提交可以「引用到输入框」；仓库行可定位目录、复制路径、检查远端；输入框标记可跳页签、复制分支名、检查远端。需要 dsh ≥ 0.2.2-alpha.3，旧版本右键保留浏览器原生菜单。
 - **差异与源码查看**：统一 / 对照 / 变更前 / 变更后四种视图，工具栏图标切换（对照位显示旋转的对比图标，再次点击回到统一），语法高亮、词级强调、上下文按需展开、<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> 就地查找；图片可缩放、拖拽与全屏。
 - **窄面板 / 移动端**：按面板尺寸自动切换布局，侧栏和手机上都能用。
@@ -92,6 +92,7 @@ src/
     core.ts         workspace 解析 + snapshotForSession
     actions.ts      GitAction → git 命令序列（commit / amend / stage 等）
     queries.ts      history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / worktree-stats
+    package-tree.ts 源码根识别、包链折叠与 src 投影（文件浏览的 Java/Kotlin 视图）
     suggest.ts      AI 生成提交信息（diff 收集 + 提交语言推断 + ctx.llm 一次性调用）
     parser.ts       git 输出解析为结构化数据
     version.ts      本包版本 + GitHub release 更新检查

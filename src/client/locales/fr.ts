@@ -460,6 +460,8 @@ export const fr: Record<GitKey, string> = {
   'cfg.diffTitle': 'Vue des différences par défaut',
   'cfg.diffHint': 'Choisissez la disposition d’ouverture des différences : unifiée sur une seule colonne, ou côte à côte. Vous pouvez toujours changer pour chaque fichier. Les modifications enregistrées s’appliquent immédiatement.',
   'cfg.changesViewHint': 'Vue par défaut de la liste des modifications : à plat, une ligne par fichier ; en arborescence, les lignes sont imbriquées sous les dossiers avec les compteurs. Une icône en fin de barre montre la vue en cours et la bascule au clic ; elle se masque quand l’espace manque.',
+  'cfg.packagesToggle': 'Replier les chemins de paquets Java',
+  'cfg.packagesHint': 'Activé, l’explorateur affiche src/main/java comme une seule racine de sources et fusionne une suite de dossiers de paquet à enfant unique en une ligne com.example… ; désactivé, il affiche l’arborescence physique. Reconnaissance par convention de chemin Java/Kotlin uniquement, sans lire les fichiers de build.',
   'cfg.diffUnified': 'Unifiée (une seule colonne)',
   'cfg.diffSplit': 'Côte à côte',
   'cfg.graphTitle': 'Style des lignes du graphe de commits',

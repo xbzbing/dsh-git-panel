@@ -139,7 +139,30 @@ try {
   const titled = m.filter((s) => s.fieldTitle !== null)
   assert.ok(titled.length >= 2)
   for (const s of titled) assert.deepEqual(s.fieldTitle, { size: 14, weight: 500 }, 'field titles are 14px/500, below the section title')
-  assert.deepEqual(m.map((s) => s.fieldCount), [3, 4, 6, 3], 'field groups per section (the view section gained the changes-view row)')
+  assert.deepEqual(m.map((s) => s.fieldCount), [3, 5, 6, 3], 'field groups per section (view gained the changes-view and package-folding rows)')
+
+  // The package-folding row is a real setting, not just a count. This harness
+  // binds the locale to the raw key on purpose (the CSS assertions below must
+  // not depend on translations), so the check pins the *keys and their
+  // section* — a wrong or shared key would surface here, and the eight
+  // dictionaries that spell these keys are covered by the locale unit test.
+  const packagesRow = await page.evaluate(() => {
+    const body = document.getElementById('gp-cfg-sec-view')
+    const row = [...body.querySelectorAll('.gp-cfg__row')]
+      .find((r) => r.querySelector('.gp-cfg__text')?.textContent?.trim() === 'cfg.packagesToggle')
+    if (row === undefined) return null
+    const field = row.closest('.gp-cfg__field')
+    return {
+      label: (row.querySelector('.gp-cfg__text')?.textContent ?? '').trim(),
+      checked: row.querySelector('input[role="switch"]').checked,
+      hint: (field?.querySelector('.gp-cfg__hint')?.textContent ?? '').trim(),
+      title: (field?.querySelector('.gp-cfg__title')?.textContent ?? '').trim(),
+    }
+  })
+  assert.notEqual(packagesRow, null, 'the view section offers the package-folding switch under its own key')
+  assert.equal(packagesRow.hint, 'cfg.packagesHint', 'the row carries its own hint key, not a reused one')
+  assert.equal(packagesRow.checked, true, 'package folding is on by default')
+  assert.equal(packagesRow.title, '', 'the row has no field title of its own, like the other switches')
   assert.equal(new Set(m.map((s) => s.ruleColor)).size, 4, `each section tints its rule: ${m.map((s) => s.ruleColor).join(' | ')}`)
 
   // Collapse again: the body hides and the rule goes with it.

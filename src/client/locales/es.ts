@@ -460,6 +460,8 @@ export const es: Record<GitKey, string> = {
   'cfg.diffTitle': 'Vista de diferencias predeterminada',
   'cfg.diffHint': 'Elija el diseño con el que se abren las diferencias: unificada es una sola columna en línea; en paralelo, lado a lado. Puede seguir cambiándolo en cada diferencia. Los cambios guardados se aplican de inmediato.',
   'cfg.changesViewHint': 'Vista predeterminada de la lista de cambios: plano muestra una fila por archivo; árbol anida las filas bajo directorios con recuentos. Un icono al final de la barra muestra la vista actual y la alterna al hacer clic; se oculta cuando falta espacio.',
+  'cfg.packagesToggle': 'Plegar rutas de paquetes Java',
+  'cfg.packagesHint': 'Activado, el explorador muestra src/main/java como una única raíz de código y fusiona una cadena de directorios de paquete con un solo hijo en una fila com.example…; desactivado, muestra el árbol físico. Solo se reconoce por la convención de rutas Java/Kotlin, sin leer archivos de compilación.',
   'cfg.diffUnified': 'Unificada (una columna en línea)',
   'cfg.diffSplit': 'En paralelo (lado a lado)',
   'cfg.graphTitle': 'Estilo de líneas del gráfico de confirmaciones',

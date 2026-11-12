@@ -13,6 +13,7 @@ import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryRespons
 import { imageMimeFor, isEditablePath, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, EDIT_MAX_BYTES, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, SVG_MIME } from './types.js'
 import type { FileEditInfo } from './types.js'
 import { editInfo, sha256Hex } from './edit-info.js'
+import { isPackageSegment, projectSourceRoots, sourceRootOf, MAX_PACKAGE_READS, MAX_PACKAGE_SEGMENTS, PACKAGE_DEADLINE_MS, SOURCE_SETS } from './package-tree.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -75,7 +76,7 @@ export async function runQuery(
     if (!browse.ok) return { ok: false, error: browse.error }
     try {
       return q.kind === 'dir-list'
-        ? await queryDirList(deps, browse.root, q, browse.isGitRepo)
+        ? await queryDirList(deps, config, browse.root, q, browse.isGitRepo)
         : await queryFileContent(deps, config, browse.root, q)
     } catch (error) {
       return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
@@ -828,15 +829,25 @@ const DIR_ENTRY_CAP = 2000
  * is validated (`isSafePath`) and its realpath is confirmed inside the root so
  * a symlinked subdirectory cannot escape. Entries are sorted dirs-first then by
  * name and capped at DIR_ENTRY_CAP.
+ *
+ * With the `packages` flag (and the config switch on) a directory project's
+ * `src` skeleton is projected into source-root rows and directory entries
+ * inside a source root carry their folded package chain; both are purely
+ * additive, so a client that does not ask still gets the physical tree.
  */
 async function queryDirList(
   deps: SnapshotDeps,
+  config: GitPanelConfig,
   root: string,
   q: Extract<GitQueryRequest['query'], { kind: 'dir-list' }>,
   isGitRepo: boolean,
 ): Promise<GitQueryResponse> {
-  const rel = q.path
-  if ((rel !== '' && !isSafePath(rel)) || hasGitSegment(rel)) return { ok: false, error: { code: 'invalid-path', message: rel } }
+  const requested = q.path
+  if ((requested !== '' && !isSafePath(requested)) || hasGitSegment(requested)) return { ok: false, error: { code: 'invalid-path', message: requested } }
+  // One spelling for the containment check, the joins, the source-root
+  // conventions and the response: a doubly-slashed path would otherwise miss
+  // every convention tail while the same directory reads back fine.
+  const rel = requested.replace(/\/{2,}/g, '/').replace(/\/+$/, '')
   const dir = rel === '' ? root : join(root, rel)
   const inside = await isInsideRoot(deps, root, dir, true)
   if (inside === 'missing') return { ok: false, error: { code: 'file-not-found', message: rel } }
@@ -848,19 +859,165 @@ async function queryDirList(
     return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'readdir failed' } }
   }
   const filtered = raw.filter((e) => e.name !== '.git')
-  filtered.sort((a, b) => (a.isDirectory !== b.isDirectory ? (a.isDirectory ? -1 : 1) : a.name.localeCompare(b.name)))
+  filtered.sort((a, b) => compareDirEntries({ name: a.name, dir: a.isDirectory }, { name: b.name, dir: b.isDirectory }))
   const truncated = filtered.length > DIR_ENTRY_CAP
   const slice = truncated ? filtered.slice(0, DIR_ENTRY_CAP) : filtered
   const ignored = isGitRepo ? await ignoredEntries(deps, root, rel, slice.map((e) => e.name)) : new Set<string>()
-  const entries: DirEntry[] = await Promise.all(slice.map(async (e) => {
+  let entries: DirEntry[] = await Promise.all(slice.map(async (e) => {
     const ignoreFlag = ignored.has(e.name) ? { ignored: true } : {}
     if (e.isDirectory) return { name: e.name, dir: true, ...ignoreFlag }
     let size: number | undefined
     try { size = (await deps.fs.stat(join(dir, e.name))).size } catch { size = undefined }
     return { name: e.name, dir: false, ...(size !== undefined ? { size } : {}), ...ignoreFlag }
   }))
-  const path = rel === '' ? '' : rel.replace(/\/+$/, '')
-  return { ok: true, value: { kind: 'dir-list', path, entries, truncated } }
+  const packages = q.packages === true && config.compactPackages
+  // A truncated parent listing already lost entries; projecting on top of it
+  // could hide the `src` row while its replacement is incomplete.
+  if (packages && !truncated) {
+    const projected = await projectSourceTree(deps, root, dir, rel, entries, ignored, isGitRepo)
+    if (projected !== null) entries = projected
+  }
+  if (packages) entries = await foldPackageChains(deps, root, rel, entries)
+  return { ok: true, value: { kind: 'dir-list', path: rel, entries, truncated } }
+}
+
+/**
+ * Replace the `src` entry of one listing with the source roots and other
+ * children below it (`src/main/java`, `src/main/resources`, …), hiding the
+ * Maven skeleton's two fixed levels. Null keeps the physical tree: `src`
+ * holds a file, a source set does not read as directories only, no real
+ * source root is projected, or the result would exceed the entry cap.
+ */
+async function projectSourceTree(
+  deps: SnapshotDeps,
+  root: string,
+  dir: string,
+  rel: string,
+  entries: readonly DirEntry[],
+  ignored: ReadonlySet<string>,
+  isGitRepo: boolean,
+): Promise<DirEntry[] | null> {
+  // Inside a source root `src` is an ordinary package name, not the layout.
+  if (sourceRootOf(rel) !== null) return null
+  if (!entries.some((entry) => entry.name === 'src' && entry.dir)) return null
+  // An ignored `src` is generated output (or explicitly excluded): leave it
+  // where Git's own view puts it.
+  if (isGitRepo && ignored.has('src')) return null
+  const srcDir = join(dir, 'src')
+  if ((await isInsideRoot(deps, root, srcDir, true)) !== 'inside') return null
+  let srcRaw: ReadonlyArray<{ name: string; isDirectory: boolean }>
+  try {
+    srcRaw = await deps.fs.readdir(srcDir)
+  } catch {
+    return null
+  }
+  const srcChildren = srcRaw.filter((entry) => !hasGitSegment(entry.name))
+  // A file directly under `src` (a script, a manifest) has no source-root
+  // home; keeping the physical tree is the only lossless answer.
+  if (srcChildren.some((entry) => !entry.isDirectory)) return null
+  const setChildren = new Map<string, readonly string[]>()
+  for (const set of SOURCE_SETS) {
+    if (!srcChildren.some((entry) => entry.name === set)) continue
+    const setDir = join(srcDir, set)
+    if ((await isInsideRoot(deps, root, setDir, true)) !== 'inside') return null
+    let children: ReadonlyArray<{ name: string; isDirectory: boolean }>
+    try {
+      children = await deps.fs.readdir(setDir)
+    } catch {
+      return null
+    }
+    const visible = children.filter((entry) => !hasGitSegment(entry.name))
+    // Same rule one level down, so a file under `src/main` is never hidden
+    // behind a projected subdirectory.
+    if (visible.some((entry) => !entry.isDirectory)) return null
+    setChildren.set(set, visible.map((entry) => entry.name))
+  }
+  const projected = projectSourceRoots(srcChildren.map((entry) => entry.name), setChildren)
+  if (projected === null) return null
+  // A projected row can itself be excluded (`src/main/resources` is generated
+  // in many projects); ask Git once for the whole page, like the parent
+  // listing does, so the ignore state is not lost at this level.
+  const ignoredProjected = isGitRepo ? await ignoredEntries(deps, root, rel, projected) : new Set<string>()
+  const rows: DirEntry[] = projected.map((name) => ({
+    name,
+    dir: true,
+    ...(sourceRootOf(name) === name ? { sourceRoot: true as const } : {}),
+    ...(ignoredProjected.has(name) ? { ignored: true as const } : {}),
+  }))
+  const merged = [...entries.filter((entry) => entry.name !== 'src'), ...rows]
+  if (merged.length > DIR_ENTRY_CAP) return null
+  // The listing contract is dirs-first; a bare name sort would interleave
+  // `pom.xml` between the projected source roots.
+  merged.sort(compareDirEntries)
+  return merged
+}
+
+/** The ordering every listing renders: directories first, then by name. */
+function compareDirEntries(a: { readonly name: string; readonly dir: boolean }, b: { readonly name: string; readonly dir: boolean }): number {
+  if (a.dir !== b.dir) return a.dir ? -1 : 1
+  return a.name.localeCompare(b.name)
+}
+
+/**
+ * Fold each directory entry below a source root through a run of single-child
+ * package directories. The walk is bounded in segments, directory reads and
+ * wall-clock time; the cap is shared by every row in this listing, so a wide
+ * source root costs one listing's worth of reads. A run that stops at the cap
+ * still names a real directory, so the client can expand it.
+ */
+async function foldPackageChains(
+  deps: SnapshotDeps,
+  root: string,
+  rel: string,
+  entries: DirEntry[],
+): Promise<DirEntry[]> {
+  if (sourceRootOf(rel) === null) return entries
+  const deadline = Date.now() + PACKAGE_DEADLINE_MS
+  const budget = { reads: 0 }
+  return Promise.all(entries.map(async (entry) => {
+    if (!entry.dir || !isPackageSegment(entry.name)) return entry
+    const chain = await packageChain(deps, root, rel, entry.name, deadline, budget)
+    return chain === null ? entry : { ...entry, chain }
+  }))
+}
+
+async function packageChain(
+  deps: SnapshotDeps,
+  root: string,
+  parentRel: string,
+  name: string,
+  deadline: number,
+  budget: { reads: number },
+): Promise<{ path: string; label: string } | null> {
+  const segments = [name]
+  let target = parentRel === '' ? name : `${parentRel}/${name}`
+  while (segments.length < MAX_PACKAGE_SEGMENTS) {
+    if (budget.reads >= MAX_PACKAGE_READS || Date.now() > deadline) break
+    // Reserve the slot before the first await: every row in this listing walks
+    // concurrently, and reserving afterwards would let all of them pass the
+    // guard and exceed the shared budget.
+    budget.reads += 1
+    // The entry came from a listing of the same root, but each hop is a new
+    // realpath decision: a symlinked package directory must not extend the
+    // chain outside the work tree.
+    const resolved = await resolveInsideRoot(deps, root, join(root, target), true)
+    if (resolved.state !== 'inside') break
+    let raw: ReadonlyArray<{ name: string; isDirectory: boolean }>
+    try {
+      raw = await deps.fs.readdir(resolved.real)
+    } catch {
+      break
+    }
+    const children = raw.filter((entry) => entry.name !== '.git')
+    // Only a single directory can be folded; one file, several siblings or a
+    // non-identifier name ends the run at a real, inspectable directory.
+    if (children.length !== 1) break
+    const only = children[0]
+    if (!only.isDirectory || !isPackageSegment(only.name)) break
+    segments.push(only.name)
+    target = `${target}/${only.name}`
+  }
+  return segments.length > 1 ? { path: target, label: segments.join('.') } : null
 }
 
 /** Check only the visible directory page; Git handles nested and negated rules. */

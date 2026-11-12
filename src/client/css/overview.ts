@@ -160,6 +160,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* Official file lists render directory names at the same weight as files; the
  * open/closed folder glyph carries the expansion state. */
 .gp-files__tree .gp-files__entry--dir .gp-tree-name{font-weight:500}
+/* 文件浏览的 Java 投影行：源码根标签是一条路径（src/main/java）而不是单个
+ * 目录名，等宽字体把这一点和同级目录区分开；折叠包的标签保持常规字体。 */
+.gp-files__tree .gp-files__entry--source-root .gp-tree-name{font-family:var(--dsw-font-mono,ui-monospace,monospace)}
 .gp-files__entry:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-files__entry.gp-tree-row--active,.gp-files__entry.gp-tree-row--active:hover{background:transparent}
 /* The detail pane's tree rows carry only gp-tree-row, so they need the same

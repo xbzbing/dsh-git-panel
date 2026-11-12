@@ -94,7 +94,7 @@ export class GitPanelService extends TypertRemoteService {
   /**
    * Config schema surfaced on the plugin detail page. `showInputPill`,
    * `defaultDiffView`, `changesView`, `graphStyle`, `detectCheckouts`, `filesFollowRepo`,
-   * `collapseReposOnPick`, `allowFileEdit` and the suggest fields are `.volatile()`, so the settings host renders them as
+   * `collapseReposOnPick`, `allowFileEdit`, `compactPackages` and the suggest fields are `.volatile()`, so the settings host renders them as
    * live-editable controls; the operational limits stay profile-only and out
    * of the UI form.
    */
@@ -126,6 +126,7 @@ export class GitPanelService extends TypertRemoteService {
     filesFollowRepo: Schema.boolean().default(false).volatile().description('文件浏览跟随 Git 仓库切换（关闭时文件浏览停在项目根目录）'),
     collapseReposOnPick: Schema.boolean().default(false).volatile().description('切换存储库后立即收起存储库列表（关闭时列表保持展开，只由标题行收起）'),
     allowFileEdit: Schema.boolean().default(true).volatile().description(`允许在文件浏览中编辑配置与文档文件（${EDITABLE_EXTENSIONS.join(' / ')}、${EDITABLE_FILENAMES.join(' / ')}，2 MiB 以内）`),
+    compactPackages: Schema.boolean().default(true).volatile().description('文件浏览按 Java/Kotlin 约定折叠包路径：源码根显示为一个节点，连续的单子目录包合并为 com.example… 一行（关闭后显示原始目录树）'),
     codeWorkspace: Schema.string().default('off').volatile().description('从工作区内的 .code-workspace 文件读取多根仓库（关闭 / auto 自动发现 / 指定文件名；外部仓库的文件浏览与编辑随选中的根走，默认关闭）'),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
     suggestLanguage: Schema.union([

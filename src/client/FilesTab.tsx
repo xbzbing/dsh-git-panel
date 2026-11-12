@@ -78,6 +78,9 @@ interface FilesTabProps {
   readonly rootKey: string
   /** The host's file-edit switch, from the latest sample (true when unknown). */
   readonly allowEdit: boolean
+  /** The host's package-folding switch, from the latest sample (true when
+   * unknown). A flip re-lists every open directory in place. */
+  readonly compactPackages: boolean
   /** Candidate roots for the address dropdown; null = not following (or no
    * second root) and the address keeps its click-to-copy behaviour. */
   readonly rootMenu?: FilesRootMenu | null
@@ -109,6 +112,9 @@ interface FilesState {
   readonly wrap: boolean
   /** Compact drill pane ('tree' = list, 'preview' = open file); wide ignores it. */
   readonly pane: 'tree' | 'preview'
+  /** The package-folding setting the listings were fetched under; restoring a
+   * cache across a change would show labels the host no longer computes. */
+  readonly compactPackages: boolean
 }
 const FILES_STICKY_MS = 60_000
 const filesCache = new Map<string, { state: FilesState; leftAt: number }>()
@@ -140,21 +146,28 @@ function stashFilesState(sessionId: string, state: FilesState): void {
   }, FILES_STICKY_MS + 1_000))
 }
 
-function restoreFilesState(sessionId: string): FilesState | null {
+function restoreFilesState(sessionId: string, compactPackages: boolean): FilesState | null {
   const entry = filesCache.get(sessionId)
   if (entry === undefined) return null
   if (!hasStashedUnsavedEdit(sessionId) && Date.now() - entry.leftAt > FILES_STICKY_MS) { filesCache.delete(sessionId); return null }
+  // The listings carry labels the host computed under one setting, so a flip
+  // while the tab was parked invalidates the tree. The selection and the
+  // preview stay: a parked unsaved draft is only handed back to a mount whose
+  // selection is its path, and dropping that would strand the draft.
+  if (entry.state.compactPackages !== compactPackages) {
+    return { ...entry.state, dirs: new Map(), open: new Set(['']), compactPackages }
+  }
   return entry.state
 }
 
-export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootKey, allowEdit, compactPackages, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
   // The panel publishes its menu face through context; the tree renderer is a
   // plain function, so the binder is read here and passed down as a value.
   const menu = usePanelMenu()
   const bindMenu = menu?.row
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
-  if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
+  if (restored.current === undefined) restored.current = restoreFilesState(sessionId, compactPackages)
   const init = restored.current
   // Per-directory listing cache + expansion set, both keyed by relative path
   // ('' = root). The tree renders from these; expanding a dir fetches it once.
@@ -379,7 +392,7 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       next.set(path, { status: 'loading' })
       return next
     })
-    return remote.query({ sessionId, query: { kind: 'dir-list', path } }).then((res) => {
+    return remote.query({ sessionId, query: { kind: 'dir-list', path, ...(compactPackages ? { packages: true as const } : {}) } }).then((res) => {
       if (!current()) return
       const dl = queryAs(res, 'dir-list')
       setDirs((prev) => {
@@ -391,7 +404,24 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       if (!current()) return
       setDirs((prev) => { const next = new Map(prev); next.set(path, { status: 'error' }); return next })
     })
-  }, [remote, sessionId])
+  }, [remote, sessionId, compactPackages])
+
+  // A settings flip invalidates every listing's labels: restart the tree from
+  // its root and drop the in-flight responses (the generation bump), so an old
+  // shape cannot land in the new map and a collapsed-away path is not asked
+  // for again. The open file and its preview are independent of the tree and
+  // stay untouched. This effect runs before the root load below, whose
+  // dependency (`loadDir`) changes with the setting, so exactly one request
+  // goes out.
+  const packagesRef = useRef(compactPackages)
+  useEffect(() => {
+    if (packagesRef.current === compactPackages) return
+    packagesRef.current = compactPackages
+    dirGen.current += 1
+    dirSeq.current.clear()
+    setDirs(new Map())
+    setOpen(new Set(['']))
+  }, [compactPackages])
 
   // Load the root once on mount / when the session changes.
   useEffect(() => { void loadDir('') }, [loadDir])
@@ -496,8 +526,8 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
   // Persist the browsing state when the panel unmounts (view-tab switch or
   // session change) so a quick return restores it; a ref carries the latest
   // values into the unmount-only cleanup.
-  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown, wrap, pane })
-  liveRef.current = { dirs, open, selected, file, renderMarkdown, wrap, pane }
+  const liveRef = useRef<FilesState>({ dirs, open, selected, file, renderMarkdown, wrap, pane, compactPackages })
+  liveRef.current = { dirs, open, selected, file, renderMarkdown, wrap, pane, compactPackages }
   const editSnapshot = fileEdit.snapshot
   useEffect(() => () => {
     stashDraft(sessionId, editSnapshot())
