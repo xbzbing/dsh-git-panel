@@ -2,20 +2,20 @@
 
 Un panneau Git de style IDE dans l’espace de travail de la conversation : branches et historique des commits, indexation et commit des modifications, différences et explorateur de fichiers réunis dans un onglet permanent, ainsi qu’un indicateur de branche façon zsh à gauche de la zone de saisie. Plus besoin de basculer vers un terminal ou un IDE en pleine conversation.
 
-## Fonctionnalités
-
-- **Vue d’ensemble** : liste des branches et des tags, graphe de l’historique des commits et détails du commit ; cliquez sur un fichier pour voir sa différence dans ce commit. L’historique peut être recherché par « message / hash » ou « fichier / chemin ». La recherche fichier / chemin correspond littéralement à des sous-chaînes des chemins historiques, sans distinguer la casse des lettres anglaises ; les noms de fichiers et fragments de dossiers sont inclus, et les filtres d’auteur, de date et de branche restent combinables. Elle ne recherche pas le contenu du code ; les chemins supprimés restent recherchables, un renommage ne suit pas automatiquement l’ancien nom, Git peut simplifier une partie de l’historique des fusions et des branches secondaires, et les détails du commit affichent toujours la liste complète des fichiers.
-- **Modifications** : indexer et abandonner fichier par fichier ou en lot, commit et **Amend**, remisage (stash) et statistiques de lignes ajoutées·supprimées ; la liste bascule entre vue à plat et arborescence, avec comptes par dossier et indexation / abandon par dossier — à plat par défaut, la vue se règle dans la configuration du plugin.
-- **Actions Git courantes** : changer de branche, créer et supprimer des tags, revert / reset de commits ; les actions destructives demandent une confirmation, et les modifications restent dans le dépôt local, sans push automatique.
-- **Messages de commit générés par IA** : ils suivent le style des commits existants du dépôt ; le modèle suit la session en cours par défaut et peut être fixé sur la page de détails. **La génération envoie le contenu du diff au fournisseur du modèle choisi.**
-- **Indicateur Git dans la zone de saisie** : `<dépôt> (<branche>)` façon zsh, vert quand tout est synchronisé et orange en présence de modifications non validées ; un clic ouvre le panneau.
-- **Plusieurs dépôts** : les worktrees et les dépôts indépendants des sous-répertoires sont détectés automatiquement ; après un changement, la vue d’ensemble, les modifications et l’indicateur portent sur le dépôt choisi.
-- **Fichiers** : parcourez l’arborescence de l’espace de travail et prévisualisez le code, le Markdown (y compris les diagrammes mermaid), le HTML et les images ; fonctionne aussi hors d’un dépôt Git. Les fichiers de configuration et de documentation (json / yaml / xml / properties / md / txt / toml / conf / ini / cfg, `.gitignore`, etc.) se modifient et s’enregistrent sur place. Les projets Java/Kotlin replient aussi les chemins de paquets par convention : `src/main/java` devient une seule racine de sources et une suite de dossiers de paquet à enfant unique est fusionnée en une ligne `com.example…` (activé par défaut ; désactivable dans la configuration du plugin).
-- **Différences et code source** : vues unifiée / côte à côte / avant / après, avec coloration syntaxique, mise en évidence par mot, contexte dépliable à la demande et recherche sur place avec <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>.
-- **Panneau étroit / mobile** : la mise en page s’adapte à la taille du panneau, dans la barre latérale comme sur téléphone.
-- **Langues** : l’interface suit la langue système de DSH : Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский et Português.
-- **Menus contextuels** — clic droit sur fichiers, répertoires, images, branches, commits, modifications et stashes pour copier les chemins, révéler dans le gestionnaire de fichiers, télécharger / enregistrer sous, indexer ou annuler, changer de branche, créer un tag, revert ou reset, citer dans le composeur, ou vérifier le dépôt distant ; les actions destructives demandent une confirmation.
-
 ## Dépôt
 
 Code source, permissions et limites des données, signalement de problèmes : <https://github.com/xbzbing/dsh-git-panel>
+
+## Fonctionnalités
+
+- **Vue d’ensemble** : liste des branches et des tags, graphe de l’historique des commits et détails du commit ; un clic sur un fichier affiche sa différence. L’historique se recherche par « message / hash » ou « fichier / chemin », avec les filtres d’auteur, de date et de branche. La colonne du temps relatif s’ajuste à la langue de l’interface et, dans un panneau étroit, l’auteur puis le hash sont retirés.
+- **Modifications** : indexer et abandonner fichier par fichier ou en lot, commit et **Amend**, remisage (stash), statistiques de lignes ajoutées·supprimées ; la liste bascule entre vue à plat et arborescence, avec indexation et abandon par dossier.
+- **Actions Git courantes** : changer de branche, créer et supprimer des tags, revert / reset ; les actions destructives demandent une confirmation et rien n’est poussé automatiquement.
+- **Messages de commit générés par IA** : ils suivent le style des commits existants du dépôt ; le modèle suit la session en cours par défaut et peut être fixé sur la page de détails. **La génération envoie le contenu du diff au fournisseur du modèle choisi.**
+- **Indicateur Git dans la zone de saisie** : `<dépôt> (<branche>)` façon zsh, vert quand tout est synchronisé et orange en présence de modifications non validées ; un clic ouvre le panneau.
+- **Plusieurs dépôts** : les worktrees et les dépôts indépendants des sous-répertoires sont détectés automatiquement ; après un changement, la vue d’ensemble, les modifications et l’indicateur portent sur le dépôt choisi.
+- **Explorateur de fichiers** : prévisualisez le code, le Markdown (diagrammes mermaid compris), le HTML et les images, et modifiez les fichiers de configuration sur place. Les projets Java/Kotlin replient les chemins de paquets par convention : `src/main/java` devient une seule racine de sources (désactivable dans la configuration).
+- **Différences et code source** : vues unifiée / côte à côte / avant / après, avec coloration syntaxique, mise en évidence par mot, contexte dépliable à la demande et recherche sur place avec <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>.
+- **Panneau étroit / mobile** : la mise en page s’adapte à la taille du panneau, dans la barre latérale comme sur téléphone.
+- **Langues** : l’interface suit la langue système de DSH : Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский et Português.
+- **Menus contextuels** : clic droit sur les fichiers, répertoires, images, branches, commits, modifications et stashes ; les actions destructives demandent toujours une confirmation.
