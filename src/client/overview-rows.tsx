@@ -51,6 +51,10 @@ export interface RowProps {
   selected: boolean
   current: boolean
   gridTpl: string
+  /** Column set (commit-columns.ts): the hash and author tracks are dropped
+   * before the row is allowed to overflow its own width. */
+  showHash: boolean
+  showAuthor: boolean
   laneCount: number
   now: number
   compact: boolean
@@ -93,7 +97,7 @@ export const CommitRow = memo(function CommitRow({ row, ...cb }: RowProps): JSX.
         h('div', { key: 'm', className: 'gp-commit-sub' }, [
           h('span', { key: 'h', className: 'gp-commit-hash' }, c.shortHash),
           h('span', { key: 'a', className: 'gp-commit-author' }, c.author),
-          h('span', { key: 'd', className: 'gp-commit-date' }, timeAgo(c.dateIso, cb.now, cb.t)),
+          h('span', { key: 'd', className: 'gp-commit-date', title: absoluteTime(c.dateIso) }, timeAgo(c.dateIso, cb.now, cb.t)),
         ]),
       ]),
     ])
@@ -114,8 +118,8 @@ export const CommitRow = memo(function CommitRow({ row, ...cb }: RowProps): JSX.
   }, [
     graphCell,
     h('div', { key: 's', className: 'gp-commit-subject' }, [...refChips, c.subject]),
-    h('div', { key: 'h', className: 'gp-commit-hash' }, c.shortHash),
-    h('div', { key: 'a', className: 'gp-commit-author' }, c.author),
+    cb.showHash ? h('div', { key: 'h', className: 'gp-commit-hash' }, c.shortHash) : null,
+    cb.showAuthor ? h('div', { key: 'a', className: 'gp-commit-author' }, c.author) : null,
     h('div', { key: 'd', className: 'gp-commit-date', title: absoluteTime(c.dateIso) }, timeAgo(c.dateIso, cb.now, cb.t)),
   ])
 })

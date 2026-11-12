@@ -76,7 +76,11 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-history{display:flex;flex-direction:column;height:100%;min-height:0}
 /* overscroll-behavior:contain keeps a wheel gesture that reaches the top/bottom
  * of the commit list from bubbling out and scrolling the whole conversation. */
-.gp-history__list{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+/* overflow-x:hidden is a backstop, not the fit: the column set and the shrinkable
+ * tracks keep the row inside this box (commit-columns.ts). While the list could
+ * scroll sideways, any scrollLeft slid the absolutely positioned selection fill
+ * out of alignment with the rows and left the date column outside it. */
+.gp-history__list{position:relative;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
 .gp-history__vlist{position:relative;width:100%}
 .gp-history__vrow{position:absolute;left:0;right:0;box-sizing:border-box}
 .gp-history__vrow>.gp-commit-row{height:100%;box-sizing:border-box}
@@ -86,13 +90,13 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-commit-subject{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-commit-hash{font-family:var(--dsw-font-mono,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .gp-commit-author{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gp-commit-date{font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
+.gp-commit-date{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
 .gp-ref-chip{display:inline-block;padding:0 6px;margin-right:4px;border-radius:8px;font-size:10px;line-height:16px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l2)}
 .gp-ref-chip--remote{color:var(--dsw-alias-label-secondary)}
 .gp-ref-chip--tag{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
 /* --head last so the current-branch fill always wins if a ref carries two kinds */
 .gp-ref-chip--head{background:var(--dsw-alias-state-business-primary);color:#fff;border-color:transparent;font-weight:700;font-size:11px}
-.gp-graph-cell{position:relative}
+.gp-graph-cell{position:relative;overflow:hidden}
 .gp-graph-svg{display:block}
 .gp-graph-edge,.gp-graph-boundary{vector-effect:non-scaling-stroke}
 .gp-graph-boundary{opacity:.8}

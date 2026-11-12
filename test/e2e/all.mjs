@@ -36,6 +36,10 @@ const RUNNERS = [
   'branch-tree-review', 'filtered-graph', 'graph-filter-transition',
   // Search scopes, capability negotiation, deferred responses and responsive geometry.
   'history-path-search',
+  // The date track follows the locale's labels: Chinese must lose the fixed
+  // 96px band, German must widen without clipping, and the font zoom must not
+  // re-break either.
+  'history-time-column',
   'branch-status-review', 'files-tree-review', 'files-refresh',
   // Files preview toolbar at five widths: review screenshots plus the wrap
   // contract (the trailing cluster moves as one item, never split).

@@ -42,6 +42,9 @@ import { PublishModal } from './PublishModal.js'
 import { SetUpstreamModal } from './SetUpstreamModal.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 import { useRowSlider } from './row-slider.js'
+import { useTimeColumnWidth } from './use-time-column.js'
+import { useElementWidth } from './use-element-width.js'
+import { commitColumns } from './commit-columns.js'
 import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { canPush, canSetUpstream } from './push-policy.js'
@@ -552,7 +555,21 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Wide: graph | subject | hash | author | date. Compact and stacked: graph |
   // stacked text — the stacked top band's history column is too narrow for the
   // five-column grid, but its rows are pointer targets, not touch ones.
-  const gridTpl = compact || stacked ? `${graphW}px minmax(0,1fr)` : `${graphW}px minmax(120px,1fr) 72px 120px 96px`
+  // The date track is measured from the active locale's labels: CJK dates are
+  // barely half as wide as Russian ones, so a fixed 96px wasted a band on some
+  // languages and was the tightest fit for others (see time-column.ts).
+  // The list element as state, not only as a ref: the time column re-measures
+  // from its font, and a compact pane swap unmounts the list while the locale can
+  // still change (a poll re-renders the panel). A ref would keep the stale width.
+  const [listEl, setListEl] = useState<HTMLDivElement | null>(null)
+  const timeW = useTimeColumnWidth(t, listEl)
+  // The five columns have a minimum width the history column does not always
+  // meet; the set is chosen from the list's own width so the grid stays inside
+  // the row. Overflowing is what put the date column past the row's right edge,
+  // outside the selection fill, once the list could scroll sideways.
+  const { setEl: trackWidth, width: listWidth } = useElementWidth()
+  const columns = commitColumns(listWidth, graphW, timeW)
+  const gridTpl = compact || stacked ? `${graphW}px minmax(0,1fr)` : columns.template
 
   const onScroll = (): void => {
     const el = listRef.current
@@ -1168,7 +1185,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const attachList = useCallback((el: HTMLDivElement | null): void => {
     listRef.current = el
     trackList(el)
-  }, [listRef, trackList])
+    trackWidth(el)
+    setListEl((prev) => (prev === el ? prev : el))
+  }, [listRef, trackList, trackWidth])
   const { tops, totalH } = useMemo(() => {
     const heights = rows.map(() => rowH)
     const all = buildTops(heights)
@@ -1209,6 +1228,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             // snapshot.head is Git's unique abbreviation; history uses full hashes.
             current: !snapshot.unborn && snapshot.head !== null && snapshot.head !== '' && row.commit.hash.startsWith(snapshot.head),
             gridTpl, laneCount, now, compact, stacked, rowH,
+            showHash: columns.showHash, showAuthor: columns.showAuthor,
             // Keyed by hash, not closed over the row: a fresh closure per row would
             // defeat the memo and rebuild every row's graph on any hover.
             onSelect: selectCommit,
