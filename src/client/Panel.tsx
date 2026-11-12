@@ -408,6 +408,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   const allowEditRef = useRef(true)
   if (view.state === 'ready') allowEditRef.current = view.snapshot.allowFileEdit ?? true
   const allowFileEdit = allowEditRef.current
+  // The package-folding switch is host-wide config riding the same sample;
+  // sticky so a repository switch does not briefly flip the browser's shape.
+  // An older host omits it → on, and the request flag is then ignored there.
+  const compactPackagesRef = useRef(true)
+  if (view.state === 'ready') compactPackagesRef.current = view.snapshot.compactPackages ?? true
+  const compactPackages = compactPackagesRef.current
   // A root pick is a directory switch, and Git follows every directory switch:
   // a root that is a checkout moves the overview and changes with it (the
   // browser stays in front). The reverse is the follow setting's call.
@@ -900,7 +906,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
       return filesVisited
-        ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t })
+        ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: null, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, compactPackages, rootMenu, onPickRoot: applyFilesRootPick, t })
         : null
     }
     if (view.state !== 'ready') return null
@@ -915,7 +921,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // The sample describes the browser's files only when both sides sit on the
     // same checkout and it is not the previous one's mid-switch.
     const filesSnapshot = filesSelector === repo && !repoSwitching ? snapshot : null
-    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, editBaseRemote: remote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootKey: filesSelector, allowEdit: allowFileEdit, compactPackages, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
   }
 
   // One panel per tab, so every tab's aria-controls resolves.

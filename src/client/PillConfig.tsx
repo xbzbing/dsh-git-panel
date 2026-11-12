@@ -91,6 +91,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pendingFollow, setPendingFollow] = useState<boolean | null>(null)
   const [pendingFold, setPendingFold] = useState<boolean | null>(null)
   const [pendingEdit, setPendingEdit] = useState<boolean | null>(null)
+  const [pendingPackages, setPendingPackages] = useState<boolean | null>(null)
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({ basic: true, view: false, suggest: false, repos: false })
   const [pendingLang, setPendingLang] = useState<SuggestLanguage | null>(null)
   // Numeric drafts are local edit state: onChange only updates the draft so
@@ -150,6 +151,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const filesFollowRepo = pendingFollow ?? (typeof snap?.value?.filesFollowRepo === 'boolean' ? (snap.value.filesFollowRepo as boolean) : false)
   const collapseReposOnPick = pendingFold ?? (typeof snap?.value?.collapseReposOnPick === 'boolean' ? (snap.value.collapseReposOnPick as boolean) : false)
   const allowFileEdit = pendingEdit ?? (typeof snap?.value?.allowFileEdit === 'boolean' ? (snap.value.allowFileEdit as boolean) : true)
+  const compactPackages = pendingPackages ?? (typeof snap?.value?.compactPackages === 'boolean' ? (snap.value.compactPackages as boolean) : true)
   const rawLang = snap?.value?.suggestLanguage
   const suggestLanguage: SuggestLanguage = pendingLang
     ?? (typeof rawLang === 'string' && (SUGGEST_LANGUAGES as readonly string[]).includes(rawLang) ? rawLang as SuggestLanguage : SUGGEST_LANGUAGE_DEFAULT)
@@ -287,6 +289,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const toggleFileEdit = (next: boolean): Promise<void> => {
     setPendingEdit(next)
     return commitField('allowFileEdit', next, () => setPendingEdit(null))
+  }
+
+  const togglePackages = (next: boolean): Promise<void> => {
+    setPendingPackages(next)
+    return commitField('compactPackages', next, () => setPendingPackages(null))
   }
 
   const setLanguage = (next: SuggestLanguage): Promise<void> => {
@@ -540,6 +547,17 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         segButtons<ChangesViewMode>(['flat', 'tree'], changesView, (v) => { void setChangesView(v) },
           (v) => t(v === 'flat' ? 'changes.viewFlat' : 'changes.viewTree'), busy || snap?.writable === false)),
       h('p', { key: 'cvhint', className: 'gp-cfg__hint' }, t('cfg.changesViewHint')),
+    ]),
+    field('packages', [
+      h('label', { key: 'pkgrow', className: 'gp-cfg__row' }, [
+        h('input', {
+          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+          checked: compactPackages, disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { void togglePackages(e.currentTarget.checked) },
+        }),
+        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.packagesToggle')),
+      ]),
+      h('p', { key: 'pkghint', className: 'gp-cfg__hint' }, t('cfg.packagesHint')),
     ]),
     field('graph', [
       h('h3', { key: 'graphtitle', className: 'gp-cfg__title' }, t('cfg.graphTitle')),

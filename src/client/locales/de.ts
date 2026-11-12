@@ -460,6 +460,8 @@ export const de: Record<GitKey, string> = {
   'cfg.diffTitle': 'Standardansicht für Unterschiede',
   'cfg.diffHint': 'Wähle das Layout, in dem Unterschiede geöffnet werden: Inline ist eine einzelne Spalte, Nebeneinander zeigt beide Seiten parallel. Du kannst pro Ansicht weiterhin umschalten. Gespeicherte Änderungen gelten sofort.',
   'cfg.changesViewHint': 'Standardansicht der Änderungsliste: flach zeigt eine Zeile pro Datei, Baum verschachtelt die Zeilen unter Verzeichnissen mit Zählern. Ein Symbol am Ende der Werkzeugleiste zeigt die aktuelle Ansicht und schaltet beim Klick um; bei wenig Platz blendet es sich aus.',
+  'cfg.packagesToggle': 'Java-Paketpfade falten',
+  'cfg.packagesHint': 'Ein: Der Dateibrowser zeigt src/main/java als eine Quellwurzel und fasst eine Kette von Paketverzeichnissen mit genau einem Unterverzeichnis zu einer Zeile com.example… zusammen; aus: der physische Baum. Nur die Java/Kotlin-Pfadkonvention zählt, Build-Dateien werden nicht gelesen.',
   'cfg.diffUnified': 'Inline (eine Spalte)',
   'cfg.diffSplit': 'Nebeneinander (zwei Spalten)',
   'cfg.graphTitle': 'Linienstil des Commit-Graphen',

@@ -41,13 +41,21 @@ export function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Ele
   }
   const rows: JSX.Element[] = []
   for (const entry of loaded.entries) {
-    const path = dirPath === '' ? entry.name : `${dirPath}/${entry.name}`
+    const fullPath = dirPath === '' ? entry.name : `${dirPath}/${entry.name}`
+    // A folded package chain is addressed by its deepest directory (the row
+    // label is the dotted name), so expanding, the context menu and the
+    // selection key all point at the real path, not the first segment.
+    const path = entry.chain?.path ?? fullPath
+    const label = entry.chain?.label ?? entry.name
     if (entry.dir) {
       const isOpen = cb.open.has(path)
       rows.push(h('button', {
-        key: path, type: 'button', className: `gp-tree-row gp-files__entry gp-files__entry--dir${entry.ignored ? ' gp-tree-row--ignored' : ''}`,
+        key: path, type: 'button', className: `gp-tree-row gp-files__entry gp-files__entry--dir${entry.ignored ? ' gp-tree-row--ignored' : ''}${entry.sourceRoot === true ? ' gp-files__entry--source-root' : ''}`,
         style: { paddingLeft: 8 + depth * 16 }, 'aria-expanded': isOpen,
-        'aria-label': entry.ignored ? `${entry.name} (${cb.t('files.ignored')})` : entry.name,
+        'aria-label': entry.ignored ? `${label} (${cb.t('files.ignored')})` : label,
+        // The folded label hides the parent segments; the tooltip spells the
+        // real directory the row expands.
+        ...(entry.chain === undefined ? {} : { title: path }),
         onClick: () => cb.toggleDir(path),
         ...cb.bindMenu?.(path, MENU_KIND.directory, entry.ignored === true),
       }, [
@@ -56,7 +64,7 @@ export function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Ele
         h('span', { key: 'i', className: 'gp-tree-ic' }, isOpen
           ? h(IconFolderOpenRegular, { size: 16 })
           : h(IconFolderCloseRegular, { size: 16 })),
-        h('span', { key: 'n', className: 'gp-tree-name' }, entry.name),
+        h('span', { key: 'n', className: 'gp-tree-name' }, label),
       ]))
       if (isOpen) rows.push(...renderTree(path, depth + 1, cb))
     } else {

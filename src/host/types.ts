@@ -195,6 +195,9 @@ export interface GitSnapshot {
    * preference). Absent on older hosts, which have no write endpoint either:
    * the client then offers no edit button (`file-content.edit` is absent too). */
   readonly allowFileEdit?: boolean
+  /** Whether the file browser folds Java/Kotlin package paths (user
+   * preference). Absent on older hosts, which always show the physical tree. */
+  readonly compactPackages?: boolean
   /**
    * Query features this host implements. Absent on hosts that predate them
    * (older than the compare/history feature): the client hides the menu entries
@@ -656,7 +659,10 @@ export type GitQuery =
   // File browser: list one working-tree directory (lazy, one level down), and
   // read one working-tree file (text slice / image data URL / binary marker).
   // Both take an in-tree relative path; `''` is the repository root.
-  | { readonly kind: 'dir-list'; readonly path: string }
+  // `packages` asks for the Java/Kotlin projection (folded package chains and
+  // source-root rows); an older host ignores the unknown flag and answers with
+  // the physical tree, which is exactly the fallback the client wants.
+  | { readonly kind: 'dir-list'; readonly path: string; readonly packages?: true }
   | { readonly kind: 'file-content'; readonly path: string }
   | { readonly kind: 'show'; readonly ref: string }
   | { readonly kind: 'branches' }
@@ -688,6 +694,19 @@ export interface DirEntry {
   readonly size?: number
   /** True when Git excludes an untracked item; absent outside a repository. */
   readonly ignored?: boolean
+  /**
+   * A folded run of single-child package directories below this entry:
+   * `name` is still the first segment, while `path` is the real repository-
+   * relative path of the deepest directory and `label` its dotted package
+   * name. Present only when the listing sits inside a conventional source
+   * root and the `packages` request flag is on.
+   */
+  readonly chain?: { readonly path: string; readonly label: string }
+  /**
+   * This row was projected out of the `src` layout (`src/main/java`); `name`
+   * carries the full relative path so the client composes the same target.
+   */
+  readonly sourceRoot?: true
 }
 
 /** One commit's changed-file line (from --name-status). */

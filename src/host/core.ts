@@ -34,6 +34,10 @@ export interface GitPanelConfig {
   readonly collapseReposOnPick: boolean
   /** The file browser may edit allow-listed config / document files. */
   readonly allowFileEdit: boolean
+  /** Fold Java/Kotlin package paths in the file browser: a run of single-child
+   * package directories becomes one dotted row, and the `src` skeleton is
+   * projected into `src/main/java`-style source roots. */
+  readonly compactPackages: boolean
   /** Which `.code-workspace` file may certify repositories outside the cwd:
    * `off` (default), `auto` (discover one in the cwd), or an explicit file
    * name in the cwd. See ADR-0030. */
@@ -77,6 +81,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   filesFollowRepo: false,
   collapseReposOnPick: false,
   allowFileEdit: true,
+  compactPackages: true,
   codeWorkspace: 'off',
   showInputPill: true,
   placement: 'all',
@@ -132,6 +137,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     filesFollowRepo: readBool(c.filesFollowRepo, DEFAULT_CONFIG.filesFollowRepo),
     collapseReposOnPick: readBool(c.collapseReposOnPick, DEFAULT_CONFIG.collapseReposOnPick),
     allowFileEdit: readBool(c.allowFileEdit, DEFAULT_CONFIG.allowFileEdit),
+    compactPackages: readBool(c.compactPackages, DEFAULT_CONFIG.compactPackages),
     codeWorkspace: readCodeWorkspace(c.codeWorkspace, DEFAULT_CONFIG.codeWorkspace),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     placement: readPlacement(c.placement, DEFAULT_CONFIG.placement),
@@ -1008,6 +1014,7 @@ export async function snapshotForSession(
     filesFollowRepo: config.filesFollowRepo,
     collapseReposOnPick: config.collapseReposOnPick,
     allowFileEdit: config.allowFileEdit,
+    compactPackages: config.compactPackages,
     capabilities: { revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true, branchCreate: true, branchMerge: true, cherryPick: true },
     checkedAt: Date.now(),
   }

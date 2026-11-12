@@ -766,6 +766,189 @@ test('dir-list marks ignored files and directories using git rules only in repos
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+test('dir-list with packages projects source roots and folds a package chain', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-java-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    const pkg = join(dir, 'src', 'main', 'java', 'com', 'example', 'demo')
+    mkdirSync(pkg, { recursive: true })
+    mkdirSync(join(dir, 'src', 'main', 'resources'), { recursive: true })
+    mkdirSync(join(dir, 'src', 'test', 'java', 'com', 'example'), { recursive: true })
+    writeFileSync(join(pkg, 'App.java'), 'class App {}\n')
+    writeFileSync(join(dir, 'pom.xml'), '<project/>\n')
+    await runGit(dir, ['init', '-q'])
+    const d = depsAt(dir)
+    // The physical tree is what a client without the flag still gets.
+    const physical = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '' } })
+    assert.ok(physical.value.entries.some((entry) => entry.name === 'src'))
+    const root = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '', packages: true } })
+    const names = root.value.entries.map((entry) => entry.name)
+    assert.ok(!names.includes('src'), 'the src level is projected away')
+    assert.deepEqual(
+      names.filter((name) => name.startsWith('src/')),
+      ['src/main/java', 'src/main/resources', 'src/test/java'],
+    )
+    // Dirs-first still holds after the projection: pom.xml must not sit
+    // between the projected source roots (the client renders host order as-is).
+    const firstFile = root.value.entries.findIndex((entry) => !entry.dir)
+    assert.notEqual(firstFile, -1, 'the fixture has a root-level file')
+    assert.ok(
+      root.value.entries.slice(firstFile).every((entry) => !entry.dir),
+      `dirs-first order survived the projection: ${names.join(' | ')}`,
+    )
+    const java = root.value.entries.find((entry) => entry.name === 'src/main/java')
+    assert.equal(java.dir, true)
+    assert.equal(java.sourceRoot, true)
+    assert.equal(root.value.entries.find((entry) => entry.name === 'src/main/resources').sourceRoot, undefined)
+    const source = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: 'src/main/java', packages: true } })
+    const com = source.value.entries.find((entry) => entry.name === 'com')
+    assert.deepEqual(com.chain, { path: 'src/main/java/com/example/demo', label: 'com.example.demo' })
+    // The folded row's target is a real directory: expanding it lists the file.
+    const leaf = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: com.chain.path, packages: true } })
+    assert.deepEqual(leaf.value.entries.map((entry) => entry.name), ['App.java'])
+    // The config switch wins over the request flag.
+    const off = { ...DEFAULT_CONFIG, compactPackages: false }
+    const plain = await runQuery(d, off, { sessionId: SID, query: { kind: 'dir-list', path: '', packages: true } })
+    assert.ok(plain.value.entries.some((entry) => entry.name === 'src'))
+    assert.ok(!plain.value.entries.some((entry) => entry.sourceRoot === true))
+    assert.ok(!plain.value.entries.some((entry) => entry.chain !== undefined))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('dir-list keeps the physical src tree when a file blocks the projection', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-java-fallback-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    mkdirSync(join(dir, 'src', 'main', 'java', 'com'), { recursive: true })
+    writeFileSync(join(dir, 'src', 'main', 'java', 'com', 'App.java'), 'class App {}\n')
+    writeFileSync(join(dir, 'src', 'notes.txt'), 'not a package\n')
+    await runGit(dir, ['init', '-q'])
+    const d = depsAt(dir)
+    const root = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '', packages: true } })
+    assert.ok(root.value.entries.some((entry) => entry.name === 'src'), 'a file under src keeps the physical tree')
+    assert.ok(!root.value.entries.some((entry) => entry.sourceRoot === true))
+    // And that physical tree still folds packages when its source root is opened.
+    const source = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: 'src/main/java', packages: true } })
+    const com = source.value.entries.find((entry) => entry.name === 'com')
+    assert.equal(com.chain, undefined, 'its only child is a file, so the chain stops at com')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('dir-list keeps the physical src tree when a file sits under a source set', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-java-setfile-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    mkdirSync(join(dir, 'src', 'main', 'java', 'com'), { recursive: true })
+    writeFileSync(join(dir, 'src', 'main', 'java', 'com', 'App.java'), 'class App {}\n')
+    // A file directly under `src/main` (a manifest, a script) has no
+    // source-root row: projecting would hide it behind `src/main/java`.
+    writeFileSync(join(dir, 'src', 'main', 'notes.txt'), 'x\n')
+    await runGit(dir, ['init', '-q'])
+    const root = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '', packages: true } })
+    assert.ok(root.value.entries.some((entry) => entry.name === 'src'), 'a file under src/main keeps the physical tree')
+    assert.ok(!root.value.entries.some((entry) => entry.sourceRoot === true))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('dir-list marks a projected source root Git excludes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-java-ignored-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    mkdirSync(join(dir, 'src', 'main', 'java', 'com'), { recursive: true })
+    mkdirSync(join(dir, 'src', 'main', 'resources'), { recursive: true })
+    writeFileSync(join(dir, 'src', 'main', 'java', 'com', 'App.java'), 'class App {}\n')
+    writeFileSync(join(dir, '.gitignore'), 'src/main/resources/\n')
+    writeFileSync(join(dir, 'pom.xml'), '<project/>\n')
+    await runGit(dir, ['init', '-q'])
+    const root = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '', packages: true } })
+    const entries = Object.fromEntries(root.value.entries.map((entry) => [entry.name, entry]))
+    assert.equal(entries['src/main/resources'].ignored, true, 'a projected row keeps its ignore mark')
+    assert.notEqual(entries['src/main/java'].ignored, true)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('dir-list folds package chains within one listing\'s readdir budget', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-java-budget-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    // 40 independent single-child runs: each would need one readdir to fold,
+    // so the shared budget of 32 must stop the tail of the page.
+    const source = join(dir, 'src', 'main', 'java')
+    for (let index = 0; index < 40; index++) {
+      mkdirSync(join(source, `p${index}`, `q${index}`), { recursive: true })
+      writeFileSync(join(source, `p${index}`, `q${index}`, 'Leaf.java'), 'class Leaf {}\n')
+    }
+    await runGit(dir, ['init', '-q'])
+    const base = depsAt(dir)
+    const counts = { readdir: 0, realpath: 0 }
+    const d = {
+      ...base,
+      fs: {
+        ...base.fs,
+        readdir: (path) => { counts.readdir += 1; return base.fs.readdir(path) },
+        realpath: (path) => { counts.realpath += 1; return base.fs.realpath(path) },
+      },
+    }
+    // Baseline: the same listing without the flag, so workspace resolution and
+    // the listing's own read are subtracted and only the hops are measured.
+    counts.readdir = 0
+    counts.realpath = 0
+    await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: 'src/main/java' } })
+    const baseline = { ...counts }
+    counts.readdir = 0
+    counts.realpath = 0
+    const listing = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: 'src/main/java', packages: true } })
+    const chained = listing.value.entries.filter((entry) => entry.chain !== undefined)
+    assert.equal(chained.length, 32, 'the budget caps how many rows get a chain')
+    assert.equal(listing.value.entries.length - chained.length, 8, 'the rest stay plain directories')
+    assert.equal(counts.readdir - baseline.readdir, 32, 'the shared readdir budget is exactly 32 hops')
+    assert.equal(counts.realpath - baseline.realpath, 64, 'each hop checks containment for target and root')
+    for (const entry of chained) assert.equal(entry.chain.label, `${entry.name}.q${entry.name.slice(1)}`)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('dir-list stops a package chain at the segment cap', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-java-segments-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    // 15 nested single-child directories: a runaway chain must stop at the
+    // documented 12 and leave a real, expandable directory as its tail.
+    let deep = join(dir, 'src', 'main', 'java')
+    for (let index = 0; index < 15; index++) deep = join(deep, 'a')
+    mkdirSync(deep, { recursive: true })
+    writeFileSync(join(deep, 'Leaf.java'), 'class Leaf {}\n')
+    await runGit(dir, ['init', '-q'])
+    const source = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: 'src/main/java', packages: true } })
+    const head = source.value.entries.find((entry) => entry.name === 'a')
+    assert.notEqual(head.chain, undefined, 'the nested run still folds')
+    assert.equal(head.chain.label.split('.').length, 12, 'the chain stops at its segment cap')
+    assert.equal(
+      head.chain.path.split('/').length - 'src/main/java'.split('/').length,
+      12,
+      'the reported tail is a real directory exactly 12 segments down',
+    )
+    const tail = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: head.chain.path, packages: true } })
+    assert.deepEqual(tail.value.entries.map((entry) => entry.name), ['a'], 'the tail expands to the rest of the run')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('dir-list does not project a truncated parent listing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-java-trunc-'))
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    mkdirSync(join(dir, 'src', 'main', 'java', 'com'), { recursive: true })
+    writeFileSync(join(dir, 'src', 'main', 'java', 'com', 'App.java'), 'class App {}\n')
+    // Past DIR_ENTRY_CAP the listing already lost entries; projecting on top of
+    // it could hide `src` while its replacement is incomplete.
+    for (let index = 0; index < 2000; index++) writeFileSync(join(dir, `f${index}.txt`), '')
+    await runGit(dir, ['init', '-q'])
+    const root = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '', packages: true } })
+    assert.equal(root.value.truncated, true)
+    assert.ok(root.value.entries.some((entry) => entry.name === 'src'), 'a capped listing keeps the physical src row')
+    assert.ok(!root.value.entries.some((entry) => entry.sourceRoot === true))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('dir-list rejects an unsafe path', async () => {
   const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: '../escape' } })
   assert.equal(res.ok, false)

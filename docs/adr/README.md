@@ -46,6 +46,7 @@
 | [ADR-0028](0028-context-menu-ownership.md) | 右键菜单：自有目标族、平台动作借用、面板实例归属 | UI |
 | [ADR-0029](0029-unique-service-key-and-idempotent-mount.md) | 服务键与 RPC / locale 命名空间唯一化，重复挂载保持惰性 | 架构 |
 | [ADR-0030](0030-external-roots-from-code-workspace.md) | 由 `.code-workspace` 文件认证工作区外的仓库根 | 安全 |
+| [ADR-0031](0031-java-package-folding.md) | 文件浏览按 Java/Kotlin 约定折叠包路径并投影源码根 | UI |
 
 ## 有效期
 

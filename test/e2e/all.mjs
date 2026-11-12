@@ -37,6 +37,9 @@ const RUNNERS = [
   // Search scopes, capability negotiation, deferred responses and responsive geometry.
   'history-path-search',
   'branch-status-review', 'files-tree-review', 'files-refresh',
+  // File browser package mode: projected source roots and folded package
+  // chains, and the `packages` flag the client sends with each listing.
+  'files-package-tree',
   // Files preview toolbar at five widths: review screenshots plus the wrap
   // contract (the trailing cluster moves as one item, never split).
   'files-bar-review',
