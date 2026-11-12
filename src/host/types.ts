@@ -945,9 +945,10 @@ export type FileEditBlock = 'too-large' | 'encoding' | 'mixed-eol' | 'read-only'
 export const EDIT_MAX_BYTES = 2 * 1024 * 1024
 
 /** Extensions (lower case, no dot) of the config and document files the file
- * browser may edit. */
+ * browser may edit. `code-workspace` is the suffix of VS Code's multi-root
+ * workspace file (`lab.code-workspace`); the editor opens it as JSON. */
 export const EDITABLE_EXTENSIONS: readonly string[] = [
-  'json', 'yaml', 'yml', 'xml', 'properties', 'md', 'markdown', 'txt', 'toml', 'conf', 'ini', 'cfg',
+  'json', 'code-workspace', 'yaml', 'yml', 'xml', 'properties', 'md', 'markdown', 'txt', 'toml', 'conf', 'ini', 'cfg',
 ]
 
 /** Whole file names (lower case) that are editable in any directory. */

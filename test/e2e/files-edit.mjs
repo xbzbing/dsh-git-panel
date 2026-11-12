@@ -57,6 +57,7 @@ async function boot(page, opts = {}) {
         'notes.yaml': 'a: 1\nlist:\n  - x\n',
         'README.md': '# readme\n\nbody\n',
         'tsconfig.json': '{\n  // comment\n  "compilerOptions": {}\n}\n',
+        'lab.code-workspace': '{\n  // the hub layout\n  "folders": [\n    { "path": "../service-a" },\n  ],\n}\n',
         'run.js': 'console.log(1)\n',
         'big.json': null,
         'other.txt': 'other\n',
@@ -79,7 +80,7 @@ async function boot(page, opts = {}) {
     // A 200 ms poll keeps the detach scenario (repo-list re-asked after the
     // sample flips detectCheckouts) inside the e2e's patience.
     const fastSnap = { ...snap, refreshIntervalMs: 200 }
-    const editable = (path) => /\.(?:yaml|md|json|txt)$/.test(path)
+    const editable = (path) => /\.(?:yaml|md|json|txt|code-workspace)$/.test(path)
     const nestedContent = (path) => {
       const body = ctl.nested[path]
       return {
@@ -328,6 +329,24 @@ await page.click('.gp-files__edit-save')
 await page.waitForTimeout(300)
 assert.equal(await page.$('.gp-files__edit-notice'), null, 'tsconfig.json with comments saves without a JSON notice')
 assert.equal(await page.evaluate(() => window.__ctl.writes.at(-1).path), 'tsconfig.json')
+
+// A `.code-workspace` file is parsed as plain JSON: the fixture's comments
+// make the pre-save check report, and "save anyway" still writes it.
+await pick(page, 'lab.code-workspace')
+await startEdit(page)
+await page.keyboard.type(' ')
+const codewsWritesBefore = await page.evaluate(() => window.__ctl.writes.length)
+await page.click('.gp-files__edit-save')
+await page.waitForTimeout(300)
+const codewsNotice = await page.evaluate(() => ({
+  text: document.querySelector('.gp-files__edit-notice')?.textContent ?? '',
+  writes: window.__ctl.writes.length,
+}))
+assert.match(codewsNotice.text, /JSON 第 \d+ 行第 \d+ 列有语法错误/, 'a .code-workspace is checked as JSON')
+assert.equal(codewsNotice.writes, codewsWritesBefore, 'nothing is written while the JSON notice stands')
+await page.evaluate(() => [...document.querySelectorAll('.gp-files__edit-notice-btn')].find((b) => b.textContent === '仍然保存')?.click())
+await page.waitForTimeout(300)
+assert.equal(await page.evaluate(() => window.__ctl.writes.at(-1).path), 'lab.code-workspace', 'save anyway writes it')
 
 // Conflict: the notice offers copy / load latest / overwrite; overwrite is a
 // confirmed compare-and-swap against the fingerprint the host reported.

@@ -18,6 +18,7 @@ import { absoluteDateTime, timeAgo } from './time.js'
 import { isUntrackedPath, statusClass } from './status.js'
 import { FileTypeIcon, languageForPath } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCopyFeedback } from './copy-feedback.js'
+import { isCodeWorkspacePath } from './edit-buffer.js'
 import { imageMimeFor, type GitChange, type GitSnapshot } from './types.js'
 
 export interface FilePropsInput {
@@ -43,7 +44,7 @@ function propsTypeLabel(input: FilePropsInput, t: OpT): string {
     const fmt = mime.slice('image/'.length).toUpperCase()
     return t('files.propsTypeFmt', { label: t('files.propsTypeImage', { fmt }), ext })
   }
-  const lang = languageForPath(input.path)
+  const lang = isCodeWorkspacePath(input.path) ? 'json' : languageForPath(input.path)
   // An over-cap file was never probed for text/binary, so without a name-derived
   // language the honest label is "too large to read", not "text file".
   const known = lang !== undefined && lang !== ''

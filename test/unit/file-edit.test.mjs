@@ -73,6 +73,11 @@ test('allow-list: every extension and whole name, case-insensitive; .env.* varia
     assert.equal(isEditablePath(`sub/dir/${name}`), true, name)
   }
   assert.equal(isEditablePath('.ENV'), true)
+  // VS Code's multi-root workspace file: the extension is the whole
+  // `code-workspace` segment; a file literally named `.code-workspace` is not
+  // one (same rule VS Code uses to recognise the file).
+  assert.equal(isEditablePath('hub/lab.code-workspace'), true)
+  assert.equal(isEditablePath('.code-workspace'), false)
   // `.env.*` variants pass on the prefix alone: `.env.local` has no listed
   // extension, and `.env.json` / `.env.yaml` match before theirs.
   for (const name of ['.env.local', '.env.example', '.env.production', '.env.json', '.env.yaml', 'sub/.env.toml', '.ENV.LOCAL']) {

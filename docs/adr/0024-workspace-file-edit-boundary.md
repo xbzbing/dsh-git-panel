@@ -23,7 +23,7 @@
 
 ## Decision
 
-- **白名单单源**：`types.ts` 的 `EDITABLE_EXTENSIONS`（`json` `yaml` `yml` `xml` `properties` `md` `markdown` `txt` `toml` `conf` `ini` `cfg`）与 `EDITABLE_FILENAMES`（`.gitignore` `.gitattributes` `.editorconfig` `.env`），大小写不敏感，两半共用 `isEditablePath`。`.env` 按完整文件名命中，`.env.*` 变体（`.env.local`、`.env.json` 等）按 `.env.` 前缀命中，不受扩展名名单限制。
+- **白名单单源**：`types.ts` 的 `EDITABLE_EXTENSIONS`（`json` `code-workspace` `yaml` `yml` `xml` `properties` `md` `markdown` `txt` `toml` `conf` `ini` `cfg`）与 `EDITABLE_FILENAMES`（`.gitignore` `.gitattributes` `.editorconfig` `.env`），大小写不敏感，两半共用 `isEditablePath`。`.env` 按完整文件名命中，`.env.*` 变体（`.env.local`、`.env.json` 等）按 `.env.` 前缀命中，不受扩展名名单限制。
 - **请求路径与 realpath 的文件名都要命中白名单**：根内软链 `notes.md → run.sh` 不能借道编辑脚本。路径检查与 `file-content` 同一套：`isSafePath`、不含 `.git` 段、`isInsideRoot(..., hideGit=true)`（ADR-0006）。写入侧只解析一次 realpath（`resolveInsideRoot`），通过包含检查的那个路径就是被替换的路径。
 - **可编辑的字节条件**（`editInfo`）：不超过 `EDIT_MAX_BYTES` = 2 MiB（读与写两个方向都查）；不含 NUL 字节（预览的二进制探测只看前 8 KB，这里看全文）；UTF-8 解码再编码后与原字节逐字节相等；换行风格单一（全 LF 或全 CRLF，孤立 `\r` 算混用）。另外进程对文件本身要有写权限（`access(W_OK)`）：`rename` 只要求目录可写，不查这一条就会替换只读文件。不满足时 `file-content` 带 `edit: { ok: false, reason }`（`too-large` / `encoding` / `mixed-eol` / `read-only`），按钮禁用并说明原因；保存时被同一条规则拒绝，返回 `not-editable` 并带同一个 `reason`，界面用同一句文案。
 - **保存是比对写**：`file-content` 附带磁盘字节的 `sha256`，保存请求带上它作为 `baseSha256`。host 在进程内按 realpath 排队，重读字节比对；不一致返回 `file-changed` 和当前指纹 `currentSha256`，不写盘。「仍然覆盖」用这个当前指纹再发一次，所以仍是比对写：用户确认之后文件若又变了，会再次冲突。

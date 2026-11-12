@@ -11,6 +11,7 @@ import {
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { splitHighlightSpans } from './code-spans.js'
 import { memoizeHighlighter } from './highlight-cache.js'
+import { isCodeWorkspacePath } from './edit-buffer.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
@@ -91,7 +92,7 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
 
-  const hl = useCodeHighlighter(path === undefined ? undefined : languageForPath(path))
+  const hl = useCodeHighlighter(path === undefined ? undefined : isCodeWorkspacePath(path) ? 'json' : languageForPath(path))
   // Rows re-render as the window moves and whenever an ancestor re-renders;
   // tokenizing the same line twice is the most expensive thing this view does.
   const hlCached = useMemo(() => memoizeHighlighter(hl), [hl])

@@ -7,13 +7,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  editorLanguageFor, isJsoncName, checkedLanguageFor, toEditBuffer, inferIndentUnit, lineColumnAt,
+  editorLanguageFor, isJsoncName, isCodeWorkspacePath, checkedLanguageFor, toEditBuffer, inferIndentUnit, lineColumnAt,
   checkJson, checkXml, editAvailability, editBlockKey, validateYaml,
   registerEditMount, hasUnsavedEdit, hasStashedUnsavedEdit, discardUnsavedEdit, stashDraft, takeStashedDraft, restoreStashedDraft, resetEditStore,
 } from '../../lib/testkit.mjs'
 
 test('editor language per allow-listed file', () => {
   assert.equal(editorLanguageFor('a/b.JSON'), 'json')
+  assert.equal(editorLanguageFor('hub/lab.code-workspace'), 'json', 'the VS Code workspace file is JSON')
   assert.equal(editorLanguageFor('pom.xml'), 'xml')
   assert.equal(editorLanguageFor('README.md'), 'markdown')
   assert.equal(editorLanguageFor('notes.markdown'), 'markdown')
@@ -29,6 +30,17 @@ test('JSONC names skip the JSON check; XML and YAML are checked', () => {
     assert.equal(isJsoncName(name), true, name)
     assert.equal(checkedLanguageFor(name), null, name)
   }
+  // A `.code-workspace` file is not on the JSONC list: it is validated as
+  // plain JSON before a save (comments and trailing commas are reported, with
+  // "save anyway" still available).
+  assert.equal(isJsoncName('hub/lab.code-workspace'), false)
+  assert.equal(isJsoncName('team.CODE-WORKSPACE'), false)
+  assert.equal(checkedLanguageFor('hub/lab.code-workspace'), 'json')
+  assert.equal(isJsoncName('.code-workspace'), false, 'a file literally named .code-workspace is not a workspace file')
+  assert.equal(isCodeWorkspacePath('hub/lab.code-workspace'), true)
+  assert.equal(isCodeWorkspacePath('a/b/TEAM.CODE-WORKSPACE'), true)
+  assert.equal(isCodeWorkspacePath('.code-workspace'), false, 'no stem, no extension')
+  assert.equal(isCodeWorkspacePath('lab.code-workspace.json'), false)
   assert.equal(checkedLanguageFor('package.json'), 'json')
   assert.equal(checkedLanguageFor('a.xml'), 'xml')
   assert.equal(checkedLanguageFor('a.yaml'), 'yaml')

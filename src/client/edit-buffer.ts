@@ -66,12 +66,24 @@ function extensionOf(name: string): string {
   return dot <= 0 ? '' : name.slice(dot + 1)
 }
 
+/** Whether a path is VS Code's multi-root workspace file: its last extension
+ * segment is `code-workspace`. The platform's `languageForPath` has no entry
+ * for that extension, so the preview and diff views ask this and fall back to
+ * the JSON grammar themselves. A file literally named `.code-workspace` has no
+ * extension and is not one. */
+export function isCodeWorkspacePath(path: string): boolean {
+  return extensionOf(baseName(path)) === 'code-workspace'
+}
+
 /** Editor language for a path (callers only ask for allow-listed files). */
 export function editorLanguageFor(path: string): EditorLanguage {
   const name = baseName(path)
   if (name === '.editorconfig' || name === '.env') return 'properties'
   switch (extensionOf(name)) {
     case 'json': return 'json'
+    // VS Code's multi-root workspace file is JSON; the platform has no
+    // language for the `code-workspace` extension, so name it here.
+    case 'code-workspace': return 'json'
     case 'xml': return 'xml'
     case 'md': case 'markdown': return 'markdown'
     case 'yaml': case 'yml': return 'yaml'

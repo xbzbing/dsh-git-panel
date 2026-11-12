@@ -10,6 +10,7 @@ import type { GitKey } from './locales.js'
 import type { FileEditInfo, GitQueryResult } from './types.js'
 import { languageForPath, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
+import { isCodeWorkspacePath } from './edit-buffer.js'
 import { ZoomableImage } from './ImageZoom.js'
 import type { MenuTriggerHandlers } from './menu-types.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
@@ -130,7 +131,7 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
   // highlighting entirely (undefined lang → no grammar load) and render plain
   // text so opening the file never blocks the main thread.
   const plain = content.length > MAX_HIGHLIGHT_BYTES || lines.length > MAX_HIGHLIGHT_LINES
-  const lang = plain ? undefined : languageForPath(path)
+  const lang = plain ? undefined : isCodeWorkspacePath(path) ? 'json' : languageForPath(path)
   const highlight = useCodeHighlighter(lang)
   const highlighted = useMemo(() => plain ? undefined : highlight(lines.join('\n')), [plain, highlight, lines])
 
