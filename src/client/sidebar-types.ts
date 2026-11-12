@@ -1,11 +1,12 @@
 /**
  * The platform's right-sidebar tab registry, as this plugin uses it.
  *
- * @deepseek-ai/dsh-client-ui-sidebar-right is a web-shell platform seed listed
- * in package.json `dsh.client.inject`, external to the plugin bundle. The
- * plugin never imports a value from it — only these types, which mirror the
- * public surface it relies on: the tab definition (stage one), the registry
- * service, and the keyed seats (stage two).
+ * @deepseek-ai/dsh-client-ui-sidebar-right is a client plugin package, not a
+ * platform seed: its boot row is named in package.json `dsh.client.inject` so
+ * its factories arrive before this bundle materializes (ADR-0032). The plugin
+ * never imports a value from it — only these types, which mirror the public
+ * surface it relies on: the tab definition (stage one), the registry service,
+ * and the keyed seats (stage two).
  */
 import type { ComponentType, JSX } from 'react'
 import type { IconProps } from '@deepseek-ai/dsh-client-ui-primitives'

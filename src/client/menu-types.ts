@@ -1,13 +1,14 @@
 /**
  * The platform's context-menu faces, as this plugin uses them.
  *
- * @deepseek-ai/dsh-client-ui-context-menu (dsh 0.2.2-alpha.3 and later) is a web
- * platform seed listed in package.json `dsh.client.inject`, external to the
- * plugin bundle. The plugin imports no value from it — only the structural
- * shapes below, the same approach `sidebar-types.ts` takes for the right
- * sidebar. A host that predates the package has no `contextMenus` service and
- * injects no `useContextMenu`, so nothing here is reached (see menu-register.ts
- * and menu-bindings.ts for the two gates).
+ * @deepseek-ai/dsh-client-ui-context-menu (dsh 0.2.2-alpha.3 and later) is a
+ * client plugin package, not a platform seed: its boot row is named in
+ * package.json `dsh.client.inject` so its factories arrive before this bundle
+ * materializes (ADR-0032). The plugin imports no value from it — only the
+ * structural shapes below, the same approach `sidebar-types.ts` takes for the
+ * right sidebar. A host that predates the package has no `contextMenus` service
+ * and injects no `useContextMenu`, so nothing here is reached (see
+ * menu-register.ts and menu-bindings.ts for the two gates).
  */
 import type { HTMLAttributes } from 'react'
 
