@@ -39,6 +39,47 @@ test('host bundle exports the plugin object + GitPanelService', () => {
   assert.equal(typeof host.compareVersions, 'function')
 })
 
+// The host publishes its endpoints through typert's SRC reflection: the Gateway
+// reads each method's parameter list out of its source text, so the parameter
+// NAMES are the wire argument keys and a signature it cannot derive is refused
+// before the body runs (dsh `packages/api/gateway/src/index.ts`,
+// `methodParameterNames`). Three ways to break that are invisible to
+// TypeScript, and each one breaks every affected endpoint:
+//   - renaming a parameter renames the wire key, while the client sends a fixed
+//     `{ args: { request } }` payload;
+//   - destructuring, a default value or a rest parameter makes the method
+//     unbindable;
+//   - `signal` must be the final parameter wherever it is accepted.
+// Running against `lib/host` also pins the "host output is never minified" rule:
+// minification renames parameters and would take down all seven endpoints.
+test('host endpoints keep the typert SRC wire contract', () => {
+  const EXPECTED = {
+    snapshot: ['request', 'signal'],
+    run: ['request', 'signal'],
+    query: ['request', 'signal'],
+    suggest: ['request', 'signal'],
+    version: ['request'],
+    openFile: ['request'],
+    writeFile: ['request'],
+  }
+  // The shared constant is the type the client's invoke() accepts, so the two
+  // halves cannot list different endpoints.
+  assert.deepEqual([...host.REMOTE_METHODS], Object.keys(EXPECTED), 'REMOTE_METHODS is the single endpoint list')
+  const proto = host.GitPanelService.prototype
+  for (const [endpoint, params] of Object.entries(EXPECTED)) {
+    const fn = proto[endpoint]
+    assert.equal(typeof fn, 'function', `${endpoint} must stay a prototype method`)
+    const list = /^[^(]*\(([^)]*)\)/.exec(Function.prototype.toString.call(fn))?.[1] ?? ''
+    const raws = list.split(',').map((part) => part.trim()).filter(Boolean)
+    for (const raw of raws) {
+      assert.ok(!raw.includes('='), `${endpoint}: '${raw}' must not carry a default (SRC rejects it)`)
+      assert.ok(!/[{[]/.test(raw), `${endpoint}: '${raw}' must not destructure (SRC rejects it)`)
+      assert.ok(!raw.startsWith('...'), `${endpoint}: '${raw}' must not be a rest parameter (SRC rejects it)`)
+    }
+    assert.deepEqual(raws, params, `${endpoint} wire arguments (the client sends { args: { request } })`)
+  }
+})
+
 // The shipped host tree is a plain ESM package: one js per src/host module plus
 // its declaration. Every relative import it carries must therefore resolve to a
 // file that is actually shipped — a missing sibling breaks the runtime import

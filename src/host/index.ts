@@ -32,8 +32,11 @@ export type {
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
   GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList,
   GitWriteFileRequest, GitWriteFileResult, FileEditInfo, FileEditBlock,
-  ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
+  ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure, RemoteMethod,
 } from './types.js'
+
+/** The seven wire endpoints, exported so the contract test can pin them. */
+export { REMOTE_METHODS } from './types.js'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, listSessionRepos, parseFetchRemotes, parsePrimaryRemote, readSuggestLanguage, readPlacement } from './core.js'
 export { createGitRunner } from './git.js'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
