@@ -1,4 +1,4 @@
-# ADR-0032：文件浏览按 Java/Kotlin 约定折叠包路径并投影源码根
+# ADR-0034：文件浏览按 Java/Kotlin 约定折叠包路径并投影源码根
 
 - 状态：Accepted（2026-11-12）
 - 相关：`src/host/package-tree.ts`、`src/host/queries.ts`（`queryDirList`）、`src/client/files-tree.tsx`、`src/client/FilesTab.tsx`、`test/unit/package-tree.test.mjs`、`test/e2e/files-package-tree.mjs`

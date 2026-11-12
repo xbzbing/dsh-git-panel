@@ -4,6 +4,26 @@
  * wire contract has a single definition and cannot drift.
  */
 
+// ── endpoints ────────────────────────────────────────────────────────────
+
+/**
+ * The `@Remote` methods of the host service, in declaration order.
+ *
+ * The wire endpoint is `<SERVICE_KEY>/<method>`, dispatched by typert's SRC
+ * reflection: the Gateway reads each host method's parameter list from its
+ * source text, so the parameter NAMES are the wire argument keys. The client
+ * therefore sends every request as `{ args: { request } }`, and this list is
+ * what keeps the two halves naming the same seven endpoints — a client method
+ * outside it fails typecheck, and `test/unit/plugin-contract.test.mjs` pins
+ * one host method (with a `request` first parameter) per entry.
+ */
+export const REMOTE_METHODS = [
+  'snapshot', 'run', 'query', 'suggest', 'version', 'openFile', 'writeFile',
+] as const
+
+/** One endpoint name from {@link REMOTE_METHODS}. */
+export type RemoteMethod = (typeof REMOTE_METHODS)[number]
+
 // ── snapshot ─────────────────────────────────────────────────────────────
 
 /** Diff layout: `unified` = single inline column, `split` = side-by-side. */

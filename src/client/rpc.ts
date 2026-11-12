@@ -11,7 +11,7 @@ import type {
   GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitQueryResult,
   GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult,
   GitOpenFileRequest, GitOpenFileResult, GitVersionInfo, GitVersionRequest,
-  GitWriteFileRequest, GitWriteFileResult,
+  GitWriteFileRequest, GitWriteFileResult, RemoteMethod,
 } from './types.js'
 import { NS } from './namespace.js'
 
@@ -139,7 +139,7 @@ const remoteCache = new WeakMap<ClientCtx, GitPanelRemote>()
 export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
   const cached = remoteCache.get(ctx)
   if (cached !== undefined) return cached
-  const invoke = async <T>(method: string, request: unknown, signal?: AbortSignal): Promise<T | { ok: false; error: { code: string; message?: string } }> => {
+  const invoke = async <T>(method: RemoteMethod, request: unknown, signal?: AbortSignal): Promise<T | { ok: false; error: { code: string; message?: string } }> => {
     const caller = callerOf(ctx)
     // No connection / a broken transport is not "git is missing": the codes are
     // kept apart so a blip never degrades the panel to the file browser or

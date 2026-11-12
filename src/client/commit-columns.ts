@@ -15,7 +15,7 @@
  * would read as a sliver, so the next tier's dropped column buys it back.
  *
  * Pure: the caller passes the measured width, so the choice is unit-testable and
- * the component keeps no layout arithmetic. See ADR-0031.
+ * the component keeps no layout arithmetic. See ADR-0033.
  */
 
 /** Width of the hash track (7 abbreviated chars in the mono face). */
