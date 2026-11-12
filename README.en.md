@@ -118,6 +118,8 @@ Thanks to [@QianYI-Yan](https://github.com/QianYI-Yan) for the foundation of wor
 
 Thanks to [@homily707](https://github.com/homily707) for removing the confirmation prompts from high-frequency operations (#109): fast-forward pull, fast-forward push, and switching branches on a clean worktree now run immediately; when an operation fails after it starts, the error is reported against the repository it came from. PushModal, the pull / push dialog copy, and their preview queries are gone as well.
 
+Thanks to [@GandzyTM](https://github.com/GandzyTM) for letting a session stay in its hub directory (#121): he proposed and implemented `.code-workspace` support (#122) from real multi-root workspace usage — the `codeWorkspace` setting, the JSONC parser and folder certification, the third gate for repositories outside the workspace (ADR-0030), and browsing and editing following the selected root; the later scan-cache TTL, attempt ceiling and `.code-workspace` editing are built on top of that implementation.
+
 ## License
 
 [MIT License](https://github.com/xbzbing/dsh-git-panel/blob/main/LICENSE).

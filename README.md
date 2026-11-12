@@ -118,6 +118,8 @@ src/
 
 感谢 [@homily707](https://github.com/homily707) 为减少高频操作的打断所做的改进（#109）：快进拉取、快进推送和干净工作树下的切分支不再弹确认，直接执行；操作发起后才失败时，错误按发起时的仓库归属显示。PushModal 与 pull / push 的弹窗文案、预览查询也随之移除。
 
+感谢 [@GandzyTM](https://github.com/GandzyTM) 让会话可以停在「枢纽」目录（#121）：他从多根工作区的真实用法出发提出并实现了 `.code-workspace` 支持（#122）——`codeWorkspace` 配置、JSONC 解析与 folder 认证、工作区外仓库的第三道门（ADR-0030），以及浏览与编辑跟随所选根；其后的扫描缓存 TTL、尝试上限与 `.code-workspace` 的编辑支持都建立在这套实现之上。
+
 ## 许可证
 
 本项目采用 [MIT License](https://github.com/xbzbing/dsh-git-panel/blob/main/LICENSE)。
