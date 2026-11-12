@@ -13,7 +13,8 @@
     "url": "git+https://github.com/xbzbing/dsh-git-panel.git"
   },
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.1.7-rc.2 <0.3.0"
   },
   "main": "lib/host/index.js",
   "types": "lib/host/index.d.ts",
@@ -80,13 +81,14 @@
       ]
     },
     "compatibility": {
-      "dsh": ">=0.1.7-rc.2",
+      "dsh": ">=0.1.7-rc.2 <0.3.0",
       "dshReleases": {
         "0.1.7-rc.2": "compatible",
         "0.2.0-rc.2": "compatible",
         "0.2.1-rc.1": "compatible",
         "0.2.1-rc.2": "compatible",
-        "0.2.2-rc.1": "compatible"
+        "0.2.2-rc.1": "compatible",
+        "0.2.2-rc.2": "compatible"
       }
     }
   },
