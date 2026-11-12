@@ -1,9 +1,18 @@
 /**
  * Minimal ambient surface for the platform's Markdown, code highlighter and
  * dropdown menu.
- * @deepseek-ai/dsh-client-ui-primitives is a web-shell platform seed listed
- * in package.json `dsh.client.inject`, external to the plugin bundle. These
- * declarations mirror its public MarkdownText, code-highlighting and Menu types.
+ * @deepseek-ai/dsh-client-ui-primitives is a web-shell platform seed: the shell
+ * owns the single instance in its module table, and `build.mjs` keeps the whole
+ * `@deepseek-ai/*` scope external so the bundle `require`s that instance instead
+ * of embedding a second copy.
+ *
+ * These declarations cover only the members this plugin calls, and only the
+ * props it passes. That is deliberate: this package supports a range of dsh
+ * releases (`engines.dsh`), and the platform surface moves inside that range —
+ * `Menu.getAnchorRect` existed up to 0.2.2-alpha.2 and was replaced by
+ * `anchorRef` / `anchorPoint` in 0.2.2-alpha.3. Mirroring either generation's
+ * full prop list would misdescribe every other supported release, so the shared
+ * — plugin-used — subset is what is declared here.
  */
 declare module '@deepseek-ai/dsh-client-ui-primitives' {
   import type { JSX, ReactNode } from 'react'
@@ -111,7 +120,6 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     dense?: boolean
     compact?: boolean
     selection?: 'check' | 'fill'
-    getAnchorRect?: () => DOMRect | null
     className?: string | undefined
     listClassName?: string | undefined
   }): JSX.Element
