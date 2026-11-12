@@ -78,6 +78,8 @@ pill 读的是**模块级**的 `effective`（`placement-state.ts`），不是 Re
 
 `@deepseek-ai/dsh-client-ui-sidebar-right` 加进 `dsh.client.inject`（浏览器半依赖哪些 platform seed 包），**不加** `peerDependencies`（插件不 import 它的任何值，只用本地类型声明镜像最小面，与 `primitives.d.ts` 同策略）。已核实：boot graph 里缺失的包被 `arriveGraphRow` 静默跳过，所以老版本上不会合成失败。
 
+> 2026-11-13 注：括注里的「platform seed 包」说法已由 **ADR-0032** 澄清——`dsh.client.inject` 声明的是客户端**包**的到达顺序边，平台 seed 由 shell 的模块表提供、不在其中声明。本段决策（加 inject、不加 `peerDependencies`）不变，正文按约定不改写。
+
 ## Consequences
 
 - 插件在「仅侧边栏」时不再占用对话区标签栏的一个位置；「都显示」是默认，行为与此前一致。

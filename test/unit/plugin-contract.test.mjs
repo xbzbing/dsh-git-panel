@@ -154,7 +154,19 @@ test('install identity is consistent across manifest, patch row, bundle id', () 
   assert.equal(pkg.name, '@xbzbing/dsh-git-panel')
   assert.equal(rowName, pkg.name, 'cordis.patch.yml row name must equal package name')
   assert.equal(handoff.id, pkg.name, 'ModuleLoader registration id must equal package name')
-  assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-primitives'), 'MarkdownText must come from the dsh platform seed')
+  // `dsh.client.inject` names client PACKAGE rows — dsh uses the edges to order
+  // factory arrival — so it is not where a platform seed is declared. Seeds
+  // (react, react-dom, @deepseek-ai/dsh-client-ui-primitives) resolve through the
+  // shell's frozen module table, which is why build.mjs keeps the whole
+  // `@deepseek-ai/*` scope external. A seed name here would be a dead edge: dsh
+  // skips an unknown package row, so it can never order anything (ADR-0032).
+  assert.deepEqual([...pkg.dsh.client.inject].sort(), [
+    '@deepseek-ai/dsh-client-connection',
+    '@deepseek-ai/dsh-client-locale',
+    '@deepseek-ai/dsh-client-ui-context-menu',
+    '@deepseek-ai/dsh-client-ui-conversation',
+    '@deepseek-ai/dsh-client-ui-sidebar-right',
+  ], 'inject declares client package rows only, never a platform seed')
 })
 
 test('client factory returns a plugin with apply + inject', () => {

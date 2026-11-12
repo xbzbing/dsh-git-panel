@@ -47,6 +47,7 @@
 | [ADR-0029](0029-unique-service-key-and-idempotent-mount.md) | 服务键与 RPC / locale 命名空间唯一化，重复挂载保持惰性 | 架构 |
 | [ADR-0030](0030-external-roots-from-code-workspace.md) | 由 `.code-workspace` 文件认证工作区外的仓库根 | 安全 |
 | [ADR-0031](0031-host-wire-contract-src-reflection.md) | host 端点经 typert SRC 反射发布，参数名即 wire 键名 | 契约 |
+| [ADR-0032](0032-client-inject-lists-package-rows-only.md) | `dsh.client.inject` 只声明客户端包边，平台 seed 不在此表 | 契约 |
 
 ## 有效期
 
@@ -55,6 +56,7 @@ ADR 记录的是**决策与它的有效期**，不是当前实现的快照。当
 - **ADR-0003** 的稳定不变量（安装端零构建、禁止安装期脚本、安装身份三处一致、产物新鲜度门禁）持续有效；其中「`lib/` 入库」已退出，由 **ADR-0018** 取代（`lib/` 已移出 main）。
 - **ADR-0018** 已生效：`lib/` 不再提交到 main，GitHub 安装走 Release 附件 tgz。
 - **ADR-0001** 的双半边界与端点语义持续有效；其中的命名空间名与端点数量已由 **ADR-0029** 与实现更新（`dbGitPanel`，七个端点）。
+- **ADR-0022** 的「平台包依赖」决策持续有效；其中把 `dsh.client.inject` 括注成「platform seed 包」的说法由 **ADR-0032** 澄清（seed 不在该表声明）。
 
 ## 新增一份 ADR
 
