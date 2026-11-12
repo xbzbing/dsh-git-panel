@@ -165,11 +165,19 @@ function checkFit(measure, locale, note) {
   assert.equal(measure.tracks.length, 5, `${note}: the wide row is still the five-column grid`)
   assert.ok(measure.track >= TIME_COLUMN_MIN - 0.05 && measure.track <= TIME_COLUMN_MAX + 0.05,
     `${note}: track stays inside [${TIME_COLUMN_MIN}, ${TIME_COLUMN_MAX}] (${measure.track})`)
-  // "Hugs" means the slack is the policy's own 4px padding, not a leftover
-  // half column: a regression to 96px would put this in the 40s for Chinese.
-  // 4px is the policy's slack; the extra 3px is font-metric tolerance so a
-  // platform whose CJK fallback measures differently does not fail the gate.
-  assert.ok(measure.slack >= 0 && measure.slack <= 7, `${note}: no dead band right of the date (track ${measure.track}, text ${measure.textWidth})`)
+  // "Hugs" means the slack is the policy's own 4px padding, not a leftover half
+  // column: a regression to 96px would put this in the 40s for Chinese.
+  //
+  // Above the floor the track is `ceil(text) + 4`, so the slack is 4–5px. At the
+  // floor it is whatever the platform's font leaves: Linux's fallback renders
+  // the same Chinese label at 44.7px instead of 53.3px, and the track stops at
+  // its 56px minimum, so the slack grows instead of shrinking. Only the upper
+  // bound is meaningful above the floor; at the floor the meaningful assertion
+  // is that the text still fits.
+  assert.ok(measure.slack >= 0, `${note}: the date fits its track (track ${measure.track}, text ${measure.textWidth})`)
+  if (measure.track > TIME_COLUMN_MIN + 0.5) {
+    assert.ok(measure.slack <= 4 + 3, `${note}: no dead band right of the date (track ${measure.track}, text ${measure.textWidth})`)
+  }
   assert.ok(measure.overflows.every((gap) => gap <= 0), `${note}: every date cell fits its track (${JSON.stringify(measure.overflows)})`)
   assert.ok(measure.listOverflow <= 0, `${note}: the history list gains no horizontal scrollbar (${measure.listOverflow})`)
   // Only the last track moved: the hash and author columns keep their widths.
@@ -194,7 +202,12 @@ async function localeSwitch() {
     checkFit(de, 'de', 'de')
     assert.equal(de.labels[0], EXPECTED.de.widest)
     assert.ok(de.labels.slice(1).every((label) => label === EXPECTED.de.youngest), 'de: labels re-render in place')
-    assert.ok(de.track > zh.track + 2, `de: a longer locale widens the track (zh ${zh.track} → de ${de.track})`)
+    // Both languages can land on the floor on a platform whose font measures
+    // them narrow; the widening is only observable above it.
+    assert.ok(de.track >= zh.track, `de: a longer locale never narrows the track (zh ${zh.track} → de ${de.track})`)
+    if (zh.track > TIME_COLUMN_MIN + 0.5) {
+      assert.ok(de.track > zh.track, `de: a longer locale widens the track (zh ${zh.track} → de ${de.track})`)
+    }
     assert.ok(Math.abs(de.rowWidth - zh.rowWidth) < 0.5, `locale switch keeps the row width: the subject track yields (${zh.rowWidth} → ${de.rowWidth})`)
     await page.locator('.gp-history').screenshot({ path: fileURLToPath(new URL('de.png', OUT)) })
 
@@ -221,7 +234,7 @@ async function fontZoom() {
     const measure = await page.evaluate(() => window.historyTime.measure())
     checkFit(measure, 'zh', 'zh @ A+')
     assert.ok(Math.abs(measure.zoom - 1.08) < 0.001, `A+ applies the 1.08 zoom (${measure.zoom})`)
-    assert.ok(measure.slack >= 0 && measure.slack <= 7, `A+: zoomed text still fits the unzoomed track (track ${measure.track}, text ${measure.textWidth})`)
+    assert.ok(measure.slack >= 0, `A+: zoomed text still fits the unzoomed track (track ${measure.track}, text ${measure.textWidth})`)
     await page.locator('.gp-history').screenshot({ path: fileURLToPath(new URL('zh-zoom.png', OUT)) })
     assert.deepEqual(errors, [], 'font zoom fixture has no frontend errors')
     console.log('history time column font zoom: PASS', JSON.stringify({ track: measure.track, zoom: measure.zoom }))
