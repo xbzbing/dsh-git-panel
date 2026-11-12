@@ -517,6 +517,24 @@ test('repo-list reports how the workspace file was recognised', async () => {
   assert.equal(invalid.value.codeWorkspace?.file, undefined)
 })
 
+test('the repo-list query carries the recognition state to the client', async () => {
+  // `runQuery` is the only path the panel fetches repo-list through: a field
+  // dropped while rebuilding the value never reaches anyone.
+  const applied = await runQuery(depsAt(hub), HUB_CONFIG, { sessionId: SID, query: { kind: 'repo-list' } })
+  assert.equal(applied.ok, true)
+  assert.equal(applied.value.kind, 'repo-list')
+  assert.equal(applied.value.codeWorkspace?.state, 'applied')
+  assert.equal(applied.value.codeWorkspace?.file, realpathSync.native(join(hub, 'hub.code-workspace')))
+  assert.equal(applied.value.repos.some((row) => row.kind === 'external'), true)
+
+  const typo = await runQuery(depsAt(hub), { ...DEFAULT_CONFIG, codeWorkspace: 'typo.code-workspace' }, {
+    sessionId: SID,
+    query: { kind: 'repo-list' },
+  })
+  assert.equal(typo.ok, true)
+  assert.equal(typo.value.codeWorkspace?.state, 'missing')
+})
+
 test('the setting keeps a malformed value so the session can report it', () => {
   assert.equal(normalizeConfig({}).codeWorkspace, 'off')
   assert.equal(normalizeConfig({ codeWorkspace: 'auto' }).codeWorkspace, 'auto')

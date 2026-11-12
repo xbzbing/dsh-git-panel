@@ -60,7 +60,10 @@ export async function runQuery(
   if (q.kind === 'repo-list') {
     const listed = await listSessionRepos(deps, request.sessionId, config.detectCheckouts, undefined, config.codeWorkspace)
     if (!listed.ok) return { ok: false, error: listed.error }
-    return { ok: true, value: { kind: 'repo-list', cwd: listed.value.cwd, repos: listed.value.repos } }
+    // Spread rather than rebuild: the value carries the workspace-file
+    // recognition state, and rebuilding it here silently dropped that state
+    // before it reached the only path the panel fetches repo-list through.
+    return { ok: true, value: { ...listed.value, kind: 'repo-list' } }
   }
 
   // The file browser works outside a git repository too: resolve a plain

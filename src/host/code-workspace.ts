@@ -19,7 +19,7 @@
  * which rejects both a subdirectory of a repository and a bare path.
  */
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { isWithin, samePath } from './repos.js'
+import { isOutwardSelector, isWithin, samePath } from './repos.js'
 
 /** One folder entry from the workspace file. */
 export interface WorkspaceFolder {
@@ -291,21 +291,6 @@ async function locateCodeWorkspace(
 }
 
 /**
- * Absolute path of the session's workspace file, or null.
- *
- * Kept as a narrow reader for callers that only need the path; the scan below
- * uses the richer resolution so it can report *why* there is no file.
- */
-export async function codeWorkspaceFile(
-  fs: CodeWorkspaceFs,
-  cwd: string,
-  setting: string,
-): Promise<string | null> {
-  const located = await locateCodeWorkspace(fs, cwd, setting)
-  return located.kind === 'file' ? located.file : null
-}
-
-/**
  * Resolve one folder entry to an external root, or null when it does not name a
  * work-tree top outside the cwd.
  *
@@ -339,6 +324,9 @@ async function resolveFolder(
   // here; symlinks were already flattened by realpath.
   if (top === null || !samePath(top, real)) return null
   const path = relative(cwdReal, real).split(sep).join(POSIX_SEP)
+  // A folder on another Windows drive keeps an absolute path after `relative`,
+  // which no door accepts; listing it would be a row that always fails.
+  if (isAbsolute(path) || !isOutwardSelector(path)) return null
   return { path, root: real, name: basename(real), ...(folder.label !== undefined ? { label: folder.label } : {}) }
 }
 
@@ -369,15 +357,36 @@ export async function scanCodeWorkspace(
   if (located.kind === 'missing') return { file: located.file, roots: [], state: 'missing' }
   const file = located.file
   let stamp: string
+  let size: number
   try {
     const info = await fs.stat(file)
     stamp = `${info.mtimeMs}:${info.size}`
+    size = info.size
   } catch {
     return { file, roots: [], state: 'missing' }
   }
-  const key = `${file}\u0000${stamp}`
+  // The roots depend on the cwd too (entries inside it are dropped and `path`
+  // is relative to it), so two sessions sharing one file must not share an
+  // answer: the realpath'd cwd is part of the key.
+  const cwdReal = await fs.realpath(cwd).catch(() => cwd)
+  const key = `${cwdReal}\u0000${file}\u0000${stamp}`
   const cached = cache?.get(key)
-  if (cached !== undefined) return { file, roots: cached, state: 'applied' }
+  if (cached !== undefined) {
+    // The key follows the file, not the directories it names: a checkout that
+    // was deleted or replaced must not stay a phantom row. One realpath per
+    // root, no process spawns.
+    const alive: ExternalRoot[] = []
+    for (const root of cached) {
+      const real = await fs.realpath(root.root).catch(() => null)
+      if (real !== null && samePath(real, root.root)) alive.push(root)
+    }
+    if (alive.length !== cached.length) cache?.set(key, alive)
+    return { file, roots: alive, state: 'applied' }
+  }
+  // The cap is enforced before the read: a hostile file must never enter
+  // memory, and `info.size` already says how big it is. The post-read check
+  // stays, for a file swapped out between `stat` and `readFile`.
+  if (size > CODE_WORKSPACE_MAX_BYTES) return { file, roots: [], state: 'invalid' }
   let text: string
   try {
     const raw = await fs.readFile(file)
@@ -389,7 +398,6 @@ export async function scanCodeWorkspace(
   const folders = parseWorkspaceFolders(text)
   if (folders === null) return { file, roots: [], state: 'invalid' }
   const workspaceDir = dirname(file)
-  const cwdReal = await fs.realpath(cwd).catch(() => cwd)
   const seen = new Set<string>()
   const roots: ExternalRoot[] = []
   for (const folder of folders) {

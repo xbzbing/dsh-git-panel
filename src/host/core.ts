@@ -540,7 +540,9 @@ export async function resolveWorkspace(
     deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
     return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
   }
-  deps.rootCache?.set(key, root)
+  // An outward selector is deliberately never read back from this cache, so
+  // writing it would only accumulate dead entries in a map without a TTL.
+  if (!outward) deps.rootCache?.set(key, root)
   return { ok: true, root }
 }
 

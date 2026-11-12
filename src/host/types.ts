@@ -595,6 +595,11 @@ export interface GitRepoList {
    * outside any repository with nothing to scan or certify. */
   readonly repos: readonly GitRepoEntry[]
   /**
+   * The list has two independent ceilings: `REPO_RESULT_LIMIT` (50) bounds the
+   * repositories the filesystem scan finds, and the workspace file adds at most
+   * `CODE_WORKSPACE_MAX_ROOTS` (20) certified roots on top of it — they are not
+   * probed by that scan, so they are not counted against its cap.
+   *
    * Recognition state of the session's `.code-workspace` file (ADR-0030).
    * Absent when the setting is `off`, or `auto` found no candidate: those are
    * "not configured", not failures. `applied` means the file was parsed and
@@ -872,7 +877,7 @@ export type GitQueryResult =
     readonly failures: readonly ModelCatalogFailure[]
   }
   // Repository discovery (see GitRepoList).
-  | { readonly kind: 'repo-list'; readonly cwd: string; readonly repos: readonly GitRepoEntry[] }
+  | ({ readonly kind: 'repo-list'; readonly cwd: string; readonly repos: readonly GitRepoEntry[] } & Pick<GitRepoList, 'codeWorkspace'>)
   // File-browser directory listing (one level). `truncated` is set when the
   // entry count was capped.
   | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }
