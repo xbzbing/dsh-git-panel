@@ -58,9 +58,12 @@ export async function runQuery(
   // worktrees and nested repositories below it — which is what lets the panel
   // offer a repository picker before anything is selected.
   if (q.kind === 'repo-list') {
-    const listed = await listSessionRepos(deps, request.sessionId, config.detectCheckouts)
+    const listed = await listSessionRepos(deps, request.sessionId, config.detectCheckouts, undefined, config.codeWorkspace)
     if (!listed.ok) return { ok: false, error: listed.error }
-    return { ok: true, value: { kind: 'repo-list', cwd: listed.value.cwd, repos: listed.value.repos } }
+    // Spread rather than rebuild: the value carries the workspace-file
+    // recognition state, and rebuilding it here silently dropped that state
+    // before it reached the only path the panel fetches repo-list through.
+    return { ok: true, value: { ...listed.value, kind: 'repo-list' } }
   }
 
   // The file browser works outside a git repository too: resolve a plain
@@ -68,7 +71,7 @@ export async function runQuery(
   // dir-list / file-content still function; every git-backed query keeps
   // requiring a real work tree.
   if (q.kind === 'dir-list' || q.kind === 'file-content') {
-    const browse = await resolveBrowseRoot(deps, request.sessionId, request.repo)
+    const browse = await resolveBrowseRoot(deps, request.sessionId, request.repo, config.codeWorkspace)
     if (!browse.ok) return { ok: false, error: browse.error }
     try {
       return q.kind === 'dir-list'
@@ -79,7 +82,7 @@ export async function runQuery(
     }
   }
 
-  const workspace = await resolveWorkspace(deps, request.sessionId, request.repo)
+  const workspace = await resolveWorkspace(deps, request.sessionId, request.repo, config.codeWorkspace)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
 

@@ -19,6 +19,7 @@ import { runQuery } from './queries.js'
 import { runSuggest } from './suggest.js'
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
 import { sessionModelReader } from './session-model.js'
+import type { ExternalRoot } from './code-workspace.js'
 import { checkLatestVersion, readVersionInfo } from './version.js'
 import type { GitActionRequest, GitActionResult, GitOpenFileRequest, GitOpenFileResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest, GitWriteFileRequest, GitWriteFileResult } from './types.js'
 import { EDITABLE_EXTENSIONS, EDITABLE_FILENAMES } from './types.js'
@@ -125,6 +126,7 @@ export class GitPanelService extends TypertRemoteService {
     filesFollowRepo: Schema.boolean().default(false).volatile().description('文件浏览跟随 Git 仓库切换（关闭时文件浏览停在项目根目录）'),
     collapseReposOnPick: Schema.boolean().default(false).volatile().description('切换存储库后立即收起存储库列表（关闭时列表保持展开，只由标题行收起）'),
     allowFileEdit: Schema.boolean().default(true).volatile().description(`允许在文件浏览中编辑配置与文档文件（${EDITABLE_EXTENSIONS.join(' / ')}、${EDITABLE_FILENAMES.join(' / ')}，2 MiB 以内）`),
+    codeWorkspace: Schema.string().default('off').volatile().description('从工作区内的 .code-workspace 文件读取多根仓库（关闭 / auto 自动发现 / 指定文件名；外部仓库的文件浏览与编辑随选中的根走，默认关闭）'),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
     suggestLanguage: Schema.union([
       Schema.const('auto').description('自动跟随仓库历史提交的语言'),
@@ -158,6 +160,7 @@ export class GitPanelService extends TypertRemoteService {
   private buildDeps(ctx: Context, config: GitPanelConfig): SnapshotDeps {
     const rootCache = new Map<string, string>()
     const rootNegCache = new Map<string, number>()
+    const codeWorkspaceCache = new Map<string, readonly ExternalRoot[]>()
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
     const fs: SnapshotDeps['fs'] = createFsDeps()
     // `static inject` gates activation on subprocess, so it is always present
@@ -190,6 +193,7 @@ export class GitPanelService extends TypertRemoteService {
       },
       rootCache,
       rootNegCache,
+      codeWorkspaceCache,
       // Optional model services, resolved per request so a provider fiber that
       // activates late or restarts is picked up — absent in deployments without
       // a model backend, where the suggest endpoint reports `llm-unavailable`
@@ -245,7 +249,8 @@ export class GitPanelService extends TypertRemoteService {
     if (this.spawnOpener === null) {
       return { ok: false, error: { code: 'git-error', message: 'subprocess service unavailable' } }
     }
-    const browse = await resolveBrowseRoot(this.withSignal(undefined), request.sessionId, request.repo)
+    const config = this.liveConfig()
+    const browse = await resolveBrowseRoot(this.withSignal(undefined), request.sessionId, request.repo, config.codeWorkspace)
     if (!browse.ok) return { ok: false, error: browse.error }
     try {
       return await openWithSystem(this.deps, browse.root, request.path, this.spawnOpener)
@@ -258,7 +263,7 @@ export class GitPanelService extends TypertRemoteService {
   async writeFile(request: GitWriteFileRequest): Promise<GitWriteFileResult> {
     const config = this.liveConfig()
     if (!config.allowFileEdit) return { ok: false, error: { code: 'edit-disabled' } }
-    const browse = await resolveBrowseRoot(this.withSignal(undefined), request.sessionId, request.repo)
+    const browse = await resolveBrowseRoot(this.withSignal(undefined), request.sessionId, request.repo, config.codeWorkspace)
     if (!browse.ok) return { ok: false, error: browse.error }
     try {
       return await writeWorkspaceFile(this.deps, config, browse.root, request)

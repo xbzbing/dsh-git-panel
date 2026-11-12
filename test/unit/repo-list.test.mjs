@@ -55,6 +55,21 @@ test('a linked worktree row keeps its wire fields and becomes the worktree kind'
   assert.equal(legacy[1].disabled, undefined)
 })
 
+test('a workspace-file root is external, groups with foreign repositories, and keeps its label', () => {
+  const rows = repoChoices([
+    { path: '', name: 'hub', kind: 'workspace', root: '/hub' },
+    { path: 'inner', name: 'inner', kind: 'nested', root: '/hub/inner', role: 'repo' },
+    { path: '../service-a', name: 'service-a', kind: 'external', root: '/service-a', role: 'repo', label: 'API' },
+    { path: '../service-b', name: 'service-b', kind: 'external', root: '/service-b', role: 'repo' },
+  ])
+  assert.deepEqual(rows.map((r) => r.kind), ['workspace', 'repo', 'external', 'external'])
+  assert.equal(repoLabel(rows[2]), 'API', 'folders[].name wins over the basename/path pair')
+  assert.equal(repoLabel(rows[3]), 'service-b (../service-b)', 'without a label the path disambiguates')
+  const groups = repoGroups(rows)
+  assert.deepEqual(groups.map((g) => g.key), ['own', 'foreign'])
+  assert.deepEqual(groups[1].items.map((r) => r.path), ['inner', '../service-a', '../service-b'])
+})
+
 test('labels drop the path when it is the basename and keep it otherwise', () => {
   assert.equal(repoLabel(entry('site', 'site', 'nested')), 'site')
   assert.equal(repoLabel(entry('apps/web', 'web', 'nested')), 'web (apps/web)')
