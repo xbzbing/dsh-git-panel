@@ -1,4 +1,4 @@
-# ADR-0033：提交历史的列宽按 locale 与列宽实测决定
+# ADR-0033：提交历史的列宽按 locale 与列表宽度实测决定
 
 - 状态：Accepted（2026-11-12）
 - 相关：`src/client/time-column.ts`、`src/client/use-time-column.ts`、`src/client/commit-columns.ts`、`src/client/use-element-width.ts`、`src/client/OverviewTab.tsx`、`src/client/overview-rows.tsx`、`src/client/css/overview.ts`、ADR-0023
