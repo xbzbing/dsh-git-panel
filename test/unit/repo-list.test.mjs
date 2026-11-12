@@ -155,6 +155,19 @@ test('the browse-root menu leads with the project root, then every checkout', ()
   assert.equal(rows[2].path, 'site', 'a first-level repository keeps its own path')
 })
 
+test('the browse-root menu names an external root the way the switcher does', () => {
+  // `folders[].name` is the name the user sees in their editor; two menus must
+  // not show two different names for one root.
+  const rows = filesRootRows('/hub', [
+    { path: '', name: 'hub', kind: 'workspace', root: '/hub' },
+    { path: '../service-a', name: 'service-a', kind: 'external', root: '/service-a', role: 'repo', label: 'API' },
+    { path: '../service-b', name: 'service-b', kind: 'external', root: '/service-b', role: 'repo' },
+  ], null)
+  assert.equal(rows[1].name, 'API', 'the workspace file\'s label wins here too')
+  assert.equal(rows[1].path, '../service-a', 'the selector stays on the grey line')
+  assert.equal(rows[2].name, 'service-b', 'without a label the basename leads')
+})
+
 test('the browse-root menu marks the manual pick and keeps disabled rows listed', () => {
   const rows = filesRootRows('/p', [
     { path: '', name: 'p', kind: 'workspace', root: '/p' },

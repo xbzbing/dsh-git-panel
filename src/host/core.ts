@@ -10,7 +10,7 @@ import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafeBranchName, isSafePath, isSafeRemoteName } from './validate.js'
 import { isOutwardSelector, repoDirCertified, repoDirExternal, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
 import { scanCodeWorkspace } from './code-workspace.js'
-import type { CodeWorkspaceScan, ExternalRoot } from './code-workspace.js'
+import type { CodeWorkspaceCacheEntry, CodeWorkspaceScan } from './code-workspace.js'
 import { parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
 import type { WorktreeCheckout, WorktreeInfo } from './worktrees.js'
 import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
@@ -285,13 +285,17 @@ export interface SnapshotDeps {
    */
   readonly rootNegCache?: Map<string, number>
   /**
-   * Optional cache for the `.code-workspace` scan, keyed by file path plus its
-   * mtime and size. Resolving an external root costs up to 20 `git rev-parse`
-   * probes; without this, every 30-second snapshot of an external repository
-   * would repeat them. The stamp is part of the key, so an edited file misses
-   * and the deleted file simply stops producing roots.
+   * Optional cache for the `.code-workspace` scan, keyed by the realpath'd
+   * session cwd plus the file path and its mtime/size stamp. A rescan attempts
+   * up to `CODE_WORKSPACE_MAX_ATTEMPTS` folders and spawns `git rev-parse` for
+   * each attempt that passes the `.git` probe, at most `CODE_WORKSPACE_MAX_ROOTS`
+   * of which become roots; without this cache every 30-second snapshot of an
+   * external repository would repeat them. Entries expire (see
+   * `CODE_WORKSPACE_CACHE_TTL_MS`), so an edited file misses and a folder that
+   * did not resolve yet is probed again; a deleted file simply stops producing
+   * roots.
    */
-  readonly codeWorkspaceCache?: Map<string, readonly ExternalRoot[]>
+  readonly codeWorkspaceCache?: Map<string, CodeWorkspaceCacheEntry>
   /**
    * Optional per-request resolvers for the host model services (see
    * llm-face.ts). Resolved on every suggest call — never frozen at

@@ -167,7 +167,9 @@ export interface FilesRootRow {
   readonly kind: 'project' | 'repo'
   /** Absolute root, display only. */
   readonly root: string
-  /** Repository basename; the project row is labelled by i18n instead. */
+  /** Repository basename, or the workspace file's display name when it sets
+   * one — the same primary label the switcher shows. The project row is
+   * labelled by i18n instead. */
   readonly name: string
   /** Grey second line, the same detail rule as the switcher rows. */
   readonly path: string
@@ -219,7 +221,9 @@ export function filesRootRows(projectRoot: string, choices: readonly RepoChoice[
       selector: c.path,
       kind: 'repo',
       root: c.root,
-      name: c.name,
+      // The switcher leads with `folders[].name` when the workspace file sets
+      // one; two menus must not show two different names for the same root.
+      name: c.label ?? c.name,
       path: repoDetail(c),
       ...(c.disabled !== undefined ? { disabled: c.disabled } : {}),
       active: pick === c.path,

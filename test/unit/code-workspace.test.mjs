@@ -16,6 +16,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
 import {
+  CODE_WORKSPACE_CACHE_TTL_MS,
+  CODE_WORKSPACE_MAX_ATTEMPTS,
   CODE_WORKSPACE_MAX_BYTES,
   CODE_WORKSPACE_MAX_ROOTS,
   explicitCodeWorkspaceName,
@@ -258,8 +260,9 @@ test('the scan cache misses after the file changes', async () => {
 test('the cache follows size and mtime, so a same-length rewrite in the same tick can go stale', async () => {
   // Pinned on purpose: the stamp is (mtimeMs, size), not a content hash. A
   // rewrite that keeps both (same length, same timestamp) is served from the
-  // cache until the file changes again. This is the documented trade-off; the
-  // test fails loudly if the key ever changes shape without the ADR following.
+  // cache until the entry's TTL expires — a bound in time, not in file edits.
+  // The test fails loudly if the key ever changes shape without the ADR
+  // following.
   const body = (target) => JSON.stringify({ folders: [{ path: target }] })
   assert.equal(body('../service-a').length, body('../service-b').length, 'the bodies must be the same length')
   const file = join(hub, 'stale.code-workspace')
@@ -310,6 +313,96 @@ test('a cached root whose directory disappeared is dropped on the next scan', as
   rmSync(repo, { recursive: true, force: true })
   const third = await scanCodeWorkspace(fs, toplevel, dir, 'vanishing.code-workspace', cache)
   assert.deepEqual(third.roots, [], 'a deleted checkout cannot stay a phantom row')
+})
+
+test('a folder that did not resolve yet appears once the cache entry expires', async () => {
+  // The workspace file can name a repository before it is cloned. The first
+  // scan caches that answer under an unchanged stamp; without an expiry the
+  // row would never appear — the feature's main workflow, failing silently.
+  const dir = scratch('late')
+  const late = join(tmp, 'late-repo')
+  writeFileSync(join(dir, 'late.code-workspace'), JSON.stringify({ folders: [{ path: '../late-repo' }] }))
+  const cache = new Map()
+  const first = await scanCodeWorkspace(fs, toplevel, dir, 'late.code-workspace', cache)
+  assert.deepEqual(first.roots, [], 'nothing to list before the clone')
+  assert.equal(first.state, 'applied', 'the file itself was recognised')
+  mkdirSync(late, { recursive: true })
+  await runGit(late, ['init', '-q'])
+  const withinTtl = await scanCodeWorkspace(fs, toplevel, dir, 'late.code-workspace', cache)
+  assert.deepEqual(withinTtl.roots, [], 'inside the TTL the 30-second snapshots stay free')
+  const realNow = Date.now
+  try {
+    Date.now = () => realNow() + CODE_WORKSPACE_CACHE_TTL_MS + 1
+    const expired = await scanCodeWorkspace(fs, toplevel, dir, 'late.code-workspace', cache)
+    assert.deepEqual(expired.roots.map((r) => r.path), ['../late-repo'], 'an expired entry is re-probed')
+  } finally {
+    Date.now = realNow
+  }
+})
+
+test('a path that stops being a work-tree top survives until the entry expires, then drops', async () => {
+  // The hit-path revalidation only compares realpaths: a plain directory put
+  // back at the same path still resolves, so the accepted window is the TTL.
+  // Expiry must then run a full rescan — reading the file is what proves the
+  // healed entry was not trusted again.
+  const dir = scratch('ghost')
+  const repo = join(tmp, 'ghost-repo')
+  mkdirSync(repo, { recursive: true })
+  await runGit(repo, ['init', '-q'])
+  writeFileSync(join(dir, 'ghost.code-workspace'), JSON.stringify({ folders: [{ path: '../ghost-repo' }] }))
+  let reads = 0
+  const base = createFsDeps()
+  const guarded = {
+    ...base,
+    readFile: async (path) => {
+      reads += 1
+      return base.readFile(path)
+    },
+  }
+  const cache = new Map()
+  const first = await scanCodeWorkspace(guarded, toplevel, dir, 'ghost.code-workspace', cache)
+  assert.deepEqual(first.roots.map((r) => r.path), ['../ghost-repo'])
+  assert.equal(reads, 1)
+  rmSync(repo, { recursive: true, force: true })
+  mkdirSync(repo, { recursive: true })
+  writeFileSync(join(repo, 'plain.txt'), 'not a repository\n')
+  const withinTtl = await scanCodeWorkspace(guarded, toplevel, dir, 'ghost.code-workspace', cache)
+  assert.deepEqual(withinTtl.roots.map((r) => r.path), ['../ghost-repo'], 'inside the TTL the row survives')
+  assert.equal(reads, 1, 'the hit path never reads the file')
+  const realNow = Date.now
+  try {
+    Date.now = () => realNow() + CODE_WORKSPACE_CACHE_TTL_MS + 1
+    const expired = await scanCodeWorkspace(guarded, toplevel, dir, 'ghost.code-workspace', cache)
+    assert.deepEqual(expired.roots, [], 'a plain directory at the same path is not a work-tree top')
+    assert.equal(reads, 2, 'expiry ran a full rescan instead of trusting the healed entry')
+  } finally {
+    Date.now = realNow
+  }
+})
+
+test('the attempt ceiling bounds the probes one file can demand', async () => {
+  // The root ceiling counts successes only, so a file full of entries would
+  // otherwise cost a realpath and a `.git` stat per entry (plus a `rev-parse`
+  // for any that carries a `.git` entry).
+  const many = []
+  for (let i = 0; i < CODE_WORKSPACE_MAX_ATTEMPTS + 50; i += 1) many.push({ path: `../absent-${i}` })
+  writeWorkspace('attempts.code-workspace', JSON.stringify({ folders: many }))
+  let realpaths = 0
+  const base = createFsDeps()
+  const guarded = {
+    ...base,
+    realpath: async (path) => {
+      realpaths += 1
+      return base.realpath(path)
+    },
+  }
+  const scan = await scanCodeWorkspace(guarded, toplevel, hub, 'attempts.code-workspace')
+  assert.deepEqual(scan.roots, [], 'none of the entries names a directory')
+  assert.equal(scan.state, 'applied')
+  assert.ok(realpaths >= CODE_WORKSPACE_MAX_ATTEMPTS, 'the scan stopped at the attempt ceiling')
+  // The 3 is locate's realpath(cwd) + realpath(file) plus the scan's own
+  // realpath(cwd); every further probe belongs to one folder attempt.
+  assert.ok(realpaths <= 3 + CODE_WORKSPACE_MAX_ATTEMPTS, `probed ${realpaths} paths, past the ceiling`)
 })
 
 test('off never reads a file', async () => {

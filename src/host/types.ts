@@ -592,21 +592,23 @@ export interface GitRepoList {
   readonly cwd: string
   /** The workspace repository first (when the cwd is inside one), then nested
    * ones by path, then the roots a `.code-workspace` file certifies. Empty
-   * outside any repository with nothing to scan or certify. */
-  readonly repos: readonly GitRepoEntry[]
-  /**
+   * outside any repository with nothing to scan or certify.
+   *
    * The list has two independent ceilings: `REPO_RESULT_LIMIT` (50) bounds the
    * repositories the filesystem scan finds, and the workspace file adds at most
    * `CODE_WORKSPACE_MAX_ROOTS` (20) certified roots on top of it — they are not
-   * probed by that scan, so they are not counted against its cap.
-   *
+   * probed by that scan, so they are not counted against its cap. */
+  readonly repos: readonly GitRepoEntry[]
+  /**
    * Recognition state of the session's `.code-workspace` file (ADR-0030).
    * Absent when the setting is `off`, or `auto` found no candidate: those are
    * "not configured", not failures. `applied` means the file was parsed and
    * its folders resolved — the list may still be empty if none is a checkout.
    * `file` is the absolute path when one can be named (for `ambiguous` there
-   * is no single file). The switcher renders this as one non-selectable hint
-   * row; a host that predates the field simply sends nothing.
+   * is no single file). The host computes and ships this on `repo-list`; the
+   * switcher's non-selectable hint row is a follow-up that does not exist yet
+   * (ADR-0030). Older clients ignore the unknown field; an older host simply
+   * sends nothing.
    */
   readonly codeWorkspace?: {
     readonly state: 'applied' | 'missing' | 'invalid' | 'ambiguous'

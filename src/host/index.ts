@@ -19,7 +19,7 @@ import { runQuery } from './queries.js'
 import { runSuggest } from './suggest.js'
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
 import { sessionModelReader } from './session-model.js'
-import type { ExternalRoot } from './code-workspace.js'
+import type { CodeWorkspaceCacheEntry } from './code-workspace.js'
 import { checkLatestVersion, readVersionInfo } from './version.js'
 import type { GitActionRequest, GitActionResult, GitOpenFileRequest, GitOpenFileResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest, GitWriteFileRequest, GitWriteFileResult } from './types.js'
 import { EDITABLE_EXTENSIONS, EDITABLE_FILENAMES } from './types.js'
@@ -160,7 +160,7 @@ export class GitPanelService extends TypertRemoteService {
   private buildDeps(ctx: Context, config: GitPanelConfig): SnapshotDeps {
     const rootCache = new Map<string, string>()
     const rootNegCache = new Map<string, number>()
-    const codeWorkspaceCache = new Map<string, readonly ExternalRoot[]>()
+    const codeWorkspaceCache = new Map<string, CodeWorkspaceCacheEntry>()
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
     const fs: SnapshotDeps['fs'] = createFsDeps()
     // `static inject` gates activation on subprocess, so it is always present

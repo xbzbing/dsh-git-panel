@@ -72,8 +72,28 @@ export const CODE_WORKSPACE_MAX_BYTES = 1024 * 1024
  * anyway, and each entry costs a git probe. */
 export const CODE_WORKSPACE_MAX_ROOTS = 20
 
-/** Cache ceiling: one entry per (file, mtime, size) — a file edited often must
- * not grow the map without bound. */
+/** Ceiling for the folder entries one scan may *attempt*, resolved or not.
+ * The roots cap only counts successes, so a hostile file with tens of
+ * thousands of entries would otherwise cost a realpath and a `.git` stat each
+ * (plus a `rev-parse` for any directory that carries a `.git` entry). */
+export const CODE_WORKSPACE_MAX_ATTEMPTS = 200
+
+/** How long one scan answer stays valid. The snapshot cadence is 30 s; the TTL
+ * bounds how long the panel can keep serving an answer whose folders were not
+ * resolvable yet (a repository that is cloned later) or whose stamp was too
+ * coarse to notice a same-length rewrite. */
+export const CODE_WORKSPACE_CACHE_TTL_MS = 60_000
+
+/** One cached scan: what it produced and when it was taken, so an expired entry
+ * is redone instead of trusted forever. */
+export interface CodeWorkspaceCacheEntry {
+  /** Epoch ms of the scan; a hit older than the TTL misses. */
+  readonly at: number
+  readonly roots: readonly ExternalRoot[]
+}
+
+/** Cache ceiling: one entry per (realpath(cwd), file, mtime, size) — a file
+ * edited often must not grow the map without bound. */
 const CODE_WORKSPACE_CACHE_MAX = 32
 
 const POSIX_SEP = '/'
@@ -333,11 +353,21 @@ async function resolveFolder(
 /**
  * Read the configured workspace file and resolve its folders.
  *
- * The resolved roots are memoized on `(file, mtimeMs, size)` so a session with
- * an external repository selected does not re-probe up to 20 repositories on
- * every 30-second snapshot. The stamp is part of the key, so an edited file
- * misses and is re-read; a deleted file simply stops producing roots (the
- * caller then rejects the selector, which is the correct answer).
+ * The resolved roots are memoized under `(realpath(cwd), file, mtimeMs, size)`
+ * so a session with an external repository selected does not re-certify the
+ * file's folders on every 30-second snapshot: the roots depend on the cwd, so
+ * two sessions sharing one file must not share an answer. The stamp is part of
+ * the key, so an edited file misses and is re-read; a deleted file simply
+ * stops producing roots (the caller then rejects the selector, which is the
+ * correct answer).
+ *
+ * A hit additionally expires after `CODE_WORKSPACE_CACHE_TTL_MS` and revalidates
+ * every root with one `realpath`. The revalidation drops a checkout that was
+ * deleted or moved away while the file stayed put; the expiry is what lets a
+ * folder that could not resolve at scan time (its repository is not cloned
+ * yet, or a directory at the path was replaced by something that is not a
+ * work-tree top) be probed again instead of staying invisible until the file
+ * is edited or the plugin restarts.
  *
  * The state answers "was the file recognised", independently of how many
  * folders it yielded: a parsed file with no checkouts is `applied`, not empty
@@ -348,7 +378,7 @@ export async function scanCodeWorkspace(
   toplevel: (dir: string) => Promise<string | null>,
   cwd: string,
   setting: string,
-  cache?: Map<string, readonly ExternalRoot[]>,
+  cache?: Map<string, CodeWorkspaceCacheEntry>,
 ): Promise<CodeWorkspaceScan> {
   const located = await locateCodeWorkspace(fs, cwd, setting)
   if (located.kind === 'none') return { file: null, roots: [] }
@@ -371,16 +401,20 @@ export async function scanCodeWorkspace(
   const cwdReal = await fs.realpath(cwd).catch(() => cwd)
   const key = `${cwdReal}\u0000${file}\u0000${stamp}`
   const cached = cache?.get(key)
-  if (cached !== undefined) {
+  if (cached !== undefined && Date.now() - cached.at < CODE_WORKSPACE_CACHE_TTL_MS) {
     // The key follows the file, not the directories it names: a checkout that
-    // was deleted or replaced must not stay a phantom row. One realpath per
-    // root, no process spawns.
+    // was deleted or moved elsewhere must not stay a phantom row. One realpath
+    // per root, no process spawns; a path that still resolves to something
+    // else is caught again by the full rescan at expiry, which re-runs the
+    // work-tree certification.
     const alive: ExternalRoot[] = []
-    for (const root of cached) {
+    for (const root of cached.roots) {
       const real = await fs.realpath(root.root).catch(() => null)
       if (real !== null && samePath(real, root.root)) alive.push(root)
     }
-    if (alive.length !== cached.length) cache?.set(key, alive)
+    // Keep the original `at`: healing must not extend the entry's life, or
+    // repeated shrink events would keep pushing the rescan out.
+    if (alive.length !== cached.roots.length) cache?.set(key, { at: cached.at, roots: alive })
     return { file, roots: alive, state: 'applied' }
   }
   // The cap is enforced before the read: a hostile file must never enter
@@ -400,7 +434,10 @@ export async function scanCodeWorkspace(
   const workspaceDir = dirname(file)
   const seen = new Set<string>()
   const roots: ExternalRoot[] = []
-  for (const folder of folders) {
+  // The roots cap breaks on successes, so the attempt cap is what bounds the
+  // work a file can demand: at most this many realpath + `.git` probes, and a
+  // `rev-parse` only for the ones that pass them.
+  for (const folder of folders.slice(0, CODE_WORKSPACE_MAX_ATTEMPTS)) {
     if (roots.length >= CODE_WORKSPACE_MAX_ROOTS) break
     const root = await resolveFolder(fs, toplevel, cwdReal, workspaceDir, folder)
     if (root === null) continue
@@ -412,7 +449,7 @@ export async function scanCodeWorkspace(
   roots.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   if (cache !== undefined) {
     if (cache.size >= CODE_WORKSPACE_CACHE_MAX) cache.clear()
-    cache.set(key, roots)
+    cache.set(key, { at: Date.now(), roots })
   }
   return { file, roots, state: 'applied' }
 }
