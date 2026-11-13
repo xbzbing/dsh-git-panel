@@ -602,10 +602,11 @@ export interface GitRepoEntry {
    * Absent = unknown (an older host, or a repository with no worktree data). */
   readonly branch?: string | null
   /** Why the row cannot be chosen: `outside` = the checkout sits outside the
-   * session cwd and is not its repository root (the root is always choosable,
-   * every other out-of-cwd checkout is one hop from it), `stale` = its directory
-   * is gone. Absent = selectable. */
-  readonly disabled?: 'outside' | 'stale'
+   * session cwd and no relative selector reaches it (only a checkout on another
+   * Windows drive), `uncertified` = this repository does not own it (the record
+   * is a copy or a leftover, or it falls past the certified ceiling, ADR-0035),
+   * `stale` = its directory is gone. Absent = selectable. */
+  readonly disabled?: 'outside' | 'uncertified' | 'stale'
   /** git's `locked` flag on this worktree (display only). */
   readonly locked?: boolean
 }
@@ -623,19 +624,28 @@ export interface GitRepoList {
    * probed by that scan, so they are not counted against its cap. */
   readonly repos: readonly GitRepoEntry[]
   /**
-   * Recognition state of the session's `.code-workspace` file (ADR-0030).
-   * Absent when the setting is `off`, or `auto` found no candidate: those are
-   * "not configured", not failures. `applied` means the file was parsed and
-   * its folders resolved — the list may still be empty if none is a checkout.
-   * `file` is the absolute path when one can be named (for `ambiguous` there
-   * is no single file). The host computes and ships this on `repo-list`; the
-   * switcher's non-selectable hint row is a follow-up that does not exist yet
-   * (ADR-0030). Older clients ignore the unknown field; an older host simply
-   * sends nothing.
+   * Recognition state of the session's `.code-workspace` file (ADR-0030,
+   * ADR-0035). Absent when the setting is `off` and the cwd holds no candidate
+   * file, or `auto` found none: those are "not configured", not failures.
+   * `applied` means the file was parsed and its folders resolved — the list may
+   * still be empty if none is a checkout. `available` means the setting is
+   * `off` but the cwd holds workspace files: the switcher offers to turn the
+   * feature on, and nothing is enabled by the state itself. `file` is the
+   * absolute path when one can be named (for `ambiguous` and for several
+   * `available` candidates there is no single file); `count` is set for
+   * `available`; `roots` is set for `applied`. Older clients ignore the unknown
+   * state and fields; an older host simply sends nothing.
    */
   readonly codeWorkspace?: {
-    readonly state: 'applied' | 'missing' | 'invalid' | 'ambiguous'
+    readonly state: 'applied' | 'missing' | 'invalid' | 'ambiguous' | 'available'
     readonly file?: string
+    /** `available` only: how many workspace files the cwd holds. */
+    readonly count?: number
+    /** `applied` only: how many repositories the file produced. Not derivable
+     * from `repos`: a root this list already carries (a worktree of the session's
+     * own repository) merges into that row instead of adding an `external` one,
+     * so "no external row" does not mean "the file yielded nothing". */
+    readonly roots?: number
   }
 }
 

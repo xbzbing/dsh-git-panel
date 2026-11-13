@@ -50,6 +50,7 @@
 | [ADR-0032](0032-client-inject-lists-package-rows-only.md) | `dsh.client.inject` 只声明客户端包边，平台 seed 不在此表 | 契约 |
 | [ADR-0033](0033-commit-row-column-widths.md) | 提交历史的列宽按 locale 与列表宽度实测决定 | UI |
 | [ADR-0034](0034-java-package-folding.md) | 文件浏览按 Java/Kotlin 约定折叠包路径并投影源码根 | UI |
+| [ADR-0035](0035-code-workspace-discoverability.md) | 工作区文件的可发现性与 cwd 外 worktree 的可选性 | 安全 |
 
 ## 有效期
 

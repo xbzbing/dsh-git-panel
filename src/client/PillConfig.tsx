@@ -7,7 +7,7 @@
  * exists). The mirror namespace is discovered by schema shape, so the form
  * follows the Host entry id instead of assuming it.
  */
-import { createElement as h, useEffect, useMemo, useState } from 'react'
+import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { findNamespace, resyncAfterWrite } from './config-write.js'
@@ -92,6 +92,19 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pendingFold, setPendingFold] = useState<boolean | null>(null)
   const [pendingEdit, setPendingEdit] = useState<boolean | null>(null)
   const [pendingPackages, setPendingPackages] = useState<boolean | null>(null)
+  // Workspace file: three states in one string value (`off` / `auto` / a file
+  // name). `customOpen` shows the name box before a name exists; `draftName`
+  // keeps typing local until Enter or blur commits.
+  const [pendingWorkspace, setPendingWorkspace] = useState<string | null>(null)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [draftName, setDraftName] = useState<string | null>(null)
+  const [workspaceNameInvalid, setWorkspaceNameInvalid] = useState(false)
+  // Picking another mode while the name box is focused must write once, not
+  // twice: the blur commits the name and the click commits the mode, in that
+  // order, so the mode the user just picked would be overwritten by a write
+  // they were already abandoning. The press is the signal, and it arrives
+  // before the blur.
+  const skipNameCommit = useRef(false)
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({ basic: true, view: false, suggest: false, repos: false })
   const [pendingLang, setPendingLang] = useState<SuggestLanguage | null>(null)
   // Numeric drafts are local edit state: onChange only updates the draft so
@@ -152,6 +165,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const collapseReposOnPick = pendingFold ?? (typeof snap?.value?.collapseReposOnPick === 'boolean' ? (snap.value.collapseReposOnPick as boolean) : false)
   const allowFileEdit = pendingEdit ?? (typeof snap?.value?.allowFileEdit === 'boolean' ? (snap.value.allowFileEdit as boolean) : true)
   const compactPackages = pendingPackages ?? (typeof snap?.value?.compactPackages === 'boolean' ? (snap.value.compactPackages as boolean) : true)
+  const snapshotWorkspace = typeof snap?.value?.codeWorkspace === 'string' ? (snap.value.codeWorkspace as string).trim() : ''
+  const rawWorkspace = pendingWorkspace ?? snapshotWorkspace
+  const workspaceMode: 'off' | 'auto' | 'custom' = rawWorkspace === 'auto' ? 'auto' : rawWorkspace === '' || rawWorkspace === 'off' ? 'off' : 'custom'
+  const showWorkspaceName = customOpen || workspaceMode === 'custom'
+  const workspaceName = draftName ?? (workspaceMode === 'custom' ? rawWorkspace : '')
   const rawLang = snap?.value?.suggestLanguage
   const suggestLanguage: SuggestLanguage = pendingLang
     ?? (typeof rawLang === 'string' && (SUGGEST_LANGUAGES as readonly string[]).includes(rawLang) ? rawLang as SuggestLanguage : SUGGEST_LANGUAGE_DEFAULT)
@@ -294,6 +312,89 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const togglePackages = (next: boolean): Promise<void> => {
     setPendingPackages(next)
     return commitField('compactPackages', next, () => setPendingPackages(null))
+  }
+
+  // The workspace setting has three states, and only one of them carries text:
+  // the segmented control writes `off` / `auto` directly, while "specific file"
+  // reveals the name box and writes on Enter or blur.
+  // The workspace field is the one commit the form holds optimistically until
+  // the settings mirror agrees: its third state owns a text box, and a write
+  // that clears the pending value on the way back would unmount the box the
+  // user is typing in. A late answer clears it after a bound, so a rejected
+  // write cannot pin the form to a value the host does not have.
+  const writeWorkspace = async (next: string): Promise<void> => {
+    if (form === undefined) return
+    setFailed(false)
+    setBusy(true)
+    setPendingWorkspace(next)
+    try {
+      const ok = await form.set('codeWorkspace', next)
+      if (!ok) {
+        setPendingWorkspace(null)
+        setFailed(true)
+      } else {
+        resyncAfterWrite()
+      }
+    } catch {
+      setPendingWorkspace(null)
+      setFailed(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (pendingWorkspace === null) return
+    if (snapshotWorkspace === pendingWorkspace) {
+      setPendingWorkspace(null)
+      setDraftName(null)
+      setCustomOpen(false)
+      return
+    }
+    const settle = setTimeout(() => { setPendingWorkspace(null) }, 2000)
+    return () => { clearTimeout(settle) }
+  }, [pendingWorkspace, snapshotWorkspace])
+
+  const setWorkspaceMode = (next: 'off' | 'auto' | 'custom'): void => {
+    setWorkspaceNameInvalid(false)
+    if (next === 'custom') {
+      setCustomOpen(true)
+      if (workspaceMode === 'custom') setDraftName(null)
+      return
+    }
+    setCustomOpen(false)
+    setDraftName(null)
+    if (next === workspaceMode) return
+    void writeWorkspace(next)
+  }
+
+  const commitWorkspaceName = (): void => {
+    if (skipNameCommit.current) {
+      skipNameCommit.current = false
+      return
+    }
+    const name = (draftName ?? '').trim()
+    // An empty box is how the user leaves "specific file" without naming one:
+    // close it and fall back to the value the host actually has, instead of
+    // pinning the control to a state that was never written.
+    if (name === '') {
+      setWorkspaceNameInvalid(false)
+      setDraftName(null)
+      setCustomOpen(false)
+      return
+    }
+    // The host validates the shape too; refusing it here keeps a typo from
+    // reaching the config (a malformed value is an `invalid` state, not `off`).
+    const shaped = name.length <= 255 && name !== '.' && name !== '..' && !/[/\\\0]/.test(name) && name.endsWith('.code-workspace')
+    if (!shaped) {
+      setWorkspaceNameInvalid(true)
+      return
+    }
+    setWorkspaceNameInvalid(false)
+    // The box stays up until the mirror carries the name, so the user's text
+    // does not blink out between the write and the next settings read.
+    setDraftName(name)
+    void writeWorkspace(name)
   }
 
   const setLanguage = (next: SuggestLanguage): Promise<void> => {
@@ -694,6 +795,43 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.detectToggle')),
       ]),
       h('p', { key: 'dethint', className: 'gp-cfg__hint' }, t('cfg.detectHint')),
+    ]),
+    field('codews', [
+      h('h3', { key: 'cwtitle', className: 'gp-cfg__title' }, t('cfg.cwTitle')),
+      h('div', {
+        key: 'cwseg',
+        className: 'gp-seg gp-cfg__seg',
+        role: 'group',
+        'aria-label': t('cfg.cwTitle'),
+        // Runs before the box's blur (focus moves on mousedown): the press is
+        // the newer intent, so the pending name is dropped rather than written
+        // and immediately overwritten by the mode write that follows.
+        onPointerDownCapture: () => {
+          skipNameCommit.current = true
+          setTimeout(() => { skipNameCommit.current = false }, 0)
+        },
+      },
+        segButtons<'off' | 'auto' | 'custom'>(['off', 'auto', 'custom'], showWorkspaceName ? 'custom' : workspaceMode, (v) => { setWorkspaceMode(v) },
+          (v) => t(v === 'off' ? 'cfg.cwOff' : v === 'auto' ? 'cfg.cwAuto' : 'cfg.cwCustom'), busy || snap?.writable === false)),
+      showWorkspaceName
+        ? h('input', {
+          key: 'cwname', type: 'text', className: `gp-cfg__textinput${workspaceNameInvalid ? ' gp-cfg__textinput--err' : ''}`,
+          placeholder: t('cfg.cwNamePlaceholder'),
+          value: workspaceName,
+          disabled: busy || snap?.writable === false,
+          'aria-invalid': workspaceNameInvalid || undefined,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => {
+            setDraftName(e.currentTarget.value)
+            if (workspaceNameInvalid) setWorkspaceNameInvalid(false)
+          },
+          onKeyDown: (e) => { if (e.key === 'Enter') commitWorkspaceName() },
+          onBlur: () => { commitWorkspaceName() },
+        })
+        : null,
+      workspaceNameInvalid
+        ? h('p', { key: 'cwerr', className: 'gp-cfg__err', role: 'alert' }, t('cfg.cwNameInvalid'))
+        : null,
+      h('p', { key: 'cwhint', className: 'gp-cfg__hint' }, t('cfg.cwHint')),
     ]),
     field('follow', [
       h('label', { key: 'followrow', className: 'gp-cfg__row' }, [

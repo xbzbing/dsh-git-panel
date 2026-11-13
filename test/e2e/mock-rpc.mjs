@@ -219,7 +219,13 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           // The panel asks for the workspace's repository list on first paint.
           // An empty list keeps the tab bar identical for every existing
           // runner; a fixture that needs the switcher opts in below.
-          if (q.kind === 'repo-list') return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: '/mock', repos: fixture.repos ?? [] } } }
+          if (q.kind === 'repo-list') {
+            // `repoWorkspace` is the recognition state of the workspace file
+            // (ADR-0035): the switcher renders it as a hint row.
+            const value = { kind: 'repo-list', cwd: '/mock', repos: fixture.repos ?? [] }
+            if (fixture.repoWorkspace !== undefined) value.codeWorkspace = fixture.repoWorkspace
+            return { ok: true, value: { ok: true, value } }
+          }
         }
         if (endpoint === 'dbGitPanel/run') {
           const act = request.action

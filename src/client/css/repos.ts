@@ -50,6 +50,17 @@ export const CSS = `
  * the list takes the leftover height — without this the list grew to its
  * content size, the fold clipped it, and no scrollbar was ever reachable. */
 .gp-repolist__fold{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+/* The workspace-file row: a statement plus one action, never a choice. It sits
+ * above the current checkout's path line because it explains why the list is as
+ * short as it is; a warning tone marks a configured file that cannot be used. */
+.gp-repolist__hint{display:flex;align-items:flex-start;gap:6px;margin:2px 6px 4px;padding:5px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.45}
+.gp-repolist__hint svg{flex:none;margin-top:1px;color:var(--dsw-alias-state-business-primary)}
+.gp-repolist__hint--warn svg{color:var(--dsw-alias-state-warn-primary,#e0982e)}
+.gp-repolist__hint-text{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.gp-repolist__hint-act{flex:none;padding:1px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;line-height:1.4;cursor:pointer}
+.gp-repolist__hint-act:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.gp-repolist__hint-act:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-repolist__hint-act:disabled{opacity:.6;cursor:default}
 .gp-repolist__row{margin:0;min-width:0}
 .gp-repolist__item{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:5px 10px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .gp-repolist__item:hover:not(.gp-repolist__item--active){background:var(--dsw-alias-interactive-bg-hover)}

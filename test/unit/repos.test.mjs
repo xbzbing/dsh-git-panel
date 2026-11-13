@@ -8,9 +8,9 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import './_tmp-ceiling.mjs'
 import { linkOrSkip } from './_fs-helpers.mjs'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { listSessionRepos, resolveBrowseRoot, resolveWorkspace } from '../../lib/host/core.js'
 import { repoDirCertified, repoDirExternal, repoDirFor, scanRepos } from '../../lib/host/repos.js'
@@ -249,9 +249,9 @@ test('a repository lists its family: workspace, worktrees inside, worktrees outs
   const listed = await listSessionRepos(depsAt(wtRepo), SID, true)
   assert.equal(listed.ok, true)
   const rows = listed.value.repos
-  // Selectable rows sort by path (the workspace row first), then the disabled
-  // ones, so the checkout above the cwd trails the one inside it.
-  assert.deepEqual(rows.map((r) => r.path), ['', '.agents/worktrees/feat-a', '../wt-outside', 'vendor/lib'])
+  // Every row is selectable now (ADR-0035), so the family sorts by path: the
+  // workspace row first, then the checkouts git listed, then the scan's.
+  assert.deepEqual(rows.map((r) => r.path), ['', '../wt-outside', '.agents/worktrees/feat-a', 'vendor/lib'])
 
   const byPath = new Map(rows.map((row) => [row.path, row]))
 
@@ -269,10 +269,10 @@ test('a repository lists its family: workspace, worktrees inside, worktrees outs
   assert.equal(inside.branch, 'wt-a')
   assert.equal(inside.disabled, undefined)
 
-  // Outside the cwd: visible so the user can see it exists, disabled so its
-  // selector (a ../ path) can never be sent, with the branch still shown.
+  // Outside the cwd: a checkout of this same repository, so its record
+  // certifies it and the row is choosable — with the branch for free.
   const outside = byPath.get('../wt-outside')
-  assert.equal(outside.disabled, 'outside')
+  assert.equal(outside.disabled, undefined, 'a worktree of the own repository is choosable')
   assert.equal(outside.role, 'linked')
   assert.equal(outside.branch, 'wt-out')
 
@@ -306,10 +306,10 @@ test('a worktree session lists the repository root as a choosable row', async ()
 
   const sibling = rows[2]
   assert.equal(sibling.role, 'linked')
-  assert.equal(sibling.disabled, 'outside', 'a sibling checkout needs the root first')
+  assert.equal(sibling.disabled, undefined, 'a sibling checkout is a record of the same repository')
 })
 
-test('a selector may leave the cwd only for the repository root', async () => {
+test('a selector may leave the cwd for any checkout git reports', async () => {
   // The session's own checkout is the worktree; the primary work tree is its
   // parent. Selecting it is what lets a worktree session go back — and it is
   // the only directory a selector may reach from outside the cwd.
@@ -328,13 +328,12 @@ test('a selector may leave the cwd only for the repository root', async () => {
   assert.equal(down.ok, true, 'a worktree below the root is an ordinary nested selector')
   assert.equal(down.root, realpathSync.native(inWorktree))
   const above = await resolveWorkspace(fromRoot, SID, '../wt-outside')
-  assert.equal(above.ok, false, 'a checkout above the root is still outside the cwd')
-  assert.equal(above.failure.error.code, 'invalid-repo')
+  assert.equal(above.ok, true, 'a sibling worktree is a record of the same repository')
+  assert.equal(above.root, realpathSync.native(join(tmp, 'wt-outside')))
 
-  // Everything else stays refused: a sibling checkout, an unrelated repository,
-  // the plain parent directory, an absolute path, and a traversal on nothing.
+  // Everything else stays refused: an unrelated repository, the plain parent
+  // directory, an absolute path, and a traversal on nothing.
   const outside = [
-    '../../../../wt-outside',       // a sibling worktree: reachable only via the root
     '../../../../group',            // a plain directory above the repository
     '../../../../../',              // the temp root
     '../..',                        // the repository's own .agents directory
@@ -357,13 +356,21 @@ test('repoDirCertified itself refuses a selector landing inside the cwd', async 
   const inWorktree = join(wtRepo, '.agents', 'worktrees', 'feat-a')
   const fs = createFsDeps()
   const root = realpathSync.native(wtRepo)
+  const sibling = realpathSync.native(join(tmp, 'wt-outside'))
+  const roots = [root, sibling]
   for (const inside of ['subdir', '..', '../..']) {
-    const res = await repoDirCertified(fs, inWorktree, inside, root)
+    const res = await repoDirCertified(fs, inWorktree, inside, roots)
     assert.equal(res.ok, false, 'must refuse ' + JSON.stringify(inside))
   }
-  const res = await repoDirCertified(fs, inWorktree, '../../..', root)
-  assert.equal(res.ok, true, 'the repository root itself is admitted')
-  assert.equal(res.dir, root)
+  const admitted = await repoDirCertified(fs, inWorktree, '../../..', roots)
+  assert.equal(admitted.ok, true, 'the repository root itself is admitted')
+  assert.equal(admitted.dir, root)
+  const other = await repoDirCertified(fs, inWorktree, '../../../../wt-outside', roots)
+  assert.equal(other.ok, true, 'so is any other checkout git listed for the repository')
+  assert.equal(other.dir, sibling)
+  // An empty set admits nothing: the door has no source of truth to compare to.
+  const none = await repoDirCertified(fs, inWorktree, '../../..', [])
+  assert.equal(none.ok, false)
 })
 
 test('a worktree directory is claimed once, never re-listed as a nested repository', async () => {
@@ -500,11 +507,30 @@ test('repo-list reports how the workspace file was recognised', async () => {
   assert.deepEqual(applied.value.codeWorkspace, {
     state: 'applied',
     file: realpathSync.native(join(hub, 'hub.code-workspace')),
+    // How many roots the file produced. The client needs it because a root the
+    // list already carries (a worktree of the session's own repository) merges
+    // into that row instead of adding an `external` one, so the rows alone
+    // cannot tell "names nothing" from "names something already listed".
+    roots: 2,
   })
 
+  // `off` with a workspace file in the cwd is no longer silent: the switcher
+  // offers to turn the feature on instead of hiding that the file exists
+  // (ADR-0035). Nothing is enabled by the state itself.
   const off = await listSessionRepos(depsAt(hub), SID, true, undefined, 'off')
   assert.equal(off.ok, true)
-  assert.equal(off.value.codeWorkspace, undefined, 'off is not configured, so it says nothing')
+  assert.deepEqual(off.value.codeWorkspace, {
+    state: 'available',
+    file: realpathSync.native(join(hub, 'hub.code-workspace')),
+    count: 1,
+  })
+  assert.equal(off.value.repos.some((row) => row.kind === 'external'), false, 'an offer adds no roots')
+
+  // A cwd with no workspace file stays silent under `off`: there is nothing to
+  // offer, and "not configured" is not a failure.
+  const silent = await listSessionRepos(depsAt(ws), SID, true, undefined, 'off')
+  assert.equal(silent.ok, true)
+  assert.equal(silent.value.codeWorkspace, undefined)
 
   const missing = await listSessionRepos(depsAt(hub), SID, true, undefined, 'typo.code-workspace')
   assert.equal(missing.ok, true)
@@ -664,4 +690,293 @@ test('a commit inside an external repository goes through the selected root', as
     false,
     'the committed file left the change list',
   )
+})
+
+test('the off setting offers every workspace file the cwd holds, and names none of several', async () => {
+  const two = join(tmp, 'two-candidates')
+  mkdirSync(two, { recursive: true })
+  writeFileSync(join(two, 'a.code-workspace'), '{"folders":[]}')
+  writeFileSync(join(two, 'b.code-workspace'), '{"folders":[]}')
+  const listed = await listSessionRepos(depsAt(two), SID, true, undefined, 'off')
+  assert.equal(listed.ok, true)
+  assert.deepEqual(listed.value.codeWorkspace, { state: 'available', count: 2 }, 'no single file to name')
+  // A directory named like a workspace file is not one: the shape is the same
+  // rule discovery applies, so the offer cannot advertise a directory.
+  rmSync(join(two, 'b.code-workspace'))
+  mkdirSync(join(two, 'b.code-workspace'))
+  const one = await listSessionRepos(depsAt(two), SID, true, undefined, 'off')
+  assert.equal(one.value.codeWorkspace?.count, 1)
+  assert.equal(one.value.codeWorkspace?.state, 'available')
+})
+
+test('a workspace file label lands on the worktree row it names', async () => {
+  const root = join(tmp, 'label-fixture')
+  const app = join(root, 'app')
+  const wt = join(root, 'wt')
+  mkdirSync(app, { recursive: true })
+  await runGit(app, ['init', '-q', '-b', 'main'])
+  await runGit(app, ['config', 'user.email', 't@t.co'])
+  await runGit(app, ['config', 'user.name', 'Tester'])
+  await runGit(app, ['commit', '--allow-empty', '-qm', 'init'])
+  await runGit(app, ['worktree', 'add', '-q', '-b', 'wt', wt])
+  writeFileSync(join(app, 'app.code-workspace'), JSON.stringify({ folders: [{ path: '../wt', name: 'FEATURE' }] }))
+
+  const listed = await listSessionRepos(depsAt(app), SID, true, undefined, 'auto')
+  assert.equal(listed.ok, true)
+  const row = listed.value.repos.find((entry) => entry.root === realpathSync.native(wt))
+  assert.ok(row, 'the worktree is one row')
+  assert.equal(row.role, 'linked', 'it stays a checkout of the session repository')
+  assert.equal(row.kind, 'nested', 'the list says where it came from; not a foreign repository')
+  assert.equal(row.label, 'FEATURE', 'the editor name wins over the directory name')
+  const duplicates = listed.value.repos.filter((entry) => entry.root === realpathSync.native(wt))
+  assert.equal(duplicates.length, 1, 'one root is one row, whichever sources name it')
+})
+
+test('the certified set is read once per window, not per request', async () => {
+  const deps = { ...depsAt(wtRepo), worktreeCache: new Map() }
+  const spawns = []
+  const inner = deps.run.run.bind(deps.run)
+  deps.run = { run: async (argv, opts) => { if (argv[1] === 'worktree') spawns.push([...argv]); return inner(argv, opts) } }
+  const first = await resolveWorkspace(deps, SID, '../wt-outside')
+  assert.equal(first.ok, true)
+  const second = await resolveWorkspace(deps, SID, '../wt-outside')
+  assert.equal(second.ok, true)
+  assert.equal(spawns.length, 1, 'the second resolve serves the cached set')
+
+  // Without the cache the answer is the same; only the spawn count differs.
+  const uncached = depsAt(wtRepo)
+  const again = await resolveWorkspace(uncached, SID, '../wt-outside')
+  assert.equal(again.ok, true)
+  assert.equal(again.root, first.root)
+})
+
+test('a workspace file that is a symlink out of the cwd is not offered', async (t) => {
+  const root = join(tmp, 'link-offer')
+  mkdirSync(root, { recursive: true })
+  const outside = join(tmp, 'outside.code-workspace')
+  writeFileSync(outside, '{"folders":[]}')
+  const link = join(root, 'sneaky.code-workspace')
+  const linked = linkOrSkip(t, outside, link)
+  if (linked) {
+    const listed = await listSessionRepos(depsAt(root), SID, true, undefined, 'off')
+    assert.equal(listed.value.codeWorkspace, undefined, 'a link out of the cwd is not a candidate')
+  }
+  // The real file next to it still is: the offer is per file, not all-or-nothing.
+  writeFileSync(join(root, 'real.code-workspace'), '{"folders":[]}')
+  const again = await listSessionRepos(depsAt(root), SID, true, undefined, 'off')
+  assert.equal(again.value.codeWorkspace?.state, 'available')
+  assert.equal(again.value.codeWorkspace?.count, 1)
+})
+
+// ── Certification identity (ADR-0035) ─────────────────────────────────────────
+// A record is not evidence: `git worktree list` replays the path a plain writable
+// file names. These pin what makes a checkout this repository's own.
+
+/** A deps face with the two caches the host wires in production. */
+function cachedDepsAt(dir) {
+  return { ...depsAt(dir), worktreeCache: new Map(), rootNegCache: new Map() }
+}
+
+/** A path as git writes it in a `gitdir:` line or a record: forward slashes,
+ * on every platform. */
+function gitPath(path) {
+  return path.split(sep).join('/')
+}
+
+/** Replace a record git owns. git marks its `gitdir` records read-only, which
+ * Windows refuses to open for writing — clearing the write bit first is exactly
+ * what a hand-edit (or a copy that landed on another machine) does. */
+function overwriteGitFile(path, text) {
+  chmodSync(path, 0o644)
+  writeFileSync(path, text)
+}
+
+/** Point a repository record at another directory, the way a hand-written or
+ * copied `.git/worktrees/<id>/gitdir` does. */
+function repointRecord(commonDir, id, targetDir) {
+  overwriteGitFile(join(commonDir, 'worktrees', id, 'gitdir'), gitPath(join(targetDir, '.git')) + '\n')
+}
+
+test('a record naming another repository is not certified', async () => {
+  const root = join(tmp, 'identity')
+  const repo = join(root, 'repo')
+  const victim = join(root, 'victim')
+  const worktree = join(root, 'wt')
+  mkdirSync(repo, { recursive: true })
+  await runGit(repo, ['init', '-q', '-b', 'main'])
+  await runGit(repo, ['config', 'user.email', 't@t.co'])
+  await runGit(repo, ['config', 'user.name', 'Tester'])
+  await runGit(repo, ['commit', '--allow-empty', '-qm', 'init'])
+  mkdirSync(victim, { recursive: true })
+  await runGit(victim, ['init', '-q', '-b', 'main'])
+  await runGit(repo, ['worktree', 'add', '-q', '--detach', worktree])
+
+  // The attack: a record claims a directory this repository does not own. git
+  // replays whatever the record says, so `git worktree list` names the victim;
+  // the checkout's own `.git` is a plain clone's directory, not a record under
+  // this repository's `worktrees/`, so the identity check refuses it.
+  repointRecord(join(repo, '.git'), basename(worktree), victim)
+  const deps = cachedDepsAt(repo)
+  const rows = (await listSessionRepos(deps, SID, true, undefined, 'off')).value.repos
+  const claimed = rows.find((entry) => entry.root === realpathSync.native(victim))
+  // git may decline to replay a record whose target it cannot accept on this
+  // platform; the security property is the refusal below, which holds either way.
+  if (claimed !== undefined) {
+    assert.equal(claimed.disabled, 'uncertified', 'the row states why the door will refuse it')
+  }
+  assert.equal((await resolveWorkspace(deps, SID, '../victim')).ok, false, 'the door refuses a repository this one does not own')
+
+  // The same substitution from the other side: the record is genuine, the
+  // checkout's `.git` was rewritten to point at the other repository. The row
+  // is still listed by git and must be unchoosable.
+  const repo2 = join(root, 'repo2')
+  mkdirSync(repo2, { recursive: true })
+  await runGit(repo2, ['init', '-q', '-b', 'main'])
+  await runGit(repo2, ['config', 'user.email', 't@t.co'])
+  await runGit(repo2, ['config', 'user.name', 'Tester'])
+  await runGit(repo2, ['commit', '--allow-empty', '-qm', 'init'])
+  const wt2 = join(root, 'wt2')
+  await runGit(repo2, ['worktree', 'add', '-q', '--detach', wt2])
+  // git marks a worktree's `.git` read-only, and Windows refuses to open such a
+  // file for writing even after clearing the bit. Rebuild the directory instead:
+  // the record survives, the checkout now names the other repository.
+  rmSync(wt2, { recursive: true, force: true })
+  mkdirSync(wt2, { recursive: true })
+  writeFileSync(join(wt2, '.git'), `gitdir: ${gitPath(join(victim, '.git'))}\n`)
+  const deps2 = cachedDepsAt(repo2)
+  const rows2 = (await listSessionRepos(deps2, SID, true, undefined, 'off')).value.repos
+  const rewritten = rows2.find((entry) => entry.root === realpathSync.native(wt2))
+  assert.ok(rewritten, 'git still lists the recorded checkout')
+  // `uncertified` is the reason: the entry no longer points into this
+  // repository. A platform that marked the record prunable reports `stale`
+  // instead, and either way the row must not promise a switch the door refuses.
+  assert.notEqual(rewritten.disabled, undefined, 'a repointed checkout is not selectable')
+  assert.ok(
+    rewritten.disabled === 'uncertified' || rewritten.disabled === 'stale',
+    'the row states why it cannot be chosen, got ' + String(rewritten.disabled),
+  )
+  assert.equal((await resolveWorkspace(deps2, SID, '../wt2')).ok, false)
+})
+
+test('a copied repository does not inherit the original checkouts', async () => {
+  const root = join(tmp, 'copied')
+  const repo = join(root, 'repo')
+  const worktree = join(root, 'wt')
+  mkdirSync(repo, { recursive: true })
+  await runGit(repo, ['init', '-q', '-b', 'main'])
+  await runGit(repo, ['config', 'user.email', 't@t.co'])
+  await runGit(repo, ['config', 'user.name', 'Tester'])
+  await runGit(repo, ['commit', '--allow-empty', '-qm', 'init'])
+  await runGit(repo, ['worktree', 'add', '-q', '-b', 'feat', worktree])
+  // `cp -R` of a repository carries `.git/worktrees`, and those records keep the
+  // machine-absolute paths they were written with: the copy then lists a
+  // checkout it has no claim to.
+  const copy = join(root, 'copy')
+  cpSync(repo, copy, { recursive: true, verbatimSymlinks: true })
+
+  const copyDeps = cachedDepsAt(copy)
+  const rows = (await listSessionRepos(copyDeps, SID, true, undefined, 'off')).value.repos
+  const copied = rows.find((entry) => entry.root === realpathSync.native(worktree))
+  assert.ok(copied, 'the copied record still names the original checkout')
+  assert.equal(copied.disabled, 'uncertified', 'the copy does not own it: the .git entry points elsewhere')
+  assert.equal((await resolveWorkspace(copyDeps, SID, copied.path)).ok, false)
+
+  // The original repository still owns it: the check is about identity, not
+  // about copied records being suspicious on principle.
+  const originDeps = cachedDepsAt(repo)
+  const originalRow = (await listSessionRepos(originDeps, SID, true, undefined, 'off')).value.repos
+    .find((entry) => entry.root === realpathSync.native(worktree))
+  assert.equal(originalRow.disabled, undefined)
+  assert.equal((await resolveWorkspace(originDeps, SID, originalRow.path)).ok, true)
+})
+
+test('the certified ceiling keeps the list honest', async () => {
+  const root = join(tmp, 'many')
+  const repo = join(root, 'repo')
+  mkdirSync(repo, { recursive: true })
+  await runGit(repo, ['init', '-q', '-b', 'main'])
+  await runGit(repo, ['config', 'user.email', 't@t.co'])
+  await runGit(repo, ['config', 'user.name', 'Tester'])
+  await runGit(repo, ['commit', '--allow-empty', '-qm', 'init'])
+  // 69 real checkouts: the ceiling is 64 (primary included), so six rows fall
+  // past it. Built with git rather than by hand so the record format is git's
+  // own on every platform; a detached HEAD keeps each add cheap.
+  for (let i = 0; i < 69; i++) {
+    await runGit(repo, ['worktree', 'add', '-q', '--detach', join(root, `w${i}`)])
+  }
+
+  const deps = cachedDepsAt(repo)
+  const rows = (await listSessionRepos(deps, SID, true, undefined, 'off')).value.repos
+    .filter((entry) => entry.path !== '')
+  const selectable = rows.filter((entry) => entry.disabled === undefined)
+  const uncertified = rows.filter((entry) => entry.disabled === 'uncertified')
+  assert.equal(rows.length, 69, 'every record is a row')
+  assert.equal(selectable.length, 63, 'the ceiling is 64 checkouts including the primary')
+  assert.equal(uncertified.length, 6, 'the rest say they cannot be chosen instead of promising it')
+
+  // The door is the authority: every row claiming selectable is admitted by it,
+  // and every row marked unchoosable is refused.
+  const cached = deps.worktreeCache.values().next().value
+  assert.equal(cached.checkouts.length, 64, 'the certified set is capped, not the rows')
+  for (const row of [...selectable.slice(0, 3), ...selectable.slice(-2)]) {
+    assert.equal((await resolveWorkspace(deps, SID, row.path)).ok, true, row.path + ' is selectable and reaches git')
+  }
+  for (const row of uncertified) {
+    assert.equal((await resolveWorkspace(deps, SID, row.path)).ok, false, row.path + ' is refused')
+  }
+})
+
+test('a cancelled worktree read is not remembered as "no worktrees"', async () => {
+  const deps = cachedDepsAt(wtRepo)
+  const inner = deps.run.run.bind(deps.run)
+  let cancels = 2 // the -z attempt and, if it were reached, the fallback
+  deps.run = {
+    run: async (argv, opts) => {
+      if (argv[1] === 'worktree' && argv[2] === 'list' && cancels > 0) {
+        cancels -= 1
+        return { exitCode: 0, stdout: '', stderr: '', cancelled: true, timedOut: false }
+      }
+      return inner(argv, opts)
+    },
+  }
+  assert.equal((await resolveWorkspace(deps, SID, '../wt-outside')).ok, false, 'this request has no answer')
+  // The next request runs git again: a cancelled read is "unknown", not "the
+  // repository has no worktrees", and caching it would refuse every such row
+  // for a whole window.
+  assert.equal((await resolveWorkspace(deps, SID, '../wt-outside')).ok, true)
+})
+
+test('a worktree added after the window opened is selectable on the first click', async () => {
+  const deps = cachedDepsAt(wtRepo)
+  const row = '../wt-outside'
+  assert.equal((await resolveWorkspace(deps, SID, row)).ok, true, 'warm the window')
+  const late = join(tmp, 'wt-late')
+  await runGit(wtRepo, ['worktree', 'add', '-q', '-b', 'wt-late', late])
+  // The row is in the list immediately (it comes from git, not from the cache);
+  // a click inside the window re-reads once instead of reporting invalid-repo.
+  assert.equal((await resolveWorkspace(deps, SID, '../wt-late')).ok, true)
+})
+
+test('a path reused by another repository is refused inside the window', async () => {
+  const root = join(tmp, 'reuse')
+  const repo = join(root, 'repo')
+  const worktree = join(root, 'wt')
+  mkdirSync(repo, { recursive: true })
+  await runGit(repo, ['init', '-q', '-b', 'main'])
+  await runGit(repo, ['config', 'user.email', 't@t.co'])
+  await runGit(repo, ['config', 'user.name', 'Tester'])
+  await runGit(repo, ['commit', '--allow-empty', '-qm', 'init'])
+  await runGit(repo, ['worktree', 'add', '-q', '-b', 'feat', worktree])
+  const deps = cachedDepsAt(repo)
+  assert.equal((await resolveWorkspace(deps, SID, '../wt')).ok, true)
+  // Remove the worktree and turn the same path into an unrelated repository.
+  await runGit(repo, ['worktree', 'remove', '--force', worktree])
+  await runGit(repo, ['worktree', 'prune'])
+  rmSync(worktree, { recursive: true, force: true })
+  mkdirSync(worktree, { recursive: true })
+  await runGit(worktree, ['init', '-q', '-b', 'other'])
+  // Same path, but its `.git` entry no longer resolves into this repository's
+  // records: the cached entry is re-verified, not trusted because the string
+  // matches.
+  assert.equal((await resolveWorkspace(deps, SID, '../wt')).ok, false)
 })

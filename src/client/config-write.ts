@@ -22,6 +22,7 @@ export type VolatileField =
   | 'suggestProvider'
   | 'suggestModel'
   | 'suggestReasoningEffort'
+  | 'codeWorkspace'
 
 /**
  * Fields whose presence in a namespace's schema marks it as ours. Any one of

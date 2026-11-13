@@ -787,7 +787,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   const leftChildren = [
     // The same docked list the overview shows (one shared collapse state), so
     // switching repositories is one click away from this pane too.
-    repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, rowMenu: repositories.rowMenu, t }),
+    repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, rowMenu: repositories.rowMenu, workspaceHint: repositories.workspaceHint, onEnableWorkspace: repositories.onEnableWorkspace, workspaceEnabling: repositories.workspaceEnabling, workspaceFailed: repositories.workspaceFailed, t }),
     h(ChangeStats, { key: 'stats', stats: snapshot.stats, compact, showTimes: !cramped, t }),
     h(ChangesToolbar, {
       key: 'toolbar', snapshot, busy, hasDiscardTargets: discardTargets.paths.length > 0,

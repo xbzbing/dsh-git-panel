@@ -272,6 +272,23 @@ async function confirmWorkspaceFile(fs: CodeWorkspaceFs, root: string, candidate
   return { kind: 'file', file: real }
 }
 
+/** The `*.code-workspace` files at the top of `root`, by VS Code's name rule,
+ * sorted. `auto` discovery and the `available` offer behind it ask the same
+ * question, so they enumerate through here: a rule that drifts between them
+ * advertises a file the other one refuses to use. */
+async function workspaceCandidates(fs: CodeWorkspaceFs, root: string): Promise<readonly string[]> {
+  let entries: readonly { readonly name: string; readonly isDirectory: boolean }[]
+  try {
+    entries = await fs.readdir(root)
+  } catch {
+    return []
+  }
+  return entries
+    .filter((entry) => !entry.isDirectory && isCodeWorkspaceName(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+}
+
 /**
  * Which workspace file the session uses.
  *
@@ -295,19 +312,30 @@ async function locateCodeWorkspace(
     if (name === null) return { kind: 'invalid' }
     return confirmWorkspaceFile(fs, root, join(root, name))
   }
-  let entries: readonly { readonly name: string; readonly isDirectory: boolean }[]
-  try {
-    entries = await fs.readdir(root)
-  } catch {
-    return { kind: 'none' }
-  }
-  const candidates = entries
-    .filter((entry) => !entry.isDirectory && isCodeWorkspaceName(entry.name))
-    .map((entry) => entry.name)
-    .sort()
+  const candidates = await workspaceCandidates(fs, root)
   if (candidates.length === 0) return { kind: 'none' }
   if (candidates.length > 1) return { kind: 'ambiguous' }
   return confirmWorkspaceFile(fs, root, join(root, candidates[0]!))
+}
+
+/**
+ * Absolute paths of the workspace files this cwd holds, sorted.
+ *
+ * This backs the `available` recognition state: with the setting `off` the
+ * switcher offers to turn the feature on instead of staying silent about a file
+ * that is right there (ADR-0035) — the silence is what made the option
+ * undiscoverable. Only regular files whose realpath stays inside the cwd count,
+ * the same rule discovery enforces, so a symlink pointing out of the workspace
+ * is never offered as one. Nothing here enables anything: the state is a hint.
+ */
+export async function listWorkspaceFiles(fs: CodeWorkspaceFs, cwd: string): Promise<readonly string[]> {
+  const root = await fs.realpath(cwd).catch(() => cwd)
+  const found: string[] = []
+  for (const name of await workspaceCandidates(fs, root)) {
+    const located = await confirmWorkspaceFile(fs, root, join(root, name))
+    if (located.kind === 'file') found.push(located.file)
+  }
+  return found.sort()
 }
 
 /**

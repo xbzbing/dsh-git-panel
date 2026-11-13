@@ -49,11 +49,22 @@ try {
   await page.evaluate(async ({ snap }) => {
     const { connection } = window.createGitPanelMock(snap)
     const registered = {}
-    const value = { showInputPill: true, placement: 'all' }
+    const value = { showInputPill: true, placement: 'all', codeWorkspace: 'off' }
     const settings = { view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value }] }, status: 'ready' }
     const configForms = {
       describe: () => ({ getSnapshot: () => settings, subscribe: () => () => {}, ensure: async () => {} }),
-      get: () => ({ getSnapshot: () => ({ status: 'ready', value, revision: 0, writable: true }), subscribe: () => () => {}, set: async () => true }),
+      get: () => ({
+        getSnapshot: () => ({ status: 'ready', value, revision: 0, writable: true }),
+        subscribe: () => () => {},
+        set: async (field, next) => {
+          window.__cfgWrites = [...(window.__cfgWrites ?? []), [field, next]]
+          // The mirror reports what was written, as the host's does after a
+          // write round-trip; a form that never sees its own value cannot be
+          // told apart from one that dropped it.
+          value[field] = next
+          return true
+        },
+      }),
     }
     const services = { connection, configForms, sidebarRightTabs: { register: () => () => {} }, sidebarRight: { openTab: () => {} } }
     const ctx = {
@@ -139,7 +150,7 @@ try {
   const titled = m.filter((s) => s.fieldTitle !== null)
   assert.ok(titled.length >= 2)
   for (const s of titled) assert.deepEqual(s.fieldTitle, { size: 14, weight: 500 }, 'field titles are 14px/500, below the section title')
-  assert.deepEqual(m.map((s) => s.fieldCount), [3, 5, 6, 3], 'field groups per section (view gained the changes-view and package-folding rows)')
+  assert.deepEqual(m.map((s) => s.fieldCount), [3, 5, 6, 4], 'field groups per section (repositories gained the workspace-file row)')
 
   // The package-folding row is a real setting, not just a count. This harness
   // binds the locale to the raw key on purpose (the CSS assertions below must
@@ -172,6 +183,82 @@ try {
     return { hidden: body.hidden, display: getComputedStyle(body).display }
   })
   assert.deepEqual(viewHidden, { hidden: true, display: 'none' }, 'a collapsed body takes no space')
+
+  // The workspace control (issue #125): three states in one row, and the third
+  // state owns a name box. A malformed name is refused before it can reach the
+  // config — a host-side `invalid` state is a fallback, not the first line.
+  const cwBoot = await page.evaluate(() => {
+    const title = [...document.querySelectorAll('.gp-cfg__title')].find((el) => el.textContent === 'cfg.cwTitle')
+    const field = title?.closest('.gp-cfg__field')
+    if (!field) return null
+    return {
+      title: title.textContent,
+      buttons: [...field.querySelectorAll('.gp-seg__btn')].map((el) => el.textContent),
+      pressed: [...field.querySelectorAll('.gp-seg__btn')].map((el) => el.getAttribute('aria-pressed')),
+      box: field.querySelector('.gp-cfg__textinput') !== null,
+      hint: (field.querySelector('.gp-cfg__hint')?.textContent ?? '').trim(),
+    }
+  })
+  assert.notEqual(cwBoot, null, 'the repositories section carries the workspace control')
+  assert.deepEqual(cwBoot.buttons, ['cfg.cwOff', 'cfg.cwAuto', 'cfg.cwCustom'], 'one row, three states')
+  assert.deepEqual(cwBoot.pressed, ['true', 'false', 'false'], 'off is the default state')
+  assert.equal(cwBoot.box, false, 'no name box while a state that has no name is picked')
+  assert.equal(cwBoot.hint, 'cfg.cwHint', 'the control carries its own hint')
+  // Picking "specific file" is an editing state, not a written one: leaving it
+  // with an empty box closes the box and falls back to the stored value, so the
+  // control cannot sit on a selection the config does not contain.
+  await page.evaluate(() => {
+    const title = [...document.querySelectorAll('.gp-cfg__title')].find((el) => el.textContent === 'cfg.cwTitle')
+    title.closest('.gp-cfg__field').querySelectorAll('.gp-seg__btn')[2].click()
+  })
+  await page.waitForSelector('.gp-cfg__textinput')
+  // Blur is the commit point; the empty box means "no name", so nothing is
+  // written and the control returns to the value the host has. Focus first —
+  // an unfocused input never fires the blur that this path is about.
+  await page.focus('.gp-cfg__textinput')
+  await page.evaluate(() => { document.querySelector('.gp-cfg__textinput')?.blur() })
+  await page.waitForTimeout(150)
+  const abandoned = await page.evaluate(() => {
+    const title = [...document.querySelectorAll('.gp-cfg__title')].find((el) => el.textContent === 'cfg.cwTitle')
+    const field = title.closest('.gp-cfg__field')
+    return {
+      box: field.querySelector('.gp-cfg__textinput') !== null,
+      pressed: [...field.querySelectorAll('.gp-seg__btn')].map((el) => el.getAttribute('aria-pressed')),
+      writes: (window.__cfgWrites ?? []).filter(([name]) => name === 'codeWorkspace').length,
+    }
+  })
+  assert.equal(abandoned.box, false, 'an empty name closes the box instead of pinning "specific file"')
+  assert.deepEqual(abandoned.pressed, ['true', 'false', 'false'], 'and the control falls back to the stored value')
+  assert.equal(abandoned.writes, 0, 'nothing was written for a name that was never given')
+
+
+  await page.evaluate(() => {
+    const title = [...document.querySelectorAll('.gp-cfg__title')].find((el) => el.textContent === 'cfg.cwTitle')
+    title.closest('.gp-cfg__field').querySelectorAll('.gp-seg__btn')[2].click()
+  })
+  await page.waitForSelector('.gp-cfg__textinput')
+  await page.fill('.gp-cfg__textinput', 'nope.json')
+  await page.keyboard.press('Enter')
+  const refused = await page.evaluate(() => {
+    const title = [...document.querySelectorAll('.gp-cfg__title')].find((el) => el.textContent === 'cfg.cwTitle')
+    const field = title.closest('.gp-cfg__field')
+    return { err: field.querySelector('.gp-cfg__err')?.textContent ?? null, box: field.querySelector('.gp-cfg__textinput')?.value ?? null }
+  })
+  assert.equal(refused.err, 'cfg.cwNameInvalid', 'a name that is not a workspace file is refused')
+  assert.equal(refused.box, 'nope.json', 'the text stays where the user typed it')
+
+  await page.fill('.gp-cfg__textinput', 'hub.code-workspace')
+  await page.keyboard.press('Enter')
+  // The commit keeps the box mounted until the settings mirror carries the
+  // name; give the write round-trip a tick before reading it back.
+  await page.waitForTimeout(300)
+  const accepted = await page.evaluate(() => {
+    const title = [...document.querySelectorAll('.gp-cfg__title')].find((el) => el.textContent === 'cfg.cwTitle')
+    const field = title.closest('.gp-cfg__field')
+    return { err: field.querySelector('.gp-cfg__err')?.textContent ?? null, box: field.querySelector('.gp-cfg__textinput')?.value ?? null }
+  })
+  assert.equal(accepted.err, null, 'a shaped name clears the refusal')
+  assert.equal(accepted.box, 'hub.code-workspace', 'the box keeps the committed name')
 
   assert.deepEqual(errors, [], 'no page errors')
   console.log('e2e/config-sections: all assertions passed')

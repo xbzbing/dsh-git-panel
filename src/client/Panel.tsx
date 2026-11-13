@@ -26,10 +26,11 @@ import { CommitIcon, DiffIcon, FilesIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
-import type { FontDelta, GitAction, GitRepoEntry } from './types.js'
+import type { FontDelta, GitAction, GitRepoEntry, GitRepoList } from './types.js'
 import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
+import { baseName } from './path-name.js'
 import { discardUnsavedEdit, hasUnsavedEdit } from './edit-store.js'
 import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
@@ -244,6 +245,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // previous session's repository for one render.
   const [repos, setRepos] = useState<readonly GitRepoEntry[]>([])
   const [repoListReady, setRepoListReady] = useState(false)
+  // Recognition state of the session's `.code-workspace` file: the switcher
+  // turns `available` into an offer to switch the feature on (ADR-0035).
+  const [repoWorkspace, setRepoWorkspace] = useState<GitRepoList['codeWorkspace']>()
+  const [repoWorkspaceEnabling, setRepoWorkspaceEnabling] = useState(false)
+  // A refused write is not a no-op: the row keeps the offer and says the write
+  // did not land, otherwise the click reads as a dead control.
+  const [repoWorkspaceFailed, setRepoWorkspaceFailed] = useState(false)
+  // Enabling the setting writes plugin config, which rebuilds the host service;
+  // the list is fetched again once that settles.
+  const [repoListEpoch, setRepoListEpoch] = useState(0)
   // The scan's cwd: the project root the browser names when the cwd owns no
   // checkout of its own.
   const [repoCwd, setRepoCwd] = useState<string | null>(null)
@@ -266,6 +277,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     setRepos([])
     setRepoListReady(false)
     setRepoCwd(null)
+    // The recognition state describes one cwd, so it must not survive the
+    // switch either: the next session would show this session's file offer
+    // (and keep showing it if its own repo-list never answers).
+    setRepoWorkspace(undefined)
+    setRepoWorkspaceEnabling(false)
+    setRepoWorkspaceFailed(false)
   }, [sessionId])
   // The switch is over once the controller publishes the next sample — a ready
   // view of another root, or the failure that explains why it is not coming.
@@ -439,6 +456,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       // rather than blanking the tab bar on a missing field.
       setRepos(Array.isArray(listed.repos) ? listed.repos : [])
       setRepoCwd(typeof listed.cwd === 'string' && listed.cwd !== '' ? listed.cwd : null)
+      setRepoWorkspace(listed.codeWorkspace)
       setRepoListReady(true)
     })()
     return () => { alive = false }
@@ -447,8 +465,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // walks the tree again for a result that has already arrived. Visibility
     // stays in the list: coming back to the page is when a repository created
     // while the panel was hidden can be found. The probe switch changes the
-    // answer itself, so it stays in the list.
-  }, [remote, sessionId, queryVisible, detectCheckouts])
+    // answer itself, so it stays in the list. `repoListEpoch` is the explicit
+    // refetch after the workspace setting changed.
+  }, [remote, sessionId, queryVisible, detectCheckouts, repoListEpoch])
 
   // A remembered pick that disappeared from the scan (the directory is gone, or
   // it stopped being a repository) falls back to the default one. Waiting for a
@@ -844,6 +863,32 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     ? undefined
     : (choice: RepoChoice): Record<string, unknown> =>
       panelMenu.bind(MENU_KIND.repos, { repo: choice.path, root: choice.root })
+  // Turning the workspace file on from the list itself. The write is
+  // plugin-wide (the row says so), so every session gains the setting; the host
+  // rebuilds its service around the new config, and the list is read again
+  // after that hand-over. Two reads: the first for the common case, the second
+  // for a slow rebuild. Both are cancelled with the panel — a refetch that
+  // lands after the session switched would ask with the new session's cwd about
+  // the old one's setting.
+  const workspaceTimers = useRef<readonly ReturnType<typeof setTimeout>[]>([])
+  useEffect(() => () => {
+    for (const timer of workspaceTimers.current) clearTimeout(timer)
+    workspaceTimers.current = []
+  }, [sessionId])
+  const enableWorkspace = (): void => {
+    if (repoWorkspaceEnabling) return
+    setRepoWorkspaceFailed(false)
+    setRepoWorkspaceEnabling(true)
+    void writePanelConfigField(ctx, 'codeWorkspace', 'auto').then((ok) => {
+      setRepoWorkspaceEnabling(false)
+      if (!ok) {
+        setRepoWorkspaceFailed(true)
+        return
+      }
+      workspaceTimers.current = [400, 1500].map((delay) =>
+        setTimeout(() => { setRepoListEpoch((n) => n + 1) }, delay))
+    })
+  }
   const repositories = hasSession(sessionId)
     ? {
       choices: repoList,
@@ -852,6 +897,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       collapsed: reposCollapsed,
       onToggleCollapse: () => setReposCollapsed((v) => !v),
       rowMenu: repoRowMenu,
+      workspaceHint: repoWorkspace,
+      onEnableWorkspace: hasConfigForms(ctx) ? enableWorkspace : undefined,
+      workspaceEnabling: repoWorkspaceEnabling,
+      workspaceFailed: repoWorkspaceFailed,
     }
     : undefined
 
@@ -938,16 +987,72 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     ? h(NoticeBar, { key: 'stale', text: t('error.transport'), closeLabel: t('common.close'), onClose: () => setStaleNoticeClosed(true) })
     : null
   // git-not-installed inside a repo: stack a notice above the browser.
-  const body = gitMissingInRepo
-    ? h('div', { className: 'gp-files-wrap' }, [
-      gitNoticeClosed
-        ? null
-        : h(NoticeBar, { key: 'notice', text: t('files.gitNotInstalled'), closeLabel: t('common.close'), onClose: () => setGitNoticeClosed(true) }),
-      ...panes,
+  // A cwd with no checkout of its own hides every Git pane, so the switcher's
+  // workspace offer has nowhere to land: the browser carries it instead. This is
+  // the hub layout the feature exists for — the offer has to be reachable before
+  // anything is enabled, and a file that cannot be used has to explain the empty
+  // list after (ADR-0035).
+  const workspaceNotice = ((): JSX.Element | null => {
+    if (!filesOnly) return null
+    if (repoWorkspaceFailed) {
+      return h('div', { key: 'wsnotice', className: 'gp-notice gp-notice--warn' }, [
+        h('span', { key: 'tx', className: 'gp-notice__text' }, t('repos.workspaceEnableFailed')),
+      ])
+    }
+    if (repoWorkspace === undefined) return null
+    // `applied` is normally silent — the rows are the evidence — but a file that
+    // yielded no root at all leaves nothing to see, and a bare file browser
+    // reads as "this feature does nothing". The host reports how many roots the
+    // file produced; an older host sends no count, and claiming the empty state
+    // there would be a guess.
+    if (repoWorkspace.state === 'applied') {
+      if (repoWorkspace.roots !== 0) return null
+      return h('div', { key: 'wsnotice', className: 'gp-notice gp-notice--warn' }, [
+        h('span', { key: 'tx', className: 'gp-notice__text' }, t('repos.workspaceEmpty')),
+      ])
+    }
+    const name = repoWorkspace.file === undefined ? '' : baseName(repoWorkspace.file)
+    const count = repoWorkspace.count ?? (repoWorkspace.file === undefined ? 0 : 1)
+    // An unknown state is silence, not a guess: a future state must not be
+    // rendered as `ambiguous`, which would state a reason the host never gave.
+    let text: string
+    let canEnable = false
+    if (repoWorkspace.state === 'available') {
+      text = count > 1 ? t('repos.workspaceMany', { n: count }) : t('repos.workspaceAvailable', { file: name })
+      canEnable = count === 1 && hasConfigForms(ctx)
+    } else if (repoWorkspace.state === 'missing') {
+      text = t('repos.workspaceMissing', { file: name })
+    } else if (repoWorkspace.state === 'invalid') {
+      text = t('repos.workspaceInvalid')
+    } else if (repoWorkspace.state === 'ambiguous') {
+      text = t('repos.workspaceAmbiguous')
+    } else {
+      return null
+    }
+    return h('div', { key: 'wsnotice', className: `gp-notice${repoWorkspace.state === 'available' ? '' : ' gp-notice--warn'}` }, [
+      h('span', { key: 'tx', className: 'gp-notice__text' }, text),
+      canEnable
+        ? h('button', {
+          key: 'go', type: 'button', className: 'gp-notice__act',
+          disabled: repoWorkspaceEnabling,
+          onClick: enableWorkspace,
+        }, repoWorkspaceEnabling ? t('repos.workspaceEnabling') : t('repos.workspaceEnable'))
+        : null,
     ])
-    : staleNotice !== null
-      ? h('div', { className: 'gp-files-wrap' }, [staleNotice, ...panes])
-      : h('div', { style: { display: 'contents' } }, panes)
+  })()
+  // The notices stack above the panes in one wrapper, and the wrapper only
+  // exists when something has to be said: an extra element around a
+  // `display: contents` pane would change the flex chain the panes rely on.
+  const notices = [
+    workspaceNotice,
+    gitMissingInRepo && !gitNoticeClosed
+      ? h(NoticeBar, { key: 'notice', text: t('files.gitNotInstalled'), closeLabel: t('common.close'), onClose: () => setGitNoticeClosed(true) })
+      : null,
+    staleNotice,
+  ].filter((node) => node !== null) as JSX.Element[]
+  const body = notices.length === 0
+    ? h('div', { style: { display: 'contents' } }, panes)
+    : h('div', { className: 'gp-files-wrap' }, [...notices, ...panes])
 
   // `data-conversation-composer-overlay` opts the view into the shell's
   // full-height layout: the view area is fixed to the visible height with its

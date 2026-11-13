@@ -100,6 +100,12 @@ export const CSS = `
 .gp-cfg__numinput:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
 .gp-cfg__numinput:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 .gp-cfg__numinput:disabled{opacity:.5;cursor:default}
+/* Free-text config field (the workspace file name): full width, left aligned. */
+.gp-cfg__textinput{width:100%;box-sizing:border-box;height:30px;padding:0 8px;margin:2px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
+.gp-cfg__textinput:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
+.gp-cfg__textinput:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.gp-cfg__textinput--err{border-color:var(--dsw-alias-state-error-primary)}
+.gp-cfg__textinput:disabled{opacity:.5;cursor:default}
 .gp-cfg__numunit{flex:none;width:44px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .gp-cfg__rangehint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
 /* Cascading model selects use the platform Menu; the row is label + trigger. */

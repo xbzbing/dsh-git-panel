@@ -70,6 +70,10 @@ const RUNNERS = [
   // The tab bar's repository switcher: a workspace with nested checkouts must
   // route every request through the picked one (issue #83).
   'repo-switcher',
+  // The workspace-file offer (issue #125): the hint row in the switcher, the
+  // browser notice that carries it when no Git pane exists, and the one-click
+  // enable whose write is followed by a fresh repo-list.
+  'code-workspace-hint',
   'stacked-detail-sticky',
   // Tight stacked (≤ STACKED_TIGHT_BP): the top-band branch column as a drawer
   // over the history — collapsed by default; toggle / blank band / Escape close.

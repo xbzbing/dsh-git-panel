@@ -113,12 +113,16 @@ test('disabled rows count in the group but not as selectable', () => {
     { path: '', name: 'repo', kind: 'workspace', root: '/r' },
     { path: 'wt/out', name: 'out', kind: 'worktree', root: '/o', disabled: 'outside' },
     { path: 'wt/gone', name: 'gone', kind: 'worktree', root: '/g', disabled: 'stale' },
+    { path: '../copy', name: 'copy', kind: 'worktree', root: '/c', disabled: 'uncertified' },
   ]
   const groups = repoGroups(rows)
-  assert.equal(groups[0].items.length, 3)
+  assert.equal(groups[0].items.length, 4)
   assert.equal(groups[0].selectable, 1, 'the count badge must show both numbers')
   assert.equal(repoDisabledKey(rows[1]), 'repos.disabled.outside')
   assert.equal(repoDisabledKey(rows[2]), 'repos.disabled.stale')
+  // A record this repository does not own states that, not "outside the cwd":
+  // the row is outside precisely because the certification check failed.
+  assert.equal(repoDisabledKey(rows[3]), 'repos.disabled.uncertified')
   assert.equal(repoDisabledKey(rows[0]), null, 'an ordinary row carries no reason')
 })
 

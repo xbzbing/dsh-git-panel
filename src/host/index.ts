@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createGitRunner, type SubprocessLike } from './git.js'
 import { createFsDeps } from './fs-deps.js'
-import { normalizeConfig, resolveBrowseRoot, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps } from './core.js'
+import { normalizeConfig, resolveBrowseRoot, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps, type WorktreeCertCacheEntry } from './core.js'
 import { canOpenWithSystem, openWithSystem } from './open-file.js'
 import { writeWorkspaceFile } from './write-file.js'
 import { runAction } from './actions.js'
@@ -165,6 +165,9 @@ export class GitPanelService extends TypertRemoteService {
     const rootCache = new Map<string, string>()
     const rootNegCache = new Map<string, number>()
     const codeWorkspaceCache = new Map<string, CodeWorkspaceCacheEntry>()
+    // Worktree records are host-local and change only through git commands, so
+    // the certified set is cached briefly rather than re-read per request.
+    const worktreeCache = new Map<string, WorktreeCertCacheEntry>()
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
     const fs: SnapshotDeps['fs'] = createFsDeps()
     // `static inject` gates activation on subprocess, so it is always present
@@ -198,6 +201,7 @@ export class GitPanelService extends TypertRemoteService {
       rootCache,
       rootNegCache,
       codeWorkspaceCache,
+      worktreeCache,
       // Optional model services, resolved per request so a provider fiber that
       // activates late or restarts is picked up — absent in deployments without
       // a model backend, where the suggest endpoint reports `llm-unavailable`
