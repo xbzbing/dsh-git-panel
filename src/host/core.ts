@@ -8,12 +8,12 @@ import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafeBranchName, isSafePath, isSafeRemoteName } from './validate.js'
-import { isOutwardSelector, isWithin, repoDirCertified, repoDirExternal, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
+import { isOutwardSelector, isWithin, repoDirCertified, repoDirExternal, repoDirFor, scanRepos, samePath } from './repos.js'
 import { listWorkspaceFiles, scanCodeWorkspace } from './code-workspace.js'
 import type { CodeWorkspaceCacheEntry, CodeWorkspaceScan } from './code-workspace.js'
 import { checkoutGitDir, isOwnCheckout, parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
 import type { WorktreeCheckout, WorktreeInfo } from './worktrees.js'
-import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
+import { MAX_BYTES_LIMITS, REPO_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
 import type { ChangesViewMode, DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitRepoEntry, GitRepoList, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
@@ -26,6 +26,10 @@ export interface GitPanelConfig {
   /** Probe worktrees and nested repositories for the repository list. Off →
    * the list is the cwd's own repository alone (none when the cwd is not one). */
   readonly detectCheckouts: boolean
+  /** Ceiling for one repository list. Each certified worktree row takes a
+   * slot and the nested scan fills the rest; `.code-workspace` roots are
+   * explicit rather than detected and sit beyond it (ADR-0030). Range 10–100. */
+  readonly repoLimit: number
   /** The file browser follows repository switches; off → it stays at the
    * project root (the workspace the cwd belongs to). */
   readonly filesFollowRepo: boolean
@@ -78,6 +82,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   maxChanges: 1000,
   refreshIntervalMs: 30000,
   detectCheckouts: true,
+  repoLimit: REPO_LIMITS.default,
   filesFollowRepo: false,
   collapseReposOnPick: false,
   allowFileEdit: true,
@@ -134,6 +139,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     maxChanges: num(c.maxChanges, DEFAULT_CONFIG.maxChanges),
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
     detectCheckouts: readBool(c.detectCheckouts, DEFAULT_CONFIG.detectCheckouts),
+    repoLimit: clampLimit(c.repoLimit, REPO_LIMITS),
     filesFollowRepo: readBool(c.filesFollowRepo, DEFAULT_CONFIG.filesFollowRepo),
     collapseReposOnPick: readBool(c.collapseReposOnPick, DEFAULT_CONFIG.collapseReposOnPick),
     allowFileEdit: readBool(c.allowFileEdit, DEFAULT_CONFIG.allowFileEdit),
@@ -774,13 +780,14 @@ function bySelectabilityThenPath(a: WorktreeCheckout, b: WorktreeCheckout): numb
  * marker — so it still works when git cannot run at all. Both probes are off
  * with `detectCheckouts`: neither `git worktree list` nor the scan runs, and
  * the list is the cwd's own repository alone. `resultLimit` is the switcher's
- * ceiling for scanned repositories (tests shrink it).
+ * ceiling for this list (config `repoLimit`, clamped by normalizeConfig; tests
+ * shrink it to exercise the truncation paths).
  */
 export async function listSessionRepos(
   deps: SnapshotDeps,
   sessionId: string,
   detectCheckouts: boolean,
-  resultLimit: number = REPO_RESULT_LIMIT,
+  resultLimit: number = REPO_LIMITS.default,
   codeWorkspace: string = 'off',
 ): Promise<{ readonly ok: true; readonly value: GitRepoList } | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }> {
   const resolved = await resolveSessionCwd(deps, sessionId)
@@ -1192,6 +1199,7 @@ export async function snapshotForSession(
     fontDelta: config.fontDelta,
     suggestEnabled: config.suggestEnabled,
     detectCheckouts: config.detectCheckouts,
+    repoLimit: config.repoLimit,
     filesFollowRepo: config.filesFollowRepo,
     collapseReposOnPick: config.collapseReposOnPick,
     allowFileEdit: config.allowFileEdit,
