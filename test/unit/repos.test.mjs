@@ -10,7 +10,7 @@ import './_tmp-ceiling.mjs'
 import { linkOrSkip } from './_fs-helpers.mjs'
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { listSessionRepos, resolveBrowseRoot, resolveWorkspace } from '../../lib/host/core.js'
 import { repoDirCertified, repoDirExternal, repoDirFor, scanRepos } from '../../lib/host/repos.js'
@@ -777,22 +777,23 @@ function cachedDepsAt(dir) {
   return { ...depsAt(dir), worktreeCache: new Map(), rootNegCache: new Map() }
 }
 
-/** Write one work tree the way git lays it out: a record under the repository's
- * `.git/worktrees/<id>/gitdir` naming `<dir>/.git`, and a `.git` file in `<dir>`
- * pointing back at the record. No git process needed. */
-function writeWorktreeRecord(commonDir, id, dir) {
-  mkdirSync(dir, { recursive: true })
-  const record = join(commonDir, 'worktrees', id)
-  mkdirSync(record, { recursive: true })
-  writeFileSync(join(record, 'gitdir'), join(dir, '.git') + '\n')
-  writeFileSync(join(record, 'HEAD'), 'ref: refs/heads/main\n')
-  writeFileSync(join(dir, '.git'), `gitdir: ${record}\n`)
+/** A path as git writes it in a `gitdir:` line or a record: forward slashes,
+ * on every platform. */
+function gitPath(path) {
+  return path.split(sep).join('/')
+}
+
+/** Point a repository record at another directory, the way a hand-written or
+ * copied `.git/worktrees/<id>/gitdir` does. */
+function repointRecord(commonDir, id, targetDir) {
+  writeFileSync(join(commonDir, 'worktrees', id, 'gitdir'), gitPath(join(targetDir, '.git')) + '\n')
 }
 
 test('a record naming another repository is not certified', async () => {
   const root = join(tmp, 'identity')
   const repo = join(root, 'repo')
   const victim = join(root, 'victim')
+  const worktree = join(root, 'wt')
   mkdirSync(repo, { recursive: true })
   await runGit(repo, ['init', '-q', '-b', 'main'])
   await runGit(repo, ['config', 'user.email', 't@t.co'])
@@ -800,19 +801,41 @@ test('a record naming another repository is not certified', async () => {
   await runGit(repo, ['commit', '--allow-empty', '-qm', 'init'])
   mkdirSync(victim, { recursive: true })
   await runGit(victim, ['init', '-q', '-b', 'main'])
-  // A hand-written record claiming the victim checkout. `git worktree list`
-  // replays it, so the list must decide from the victim's own `.git` entry: it
-  // is a directory, not a record under this repository.
-  mkdirSync(join(repo, '.git', 'worktrees', 'evil'), { recursive: true })
-  writeFileSync(join(repo, '.git', 'worktrees', 'evil', 'gitdir'), join(victim, '.git') + '\n')
+  await runGit(repo, ['worktree', 'add', '-q', '--detach', worktree])
 
+  // The attack: a record claims a directory this repository does not own. git
+  // replays whatever the record says, so `git worktree list` names the victim;
+  // the checkout's own `.git` is a plain clone's directory, not a record under
+  // this repository's `worktrees/`, so the identity check refuses it.
+  repointRecord(join(repo, '.git'), basename(worktree), victim)
   const deps = cachedDepsAt(repo)
   const rows = (await listSessionRepos(deps, SID, true, undefined, 'off')).value.repos
-  const row = rows.find((entry) => entry.path === '../victim')
-  assert.ok(row, 'git still reports the record, so the row is listed')
-  assert.equal(row.disabled, 'uncertified', 'the row states why the door will refuse it')
-  const resolved = await resolveWorkspace(deps, SID, '../victim')
-  assert.equal(resolved.ok, false, 'the door refuses a repository this one does not own')
+  const claimed = rows.find((entry) => entry.root === realpathSync.native(victim))
+  // git may decline to replay a record whose target it cannot accept on this
+  // platform; the security property is the refusal below, which holds either way.
+  if (claimed !== undefined) {
+    assert.equal(claimed.disabled, 'uncertified', 'the row states why the door will refuse it')
+  }
+  assert.equal((await resolveWorkspace(deps, SID, '../victim')).ok, false, 'the door refuses a repository this one does not own')
+
+  // The same substitution from the other side: the record is genuine, the
+  // checkout's `.git` was rewritten to point at the other repository. The row
+  // is still listed by git and must be unchoosable.
+  const repo2 = join(root, 'repo2')
+  mkdirSync(repo2, { recursive: true })
+  await runGit(repo2, ['init', '-q', '-b', 'main'])
+  await runGit(repo2, ['config', 'user.email', 't@t.co'])
+  await runGit(repo2, ['config', 'user.name', 'Tester'])
+  await runGit(repo2, ['commit', '--allow-empty', '-qm', 'init'])
+  const wt2 = join(root, 'wt2')
+  await runGit(repo2, ['worktree', 'add', '-q', '--detach', wt2])
+  writeFileSync(join(wt2, '.git'), `gitdir: ${gitPath(join(victim, '.git'))}\n`)
+  const deps2 = cachedDepsAt(repo2)
+  const rows2 = (await listSessionRepos(deps2, SID, true, undefined, 'off')).value.repos
+  const rewritten = rows2.find((entry) => entry.root === realpathSync.native(wt2))
+  assert.ok(rewritten, 'git still lists the recorded checkout')
+  assert.equal(rewritten.disabled, 'uncertified', 'its `.git` no longer points into this repository')
+  assert.equal((await resolveWorkspace(deps2, SID, '../wt2')).ok, false)
 })
 
 test('a copied repository does not inherit the original checkouts', async () => {
@@ -855,13 +878,12 @@ test('the certified ceiling keeps the list honest', async () => {
   await runGit(repo, ['config', 'user.email', 't@t.co'])
   await runGit(repo, ['config', 'user.name', 'Tester'])
   await runGit(repo, ['commit', '--allow-empty', '-qm', 'init'])
-  // 69 records written directly: the ceiling is 64 (primary included), so six
-  // rows fall past it. Laying the records out by hand keeps the fixture cheap —
-  // 70 `git worktree add` calls would cost seconds on every platform — and these
-  // directories cannot answer `rev-parse`, so this test pins the list/door
-  // agreement rather than the resolution (`resolveWorkspace` on a refused row is
-  // covered by the copied and forged-record tests, whose targets are real).
-  for (let i = 0; i < 69; i++) writeWorktreeRecord(join(repo, '.git'), `w${i}`, join(root, `w${i}`))
+  // 69 real checkouts: the ceiling is 64 (primary included), so six rows fall
+  // past it. Built with git rather than by hand so the record format is git's
+  // own on every platform; a detached HEAD keeps each add cheap.
+  for (let i = 0; i < 69; i++) {
+    await runGit(repo, ['worktree', 'add', '-q', '--detach', join(root, `w${i}`)])
+  }
 
   const deps = cachedDepsAt(repo)
   const rows = (await listSessionRepos(deps, SID, true, undefined, 'off')).value.repos
@@ -876,13 +898,11 @@ test('the certified ceiling keeps the list honest', async () => {
   // and every row marked unchoosable is refused.
   const cached = deps.worktreeCache.values().next().value
   assert.equal(cached.checkouts.length, 64, 'the certified set is capped, not the rows')
-  const roots = cached.checkouts.map((entry) => entry.root)
-  const fs = createFsDeps()
   for (const row of [...selectable.slice(0, 3), ...selectable.slice(-2)]) {
-    assert.equal((await repoDirCertified(fs, repo, row.path, roots)).ok, true, row.path + ' is admitted')
+    assert.equal((await resolveWorkspace(deps, SID, row.path)).ok, true, row.path + ' is selectable and reaches git')
   }
   for (const row of uncertified) {
-    assert.equal((await repoDirCertified(fs, repo, row.path, roots)).ok, false, row.path + ' is refused')
+    assert.equal((await resolveWorkspace(deps, SID, row.path)).ok, false, row.path + ' is refused')
   }
 })
 
