@@ -50,6 +50,12 @@ const DICT = {
   'repos.workspaceEnabling': 'Enabling…',
   'repos.workspaceMissing': 'Workspace file {file} not found',
   'repos.workspaceInvalid': 'Workspace file unusable',
+  'repos.workspaceInvalidName': 'The setting does not name a workspace file',
+  'repos.workspaceInvalidLink': 'Workspace file {file} is a symlink out of the directory',
+  'repos.workspaceInvalidNotFile': 'Workspace file {file} is not a regular file',
+  'repos.workspaceInvalidSize': 'Workspace file {file} is too large to read',
+  'repos.workspaceInvalidRead': 'Workspace file {file} could not be read',
+  'repos.workspaceInvalidParse': 'Workspace file {file} could not be parsed',
   'repos.workspaceAmbiguous': 'Several workspace files: auto-detect cannot choose',
   'repos.workspaceEmpty': 'Workspace file enabled, but none of its folders is a repository',
   'repos.workspaceEnableFailed': 'Could not turn it on: the setting was not written',
@@ -224,6 +230,42 @@ try {
     await page.close()
   }
 
+  // ── 4b. An unusable file says which check refused it ────────────────────
+  {
+    // One message covered a malformed setting, a symlink out of the cwd, a
+    // directory in the file's place, an oversized file, an unreadable file and
+    // unparsable content — six repairs behind one sentence (ADR-0035).
+    const { page } = await mount({
+      repos: [WORKSPACE, EXTERNAL],
+      repoWorkspace: { state: 'invalid', reason: 'parse', file: '/mock/hub/lab.code-workspace' },
+    })
+    const hint = await page.evaluate(() => {
+      const el = document.querySelector('.gp-repolist__hint')
+      return {
+        text: el?.textContent ?? null,
+        warn: el?.classList.contains('gp-repolist__hint--warn') ?? null,
+      }
+    })
+    assert.match(hint.text, /could not be parsed/, 'the row names the failed check')
+    assert.match(hint.text, /lab\.code-workspace/, 'and the file it refused')
+    assert.equal(hint.warn, true, 'an unusable file is a warning')
+    await page.close()
+  }
+
+  // ── 4c. A host that predates the reason still explains itself ────────────
+  {
+    // Old host, same state, no `reason`: the generic message is the honest
+    // answer, because `invalid` alone does not say which check failed.
+    const { page } = await mount({
+      repos: [WORKSPACE, EXTERNAL],
+      repoWorkspace: { state: 'invalid', file: '/mock/hub/lab.code-workspace' },
+    })
+    const text = await page.evaluate(() => document.querySelector('.gp-repolist__hint')?.textContent ?? null)
+    assert.match(text, /unusable/, 'the generic message is still shown')
+    assert.doesNotMatch(text, /could not be parsed|too large|symlink|regular file/, 'and it does not name a check the host never reported')
+    await page.close()
+  }
+
   // ── 5. No hint and one checkout: the block stays out of the way ──────────
   {
     const { page } = await mount({ repos: [WORKSPACE] })
@@ -361,6 +403,25 @@ try {
     assert.match(after.text, /not written/, 'the failure is stated, not swallowed')
     assert.equal(after.warn, true, 'and reads as a warning')
     assert.equal(after.act, null, 'the offer makes room for the explanation')
+    await page.close()
+  }
+
+  // ── 12. The browser's notice carries the same per-reason wording ─────────
+  {
+    // A second render site with its own state branch: the reason has to reach
+    // the notice bar too, not only the switcher's hint row.
+    const { page } = await mount({
+      repos: [],
+      repoWorkspace: { state: 'invalid', reason: 'size', file: '/mock/hub/lab.code-workspace' },
+      snapshotError: { code: 'not-a-git-repo', cwd: '/mock/hub' },
+    })
+    const notice = await page.evaluate(() => ({
+      text: document.querySelector('.gp-notice')?.textContent ?? null,
+      warn: document.querySelector('.gp-notice--warn') !== null,
+    }))
+    assert.match(notice.text, /too large/, 'the notice names the failed check')
+    assert.match(notice.text, /lab\.code-workspace/, 'and the file it refused')
+    assert.equal(notice.warn, true, 'it reads as a warning')
     await page.close()
   }
 
