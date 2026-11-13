@@ -191,32 +191,38 @@ export async function repoDirExternal(
 }
 
 /**
- * Resolve a selector that leaves the cwd, for the one directory the repository
- * still owns above it: its root, the primary work tree.
+ * Resolve a selector that leaves the cwd, for a directory the session's own
+ * repository owns as a checkout: any record `git worktree list` reports,
+ * whether the primary work tree or a linked worktree created elsewhere.
  *
  * A session that moved into a linked worktree has its repository root in a
- * parent directory, so its rows there can only be addressed with `..` — which
- * `repoDirFor` refuses by design. This second door exists for exactly that one
- * directory: `root` is the primary work tree read from git for the repository
- * the cwd belongs to, and only an exact match is admitted. The path shape
- * decides nothing, so a wire value cannot name an arbitrary parent directory, a
- * sibling checkout or an unrelated repository. Directories inside the cwd are
- * `repoDirFor`'s business and are refused here, so exactly one door accepts a
- * given path.
+ * parent directory, and a worktree is routinely created beside the checkout
+ * (`git worktree add ../feature`), so those rows can only be addressed with
+ * `..` — which `repoDirFor` refuses by design. This second door admits exactly
+ * the directories git reported for the repository the cwd belongs to: `roots`
+ * is that record set, read per request. The path shape decides nothing, so a
+ * wire value cannot name an arbitrary parent directory, a sibling checkout or
+ * an unrelated repository. Directories inside the cwd are `repoDirFor`'s
+ * business and are refused here, so exactly one door accepts a given path.
+ *
+ * Why this set may be trusted without the workspace file's opt-in: worktree
+ * records live in `.git/worktrees/`, host-local state that a cloned repository
+ * cannot ship. A row appears here only after the user ran `git worktree add`
+ * (ADR-0035).
  */
 export async function repoDirCertified(
   fs: RepoFs,
   cwd: string,
   rel: string,
-  root: string | null,
+  roots: readonly string[],
 ): Promise<{ readonly ok: true; readonly dir: string } | { readonly ok: false }> {
   // `..` is allowed here and only here: the selector is meant to leave the cwd.
   // An absolute path is still refused — a selector addresses a directory
   // relative to the session, so a wire value cannot name one by itself.
-  if (root === null || rel === '' || isAbsolute(rel)) return { ok: false }
+  if (roots.length === 0 || rel === '' || isAbsolute(rel)) return { ok: false }
   const origin = await fs.realpath(cwd).catch(() => cwd)
   const real = await fs.realpath(resolve(origin, rel)).catch(() => null)
   if (real === null || isWithin(origin, real)) return { ok: false }
   if (basename(real) === '.git') return { ok: false }
-  return samePath(root, real) ? { ok: true, dir: real } : { ok: false }
+  return roots.some((root) => samePath(root, real)) ? { ok: true, dir: real } : { ok: false }
 }

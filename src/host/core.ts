@@ -9,7 +9,7 @@ import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafeBranchName, isSafePath, isSafeRemoteName } from './validate.js'
 import { isOutwardSelector, repoDirCertified, repoDirExternal, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
-import { scanCodeWorkspace } from './code-workspace.js'
+import { listWorkspaceFiles, scanCodeWorkspace } from './code-workspace.js'
 import type { CodeWorkspaceCacheEntry, CodeWorkspaceScan } from './code-workspace.js'
 import { parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
 import type { WorktreeCheckout, WorktreeInfo } from './worktrees.js'
@@ -303,6 +303,16 @@ export interface SnapshotDeps {
    */
   readonly codeWorkspaceCache?: Map<string, CodeWorkspaceCacheEntry>
   /**
+   * Optional cache for the set of checkouts `git worktree list` certifies for
+   * the cwd's repository (ADR-0035). Every request whose selector leaves the
+   * cwd asks that door, and the set only changes when the user runs
+   * `git worktree add` / `remove` / `prune`, so one `git worktree list` serves
+   * a short window instead of every diff and directory listing. Entries carry
+   * their own timestamp; a stale member is still refused by the door's realpath
+   * comparison once its directory is gone.
+   */
+  readonly worktreeCache?: Map<string, WorktreeCertCacheEntry>
+  /**
    * Optional per-request resolvers for the host model services (see
    * llm-face.ts). Resolved on every suggest call — never frozen at
    * construction — so a provider fiber that activates late or restarts is
@@ -318,6 +328,22 @@ export interface SnapshotDeps {
 
 /** Non-repo negative-cache lifetime; short so a freshly-created repo is seen. */
 const NEG_CACHE_MS = 15_000
+
+/** How long the certified-worktree set may answer requests before git is
+ * asked again (ADR-0035). The set changes only through `git worktree add` /
+ * `remove` / `prune`, and the door re-checks the realpath of the selector, so
+ * a member that disappeared is refused even while the entry is warm. */
+const WORKTREE_CERT_CACHE_MS = 15_000
+
+/** Ceiling on the certified set: a repository with hundreds of checkouts must
+ * not turn one selector into hundreds of realpath comparisons. */
+const WORKTREE_CERT_MAX = 64
+
+/** One cached certification set, stamped with when it was read. */
+export interface WorktreeCertCacheEntry {
+  readonly at: number
+  readonly roots: readonly string[]
+}
 
 /**
  * Parse every fetch remote from `git remote -v`, preserving the output order.
@@ -502,10 +528,11 @@ export async function resolveWorkspace(
   // Where git runs: the cwd itself for the default repository, or the selected
   // checkout's real directory. Three doors lead out of the cwd: a plain nested
   // directory (`repoDirFor`); a root the session's `.code-workspace` file
-  // certifies (`repoDirExternal`, ADR-0030); and the repository root itself
-  // (`repoDirCertified`) — the last one is what lets a session that moved into a
-  // linked worktree get back to the main checkout. Every door answers by
-  // realpath equality, so a wire value cannot name an arbitrary directory.
+  // certifies (`repoDirExternal`, ADR-0030); and a checkout `git worktree list`
+  // reports for the session's own repository (`repoDirCertified`, ADR-0035) —
+  // the last one is what lets a session reach a worktree created outside its
+  // cwd. Every door answers by realpath equality, so a wire value cannot name
+  // an arbitrary directory.
   let start = cwd
   if (rel !== '') {
     const nested = await repoDirFor(deps.fs, cwd, rel)
@@ -515,7 +542,7 @@ export async function resolveWorkspace(
       const admitted = await repoDirExternal(deps.fs, cwd, rel, external.roots.map((root) => root.root))
       if (admitted.ok) start = admitted.dir
       else {
-        const certified = await repoDirCertified(deps.fs, cwd, rel, await certifiedRepoRoot(deps, cwd))
+        const certified = await repoDirCertified(deps.fs, cwd, rel, await certifiedRepoRoots(deps, cwd))
         if (!certified.ok) {
           deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
           return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
@@ -588,18 +615,34 @@ async function readWorktreeInfos(deps: SnapshotDeps, root: string): Promise<read
 }
 
 /**
- * The repository root — the primary work tree — of the repository the cwd
- * belongs to, as an absolute realpath; null when git cannot name one (no git,
- * not a repository, a bare repository with no primary checkout).
+ * Every checkout `git worktree list` reports for the cwd's repository, as
+ * realpaths, cached briefly. This is the certification source of the third
+ * door: a worktree created outside the cwd is a row the user can act on, not
+ * only a disabled one (ADR-0035). Records are host-local — git writes them
+ * under `.git/worktrees/`, and a cloned repository cannot commit them — so the
+ * set may be trusted without the workspace file's opt-in. The primary work
+ * tree is included: it is the row a session that moved into a linked worktree
+ * needs to get back to.
  *
- * Read fresh on the one request that escapes the cwd and never cached with the
- * workspace: a stale answer would admit a directory git no longer owns.
+ * A bare repository has no checkout to enter, a record whose directory is gone
+ * has nothing to realpath, and beyond `WORKTREE_CERT_MAX` the set stops
+ * growing — the door compares realpaths, so an unbounded set would make one
+ * selector arbitrarily expensive.
  */
-async function certifiedRepoRoot(deps: SnapshotDeps, cwd: string): Promise<string | null> {
+async function certifiedRepoRoots(deps: SnapshotDeps, cwd: string): Promise<readonly string[]> {
+  const key = await deps.fs.realpath(cwd).catch(() => cwd)
+  const cached = deps.worktreeCache?.get(key)
+  if (cached !== undefined && Date.now() - cached.at < WORKTREE_CERT_CACHE_MS) return cached.roots
   const infos = await readWorktreeInfos(deps, cwd)
-  const primary = infos[0]
-  if (primary === undefined || primary.bare) return null
-  return await deps.fs.realpath(primary.path).catch(() => null)
+  const roots: string[] = []
+  for (const info of infos) {
+    if (info.bare) continue
+    const real = await deps.fs.realpath(info.path).catch(() => null)
+    if (real !== null && !roots.some((root) => samePath(root, real))) roots.push(real)
+    if (roots.length >= WORKTREE_CERT_MAX) break
+  }
+  deps.worktreeCache?.set(key, { at: Date.now(), roots })
+  return roots
 }
 
 /** Selectable worktree rows first (the ones the user can act on), then the
@@ -689,12 +732,24 @@ export async function listSessionRepos(
   // why `detectCheckouts` does not gate them; the setting is itself opt-in and
   // every entry still has to survive git's own toplevel check. The same scan
   // reports whether the file was recognised, so a typo in the setting surfaces
-  // as a state instead of an unexplained empty list.
+  // as a state instead of an unexplained empty list. With the setting `off` the
+  // cwd is still probed for candidate files: the switcher offers to turn the
+  // feature on from the row the user is already looking at (ADR-0035), which is
+  // what made it undiscoverable — the state never enables anything by itself.
   let recognition: GitRepoList['codeWorkspace']
   if (codeWorkspace !== 'off') {
     const external = await sessionExternalRoots(deps, cwd, codeWorkspace)
     for (const root of external.roots) {
-      if (repos.some((entry) => samePath(entry.root, root.root))) continue
+      const existing = repos.findIndex((entry) => samePath(entry.root, root.root))
+      if (existing >= 0) {
+        // The workspace file may name a checkout the list already carries (a
+        // worktree of the session's own repository). Its `folders[].name` is
+        // the label the user chose in the editor, so it wins over the
+        // directory-name row already there.
+        const entry = repos[existing]!
+        if (root.label !== undefined && entry.label === undefined) repos[existing] = { ...entry, label: root.label }
+        continue
+      }
       repos.push({
         path: root.path,
         root: root.root,
@@ -708,6 +763,15 @@ export async function listSessionRepos(
       recognition = {
         state: external.state,
         ...(external.file !== null ? { file: external.file } : {}),
+      }
+    }
+  } else {
+    const candidates = await listWorkspaceFiles(deps.fs, cwd)
+    if (candidates.length > 0) {
+      recognition = {
+        state: 'available',
+        count: candidates.length,
+        ...(candidates.length === 1 ? { file: candidates[0]! } : {}),
       }
     }
   }

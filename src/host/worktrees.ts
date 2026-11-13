@@ -9,17 +9,16 @@
  * a *file*, which makes the scanner read it as an unrelated nested repository.
  *
  * Trust boundary: a listed directory is selectable when its realpath lies
- * inside the session cwd — plus the one exception of the primary work tree, the
- * repository root a session that moved into a linked worktree must be able to
- * return to (admitted on the way back by `repoDirCertified` against git's own
- * primary record). Every other directory outside the cwd keeps
- * `disabled: 'outside'` so the user can see why a checkout the repository owns
- * cannot be chosen directly; its `path` is then only a lexical relative
- * string the selector rejects on return. A row whose directory is gone
- * (`prunable`, or unreadable) is marked `stale` instead: it cannot be entered,
- * and saying so is the only honest state.
+ * inside the session cwd, or when `git worktree list` reports it for the
+ * session's own repository — records live under `.git/worktrees/`, host-local
+ * state a cloned repository cannot ship, so `repoDirCertified` admits all of
+ * them (ADR-0035). A checkout outside the cwd keeps a `..` selector; only one
+ * on another Windows drive, which `relative` cannot express, keeps
+ * `disabled: 'outside'` so the user can see why it cannot be chosen. A row
+ * whose directory is gone (`prunable`, or unreadable) is marked `stale`
+ * instead: it cannot be entered, and saying so is the only honest state.
  */
-import { basename, relative, sep } from 'node:path'
+import { basename, isAbsolute, relative, sep } from 'node:path'
 import { relativeRepoPath, samePath, type RepoFs } from './repos.js'
 
 /** One record of `git worktree list --porcelain`. */
@@ -149,23 +148,27 @@ export async function worktreeCheckouts(
       continue
     }
     const rel = relativeRepoPath(cwd, real)
-    // The repository root escapes the cwd only for a session that moved into a
-    // linked worktree; every other checkout outside the cwd stays unchoosable
-    // (it is one hop away once the root is selected).
-    if (rel === null && role !== 'main') {
+    if (rel === null) {
+      // A checkout outside the cwd is addressed with a `..` selector, which the
+      // certified door admits for every record git reports (ADR-0035): a
+      // worktree created beside the checkout (`git worktree add ../feature`) is
+      // a row the user can act on, not one hop away behind the root. Only a
+      // checkout on another Windows drive has no relative form — that row stays
+      // listed but unchoosable instead of silently disappearing.
+      const lexical = lexicalRelative(cwd, real)
       out.push({
-        path: lexicalRelative(cwd, real),
+        path: lexical,
         root: real,
         name: basename(real),
         role,
         branch: info.branch,
         locked: info.locked,
-        disabled: 'outside',
+        ...(isAbsolute(lexical) ? { disabled: 'outside' as const } : {}),
       })
       continue
     }
     out.push({
-      path: rel ?? lexicalRelative(cwd, real),
+      path: rel,
       root: real,
       name: basename(real),
       role,

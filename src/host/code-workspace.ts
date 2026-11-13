@@ -311,6 +311,33 @@ async function locateCodeWorkspace(
 }
 
 /**
+ * Absolute paths of the workspace files this cwd holds, sorted.
+ *
+ * This backs the `available` recognition state: with the setting `off` the
+ * switcher offers to turn the feature on instead of staying silent about a file
+ * that is right there (ADR-0035) — the silence is what made the option
+ * undiscoverable. Only regular files whose realpath stays inside the cwd count,
+ * the same rule discovery enforces, so a symlink pointing out of the workspace
+ * is never offered as one. Nothing here enables anything: the state is a hint.
+ */
+export async function listWorkspaceFiles(fs: CodeWorkspaceFs, cwd: string): Promise<readonly string[]> {
+  const root = await fs.realpath(cwd).catch(() => cwd)
+  let entries: readonly { readonly name: string; readonly isDirectory: boolean }[]
+  try {
+    entries = await fs.readdir(root)
+  } catch {
+    return []
+  }
+  const found: string[] = []
+  for (const entry of entries) {
+    if (entry.isDirectory || !isCodeWorkspaceName(entry.name)) continue
+    const located = await confirmWorkspaceFile(fs, root, join(root, entry.name))
+    if (located.kind === 'file') found.push(located.file)
+  }
+  return found.sort()
+}
+
+/**
  * Resolve one folder entry to an external root, or null when it does not name a
  * work-tree top outside the cwd.
  *
