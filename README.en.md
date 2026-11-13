@@ -22,7 +22,7 @@ Pre-release versions carry a `-` suffix (e.g. `1.8.0-rc.1`): they ship only as G
 
 After a first install the **Git** panel appears in the workspace tab bar with no restart or page refresh. On update, a version that only changes the client half takes effect immediately; one that changes the host half needs a dsh restart. Settings on the detail page apply immediately.
 
-> **Compatibility**: verified on `dsh@0.2.1-rc.2` and `dsh@0.2.2-rc.1` — installation, the Git panel, the input-bar marker, the host RPC, and the plugin detail page all work normally.
+> **Compatibility**: verified on `dsh@0.2.1-rc.2` and `dsh@0.2.2-rc.3` — installation, the Git panel, the input-bar marker, the host RPC, and the plugin detail page all work normally.
 
 ## Features
 
@@ -31,12 +31,30 @@ After a first install the **Git** panel appears in the workspace tab bar with no
 - **Common Git actions** — switch, create, merge and delete branches, cherry-pick a commit, create and delete tags, revert / reset. Destructive actions ask for confirmation; a conflicting merge or cherry-pick is aborted and the previous state restored; apart from deleting a remote branch nothing is pushed automatically. When there is no upstream but a remote already has a same-named branch, the sync control offers "Set upstream" (tracking config only, no push, no network) and "Publish" otherwise.
 - **AI commit-message suggestion** — follows the style of the repository's existing commits; the model follows the current session by default and can be pinned on the detail page. **Generation sends your diff content to the provider of the model you picked.**
 - **Input-bar Git marker** — a zsh-style `<repo> (<branch>)`, green when in sync and orange with uncommitted changes; a click jumps to the panel, and in a blank conversation it opens the Git page in the right sidebar instead.
-- **Multiple repositories** — worktrees and independent repositories in subdirectories are detected automatically, and a worktree of the session's own repository is switchable wherever it lives. The folders a `.code-workspace` file names — including repositories outside the workspace — need `codeWorkspace` enabled in the plugin settings: the **Repositories** section offers off / auto-detect / a specific file name, off by default. When the session directory holds a workspace file the panel says so in place, and one click turns it on. The same section caps the list at 10–100 rows (50 by default): more rows make the scan and the picker slower.
+- **Multiple repositories** — worktrees and independent repositories in subdirectories are detected automatically, and a worktree of the session's own repository is switchable wherever it lives. Folders a `.code-workspace` file names — usually outside the workspace — can join the same list; see [Multiple repositories and `.code-workspace`](#multiple-repositories-and-code-workspace). The same section caps the list at 10–100 rows (50 by default): more rows make the scan and the picker slower.
 - **File browser** — browse the workspace tree and preview code, Markdown (including mermaid diagrams), HTML and images; config and document files can be edited and saved in place; Java/Kotlin projects fold package paths by convention.
 - **Context menus** — right-click files, directories, images, branches, commits, changes, stashes, repository rows and the input-bar marker; destructive actions still ask for confirmation. Requires dsh ≥ 0.2.2-alpha.3; older versions keep the browser's native menu.
 - **Diff and source viewing** — unified / split / before / after views with syntax highlighting, word-level emphasis, on-demand context expansion and <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> find-in-place; images can be zoomed, panned and shown fullscreen.
 - **Narrow panel / mobile** — the layout adapts to the panel size, so it works in the sidebar and on a phone.
 - **Languages** — the UI follows the DSH system language: Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский and Português; any other language falls back to English.
+
+## Multiple repositories and `.code-workspace`
+
+The switcher follows the repository of the session's working directory by default, but it can list three kinds at once: every worktree of the session's own repository (wherever it lives), independent repositories in subdirectories of the workspace, and the folders a VS Code `.code-workspace` multi-root workspace file names — the last group usually sits outside the workspace, which is exactly the "hub directory" layout.
+
+The third kind has to be turned on explicitly: it reads a file on disk, and a workspace file committed to a repository must not take effect just because a session opened. `codeWorkspace` in the **Repositories** section has three states:
+
+- **Off** (default): no workspace file is read.
+- **Auto-detect**: use the single `*.code-workspace` in the session directory; with two or more the panel does not guess and says it cannot choose.
+- **A specific file name**: the file name only (e.g. `team.code-workspace`), no path; the file has to be in the session directory.
+
+Once on:
+
+- A folder's `path` may be relative to the workspace file or absolute. It has to resolve (by realpath) outside the session directory and survive `git rev-parse --show-toplevel` equalling that directory before it becomes a row; subdirectories, ordinary directories and folders pointing back into the session directory are skipped (the last are already listed by the scan, never twice).
+- `folders[].name` is the row's display name; at most 50 roots, the rest are ignored.
+- An external root is one row for the folder itself: its own worktrees are not expanded.
+- When the session directory holds a workspace file while the setting is still off, the switcher says so in place (in the file browser's notice bar when the working directory is not a repository), and one click turns it on. This is a plugin-wide setting: turning it on affects every session, and the hint alone changes nothing.
+- A file that cannot be used names the check that refused it: a malformed setting, a symlink out of the directory, a directory in the file's place, a file too large, an unreadable file, or content that is not a workspace file — most often a `folders` entry without `path`; JSONC comments and trailing commas are supported.
 
 ## Permissions and data boundaries
 
