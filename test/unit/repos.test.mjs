@@ -169,6 +169,26 @@ test('repo-list is served by the query endpoint', async () => {
   assert.deepEqual(res.value.repos.map((r) => r.path), ['', 'sub'])
 })
 
+test('repo-list spends the configured ceiling', async () => {
+  // Twelve repository roots so the normalized minimum (10) is observable: this
+  // pins config.repoLimit through the whole endpoint, not just the raw
+  // argument, while normalizeConfig (host-integration) owns the 10–100 clamp.
+  const many = join(tmp, 'many')
+  for (let i = 0; i < 12; i += 1) mkdirSync(join(many, `r${String(i).padStart(2, '0')}`, '.git'), { recursive: true })
+  const capped = await runQuery(depsAt(many), normalizeConfig({ repoLimit: 10 }), {
+    sessionId: SID,
+    query: { kind: 'repo-list' },
+  })
+  assert.equal(capped.ok, true)
+  assert.equal(capped.value.repos.length, 10, 'the list stops at the configured ceiling')
+  const full = await runQuery(depsAt(many), DEFAULT_CONFIG, {
+    sessionId: SID,
+    query: { kind: 'repo-list' },
+  })
+  assert.equal(full.ok, true)
+  assert.equal(full.value.repos.length, 12, 'the default ceiling leaves this workspace whole')
+})
+
 test('a snapshot samples the selected nested repository', async () => {
   const snap = await snapshotForSession(depsAt(outer), DEFAULT_CONFIG, SID, { repo: 'sub' })
   assert.equal(snap.ok, true)

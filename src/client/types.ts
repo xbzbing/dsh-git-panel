@@ -14,7 +14,7 @@ export type {
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure, RemoteMethod,
 } from '../host/types.js'
 
-export { imageMimeFor, isEditablePath, EDIT_MAX_BYTES, EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, isHistoryFiltered, HISTORY_PATH_SEARCH_MAX_LENGTH, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
+export { imageMimeFor, isEditablePath, EDIT_MAX_BYTES, EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, isHistoryFiltered, HISTORY_PATH_SEARCH_MAX_LENGTH, REPO_LIMITS, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
 import type { GitQueryResult } from '../host/types.js'
 
 /**

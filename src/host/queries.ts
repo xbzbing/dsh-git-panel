@@ -59,7 +59,7 @@ export async function runQuery(
   // worktrees and nested repositories below it — which is what lets the panel
   // offer a repository picker before anything is selected.
   if (q.kind === 'repo-list') {
-    const listed = await listSessionRepos(deps, request.sessionId, config.detectCheckouts, undefined, config.codeWorkspace)
+    const listed = await listSessionRepos(deps, request.sessionId, config.detectCheckouts, config.repoLimit, config.codeWorkspace)
     if (!listed.ok) return { ok: false, error: listed.error }
     // Spread rather than rebuild: the value carries the workspace-file
     // recognition state, and rebuilding it here silently dropped that state

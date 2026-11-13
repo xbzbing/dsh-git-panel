@@ -96,7 +96,8 @@ export class GitPanelService extends TypertRemoteService {
 
   /**
    * Config schema surfaced on the plugin detail page. `showInputPill`,
-   * `defaultDiffView`, `changesView`, `graphStyle`, `detectCheckouts`, `filesFollowRepo`,
+   * `defaultDiffView`, `changesView`, `graphStyle`, `detectCheckouts`, `repoLimit`,
+   * `filesFollowRepo`,
    * `collapseReposOnPick`, `allowFileEdit`, `compactPackages` and the suggest fields are `.volatile()`, so the settings host renders them as
    * live-editable controls; the operational limits stay profile-only and out
    * of the UI form.
@@ -126,6 +127,7 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const(1).description('较大'),
     ]).default(0).volatile().description('面板字号'),
     detectCheckouts: Schema.boolean().default(true).volatile().description('探测 worktree 和子仓库（关闭后存储库列表只保留工作区主仓库；当前目录不是仓库时列表为空）'),
+    repoLimit: Schema.number().default(DEFAULT_CONFIG.repoLimit).volatile().description('存储库数量上限（10–100；.code-workspace 认证的外部根另算，数量越多列表渲染越慢）'),
     filesFollowRepo: Schema.boolean().default(false).volatile().description('文件浏览跟随 Git 仓库切换（关闭时文件浏览停在项目根目录）'),
     collapseReposOnPick: Schema.boolean().default(false).volatile().description('切换存储库后立即收起存储库列表（关闭时列表保持展开，只由标题行收起）'),
     allowFileEdit: Schema.boolean().default(true).volatile().description(`允许在文件浏览中编辑配置与文档文件（${EDITABLE_EXTENSIONS.join(' / ')}、${EDITABLE_FILENAMES.join(' / ')}，2 MiB 以内）`),

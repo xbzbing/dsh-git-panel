@@ -27,6 +27,7 @@ import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
 import type { FontDelta, GitAction, GitRepoEntry, GitRepoList } from './types.js'
+import { REPO_LIMITS } from './types.js'
 import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
@@ -381,6 +382,14 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   if (view.state === 'ready') detectRef.current = view.snapshot.detectCheckouts ?? true
   const detectCheckouts = detectRef.current
 
+  // The list ceiling rides the snapshot too: a config write re-answers the list
+  // in place. Seeded with the default (not null) so the first ready sample —
+  // which almost always carries the default — does not schedule a second scan;
+  // an older host omits the field and the seed keeps the list as it was.
+  const repoLimitRef = useRef<number>(REPO_LIMITS.default)
+  if (view.state === 'ready' && typeof view.snapshot.repoLimit === 'number') repoLimitRef.current = view.snapshot.repoLimit
+  const repoLimit = repoLimitRef.current
+
   // Whether a pick folds the repository list rides the snapshot too, sticky at
   // the last ready answer; an older host omits it → off, the list stays open.
   const collapseOnPickRef = useRef(false)
@@ -465,10 +474,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // nor the sample's root can change that answer, and re-running on either
     // walks the tree again for a result that has already arrived. Visibility
     // stays in the list: coming back to the page is when a repository created
-    // while the panel was hidden can be found. The probe switch changes the
-    // answer itself, so it stays in the list. `repoListEpoch` is the explicit
-    // refetch after the workspace setting changed.
-  }, [remote, sessionId, queryVisible, detectCheckouts, repoListEpoch])
+    // while the panel was hidden can be found. The probe switch and the list
+    // ceiling change the answer itself, so they stay in the list.
+    // `repoListEpoch` is the explicit refetch after the workspace setting
+    // changed.
+  }, [remote, sessionId, queryVisible, detectCheckouts, repoLimit, repoListEpoch])
 
   // A remembered pick that disappeared from the scan (the directory is gone, or
   // it stopped being a repository) falls back to the default one. Waiting for a

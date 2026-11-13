@@ -72,9 +72,10 @@ export const CODE_WORKSPACE_SUFFIX = '.code-workspace'
  * and a hostile one must not be read into memory. */
 export const CODE_WORKSPACE_MAX_BYTES = 1024 * 1024
 
-/** Ceiling for the roots one file may add. Past this the switcher is unusable
- * anyway, and each entry costs a git probe. */
-export const CODE_WORKSPACE_MAX_ROOTS = 20
+/** Ceiling for the roots one file may add. Each entry costs a git probe, so
+ * this stays bounded; the attempt cap below keeps a hostile file cheap even
+ * when most entries fail to resolve. */
+export const CODE_WORKSPACE_MAX_ROOTS = 50
 
 /** Ceiling for the folder entries one scan may *attempt*, resolved or not.
  * The roots cap only counts successes, so a hostile file with tens of

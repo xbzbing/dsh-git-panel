@@ -14,6 +14,7 @@
  * symlink pointing outside the cwd can never become a repository root.
  */
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { REPO_LIMITS } from './types.js'
 import { isSafePath } from './validate.js'
 
 /** Directories the scanner descends into, cwd-relative depth. Deep enough for
@@ -22,9 +23,6 @@ export const REPO_SCAN_DEPTH = 3
 /** Directory ceiling for one scan: a workspace with a huge tree stops early
  * instead of walking everything on every panel mount. */
 export const REPO_SCAN_LIMIT = 2000
-/** Repository ceiling for one result list; past this the switcher would be
- * unusable anyway, and the client addresses entries by path, not index. */
-export const REPO_RESULT_LIMIT = 50
 
 /** Never a repository of its own, and the two names that would turn a scan
  * into a full dependency-tree walk. */
@@ -96,7 +94,7 @@ export async function scanRepos(
   const root = await fs.realpath(cwd).catch(() => cwd)
   const depth = opts.depth ?? REPO_SCAN_DEPTH
   const scanLimit = opts.scanLimit ?? REPO_SCAN_LIMIT
-  const resultLimit = opts.resultLimit ?? REPO_RESULT_LIMIT
+  const resultLimit = opts.resultLimit ?? REPO_LIMITS.default
   const found: ScannedRepo[] = []
   const queue: Array<{ readonly dir: string; readonly depth: number }> = [{ dir: root, depth: 0 }]
   let scanned = 0

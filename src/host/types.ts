@@ -205,6 +205,10 @@ export interface GitSnapshot {
   /** Whether the repository list probes worktrees and nested repositories
    * (user preference). Absent on older hosts. */
   readonly detectCheckouts?: boolean
+  /** Ceiling for the repository list (user preference, REPO_LIMITS). Business
+   * state like `detectCheckouts`: the client re-answers the list when it
+   * changes. Absent on older hosts → the client keeps the last list. */
+  readonly repoLimit?: number
   /** Whether the file browser follows repository switches (user preference);
    * absent on older hosts → off, the browser stays at the project root. */
   readonly filesFollowRepo?: boolean
@@ -630,9 +634,10 @@ export interface GitRepoList {
    * ones by path, then the roots a `.code-workspace` file certifies. Empty
    * outside any repository with nothing to scan or certify.
    *
-   * The list has two independent ceilings: `REPO_RESULT_LIMIT` (50) bounds the
-   * repositories the filesystem scan finds, and the workspace file adds at most
-   * `CODE_WORKSPACE_MAX_ROOTS` (20) certified roots on top of it — they are not
+   * The list has two independent ceilings: `repoLimit` (default 50, user
+   * configurable 10–100) bounds the repositories the worktree probe and the
+   * filesystem scan find, and the workspace file adds at most
+   * `CODE_WORKSPACE_MAX_ROOTS` (50) certified roots on top of it — they are not
    * probed by that scan, so they are not counted against its cap. */
   readonly repos: readonly GitRepoEntry[]
   /**
@@ -1046,6 +1051,17 @@ export function isEditablePath(path: string): boolean {
  * floors its read here and serves it as source once it passes the image cap.
  */
 export const FILE_COPY_MAX_BYTES = 10 * 1024 * 1024
+
+/**
+ * Range of the repository-list ceiling — how many repositories one `repo-list`
+ * may return (each certified worktree row takes a slot; the nested scan fills
+ * the rest, and `.code-workspace` roots sit beyond it). The default keeps a
+ * large workspace cheap; the ceiling exists because every row is rendered and
+ * polled, and hundreds of repositories make the picker sluggish rather than
+ * useful. Shared by both halves: the host clamps every read into [min, max],
+ * and the detail-page form derives its input bounds from the same numbers.
+ */
+export const REPO_LIMITS = { min: 10, max: 100, default: 50 } as const
 
 /**
  * Range of the profile's `maxBytes` — the per-command stdout cap, which also

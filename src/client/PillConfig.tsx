@@ -19,7 +19,7 @@ import { selectTrigger } from './select-trigger.js'
 import { gitPanelRemoteOf, queryAs } from './rpc.js'
 import type { ClientCtx, ConfigFormsFace } from './rpc.js'
 import type { ChangesViewMode, FontDelta, GitPanelPlacement, GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
-import { EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
+import { EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, REPO_LIMITS, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
 import type { GitKey } from './locales.js'
 
 interface PillConfigProps {
@@ -112,6 +112,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [draftMaxKib, setDraftMaxKib] = useState<string | null>(null)
   const [draftOutputTokens, setDraftOutputTokens] = useState<string | null>(null)
   const [draftTimeout, setDraftTimeout] = useState<string | null>(null)
+  const [draftRepoLimit, setDraftRepoLimit] = useState<string | null>(null)
   // Model catalog: host-level providers / models / efforts.
   const [catalog, setCatalog] = useState<readonly ModelCatalogGroup[]>([])
   const [catalogFailures, setCatalogFailures] = useState<readonly { id: string; name: string; message: string }[]>([])
@@ -187,6 +188,10 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const suggestTimeoutS = clampDisplay(
     typeof snap?.value?.suggestTimeoutMs === 'number' ? (snap.value.suggestTimeoutMs as number) / 1000 : SUGGEST_LIMITS.timeoutMs.default / 1000,
     TIMEOUT_S,
+  )
+  const repoLimit = clampDisplay(
+    typeof snap?.value?.repoLimit === 'number' ? (snap.value.repoLimit as number) : REPO_LIMITS.default,
+    REPO_LIMITS,
   )
   // Model route: pending write wins over the snapshot. Provider alone drives
   // the model row; model alone drives the effort row. The effort select is
@@ -453,13 +458,13 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     writeModelRoute(uiProvider, uiModel, next)
 
   // Commit one numeric draft: parse → clamp to the display-unit range → write
-  // in storage units (KiB→bytes, s→ms, tokens as-is). The clamped value is
-  // HELD as the draft until the write lands (optimistic, like the pendingX
-  // pattern above — clearing early would flash the pre-write live value);
-  // commitField clears it on completion, so a failure falls back to the live
-  // value beside the error line. A blank/unparseable draft just reverts to
-  // the live value without writing.
-  const commitSuggestNumber = (
+  // in storage units (KiB→bytes, s→ms, tokens as-is; a plain count passes 1).
+  // The clamped value is HELD as the draft until the write lands (optimistic,
+  // like the pendingX pattern above — clearing early would flash the pre-write
+  // live value); commitField clears it on completion, so a failure falls back
+  // to the live value beside the error line. A blank/unparseable draft just
+  // reverts to the live value without writing.
+  const commitNumber = (
     raw: string | null,
     range: { readonly min: number; readonly max: number },
     scale: number,
@@ -475,13 +480,16 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   }
 
   const commitMaxKib = (raw: string | null): Promise<void> =>
-    commitSuggestNumber(raw, MAX_KIB, 1024, 'suggestMaxBytes', setDraftMaxKib, () => setDraftMaxKib(null))
+    commitNumber(raw, MAX_KIB, 1024, 'suggestMaxBytes', setDraftMaxKib, () => setDraftMaxKib(null))
 
   const commitOutputTokens = (raw: string | null): Promise<void> =>
-    commitSuggestNumber(raw, SUGGEST_LIMITS.maxOutputTokens, 1, 'suggestMaxOutputTokens', setDraftOutputTokens, () => setDraftOutputTokens(null))
+    commitNumber(raw, SUGGEST_LIMITS.maxOutputTokens, 1, 'suggestMaxOutputTokens', setDraftOutputTokens, () => setDraftOutputTokens(null))
 
   const commitTimeout = (raw: string | null): Promise<void> =>
-    commitSuggestNumber(raw, TIMEOUT_S, 1000, 'suggestTimeoutMs', setDraftTimeout, () => setDraftTimeout(null))
+    commitNumber(raw, TIMEOUT_S, 1000, 'suggestTimeoutMs', setDraftTimeout, () => setDraftTimeout(null))
+
+  const commitRepoLimit = (raw: string | null): Promise<void> =>
+    commitNumber(raw, REPO_LIMITS, 1, 'repoLimit', setDraftRepoLimit, () => setDraftRepoLimit(null))
 
   // Platform Menu rows: the same dropdown surface as the overview author /
   // since filters. Trigger is ours; Menu never closes itself, so onSelect closes.
@@ -795,6 +803,22 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.detectToggle')),
       ]),
       h('p', { key: 'dethint', className: 'gp-cfg__hint' }, t('cfg.detectHint')),
+    ]),
+    field('repolimit', [
+      h('div', { key: 'repolimit', className: 'gp-cfg__numrow' }, [
+        h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-repolimit' }, t('cfg.repoLimitLabel')),
+        h('input', {
+          key: 'input', id: 'gp-cfg-repolimit', type: 'number', className: 'gp-cfg__numinput',
+          inputMode: 'numeric', min: REPO_LIMITS.min, max: REPO_LIMITS.max, 'aria-describedby': 'gp-cfg-repolimit-hint',
+          value: draftRepoLimit ?? String(repoLimit),
+          disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftRepoLimit(e.currentTarget.value) },
+          onBlur: () => { void commitRepoLimit(draftRepoLimit) },
+          onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
+        }),
+        h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.repoLimitUnit')),
+      ]),
+      h('p', { key: 'repolimithint', id: 'gp-cfg-repolimit-hint', className: 'gp-cfg__rangehint' }, t('cfg.repoLimitHint')),
     ]),
     field('codews', [
       h('h3', { key: 'cwtitle', className: 'gp-cfg__title' }, t('cfg.cwTitle')),
