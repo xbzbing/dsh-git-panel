@@ -7,7 +7,7 @@
  * exists). The mirror namespace is discovered by schema shape, so the form
  * follows the Host entry id instead of assuming it.
  */
-import { createElement as h, useEffect, useMemo, useState } from 'react'
+import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { findNamespace, resyncAfterWrite } from './config-write.js'
@@ -99,6 +99,12 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [customOpen, setCustomOpen] = useState(false)
   const [draftName, setDraftName] = useState<string | null>(null)
   const [workspaceNameInvalid, setWorkspaceNameInvalid] = useState(false)
+  // Picking another mode while the name box is focused must write once, not
+  // twice: the blur commits the name and the click commits the mode, in that
+  // order, so the mode the user just picked would be overwritten by a write
+  // they were already abandoning. The press is the signal, and it arrives
+  // before the blur.
+  const skipNameCommit = useRef(false)
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({ basic: true, view: false, suggest: false, repos: false })
   const [pendingLang, setPendingLang] = useState<SuggestLanguage | null>(null)
   // Numeric drafts are local edit state: onChange only updates the draft so
@@ -363,8 +369,20 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   }
 
   const commitWorkspaceName = (): void => {
+    if (skipNameCommit.current) {
+      skipNameCommit.current = false
+      return
+    }
     const name = (draftName ?? '').trim()
-    if (name === '') return
+    // An empty box is how the user leaves "specific file" without naming one:
+    // close it and fall back to the value the host actually has, instead of
+    // pinning the control to a state that was never written.
+    if (name === '') {
+      setWorkspaceNameInvalid(false)
+      setDraftName(null)
+      setCustomOpen(false)
+      return
+    }
     // The host validates the shape too; refusing it here keeps a typo from
     // reaching the config (a malformed value is an `invalid` state, not `off`).
     const shaped = name.length <= 255 && name !== '.' && name !== '..' && !/[/\\\0]/.test(name) && name.endsWith('.code-workspace')
@@ -780,7 +798,19 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     ]),
     field('codews', [
       h('h3', { key: 'cwtitle', className: 'gp-cfg__title' }, t('cfg.cwTitle')),
-      h('div', { key: 'cwseg', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.cwTitle') },
+      h('div', {
+        key: 'cwseg',
+        className: 'gp-seg gp-cfg__seg',
+        role: 'group',
+        'aria-label': t('cfg.cwTitle'),
+        // Runs before the box's blur (focus moves on mousedown): the press is
+        // the newer intent, so the pending name is dropped rather than written
+        // and immediately overwritten by the mode write that follows.
+        onPointerDownCapture: () => {
+          skipNameCommit.current = true
+          setTimeout(() => { skipNameCommit.current = false }, 0)
+        },
+      },
         segButtons<'off' | 'auto' | 'custom'>(['off', 'auto', 'custom'], showWorkspaceName ? 'custom' : workspaceMode, (v) => { setWorkspaceMode(v) },
           (v) => t(v === 'off' ? 'cfg.cwOff' : v === 'auto' ? 'cfg.cwAuto' : 'cfg.cwCustom'), busy || snap?.writable === false)),
       showWorkspaceName

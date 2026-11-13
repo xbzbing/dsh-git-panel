@@ -27,17 +27,11 @@ import { repoTipContent } from './repo-tip.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { useRowSlider } from './row-slider.js'
 import { inertAttr } from './inert.js'
+import { baseName } from './path-name.js'
 import { useHoverTip } from './tip.js'
 import { rtlPathText } from './rtl-path.js'
 import type { GitRepoList, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-
-/** Last path segment: a workspace file is reported by absolute path, the row
- * has room for the name. */
-function baseName(path: string): string {
-  const parts = path.split(/[\\/]/)
-  return parts[parts.length - 1] ?? path
-}
 
 /** The docked list block as the panel hands it to a pane — the overview's left
  * column and the changes column share one, so the collapse state and the
@@ -63,6 +57,10 @@ export interface RepositoriesHost {
   readonly onEnableWorkspace?: () => void
   /** That write is in flight (the row's action reports it). */
   readonly workspaceEnabling?: boolean
+  /** That write was refused by the settings service. The row keeps the offer
+   * and states the failure: a click that changes nothing reads as a dead
+   * control otherwise. */
+  readonly workspaceFailed?: boolean
 }
 
 interface ReposSectionProps {
@@ -84,9 +82,10 @@ interface ReposSectionProps {
   readonly workspaceHint?: GitRepoList['codeWorkspace']
   readonly onEnableWorkspace?: () => void
   readonly workspaceEnabling?: boolean
+  readonly workspaceFailed?: boolean
 }
 
-export function ReposSection({ choices, current, snapshot, onChoose, t, collapsed = false, onToggleCollapse, rowMenu, workspaceHint, onEnableWorkspace, workspaceEnabling = false }: ReposSectionProps): JSX.Element | null {
+export function ReposSection({ choices, current, snapshot, onChoose, t, collapsed = false, onToggleCollapse, rowMenu, workspaceHint, onEnableWorkspace, workspaceEnabling = false, workspaceFailed = false }: ReposSectionProps): JSX.Element | null {
   // One checkout is not a choice: a single row would only repeat the pill, and
   // the branch tree below already names it.
   const listId = useId()
@@ -116,7 +115,9 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // not a repository row — it cannot be chosen, only acted on.
   const hintFile = workspaceHint?.file === undefined ? null : baseName(workspaceHint.file)
   let hint: { readonly text: string; readonly action: boolean; readonly warn: boolean } | null = null
-  if (workspaceHint !== undefined) {
+  if (workspaceFailed) {
+    hint = { text: t('repos.workspaceEnableFailed'), action: false, warn: true }
+  } else if (workspaceHint !== undefined) {
     if (workspaceHint.state === 'available') {
       const count = workspaceHint.count ?? (workspaceHint.file === undefined ? 0 : 1)
       hint = count > 1
@@ -128,10 +129,14 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
       hint = { text: t('repos.workspaceInvalid'), action: false, warn: true }
     } else if (workspaceHint.state === 'ambiguous') {
       hint = { text: t('repos.workspaceAmbiguous'), action: false, warn: true }
-    } else if (workspaceHint.state === 'applied' && !choices.some((choice) => choice.kind === 'external')) {
-      // Enabled, parsed, and still nothing to show: the file names no checkout
-      // (yet). Saying so is the difference between "not cloned yet" and "this
-      // feature does nothing" (ADR-0035).
+    } else if (workspaceHint.state === 'applied' && workspaceHint.roots === 0) {
+      // Enabled, parsed, and the file produced no root at all. The count is the
+      // host's answer, not a guess from the rows: a root this list already
+      // carries (a worktree of the session's own repository) merges into that
+      // row instead of adding an `external` one, so the rows cannot tell "the
+      // file names nothing" from "the file names something already listed".
+      // An older host sends no count, and guessing there would state the wrong
+      // thing (ADR-0035).
       hint = { text: t('repos.workspaceEmpty'), action: false, warn: true }
     }
   }

@@ -30,9 +30,10 @@ export interface RepoChoice {
   readonly role?: 'main' | 'linked' | 'repo'
   /** HEAD branch of this checkout; null = detached, absent = unknown. */
   readonly branch?: string | null
-  /** Why the row cannot be chosen: `outside` = outside the session cwd and not
-   * its repository root, or `stale` = its directory is gone. */
-  readonly disabled?: 'outside' | 'stale'
+  /** Why the row cannot be chosen: `outside` = outside the session cwd with no
+   * relative selector (another Windows drive), `uncertified` = not a checkout
+   * this repository owns, or `stale` = its directory is gone. */
+  readonly disabled?: 'outside' | 'uncertified' | 'stale'
   /** git's `locked` flag on this worktree. */
   readonly locked?: boolean
 }
@@ -128,8 +129,9 @@ export function repoDetail(choice: RepoChoice): string {
 }
 
 /** i18n key explaining why a row cannot be chosen; null when it can. */
-export function repoDisabledKey(choice: RepoChoice): 'repos.disabled.outside' | 'repos.disabled.stale' | null {
+export function repoDisabledKey(choice: RepoChoice): 'repos.disabled.outside' | 'repos.disabled.uncertified' | 'repos.disabled.stale' | null {
   if (choice.disabled === 'outside') return 'repos.disabled.outside'
+  if (choice.disabled === 'uncertified') return 'repos.disabled.uncertified'
   if (choice.disabled === 'stale') return 'repos.disabled.stale'
   return null
 }
@@ -173,7 +175,7 @@ export interface FilesRootRow {
   readonly name: string
   /** Grey second line, the same detail rule as the switcher rows. */
   readonly path: string
-  readonly disabled?: 'outside' | 'stale'
+  readonly disabled?: 'outside' | 'uncertified' | 'stale'
   /** Row the manual pick marks; `pick` null (following) marks none — the
    * follow row is the caller's own and highlights then. */
   readonly active: boolean
