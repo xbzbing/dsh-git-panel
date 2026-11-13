@@ -20,7 +20,7 @@
  */
 import { createElement as h, useId } from 'react'
 import type { JSX } from 'react'
-import { BranchIcon, CheckIcon, ChevronIcon, CopyIcon, RepoIcon, WorktreeIcon } from './icons.js'
+import { BranchIcon, CheckIcon, ChevronIcon, CopyIcon, RepoIcon, SparkleIcon, WorktreeIcon } from './icons.js'
 import type { RepoChoice, RepoGroup } from './repo-list.js'
 import { repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from './repo-list.js'
 import { repoTipContent } from './repo-tip.js'
@@ -29,8 +29,15 @@ import { useRowSlider } from './row-slider.js'
 import { inertAttr } from './inert.js'
 import { useHoverTip } from './tip.js'
 import { rtlPathText } from './rtl-path.js'
-import type { GitSnapshot } from './types.js'
+import type { GitRepoList, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
+
+/** Last path segment: a workspace file is reported by absolute path, the row
+ * has room for the name. */
+function baseName(path: string): string {
+  const parts = path.split(/[\\/]/)
+  return parts[parts.length - 1] ?? path
+}
 
 /** The docked list block as the panel hands it to a pane — the overview's left
  * column and the changes column share one, so the collapse state and the
@@ -47,6 +54,15 @@ export interface RepositoriesHost {
   /** Right-click props for one row (absent on hosts without context menus, and
    * on a row that cannot be chosen). */
   readonly rowMenu?: (choice: RepoChoice) => Record<string, unknown>
+  /** Recognition state of the session's `.code-workspace` file. `available`
+   * means the setting is off but the cwd holds one: the block offers to turn it
+   * on from the row instead of leaving the feature undiscoverable (ADR-0035). */
+  readonly workspaceHint?: GitRepoList['codeWorkspace']
+  /** Turn the setting on for the plugin; absent when the settings service is
+   * unreachable. The write is plugin-wide, which the row says in its text. */
+  readonly onEnableWorkspace?: () => void
+  /** That write is in flight (the row's action reports it). */
+  readonly workspaceEnabling?: boolean
 }
 
 interface ReposSectionProps {
@@ -65,9 +81,12 @@ interface ReposSectionProps {
    * a row that can be chosen gets one — a disabled row states its reason on
    * hover and offers nothing to act on. */
   readonly rowMenu?: (choice: RepoChoice) => Record<string, unknown>
+  readonly workspaceHint?: GitRepoList['codeWorkspace']
+  readonly onEnableWorkspace?: () => void
+  readonly workspaceEnabling?: boolean
 }
 
-export function ReposSection({ choices, current, snapshot, onChoose, t, collapsed = false, onToggleCollapse, rowMenu }: ReposSectionProps): JSX.Element | null {
+export function ReposSection({ choices, current, snapshot, onChoose, t, collapsed = false, onToggleCollapse, rowMenu, workspaceHint, onEnableWorkspace, workspaceEnabling = false }: ReposSectionProps): JSX.Element | null {
   // One checkout is not a choice: a single row would only repeat the pill, and
   // the branch tree below already names it.
   const listId = useId()
@@ -90,7 +109,48 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // One tip serves the collapsed head's chip and the root path line; hover or
   // keyboard focus only, never touch (see tip.tsx).
   const tip = useHoverTip({ placement: 'below' })
-  if (choices.length < 2) return null
+  // The workspace-file row. With the setting off, a file sitting in the cwd is
+  // the only clue that multi-root support exists at all, so the block states it
+  // and offers the one-click switch; a configured but unusable file states why
+  // instead of leaving the list unchanged without explanation (ADR-0035). It is
+  // not a repository row — it cannot be chosen, only acted on.
+  const hintFile = workspaceHint?.file === undefined ? null : baseName(workspaceHint.file)
+  let hint: { readonly text: string; readonly action: boolean; readonly warn: boolean } | null = null
+  if (workspaceHint !== undefined) {
+    if (workspaceHint.state === 'available') {
+      const count = workspaceHint.count ?? (workspaceHint.file === undefined ? 0 : 1)
+      hint = count > 1
+        ? { text: t('repos.workspaceMany', { n: count }), action: false, warn: false }
+        : { text: t('repos.workspaceAvailable', { file: hintFile ?? '' }), action: onEnableWorkspace !== undefined, warn: false }
+    } else if (workspaceHint.state === 'missing') {
+      hint = { text: t('repos.workspaceMissing', { file: hintFile ?? '' }), action: false, warn: true }
+    } else if (workspaceHint.state === 'invalid') {
+      hint = { text: t('repos.workspaceInvalid'), action: false, warn: true }
+    } else if (workspaceHint.state === 'ambiguous') {
+      hint = { text: t('repos.workspaceAmbiguous'), action: false, warn: true }
+    } else if (workspaceHint.state === 'applied' && !choices.some((choice) => choice.kind === 'external')) {
+      // Enabled, parsed, and still nothing to show: the file names no checkout
+      // (yet). Saying so is the difference between "not cloned yet" and "this
+      // feature does nothing" (ADR-0035).
+      hint = { text: t('repos.workspaceEmpty'), action: false, warn: true }
+    }
+  }
+  const hintRow = hint === null
+    ? null
+    : h('div', { key: 'whint', className: `gp-repolist__hint${hint.warn ? ' gp-repolist__hint--warn' : ''}` }, [
+      h(SparkleIcon, { key: 'ic', size: 13 }),
+      h('span', { key: 'tx', className: 'gp-repolist__hint-text' }, hint.text),
+      hint.action
+        ? h('button', {
+          key: 'go', type: 'button', className: 'gp-repolist__hint-act',
+          disabled: workspaceEnabling,
+          onClick: () => { tip.hideTip(); onEnableWorkspace?.() },
+        }, workspaceEnabling ? t('repos.workspaceEnabling') : t('repos.workspaceEnable'))
+        : null,
+    ])
+  // A single checkout is not a choice — unless there is something to say about
+  // the workspace file, which is exactly the case this block exists for now.
+  if (choices.length < 2 && hintRow === null) return null
   const branch = snapshot === null ? undefined : snapshot.branch
   const changed = snapshot === null ? 0 : snapshot.staged + snapshot.modified + snapshot.untracked
   const groups = repoGroups(choices)
@@ -282,6 +342,10 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   const fold = h('div', { key: 'fold', className: 'gp-repolist__fold' }, [rootLine, list])
   return h('div', { className: 'gp-repolist' }, [
     head,
+    // Outside the fold on purpose: the block boots collapsed, and an offer
+    // hidden behind a chevron is the same silence that made the setting
+    // undiscoverable (ADR-0035).
+    hintRow,
     h('div', {
       key: 'body',
       className: 'gp-repolist__body',

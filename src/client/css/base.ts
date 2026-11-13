@@ -88,6 +88,14 @@ export const CSS = `
 .gp-files-wrap{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
 .gp-files-wrap>.gp-files{flex:1;min-height:0;height:auto}
 .gp-notice{flex:none;padding:8px 14px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
+/* A notice that carries one action (the workspace-file offer in the browser
+ * layout where no Git pane exists): the text takes the free width, the action
+ * pins right. A warning tone marks a configured file that cannot be used. */
+.gp-notice--warn{color:var(--dsw-alias-state-warn-primary,#e0982e)}
+.gp-notice__act{flex:none;padding:1px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;line-height:1.6;cursor:pointer}
+.gp-notice__act:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.gp-notice__act:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-notice__act:disabled{opacity:.6;cursor:default}
 .gp-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-changes__toolbar{flex-wrap:nowrap;gap:4px;overflow-x:auto}
 .gp-changes__toolbar .gp-icon-btn{flex:none}
