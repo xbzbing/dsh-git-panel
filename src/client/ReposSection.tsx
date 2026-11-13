@@ -28,6 +28,7 @@ import { useCopyFeedback } from './copy-feedback.js'
 import { useRowSlider } from './row-slider.js'
 import { inertAttr } from './inert.js'
 import { baseName } from './path-name.js'
+import { workspaceInvalidKey } from './workspace-hint.js'
 import { useHoverTip } from './tip.js'
 import { rtlPathText } from './rtl-path.js'
 import type { GitRepoList, GitSnapshot } from './types.js'
@@ -126,7 +127,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
     } else if (workspaceHint.state === 'missing') {
       hint = { text: t('repos.workspaceMissing', { file: hintFile ?? '' }), action: false, warn: true }
     } else if (workspaceHint.state === 'invalid') {
-      hint = { text: t('repos.workspaceInvalid'), action: false, warn: true }
+      hint = { text: t(workspaceInvalidKey(workspaceHint.reason), { file: hintFile ?? '' }), action: false, warn: true }
     } else if (workspaceHint.state === 'ambiguous') {
       hint = { text: t('repos.workspaceAmbiguous'), action: false, warn: true }
     } else if (workspaceHint.state === 'applied' && workspaceHint.roots === 0) {

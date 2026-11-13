@@ -31,6 +31,7 @@ import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
 import { baseName } from './path-name.js'
+import { workspaceInvalidKey } from './workspace-hint.js'
 import { discardUnsavedEdit, hasUnsavedEdit } from './edit-store.js'
 import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
@@ -1023,7 +1024,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     } else if (repoWorkspace.state === 'missing') {
       text = t('repos.workspaceMissing', { file: name })
     } else if (repoWorkspace.state === 'invalid') {
-      text = t('repos.workspaceInvalid')
+      text = t(workspaceInvalidKey(repoWorkspace.reason), { file: name })
     } else if (repoWorkspace.state === 'ambiguous') {
       text = t('repos.workspaceAmbiguous')
     } else {
