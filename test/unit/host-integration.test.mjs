@@ -18,7 +18,7 @@ import { join, sep } from 'node:path'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
-import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, MAX_BYTES_LIMITS } from '../../lib/host/types.js'
+import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, MAX_BYTES_LIMITS, REPO_LIMITS } from '../../lib/host/types.js'
 
 let repo
 let repoImg
@@ -190,6 +190,25 @@ test('detectCheckouts config flows into the snapshot and normalizes volatile ref
   // The flag is business state: the client re-answers the repository list when
   // it flips, which only a fingerprint change can trigger.
   assert.notEqual(off.value.stateFingerprint, (await snapshotForSession(deps(), DEFAULT_CONFIG, SID)).value.stateFingerprint)
+})
+
+test('repoLimit config clamps into REPO_LIMITS and rides the snapshot', async () => {
+  // Default; an in-range value honored; out-of-range clamped at both ends; a
+  // non-numeric value falls back; a schemastery volatile ref is unwrapped.
+  assert.equal(normalizeConfig({}).repoLimit, REPO_LIMITS.default)
+  assert.equal(normalizeConfig({ repoLimit: 80 }).repoLimit, 80)
+  assert.equal(normalizeConfig({ repoLimit: 5 }).repoLimit, REPO_LIMITS.min)
+  assert.equal(normalizeConfig({ repoLimit: 500 }).repoLimit, REPO_LIMITS.max)
+  assert.equal(normalizeConfig({ repoLimit: 50.9 }).repoLimit, 50)
+  assert.equal(normalizeConfig({ repoLimit: '80' }).repoLimit, REPO_LIMITS.default)
+  assert.equal(normalizeConfig({ repoLimit: { get: () => 70 } }).repoLimit, 70)
+  const base = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
+  const low = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, repoLimit: REPO_LIMITS.min }, SID)
+  assert.equal(low.ok, true)
+  assert.equal(low.value.repoLimit, REPO_LIMITS.min)
+  // The ceiling is business state: the client re-answers the repository list
+  // when it changes, which only a fingerprint change can trigger.
+  assert.notEqual(low.value.stateFingerprint, base.value.stateFingerprint)
 })
 
 test('filesFollowRepo config flows into the snapshot and normalizes volatile refs', async () => {

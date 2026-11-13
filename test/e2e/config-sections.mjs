@@ -150,7 +150,7 @@ try {
   const titled = m.filter((s) => s.fieldTitle !== null)
   assert.ok(titled.length >= 2)
   for (const s of titled) assert.deepEqual(s.fieldTitle, { size: 14, weight: 500 }, 'field titles are 14px/500, below the section title')
-  assert.deepEqual(m.map((s) => s.fieldCount), [3, 5, 6, 4], 'field groups per section (repositories gained the workspace-file row)')
+  assert.deepEqual(m.map((s) => s.fieldCount), [3, 5, 6, 5], 'field groups per section (repositories gained the workspace-file and list-ceiling rows)')
 
   // The package-folding row is a real setting, not just a count. This harness
   // binds the locale to the raw key on purpose (the CSS assertions below must
@@ -174,6 +174,35 @@ try {
   assert.equal(packagesRow.hint, 'cfg.packagesHint', 'the row carries its own hint key, not a reused one')
   assert.equal(packagesRow.checked, true, 'package folding is on by default')
   assert.equal(packagesRow.title, '', 'the row has no field title of its own, like the other switches')
+
+  // The list ceiling is a real numeric row, seeded from the host default and
+  // clamped at the shared bounds before the write: the host enforces the same
+  // range, so the form must not hand it 500.
+  const repoLimitBoot = await page.evaluate(() => {
+    const input = document.getElementById('gp-cfg-repolimit')
+    const field = input?.closest('.gp-cfg__field')
+    if (input === null || field === null) return null
+    return {
+      value: input.value,
+      min: input.min,
+      max: input.max,
+      label: (field.querySelector('.gp-cfg__numlabel')?.textContent ?? '').trim(),
+      unit: (field.querySelector('.gp-cfg__numunit')?.textContent ?? '').trim(),
+      hint: (field.querySelector('.gp-cfg__rangehint')?.textContent ?? '').trim(),
+    }
+  })
+  assert.deepEqual(repoLimitBoot, {
+    value: '50', min: '10', max: '100',
+    label: 'cfg.repoLimitLabel', unit: 'cfg.repoLimitUnit', hint: 'cfg.repoLimitHint',
+  }, 'the repositories section carries the list ceiling under its own keys')
+  await page.fill('#gp-cfg-repolimit', '500')
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(150)
+  const repoLimitWrite = await page.evaluate(() => ({
+    value: document.getElementById('gp-cfg-repolimit').value,
+    wrote: (window.__cfgWrites ?? []).filter(([name]) => name === 'repoLimit').at(-1)?.[1] ?? null,
+  }))
+  assert.deepEqual(repoLimitWrite, { value: '100', wrote: 100 }, 'an over-range count is clamped to the host ceiling before the write')
   assert.equal(new Set(m.map((s) => s.ruleColor)).size, 4, `each section tints its rule: ${m.map((s) => s.ruleColor).join(' | ')}`)
 
   // Collapse again: the body hides and the rule goes with it.
