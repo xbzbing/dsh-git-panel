@@ -81,7 +81,7 @@ function info(path, extra = {}) {
 
 test("the record naming the session checkout keeps the empty selector", async () => {
   const fs = fsOf(new Map([['/w/main', '/w/main']]))
-  const rows = await worktreeCheckouts(fs, '/w/main', '/w/main', [info('/w/main')])
+  const rows = await worktreeCheckouts(fs, '/w/main', '/w/main', [info('/w/main')], ['/w/main'])
   assert.equal(rows.length, 1)
   assert.equal(rows[0].path, '')
   assert.equal(rows[0].role, 'main')
@@ -110,7 +110,7 @@ test('a sibling worktree outside the cwd is a selectable row', async () => {
     ['/w/main', '/w/main'],
     ['/tmp/spike', '/tmp/spike'],
   ]))
-  const rows = await worktreeCheckouts(fs, '/w/main', '/w/main', [info('/w/main'), info('/tmp/spike')])
+  const rows = await worktreeCheckouts(fs, '/w/main', '/w/main', [info('/w/main'), info('/tmp/spike')], ['/w/main', '/tmp/spike'])
   // `git worktree add ../spike` is a checkout of the session's own repository:
   // its record is host-local, so the certified door admits its `..` selector
   // (ADR-0035) and the row must not say otherwise.
@@ -119,7 +119,6 @@ test('a sibling worktree outside the cwd is a selectable row', async () => {
   assert.equal(rows[1].path, '../../tmp/spike', 'addressed by its relative path')
   assert.equal(rows[1].role, 'linked')
 })
-
 
 test('a prunable row and a vanished directory both report themselves as stale', async () => {
   const fs = fsOf(new Map([['/w/main', '/w/main']]))
@@ -132,6 +131,7 @@ test('a prunable row and a vanished directory both report themselves as stale', 
       info('/w/main/gone', { prunable: true, branch: 'old' }),
       info('/w/main/vanished'),
     ],
+    ['/w/main'],
   )
   assert.equal(rows[1].disabled, 'stale', 'prunable must be a disabled row, never a selectable invalid-repo trap')
   assert.equal(rows[1].path, 'gone')
@@ -139,7 +139,7 @@ test('a prunable row and a vanished directory both report themselves as stale', 
 })
 
 test('bare records are not checkouts', async () => {
-  const rows = await worktreeCheckouts(fsOf(new Map()), '/w/main', '/w/main', [info('/srv/git.git', { bare: true, branch: null })])
+  const rows = await worktreeCheckouts(fsOf(new Map()), '/w/main', '/w/main', [info('/srv/git.git', { bare: true, branch: null })], [])
   assert.deepEqual(rows, [])
 })
 
@@ -154,6 +154,7 @@ test('cwd inside a linked worktree: that record is the workspace row, the primar
     '/w/main/.agents/worktrees/feat/x',
     '/w/main/.agents/worktrees/feat/x',
     [info('/w/main'), info('/w/main/.agents/worktrees/feat/x', { branch: 'feat/x' }), info('/tmp/spike')],
+    ['/w/main', '/tmp/spike'],
   )
   assert.equal(rows[1].path, '', 'the session checkout is whatever the selector resolves to')
   assert.equal(rows[1].role, 'linked', 'it is genuinely a linked worktree, not the primary')
@@ -166,4 +167,21 @@ test('cwd inside a linked worktree: that record is the workspace row, the primar
   // certifies it too (ADR-0035).
   assert.equal(rows[2].disabled, undefined, 'a sibling checkout is choosable')
   assert.equal(rows[2].role, 'linked')
+})
+
+test('a record the door does not certify is listed as unchoosable', async () => {
+  // `certified` is the set `repoDirCertified` admits. A record outside it is a
+  // row the list would otherwise promise as choosable and the door would then
+  // refuse — the exact contradiction ADR-0035 set out to remove. It happens for
+  // a copied repository (records still naming the old machine's paths) and past
+  // the certified ceiling.
+  const fs = fsOf(new Map([
+    ['/w/main', '/w/main'],
+    ['/tmp/spike', '/tmp/spike'],
+  ]))
+  const rows = await worktreeCheckouts(
+    fs, '/w/main', '/w/main', [info('/w/main'), info('/tmp/spike')], ['/w/main'],
+  )
+  assert.equal(rows[1].disabled, 'uncertified')
+  assert.equal(rows[1].path, '../../tmp/spike', 'the row still names where it lives')
 })

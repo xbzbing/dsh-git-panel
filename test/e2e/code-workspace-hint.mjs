@@ -52,6 +52,7 @@ const DICT = {
   'repos.workspaceInvalid': 'Workspace file unusable',
   'repos.workspaceAmbiguous': 'Several workspace files: auto-detect cannot choose',
   'repos.workspaceEmpty': 'Workspace file enabled, but none of its folders is a repository',
+  'repos.workspaceEnableFailed': 'Could not turn it on: the setting was not written',
 }
 
 const browser = await chromium.launch()
@@ -59,8 +60,13 @@ const browser = await chromium.launch()
 /**
  * Mount the panel with one repo-list answer. `withForm` decides whether the
  * settings service exists — the enable action hides itself without it.
+ *
+ * `snapshotError` mounts the browser-only layout (a cwd that is not a checkout),
+ * which is where the notice bar carries the offer. `writeResult` decides what the
+ * settings form answers, so a refused write can be driven. Both default to the
+ * plain Git layout, which is what most scenarios want.
  */
-async function mount({ repos, repoWorkspace, withForm = true }) {
+async function mount({ repos, repoWorkspace, withForm = true, snapshotError = null, writeResult = true, applyOnWrite = false }) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 820 } })
   const errors = []
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
@@ -68,10 +74,13 @@ async function mount({ repos, repoWorkspace, withForm = true }) {
   await page.goto(harness)
   await page.addScriptTag({ path: resolve(DIR, 'client.js') })
   await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
-  await page.evaluate(async ({ snap, listed, workspace, withForm, dict }) => {
+  await page.evaluate(async ({ snap, listed, workspace, withForm, snapshotError, writeResult, applyOnWrite, dict }) => {
     const { fixture, connection } = window.createGitPanelMock(snap)
     fixture.repos = listed
     if (workspace !== undefined) fixture.repoWorkspace = workspace
+    // The mock replays this once and then falls back to the snapshot, which is
+    // how a browser-only session (no checkout at the cwd) starts.
+    if (snapshotError !== null) fixture.snapshotError = snapshotError
     const calls = []
     const mockCall = connection.rpc.call
     connection.rpc.call = async (channel, endpoint, payload) => {
@@ -86,7 +95,21 @@ async function mount({ repos, repoWorkspace, withForm = true }) {
       get: () => ({
         getSnapshot: () => ({ status: 'ready', value, revision: 0, writable: true }),
         subscribe: () => () => {},
-        set: async () => true,
+        set: async (field, next) => {
+          window.__gpWrites = [...(window.__gpWrites ?? []), [field, next]]
+          // An enabled host answers the next read with the file recognised, its
+          // roots listed, and a worktree of the own repository outside the cwd —
+          // the row this release made selectable.
+          if (applyOnWrite && field === 'codeWorkspace' && writeResult) {
+            fixture.repoWorkspace = { state: 'applied', file: '/mock/hub/lab.code-workspace', roots: 2 }
+            fixture.repos = [
+              { path: '', root: '/mock/hub', name: 'hub', kind: 'workspace', role: 'main', branch: 'main' },
+              { path: '../service-a', root: '/mock/service-a', name: 'service-a', kind: 'external', role: 'repo', label: 'API' },
+              { path: '../spike', root: '/mock/spike', name: 'spike', kind: 'nested', role: 'linked', branch: 'spike' },
+            ]
+          }
+          return writeResult
+        },
       }),
     }
     const services = withForm ? { connection, configForms } : { connection }
@@ -110,7 +133,7 @@ async function mount({ repos, repoWorkspace, withForm = true }) {
     window.ReactDOM.createRoot(document.getElementById('panel'))
       .render(view.component({ sessionId: 'sess-1' }))
     await new Promise((r) => setTimeout(r, 500))
-  }, { snap: SNAP, listed: repos, workspace: repoWorkspace, withForm, dict: DICT })
+  }, { snap: SNAP, listed: repos, workspace: repoWorkspace, withForm, snapshotError, writeResult, applyOnWrite, dict: DICT })
   return { page, errors }
 }
 
@@ -154,70 +177,11 @@ try {
 
   // ── 3. Enabling it: the write lands and the list is fetched again ────────
   {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 820 } })
-    const errors = []
-    page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
-    await page.goto(harness)
-    await page.addScriptTag({ path: resolve(DIR, 'client.js') })
-    await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
-    await page.evaluate(async ({ snap, dict }) => {
-      const { fixture, connection } = window.createGitPanelMock(snap)
-      fixture.repos = []
-      fixture.repoWorkspace = { state: 'available', file: '/mock/hub/lab.code-workspace', count: 1 }
-      const writes = []
-      let repoListCalls = 0
-      const mockCall = connection.rpc.call
-      connection.rpc.call = async (channel, endpoint, payload) => {
-        const request = payload && payload.args && payload.args.request
-        if (endpoint === 'dbGitPanel/query' && request && request.query && request.query.kind === 'repo-list') repoListCalls += 1
-        return mockCall(channel, endpoint, payload)
-      }
-      const value = { showInputPill: true, placement: 'all', codeWorkspace: 'off' }
-      const settings = { view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, placement: {}, codeWorkspace: {} } }, value }] }, status: 'ready' }
-      const configForms = {
-        describe: () => ({ getSnapshot: () => settings, subscribe: () => () => {}, ensure: async () => {} }),
-        get: () => ({
-          getSnapshot: () => ({ status: 'ready', value, revision: 0, writable: true }),
-          subscribe: () => () => {},
-          set: async (field, next) => {
-            writes.push([field, next])
-            if (field === 'codeWorkspace') {
-              // The next read answers as an enabled host would: the file is
-              // recognized, its roots are listed, and a worktree of the own
-              // repository that lives outside the cwd is a selectable row.
-              fixture.repoWorkspace = { state: 'applied', file: '/mock/hub/lab.code-workspace' }
-              fixture.repos = [
-                { path: '', root: '/mock/hub', name: 'hub', kind: 'workspace', role: 'main', branch: 'main' },
-                { path: '../service-a', root: '/mock/service-a', name: 'service-a', kind: 'external', role: 'repo', label: 'API' },
-                { path: '../spike', root: '/mock/spike', name: 'spike', kind: 'nested', role: 'linked', branch: 'spike' },
-              ]
-            }
-            return true
-          },
-        }),
-      }
-      window.__gpWrites = writes
-      window.__gpRepoListCalls = () => repoListCalls
-      const registered = {}
-      const ctx = {
-        get: (k) => ({ connection, configForms })[k],
-        effect: (cb) => { try { cb() } catch { /* ignore */ } },
-        on: () => () => {},
-        inject: (_deps, cb) => cb(ctx),
-        slots: {
-          inject: (name, provider) => provider(),
-          register: (reg, component) => { registered[reg.name] = { reg, component }; return () => {} },
-        },
-        locale: { register: () => () => {}, bind: () => (key, params) => (dict[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => String(params?.[k] ?? '')) },
-      }
-      window.__getLoaded().apply(ctx)
-      const view = registered['conversation.view']
-      if (!view) throw new Error('conversation.view was not registered')
-      window.ReactDOM.createRoot(document.getElementById('panel'))
-        .render(view.component({ sessionId: 'sess-1' }))
-      await new Promise((r) => setTimeout(r, 500))
-    }, { snap: SNAP, dict: DICT })
-
+    const { page, errors } = await mount({
+      repos: [],
+      repoWorkspace: { state: 'available', file: '/mock/hub/lab.code-workspace', count: 1 },
+      applyOnWrite: true,
+    })
     await page.click('.gp-repolist__hint-act')
     const written = await page.evaluate(() => window.__gpWrites)
     assert.deepEqual(written, [['codeWorkspace', 'auto']], 'the switch writes the setting through the settings form')
@@ -291,7 +255,7 @@ try {
   {
     const { page } = await mount({
       repos: [WORKSPACE],
-      repoWorkspace: { state: 'applied', file: '/mock/hub/lab.code-workspace' },
+      repoWorkspace: { state: 'applied', file: '/mock/hub/lab.code-workspace', roots: 0 },
     })
     const hint = await page.evaluate(() => {
       const el = document.querySelector('.gp-repolist__hint')
@@ -304,6 +268,99 @@ try {
     assert.match(hint.text, /enabled/, 'an enabled file with no checkout says so instead of doing nothing')
     assert.equal(hint.warn, true, 'it is a warning: the feature is on and produces nothing')
     assert.equal(hint.noAction, true, 'nothing to click — the file is already read')
+    await page.close()
+  }
+
+  // ── 8. A file whose roots the list already carries is not "empty" ────────
+  {
+    // The host merges a root the list already carries (a worktree of the
+    // session's own repository) into that row and reports `roots`, so the rows
+    // alone cannot tell "names nothing" from "names something already listed".
+    // Reading `kind: 'external'` as the signal stated the opposite.
+    const { page } = await mount({
+      repos: [WORKSPACE, OUTSIDE_WORKTREE],
+      repoWorkspace: { state: 'applied', file: '/mock/hub/lab.code-workspace', roots: 1 },
+    })
+    const seen = await page.evaluate(() => ({
+      hint: document.querySelector('.gp-repolist__hint')?.textContent ?? null,
+      rows: [...document.querySelectorAll('.gp-repolist__name')].map((el) => el.textContent),
+    }))
+    assert.equal(seen.hint, null, 'one stated root is not an empty workspace, even with no external row')
+    assert.deepEqual(seen.rows, ['hub', 'spike'])
+    await page.close()
+  }
+
+  // ── 9. Browser-only layout: the notice bar carries the offer ─────────────
+  {
+    // A cwd that is not a checkout has no Git pane, so the switcher's offer has
+    // nowhere to land. This is the layout the issue was filed from.
+    const { page, errors } = await mount({
+      repos: [],
+      repoWorkspace: { state: 'available', file: '/mock/hub/lab.code-workspace', count: 1 },
+      snapshotError: { code: 'not-a-git-repo', cwd: '/mock/hub' },
+      applyOnWrite: true,
+    })
+    const boot = await page.evaluate(() => {
+      const notice = document.querySelector('.gp-notice')
+      const act = notice?.querySelector('.gp-notice__act') ?? null
+      return {
+        notice: notice?.textContent ?? null,
+        act: act?.textContent ?? null,
+        warn: notice?.classList.contains('gp-notice--warn') ?? null,
+      }
+    })
+    assert.match(boot.notice, /lab\.code-workspace/, 'the browser states which file it found')
+    assert.equal(boot.act, 'Enable', 'and offers the same one-click switch')
+    assert.equal(boot.warn, false, 'an offer is not a warning')
+
+    await page.click('.gp-notice__act')
+    assert.deepEqual(await page.evaluate(() => window.__gpWrites), [['codeWorkspace', 'auto']], 'the notice writes too')
+    await page.waitForFunction(() => document.querySelector('.gp-notice') === null, null, { timeout: 6000 })
+    assert.deepEqual(errors, [])
+    await page.close()
+  }
+
+  // ── 10. A warning the browser shows is actually coloured like one ────────
+  {
+    const { page } = await mount({
+      repos: [],
+      repoWorkspace: { state: 'missing', file: '/mock/hub/gone.code-workspace' },
+      snapshotError: { code: 'not-a-git-repo', cwd: '/mock/hub' },
+    })
+    const tone = await page.evaluate(() => {
+      const notice = document.querySelector('.gp-notice--warn')
+      return { text: notice?.textContent ?? null, color: notice === null ? null : getComputedStyle(notice).color }
+    })
+    assert.match(tone.text, /not found/)
+    // Same trap as above, from the other side: `.gp-notice--warn` has to win
+    // over the later `.gp-notice` colour declaration to be a warning at all.
+    assert.equal(tone.color, 'rgb(224, 152, 46)', 'the warning tone reaches the rendered colour')
+    await page.close()
+  }
+
+  // ── 11. A refused write says so instead of looking like a dead button ────
+  {
+    const { page } = await mount({
+      repos: [],
+      repoWorkspace: { state: 'available', file: '/mock/hub/lab.code-workspace', count: 1 },
+      writeResult: false,
+    })
+    await page.click('.gp-repolist__hint-act')
+    // The write is a round-trip through the settings form, so wait for the
+    // refusal to land rather than reading one frame after the click.
+    await page.waitForFunction(() => (window.__gpWrites ?? []).length === 1)
+    await page.waitForFunction(() => /not written/.test(document.querySelector('.gp-repolist__hint')?.textContent ?? ''))
+    const after = await page.evaluate(() => {
+      const hint = document.querySelector('.gp-repolist__hint')
+      return {
+        text: hint?.textContent ?? null,
+        warn: hint?.classList.contains('gp-repolist__hint--warn') ?? null,
+        act: hint?.querySelector('.gp-repolist__hint-act') ?? null,
+      }
+    })
+    assert.match(after.text, /not written/, 'the failure is stated, not swallowed')
+    assert.equal(after.warn, true, 'and reads as a warning')
+    assert.equal(after.act, null, 'the offer makes room for the explanation')
     await page.close()
   }
 
