@@ -1,0 +1,53 @@
+# ADR-0035：工作区文件的可发现性与 cwd 外 worktree 的可选性
+
+- 状态：Accepted（2026-11-13）
+- 相关：issue #125、PR #122、ADR-0030、`src/host/core.ts`（`listSessionRepos`、`certifiedRepoRoots`）、`src/host/repos.ts`（`repoDirCertified`）、`src/host/code-workspace.ts`（`listWorkspaceFiles`）、`src/host/worktrees.ts`、`src/client/PillConfig.tsx`、`src/client/ReposSection.tsx`、`src/client/Panel.tsx`
+
+## Context
+
+issue #125 报告：`.code-workspace` 功能本身按设计工作，但**没有任何可发现的方式开启它**——面板的「存储库」区没有对应控件，client bundle 里连 `codeWorkspace` 这个字符串都没有，README 只说「开启后」却不说在哪开、可选什么值。默认值 `off` 是 ADR-0030 的有意设计（工作区文件是仓库内容，可被提交或被 agent 改写，不能让它单独扩大文件访问面），因此「全新安装看不到外部仓库」不是 bug，缺陷在于**沉默**：cwd 里明明有一个工作区文件，面板一个字都不说。
+
+同期暴露出第二处不一致：`git worktree list` 报出的 checkout 中，位于 cwd 之外的那些被标记 `disabled: 'outside'`（列出但不可选），而同一个目录只要被工作区文件点名就可以选。两类路径都跨出 cwd，却有两套判据；而且被点名的那个目录会出现「行说不可选、门其实放行」的自相矛盾。
+
+约束：
+
+- 默认值不能改成 `auto`：那等于让克隆仓库里提交的工作区文件在会话打开时自动生效，把 ADR-0030 明确拒绝的被动授权重新打开。issue 作者本人在报告里也认同默认 `off`。
+- 用户的目标是「读取自己配置的目录」，便利性应该体现在**开启的成本**，不是**默认替所有仓库打开**。
+- `AGENTS.md` 的安全不变量：cwd 之外的门必须按 realpath 精确判定，新增出口要另加一道门并写 ADR。
+
+## Decision
+
+### 1. `off` 不再沉默：发现即提示，提示不等于生效
+
+`repo-list` 在设置 `off` 时仍会读一次 cwd 顶层，把按 VS Code 同一规则识别到的工作区文件报为新状态 `codeWorkspace.state = 'available'`（`file` 为单个候选的绝对路径，`count` 为候选数）。该状态**不产出任何仓库行**，只让客户端渲染一行提示，用户点一下才把 `codeWorkspace` 写成 `auto`。
+
+- 提示出现在两个位置，取决于会话有没有 Git 页：仓库切换器顶部（有 checkout 时），以及文件浏览通知条（cwd 不是仓库、面板只剩文件浏览时——这正是本功能的主场景）。
+- 提示文案说明作用域：这是**插件级**设置，开启后对所有会话生效。
+- 配置控件是「存储库」区的三态分段控件：`关闭` / `自动发现` / `指定文件`；第三态露出文件名输入框，形状校验（单段、`.code-workspace` 结尾）在提交前完成，host 仍做最终判定。
+- 识别状态全部渲染：`applied` 通常不出声（行本身就是证据），但**一个根都没有解析出来**时说明一句——「文件已启用，但列出的目录都不是仓库」，否则「功能开了却没反应」还是同一种沉默；`missing` / `invalid` / `ambiguous` 以警告提示说明原因，文件名打错不再表现为「什么都没有发生」。
+- 写配置后客户端显式重取 `repo-list`（写的是插件级 setting，host 会重建服务，一次读取可能仍拿到旧值，因此安排两次读取）。
+
+### 2. `repoDirCertified` 接受 `git worktree list` 的**每一条**记录
+
+第三道门原先只认主工作树（一个目录），现在认会话自己仓库的全部 checkout：
+
+- 来源是宿主本地状态：worktree 记录写在 `.git/worktrees/`，克隆仓库无法提交伪造记录，只有用户在本机执行过 `git worktree add` 才会有。这与 `.code-workspace`（仓库内容，可被提交内容操控）性质不同，因此前者默认可选、后者仍需显式开启。
+- 判定不变：向外选择器、`../` 形态、realpath 与记录精确相等、非 `.git`、拒绝绝对路径。
+- 认证集合按 `realpath(cwd)` 缓存 15 秒（`WORKTREE_CERT_CACHE_MS`）：向外选择器本来要跳过无 TTL 的 `rootCache`，不做缓存的话每个 diff、目录列举和动作都会各起一次 `git worktree list`。缓存不会让消失的 checkout 通过——门仍会对选择器做一次 realpath。
+- 记录集上限 64 条（`WORKTREE_CERT_MAX`），bare 记录与目录已不存在的记录不进入集合。
+- `worktrees.ts` 只对**没有相对选择器**的 checkout 保留 `disabled: 'outside'`：Windows 上跨盘符的 worktree 在 `relative` 之后仍是绝对路径，三道门都会拒绝，行留下并说明原因。
+- `detectCheckouts` 仍只控制「列不列 worktree / 子仓库行」，不控制认证：关掉探测后，旧 client 手里的选择器不应突然开始失败。
+
+### 3. 外部根保持扁平
+
+由工作区文件引入的仓库各占一行，**不**展开它自己的 worktree。ADR-0030 原先写的「外部仓库的 worktree 家族在选中该仓库之后才可见」与实现不符，也不再实施：`repo-list` 是 cwd 作用域的，展开所有外部根的家族会是每个外部根一次 `git worktree list`（上限 20 个根、30 秒一次轮询），而需要它的用户已经把要用的根写进了 `folders[]`。ADR-0030 的相应段落已按此修正。
+
+## Consequences
+
+- 正面：issue #125 的两条诉求（可发现、有控件）都在默认 `off` 下满足；用户从「知道配置键」变成「点一下」。cwd 外的工作树不再出现在列表里却不可选，行与门的判据只剩一条：`realpath ∈ cwd ∪ git 的 worktree 记录 ∪ 工作区文件的 allow-list`。
+- 代价：`off` 时只要 cwd 里有工作区文件就会显示一行提示，用户即使是有意关闭也会看到它——提示不可关闭，这是有意的（它就是本 ADR 要修的那个沉默）。若要更强的「别再提示我」，需要一个新的显式状态，本期不做。
+- 行为变更：已有用户（`detectCheckouts` 默认开）会突然多出若干**可选**的 cwd 外 worktree 行。这是 ADR 之内的放宽，但对外是可见变化，发布说明必须写明。
+- 写入面随之扩大：选中 cwd 外 worktree 后，文件编辑落在那里。编辑边界（白名单后缀、2 MiB、UTF-8 往返、`baseSha256` 比对、原子替换）不变，只有「选中的根」变了。
+- 认证集合的 15 秒缓存意味着刚 `git worktree add` 出来的 checkout 最多晚 15 秒可选；行本身来自未缓存的列表，因此先出现、后可选。
+- 提示行在「存储库」块之外（折叠区外）渲染：块默认是收起的，把提示放进折叠体等于把可发现性又藏回去。
+- `codeWorkspace` 仍是插件级设置；会话级差异只来自各自的 cwd。以后若要按会话记忆「已拒绝的提示」，必须另立状态并写 ADR。
