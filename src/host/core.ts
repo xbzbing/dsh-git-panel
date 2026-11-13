@@ -1,17 +1,17 @@
 /**
  * Workspace resolution + snapshot orchestration (framework-neutral).
  */
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type { GitRunner } from './git.js'
 import type { AgentDefaultModelFace, LlmFace, SessionModelSelection } from './llm-face.js'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafeBranchName, isSafePath, isSafeRemoteName } from './validate.js'
-import { isOutwardSelector, repoDirCertified, repoDirExternal, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
+import { isOutwardSelector, isWithin, repoDirCertified, repoDirExternal, repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
 import { listWorkspaceFiles, scanCodeWorkspace } from './code-workspace.js'
 import type { CodeWorkspaceCacheEntry, CodeWorkspaceScan } from './code-workspace.js'
-import { parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
+import { checkoutGitDir, isOwnCheckout, parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
 import type { WorktreeCheckout, WorktreeInfo } from './worktrees.js'
 import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
 import type { ChangesViewMode, DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitRepoEntry, GitRepoList, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
@@ -303,13 +303,14 @@ export interface SnapshotDeps {
    */
   readonly codeWorkspaceCache?: Map<string, CodeWorkspaceCacheEntry>
   /**
-   * Optional cache for the set of checkouts `git worktree list` certifies for
-   * the cwd's repository (ADR-0035). Every request whose selector leaves the
-   * cwd asks that door, and the set only changes when the user runs
-   * `git worktree add` / `remove` / `prune`, so one `git worktree list` serves
-   * a short window instead of every diff and directory listing. Entries carry
-   * their own timestamp; a stale member is still refused by the door's realpath
-   * comparison once its directory is gone.
+   * Optional cache for the set of checkouts the cwd's repository owns
+   * (ADR-0035). Every request whose selector leaves the cwd asks that door, and
+   * the set only changes when the user runs `git worktree add` / `remove` /
+   * `prune`, so one `git worktree list` serves a short window instead of every
+   * diff and directory listing. Each entry carries the checkout's own identity
+   * (the git dir its `.git` resolves to) and is re-verified on every hit, so a
+   * path reused by a different repository is dropped rather than admitted; a
+   * read that failed is never cached, and the map is bounded.
    */
   readonly worktreeCache?: Map<string, WorktreeCertCacheEntry>
   /**
@@ -331,18 +332,37 @@ const NEG_CACHE_MS = 15_000
 
 /** How long the certified-worktree set may answer requests before git is
  * asked again (ADR-0035). The set changes only through `git worktree add` /
- * `remove` / `prune`, and the door re-checks the realpath of the selector, so
- * a member that disappeared is refused even while the entry is warm. */
+ * `remove` / `prune`; a hit is re-verified against each checkout's own `.git`
+ * entry, and a selector the set refuses is retried once against a fresh read,
+ * so a window that has just gone stale costs a spawn instead of an error. */
 const WORKTREE_CERT_CACHE_MS = 15_000
 
 /** Ceiling on the certified set: a repository with hundreds of checkouts must
- * not turn one selector into hundreds of realpath comparisons. */
+ * not turn one selector into hundreds of realpath comparisons. Rows past it are
+ * listed as `uncertified` — the list reads its selectability from this set. */
 const WORKTREE_CERT_MAX = 64
+
+/** Ceiling on cached cwd entries: one per session directory, and a working
+ * tree that moves around must not grow the map without end. Matches the
+ * `.code-workspace` scan cache. */
+const WORKTREE_CERT_CACHE_MAX = 32
+
+/** One certified checkout: its root and the git dir its `.git` resolved to, so
+ * a later hit can tell "still this repository's checkout" from "same path, now
+ * some other repository". */
+export interface WorktreeCertCheckout {
+  readonly root: string
+  /** Git dir the `.git` entry resolved to; the identity, not the path. */
+  readonly gitdir: string
+  /** Whether this is the repository's primary work tree. */
+  readonly primary: boolean
+}
 
 /** One cached certification set, stamped with when it was read. */
 export interface WorktreeCertCacheEntry {
   readonly at: number
-  readonly roots: readonly string[]
+  readonly commonDir: string
+  readonly checkouts: readonly WorktreeCertCheckout[]
 }
 
 /**
@@ -542,11 +562,24 @@ export async function resolveWorkspace(
       const admitted = await repoDirExternal(deps.fs, cwd, rel, external.roots.map((root) => root.root))
       if (admitted.ok) start = admitted.dir
       else {
-        const certified = await repoDirCertified(deps.fs, cwd, rel, await certifiedRepoRoots(deps, cwd))
+        const checkouts = await certifiedCheckouts(deps, cwd)
+        let certified = checkouts === null
+          ? { ok: false as const }
+          : await repoDirCertified(deps.fs, cwd, rel, checkouts.map((entry) => entry.root))
         if (!certified.ok) {
-          deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
-          return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
+          // Either the row was created after this window's records were read
+          // (`git worktree add` from a terminal, or the row itself arriving one
+          // request earlier), or git never answered. One fresh read settles it
+          // before the selector is called invalid and a negative cache arms.
+          const fresh = await certifiedCheckouts(deps, cwd, { fresh: true })
+          certified = fresh === null
+            ? { ok: false as const }
+            : await repoDirCertified(deps.fs, cwd, rel, fresh.map((entry) => entry.root))
+          // Only a definitive refusal is remembered: an unanswered read would
+          // otherwise refuse the row for a whole window on no evidence.
+          if (!certified.ok && fresh !== null) deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
         }
+        if (!certified.ok) return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
         start = certified.dir
       }
     }
@@ -597,52 +630,130 @@ async function workspaceWorktrees(
   root: string,
 ): Promise<readonly WorktreeCheckout[]> {
   const infos = await readWorktreeInfos(deps, root)
-  if (infos.length === 0) return []
-  return worktreeCheckouts(deps.fs, cwd, root, infos)
+  if (infos === null || infos.length === 0) return []
+  // Rows outside the cwd are selectable exactly when the door will admit them,
+  // so the list asks the same question the door asks (ADR-0035). A cwd whose
+  // records all sit inside it needs no certification at all.
+  const escapes = infos.some((info) => info.path !== '' && !isWithin(cwd, info.path))
+  const checkouts = escapes ? await certifiedCheckouts(deps, cwd, { infos }) : []
+  // "git did not answer" is not "nothing is certified": assume nothing is, so
+  // the rows say unchoosable instead of promising a switch that would fail.
+  return worktreeCheckouts(deps.fs, cwd, root, infos, (checkouts ?? []).map((entry) => entry.root))
 }
 
-/** The repository's own checkout records, or none when git cannot answer. */
-async function readWorktreeInfos(deps: SnapshotDeps, root: string): Promise<readonly WorktreeInfo[]> {
+/**
+ * The repository's own checkout records, or null when git did not answer.
+ *
+ * `null` is not "no worktrees": a cancelled request (the panel closed, the
+ * session switched) looks exactly like an empty repository if both collapse to
+ * `[]`, and caching that answer would refuse every cwd-external row for a whole
+ * window. Callers treat `null` as "unknown, ask again later".
+ */
+async function readWorktreeInfos(deps: SnapshotDeps, root: string): Promise<readonly WorktreeInfo[] | null> {
   let run = await runCommand(deps.run, ['git', 'worktree', 'list', '--porcelain', '-z'], root, 'worktrees', deps.signal)
-  if ('failure' in run) return []
-  if (run.run.cancelled || run.run.timedOut) return []
+  if ('failure' in run) return null
+  if (run.run.cancelled || run.run.timedOut) return null
   if (run.run.exitCode !== 0) {
     run = await runCommand(deps.run, ['git', 'worktree', 'list', '--porcelain'], root, 'worktrees', deps.signal)
-    if ('failure' in run) return []
-    if (run.run.cancelled || run.run.timedOut || run.run.exitCode !== 0) return []
+    if ('failure' in run) return null
+    if (run.run.cancelled || run.run.timedOut || run.run.exitCode !== 0) return null
   }
   return parseWorktreePorcelain(run.run.stdout)
 }
 
-/**
- * Every checkout `git worktree list` reports for the cwd's repository, as
- * realpaths, cached briefly. This is the certification source of the third
- * door: a worktree created outside the cwd is a row the user can act on, not
- * only a disabled one (ADR-0035). Records are host-local — git writes them
- * under `.git/worktrees/`, and a cloned repository cannot commit them — so the
- * set may be trusted without the workspace file's opt-in. The primary work
- * tree is included: it is the row a session that moved into a linked worktree
- * needs to get back to.
- *
- * A bare repository has no checkout to enter, a record whose directory is gone
- * has nothing to realpath, and beyond `WORKTREE_CERT_MAX` the set stops
- * growing — the door compares realpaths, so an unbounded set would make one
- * selector arbitrarily expensive.
- */
-async function certifiedRepoRoots(deps: SnapshotDeps, cwd: string): Promise<readonly string[]> {
-  const key = await deps.fs.realpath(cwd).catch(() => cwd)
-  const cached = deps.worktreeCache?.get(key)
-  if (cached !== undefined && Date.now() - cached.at < WORKTREE_CERT_CACHE_MS) return cached.roots
-  const infos = await readWorktreeInfos(deps, cwd)
-  const roots: string[] = []
-  for (const info of infos) {
-    if (info.bare) continue
-    const real = await deps.fs.realpath(info.path).catch(() => null)
-    if (real !== null && !roots.some((root) => samePath(root, real))) roots.push(real)
-    if (roots.length >= WORKTREE_CERT_MAX) break
+/** The common git dir of the repository the cwd belongs to, as a realpath;
+ * null when git cannot name one. Every worktree of a repository shares it, and
+ * a linked worktree's `.git` file points into its `worktrees/` records. */
+async function gitCommonDir(deps: SnapshotDeps, cwd: string): Promise<string | null> {
+  const run = await runCommand(deps.run, ['git', 'rev-parse', '--git-common-dir'], cwd, 'common-dir', deps.signal)
+  if ('failure' in run) return null
+  if (run.run.cancelled || run.run.timedOut || run.run.exitCode !== 0) return null
+  const out = run.run.stdout.trim()
+  if (out === '') return null
+  // git prints it relative to the cwd it ran in (`.git`, `../other/.git`).
+  const absolute = isAbsolute(out) ? out : resolve(cwd, out)
+  return await deps.fs.realpath(absolute).catch(() => null)
+}
+
+/** Whether a cached checkout still is what it was: same path, same git dir, and
+ * still one of the repository's records. Cheap (one `stat` plus one `readFile`
+ * per checkout) and it is what keeps a reused path out. */
+async function stillOwned(deps: SnapshotDeps, entry: WorktreeCertCacheEntry): Promise<boolean> {
+  for (const checkout of entry.checkouts) {
+    if (!(await isOwnCheckout(deps.fs, entry.commonDir, checkout.root, checkout.primary))) return false
+    const dir = await checkoutGitDir(deps.fs, checkout.root)
+    if (dir === null || !samePath(dir, checkout.gitdir)) return false
   }
-  deps.worktreeCache?.set(key, { at: Date.now(), roots })
-  return roots
+  return true
+}
+
+/** Build the certified set from records, verifying each one's own `.git` entry
+ * (`isOwnCheckout`) instead of trusting the record. A copied repository, whose
+ * records still name the old machine's checkouts, and a hand-written record
+ * both drop out here. Capped so one selector cannot compare hundreds of paths. */
+async function buildCheckouts(
+  deps: SnapshotDeps,
+  commonDir: string,
+  infos: readonly WorktreeInfo[],
+): Promise<readonly WorktreeCertCheckout[]> {
+  const checkouts: WorktreeCertCheckout[] = []
+  for (let i = 0; i < infos.length; i++) {
+    const info = infos[i]!
+    if (info.bare) continue
+    if (checkouts.length >= WORKTREE_CERT_MAX) break
+    const primary = i === 0
+    if (!(await isOwnCheckout(deps.fs, commonDir, info.path, primary))) continue
+    const real = await deps.fs.realpath(info.path).catch(() => null)
+    if (real === null || checkouts.some((entry) => samePath(entry.root, real))) continue
+    const gitdir = await checkoutGitDir(deps.fs, real)
+    if (gitdir === null) continue
+    checkouts.push({ root: real, gitdir, primary })
+  }
+  return checkouts
+}
+
+/**
+ * Every checkout the cwd's repository owns, from `git worktree list` plus each
+ * checkout's own `.git` entry, cached briefly. This is the certification source
+ * of the third door: a worktree created outside the cwd is a row the user can
+ * act on (ADR-0035), and the primary work tree stays reachable for a session
+ * that moved into a linked one.
+ *
+ * A record is not evidence on its own — git replays the path written in
+ * `.git/worktrees/<id>/gitdir`, a plain writable file — so membership is
+ * decided by `isOwnCheckout`, and the cache re-verifies it on every hit. A
+ * failed read is never cached, `fresh` skips the cache read (used after a
+ * refusal, so a `git worktree add` from moments ago is not punished for a whole
+ * window), and `infos` lets the list path share the records it already read.
+ */
+async function certifiedCheckouts(
+  deps: SnapshotDeps,
+  cwd: string,
+  options: { readonly fresh?: boolean; readonly infos?: readonly WorktreeInfo[] } = {},
+): Promise<readonly WorktreeCertCheckout[] | null> {
+  const key = await deps.fs.realpath(cwd).catch(() => cwd)
+  if (options.fresh !== true) {
+    const cached = deps.worktreeCache?.get(key)
+    if (cached !== undefined && Date.now() - cached.at < WORKTREE_CERT_CACHE_MS) {
+      if (await stillOwned(deps, cached)) return cached.checkouts
+      // Same paths, different repositories: the window is over, not the answer.
+      deps.worktreeCache?.delete(key)
+    }
+  }
+  // `null` is "git did not answer": the caller must not read it as an empty
+  // repository, and must not remember the refusal either - a cancelled request
+  // is not evidence that a checkout does not exist.
+  const infos = options.infos ?? (await readWorktreeInfos(deps, cwd))
+  if (infos === null) return null
+  const commonDir = await gitCommonDir(deps, cwd)
+  if (commonDir === null) return null
+  const checkouts = await buildCheckouts(deps, commonDir, infos)
+  const cache = deps.worktreeCache
+  if (cache !== undefined) {
+    if (cache.size >= WORKTREE_CERT_CACHE_MAX && !cache.has(key)) cache.clear()
+    cache.set(key, { at: Date.now(), commonDir, checkouts })
+  }
+  return checkouts
 }
 
 /** Selectable worktree rows first (the ones the user can act on), then the
@@ -763,6 +874,12 @@ export async function listSessionRepos(
       recognition = {
         state: external.state,
         ...(external.file !== null ? { file: external.file } : {}),
+        // How many roots the file actually produced. The client cannot infer
+        // this from the rows: a root this list already carried (a worktree of
+        // the session's own repository) is merged into that row rather than
+        // added as `kind: 'external'`, so "no external row" does not mean "the
+        // file yielded nothing" (ADR-0035).
+        ...(external.state === 'applied' ? { roots: external.roots.length } : {}),
       }
     }
   } else {

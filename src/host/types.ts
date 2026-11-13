@@ -602,10 +602,11 @@ export interface GitRepoEntry {
    * Absent = unknown (an older host, or a repository with no worktree data). */
   readonly branch?: string | null
   /** Why the row cannot be chosen: `outside` = the checkout sits outside the
-   * session cwd and a relative selector cannot address it (only a checkout on
-   * another Windows drive), `stale` = its directory is gone. Absent =
-   * selectable. A worktree record is selectable wherever it lives (ADR-0035). */
-  readonly disabled?: 'outside' | 'stale'
+   * session cwd and no relative selector reaches it (only a checkout on another
+   * Windows drive), `uncertified` = this repository does not own it (the record
+   * is a copy or a leftover, or it falls past the certified ceiling, ADR-0035),
+   * `stale` = its directory is gone. Absent = selectable. */
+  readonly disabled?: 'outside' | 'uncertified' | 'stale'
   /** git's `locked` flag on this worktree (display only). */
   readonly locked?: boolean
 }
@@ -632,14 +633,19 @@ export interface GitRepoList {
    * feature on, and nothing is enabled by the state itself. `file` is the
    * absolute path when one can be named (for `ambiguous` and for several
    * `available` candidates there is no single file); `count` is set for
-   * `available`. Older clients ignore the unknown state and field; an older
-   * host simply sends nothing.
+   * `available`; `roots` is set for `applied`. Older clients ignore the unknown
+   * state and fields; an older host simply sends nothing.
    */
   readonly codeWorkspace?: {
     readonly state: 'applied' | 'missing' | 'invalid' | 'ambiguous' | 'available'
     readonly file?: string
     /** `available` only: how many workspace files the cwd holds. */
     readonly count?: number
+    /** `applied` only: how many repositories the file produced. Not derivable
+     * from `repos`: a root this list already carries (a worktree of the session's
+     * own repository) merges into that row instead of adding an `external` one,
+     * so "no external row" does not mean "the file yielded nothing". */
+    readonly roots?: number
   }
 }
 

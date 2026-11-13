@@ -272,6 +272,23 @@ async function confirmWorkspaceFile(fs: CodeWorkspaceFs, root: string, candidate
   return { kind: 'file', file: real }
 }
 
+/** The `*.code-workspace` files at the top of `root`, by VS Code's name rule,
+ * sorted. `auto` discovery and the `available` offer behind it ask the same
+ * question, so they enumerate through here: a rule that drifts between them
+ * advertises a file the other one refuses to use. */
+async function workspaceCandidates(fs: CodeWorkspaceFs, root: string): Promise<readonly string[]> {
+  let entries: readonly { readonly name: string; readonly isDirectory: boolean }[]
+  try {
+    entries = await fs.readdir(root)
+  } catch {
+    return []
+  }
+  return entries
+    .filter((entry) => !entry.isDirectory && isCodeWorkspaceName(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+}
+
 /**
  * Which workspace file the session uses.
  *
@@ -295,16 +312,7 @@ async function locateCodeWorkspace(
     if (name === null) return { kind: 'invalid' }
     return confirmWorkspaceFile(fs, root, join(root, name))
   }
-  let entries: readonly { readonly name: string; readonly isDirectory: boolean }[]
-  try {
-    entries = await fs.readdir(root)
-  } catch {
-    return { kind: 'none' }
-  }
-  const candidates = entries
-    .filter((entry) => !entry.isDirectory && isCodeWorkspaceName(entry.name))
-    .map((entry) => entry.name)
-    .sort()
+  const candidates = await workspaceCandidates(fs, root)
   if (candidates.length === 0) return { kind: 'none' }
   if (candidates.length > 1) return { kind: 'ambiguous' }
   return confirmWorkspaceFile(fs, root, join(root, candidates[0]!))
@@ -322,16 +330,9 @@ async function locateCodeWorkspace(
  */
 export async function listWorkspaceFiles(fs: CodeWorkspaceFs, cwd: string): Promise<readonly string[]> {
   const root = await fs.realpath(cwd).catch(() => cwd)
-  let entries: readonly { readonly name: string; readonly isDirectory: boolean }[]
-  try {
-    entries = await fs.readdir(root)
-  } catch {
-    return []
-  }
   const found: string[] = []
-  for (const entry of entries) {
-    if (entry.isDirectory || !isCodeWorkspaceName(entry.name)) continue
-    const located = await confirmWorkspaceFile(fs, root, join(root, entry.name))
+  for (const name of await workspaceCandidates(fs, root)) {
+    const located = await confirmWorkspaceFile(fs, root, join(root, name))
     if (located.kind === 'file') found.push(located.file)
   }
   return found.sort()

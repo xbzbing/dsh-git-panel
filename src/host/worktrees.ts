@@ -9,17 +9,21 @@
  * a *file*, which makes the scanner read it as an unrelated nested repository.
  *
  * Trust boundary: a listed directory is selectable when its realpath lies
- * inside the session cwd, or when `git worktree list` reports it for the
- * session's own repository — records live under `.git/worktrees/`, host-local
- * state a cloned repository cannot ship, so `repoDirCertified` admits all of
- * them (ADR-0035). A checkout outside the cwd keeps a `..` selector; only one
- * on another Windows drive, which `relative` cannot express, keeps
- * `disabled: 'outside'` so the user can see why it cannot be chosen. A row
- * whose directory is gone (`prunable`, or unreadable) is marked `stale`
- * instead: it cannot be entered, and saying so is the only honest state.
+ * inside the session cwd, or when it is a checkout `git worktree list` reports
+ * **and** its own `.git` entry points back into that repository's record set
+ * (`checkoutGitDir` / `isOwnCheckout`). The record alone is not evidence: git
+ * only replays the path written in `.git/worktrees/<id>/gitdir`, and that is a
+ * plain writable file, so a copied repository (its records still name the old
+ * machine's absolute paths) or a hand-written record can claim any directory it
+ * likes. Verifying the entry makes "this repository owns it" true again
+ * (ADR-0035). A checkout outside the cwd keeps a `..` selector; one on another
+ * Windows drive, which `relative` cannot express, keeps `disabled: 'outside'`.
+ * A row whose directory is gone (`prunable`, or unreadable) is marked `stale`
+ * instead, and one this repository does not certify keeps
+ * `disabled: 'uncertified'`: it is listed, but the door will refuse it.
  */
-import { basename, isAbsolute, relative, sep } from 'node:path'
-import { relativeRepoPath, samePath, type RepoFs } from './repos.js'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isWithin, relativeRepoPath, samePath, type RepoFs } from './repos.js'
 
 /** One record of `git worktree list --porcelain`. */
 export interface WorktreeInfo {
@@ -48,9 +52,10 @@ export interface WorktreeCheckout {
   readonly role: 'main' | 'linked'
   readonly branch: string | null
   readonly locked: boolean
-  /** Why the row cannot be chosen: outside the cwd (and not the repository
-   * root), or its directory is gone. */
-  readonly disabled?: 'outside' | 'stale'
+  /** Why the row cannot be chosen: outside the cwd on another Windows drive
+   * (no relative path), not certified by this repository (see
+   * `isOwnCheckout`), or its directory is gone. */
+  readonly disabled?: 'outside' | 'uncertified' | 'stale'
 }
 
 /** Parse `git worktree list --porcelain [-z]` output into records. git prints
@@ -88,13 +93,80 @@ export function parseWorktreePorcelain(stdout: string): WorktreeInfo[] {
   return rows
 }
 
-/** A relative path for a checkout outside the cwd (git printed it, so it is a
- * checkout of this repository). Returned verbatim to the selector and admitted
- * on the way back only against the work-tree list. */
+/** A relative path for a checkout outside the cwd. Returned verbatim to the
+ * selector and admitted on the way back only against the certified set. */
 function lexicalRelative(from: string, to: string): string {
   const rel = relative(from, to)
   if (rel === '') return basename(to)
   return rel.split(sep).join('/')
+}
+
+/** The filesystem face the identity check needs: the `.git` entry of a claimed
+ * checkout, read without spawning git. */
+export interface CheckoutGitFace {
+  readonly realpath: (path: string) => Promise<string>
+  readonly stat: (path: string) => Promise<{ isFile(): boolean; isDirectory(): boolean }>
+  readonly readFile: (path: string) => Promise<Uint8Array>
+}
+
+/** Slack for a `.git` file: a gitlink is one short line; anything much larger
+ * is not one. */
+const GITDIR_FILE_MAX_BYTES = 4096
+
+/**
+ * The git dir a directory's `.git` entry points at, as a realpath; null when
+ * there is none or it cannot be read.
+ *
+ * A plain checkout has a `.git` *directory*; a linked worktree (and a
+ * submodule) has a `.git` *file* holding `gitdir: <path>`. Asking this of the
+ * directory itself is the only honest question: `git worktree list` merely
+ * replays what a record file says about some path, so it can name a directory
+ * that belongs to a different repository altogether.
+ */
+export async function checkoutGitDir(fs: CheckoutGitFace, root: string): Promise<string | null> {
+  const dotGit = join(root, '.git')
+  let info: { isFile(): boolean; isDirectory(): boolean }
+  try {
+    info = await fs.stat(dotGit)
+  } catch {
+    return null
+  }
+  if (info.isDirectory()) return await fs.realpath(dotGit).catch(() => null)
+  if (!info.isFile()) return null
+  let raw: Uint8Array
+  try {
+    raw = await fs.readFile(dotGit)
+  } catch {
+    return null
+  }
+  if (raw.byteLength > GITDIR_FILE_MAX_BYTES) return null
+  const match = /^\uFEFF?gitdir:[ \t]*(.+?)[ \t]*$/m.exec(Buffer.from(raw).toString('utf8'))
+  if (match === null) return null
+  const target = match[1]!
+  const absolute = isAbsolute(target) ? target : resolve(root, target)
+  return await fs.realpath(absolute).catch(() => null)
+}
+
+/**
+ * Whether `root` really is one of `commonDir`'s checkouts.
+ *
+ * The primary work tree's `.git` resolves to the common dir itself; a linked
+ * worktree's `gitdir:` points at a record under `<commonDir>/worktrees/`. A
+ * copied repository's records still name the old machine's paths, and a
+ * hand-written record can name anything, so both fail here even though git
+ * lists them (ADR-0035).
+ */
+export async function isOwnCheckout(
+  fs: CheckoutGitFace,
+  commonDir: string,
+  root: string,
+  primary: boolean,
+): Promise<boolean> {
+  const dir = await checkoutGitDir(fs, root)
+  if (dir === null) return false
+  if (primary) return samePath(dir, commonDir)
+  const records = join(commonDir, 'worktrees')
+  return isWithin(records, dir) && !samePath(records, dir) && samePath(dirname(dir), records)
 }
 
 /**
@@ -106,12 +178,19 @@ function lexicalRelative(from: string, to: string): string {
  * The primary work tree keeps `role: 'main'`; every other record is `linked`.
  * Rows are returned in git's order (primary first), then selectable rows and
  * disabled rows grouped by the caller.
+ *
+ * `certified` is the set the door will admit (`certifiedCheckouts`): a record
+ * outside the cwd is selectable exactly when it is a member. Reading the rows
+ * from git and admitting them by a second rule is how "the row says selectable,
+ * the door refuses" happens — the ceiling on the certified set and the identity
+ * check both make that possible, so the rows follow it instead of restating it.
  */
 export async function worktreeCheckouts(
   fs: RepoFs,
   cwd: string,
   workspaceRoot: string,
   infos: readonly WorktreeInfo[],
+  certified: readonly string[],
 ): Promise<readonly WorktreeCheckout[]> {
   const out: WorktreeCheckout[] = []
   for (let i = 0; i < infos.length; i++) {
@@ -149,13 +228,13 @@ export async function worktreeCheckouts(
     }
     const rel = relativeRepoPath(cwd, real)
     if (rel === null) {
-      // A checkout outside the cwd is addressed with a `..` selector, which the
-      // certified door admits for every record git reports (ADR-0035): a
-      // worktree created beside the checkout (`git worktree add ../feature`) is
-      // a row the user can act on, not one hop away behind the root. Only a
-      // checkout on another Windows drive has no relative form — that row stays
-      // listed but unchoosable instead of silently disappearing.
+      // Outside the cwd the row exists only because the repository owns it: the
+      // selector is a `..` path, which `repoDirFor` refuses by design and the
+      // certified door admits by membership. `certified` is that membership, so
+      // a record beyond the ceiling, or one whose `.git` does not point back
+      // into this repository, is listed as unchoosable rather than promised.
       const lexical = lexicalRelative(cwd, real)
+      const admitted = certified.some((entry) => samePath(entry, real))
       out.push({
         path: lexical,
         root: real,
@@ -163,7 +242,7 @@ export async function worktreeCheckouts(
         role,
         branch: info.branch,
         locked: info.locked,
-        ...(isAbsolute(lexical) ? { disabled: 'outside' as const } : {}),
+        ...(isAbsolute(lexical) ? { disabled: 'outside' as const } : admitted ? {} : { disabled: 'uncertified' as const }),
       })
       continue
     }
