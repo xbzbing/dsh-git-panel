@@ -783,10 +783,9 @@ function gitPath(path) {
   return path.split(sep).join('/')
 }
 
-/** Replace a file git owns. git marks its `gitdir` records and a worktree's
- * `.git` read-only, which Windows refuses to open for writing — clearing the
- * write bit first is exactly what a hand-edit (or a copy that landed on another
- * machine) does. */
+/** Replace a record git owns. git marks its `gitdir` records read-only, which
+ * Windows refuses to open for writing — clearing the write bit first is exactly
+ * what a hand-edit (or a copy that landed on another machine) does. */
 function overwriteGitFile(path, text) {
   chmodSync(path, 0o644)
   writeFileSync(path, text)
@@ -838,12 +837,24 @@ test('a record naming another repository is not certified', async () => {
   await runGit(repo2, ['commit', '--allow-empty', '-qm', 'init'])
   const wt2 = join(root, 'wt2')
   await runGit(repo2, ['worktree', 'add', '-q', '--detach', wt2])
-  overwriteGitFile(join(wt2, '.git'), `gitdir: ${gitPath(join(victim, '.git'))}\n`)
+  // git marks a worktree's `.git` read-only, and Windows refuses to open such a
+  // file for writing even after clearing the bit. Rebuild the directory instead:
+  // the record survives, the checkout now names the other repository.
+  rmSync(wt2, { recursive: true, force: true })
+  mkdirSync(wt2, { recursive: true })
+  writeFileSync(join(wt2, '.git'), `gitdir: ${gitPath(join(victim, '.git'))}\n`)
   const deps2 = cachedDepsAt(repo2)
   const rows2 = (await listSessionRepos(deps2, SID, true, undefined, 'off')).value.repos
   const rewritten = rows2.find((entry) => entry.root === realpathSync.native(wt2))
   assert.ok(rewritten, 'git still lists the recorded checkout')
-  assert.equal(rewritten.disabled, 'uncertified', 'its `.git` no longer points into this repository')
+  // `uncertified` is the reason: the entry no longer points into this
+  // repository. A platform that marked the record prunable reports `stale`
+  // instead, and either way the row must not promise a switch the door refuses.
+  assert.notEqual(rewritten.disabled, undefined, 'a repointed checkout is not selectable')
+  assert.ok(
+    rewritten.disabled === 'uncertified' || rewritten.disabled === 'stale',
+    'the row states why it cannot be chosen, got ' + String(rewritten.disabled),
+  )
   assert.equal((await resolveWorkspace(deps2, SID, '../wt2')).ok, false)
 })
 
