@@ -8,7 +8,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import './_tmp-ceiling.mjs'
 import { linkOrSkip } from './_fs-helpers.mjs'
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, sep } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
@@ -783,10 +783,19 @@ function gitPath(path) {
   return path.split(sep).join('/')
 }
 
+/** Replace a file git owns. git marks its `gitdir` records and a worktree's
+ * `.git` read-only, which Windows refuses to open for writing — clearing the
+ * write bit first is exactly what a hand-edit (or a copy that landed on another
+ * machine) does. */
+function overwriteGitFile(path, text) {
+  chmodSync(path, 0o644)
+  writeFileSync(path, text)
+}
+
 /** Point a repository record at another directory, the way a hand-written or
  * copied `.git/worktrees/<id>/gitdir` does. */
 function repointRecord(commonDir, id, targetDir) {
-  writeFileSync(join(commonDir, 'worktrees', id, 'gitdir'), gitPath(join(targetDir, '.git')) + '\n')
+  overwriteGitFile(join(commonDir, 'worktrees', id, 'gitdir'), gitPath(join(targetDir, '.git')) + '\n')
 }
 
 test('a record naming another repository is not certified', async () => {
@@ -829,7 +838,7 @@ test('a record naming another repository is not certified', async () => {
   await runGit(repo2, ['commit', '--allow-empty', '-qm', 'init'])
   const wt2 = join(root, 'wt2')
   await runGit(repo2, ['worktree', 'add', '-q', '--detach', wt2])
-  writeFileSync(join(wt2, '.git'), `gitdir: ${gitPath(join(victim, '.git'))}\n`)
+  overwriteGitFile(join(wt2, '.git'), `gitdir: ${gitPath(join(victim, '.git'))}\n`)
   const deps2 = cachedDepsAt(repo2)
   const rows2 = (await listSessionRepos(deps2, SID, true, undefined, 'off')).value.repos
   const rewritten = rows2.find((entry) => entry.root === realpathSync.native(wt2))
