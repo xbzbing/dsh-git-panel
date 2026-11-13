@@ -1,7 +1,7 @@
 # ADR-0035：工作区文件的可发现性与 cwd 外 worktree 的可选性
 
-- 状态：Accepted（2026-11-13）
-- 相关：issue #125、PR #122、ADR-0030、`src/host/core.ts`（`listSessionRepos`、`certifiedRepoRoots`）、`src/host/repos.ts`（`repoDirCertified`）、`src/host/code-workspace.ts`（`listWorkspaceFiles`）、`src/host/worktrees.ts`、`src/client/PillConfig.tsx`、`src/client/ReposSection.tsx`、`src/client/Panel.tsx`
+- 状态：Accepted（2026-11-13）；认证判据、缓存语义与 `uncertified` 行由同日修订补齐（身份校验取代「记录即证据」）
+- 相关：issue #125、PR #122、ADR-0030、`src/host/core.ts`（`listSessionRepos`、`certifiedCheckouts`、`buildCheckouts`）、`src/host/repos.ts`（`repoDirCertified`）、`src/host/code-workspace.ts`（`listWorkspaceFiles`）、`src/host/worktrees.ts`、`src/client/PillConfig.tsx`、`src/client/ReposSection.tsx`、`src/client/Panel.tsx`
 
 ## Context
 
@@ -27,16 +27,21 @@ issue #125 报告：`.code-workspace` 功能本身按设计工作，但**没有�
 - 识别状态全部渲染：`applied` 通常不出声（行本身就是证据），但**一个根都没有解析出来**时说明一句——「文件已启用，但列出的目录都不是仓库」，否则「功能开了却没反应」还是同一种沉默；`missing` / `invalid` / `ambiguous` 以警告提示说明原因，文件名打错不再表现为「什么都没有发生」。
 - 写配置后客户端显式重取 `repo-list`（写的是插件级 setting，host 会重建服务，一次读取可能仍拿到旧值，因此安排两次读取）。
 
-### 2. `repoDirCertified` 接受 `git worktree list` 的**每一条**记录
+### 2. `repoDirCertified` 接受会话自己仓库的**每一个** checkout，但按身份判定
 
-第三道门原先只认主工作树（一个目录），现在认会话自己仓库的全部 checkout：
+第三道门原先只认主工作树（一个目录），现在认该仓库的全部 checkout。**「记录存在」不等于「这个仓库拥有它」**：`git worktree list` 只是回放 `.git/worktrees/<id>/gitdir` 里写的路径，那是一份普通可写文件，不回链校验。两条实测过的路都证明不能直接信记录：手写一条 `gitdir` 指向另一个仓库的 `.git`，那个目录会被报成「本仓库的 worktree」；把一个带 worktree 的仓库整目录 `cp -R`（tar 解包、备份恢复同理），副本的记录仍写着原机绝对路径，副本就会声称别人的 checkout 是自己的。克隆确实带不出记录，但「只有 `git worktree add` 会产生记录」不成立。
 
-- 来源是宿主本地状态：worktree 记录写在 `.git/worktrees/`，克隆仓库无法提交伪造记录，只有用户在本机执行过 `git worktree add` 才会有。这与 `.code-workspace`（仓库内容，可被提交内容操控）性质不同，因此前者默认可选、后者仍需显式开启。
-- 判定不变：向外选择器、`../` 形态、realpath 与记录精确相等、非 `.git`、拒绝绝对路径。
-- 认证集合按 `realpath(cwd)` 缓存 15 秒（`WORKTREE_CERT_CACHE_MS`）：向外选择器本来要跳过无 TTL 的 `rootCache`，不做缓存的话每个 diff、目录列举和动作都会各起一次 `git worktree list`。缓存不会让消失的 checkout 通过——门仍会对选择器做一次 realpath。
-- 记录集上限 64 条（`WORKTREE_CERT_MAX`），bare 记录与目录已不存在的记录不进入集合。
+因此认证改由身份决定（`isOwnCheckout` / `checkoutGitDir`，不额外起进程）：
+
+- 主工作树的 `.git` 解析出的 git dir 必须等于 `git rev-parse --git-common-dir` 的 realpath；
+- 链接工作树的 `.git` 必须是文件，其 `gitdir:` 指向 `<common-dir>/worktrees/` 下的一条记录；
+- 不合格的记录不进入认证集合，选择器因此被拒；`repo-list` 里对应的行标 `disabled: 'uncertified'`（行与门同源，见下）。
+- 判定其余部分不变：向外选择器、`../` 形态、realpath 与集合成员精确相等、非 `.git`、拒绝绝对路径；另外拒绝带 `:` 的选择器——`C:..\..\x` 是盘符相对路径，`isAbsolute` 抓不到而 `resolve` 会把它重定基到进程当前盘，真实路径与选择器指的不是同一个目录。
+- **缓存存身份而非路径**：条目是 `{root, gitdir, primary}` 加上 `commonDir`，每次命中重新校验一遍（一次 `stat` + 一次 `readFile`，不起进程），所以「同一路径在 15 秒窗口内被换成另一个仓库」会被当场丢弃并重扫，而不是因为字符串相同就放行。TTL 15 秒（`WORKTREE_CERT_CACHE_MS`），条目上限 32 个 cwd（`WORKTREE_CERT_CACHE_MAX`，超出整表清空，与 `.code-workspace` 扫描缓存一致）。
+- **失败不缓存**：`git worktree list` 被取消/超时与「仓库没有 worktree」必须区分——前者返回 `null`、不写缓存、也不写负缓存。一次被打断的请求（切仓库、关面板）不该让这一类行在整个窗口内都点不动。
+- **未命中重读一次**：集合拒绝某选择器时，先丢掉缓存按新记录再算一次，仍拒绝才报 `invalid-repo` 并写 15 秒负缓存。否则 `git worktree add` 之后的第一次点击会撞上「行已经出现、门还拿着旧集合」。
+- 认证集合上限 64 条（`WORKTREE_CERT_MAX`），bare 记录、目录已不存在的记录不进入集合；**列表的行也按同一集合决定可选性**（`worktreeCheckouts` 接收该集合），所以第 65 条及之后的行显示为 `uncertified` 而不是「可选但点了报错」。
 - `worktrees.ts` 只对**没有相对选择器**的 checkout 保留 `disabled: 'outside'`：Windows 上跨盘符的 worktree 在 `relative` 之后仍是绝对路径，三道门都会拒绝，行留下并说明原因。
-- `detectCheckouts` 仍只控制「列不列 worktree / 子仓库行」，不控制认证：关掉探测后，旧 client 手里的选择器不应突然开始失败。
 
 ### 3. 外部根保持扁平
 
@@ -44,10 +49,12 @@ issue #125 报告：`.code-workspace` 功能本身按设计工作，但**没有�
 
 ## Consequences
 
-- 正面：issue #125 的两条诉求（可发现、有控件）都在默认 `off` 下满足；用户从「知道配置键」变成「点一下」。cwd 外的工作树不再出现在列表里却不可选，行与门的判据只剩一条：`realpath ∈ cwd ∪ git 的 worktree 记录 ∪ 工作区文件的 allow-list`。
+- 正面：issue #125 的两条诉求（可发现、有控件）都在默认 `off` 下满足；用户从「知道配置键」变成「点一下」。cwd 外的工作树不再出现在列表里却不可选，行与门的判据只剩一条：`realpath ∈ cwd ∪ 已验证归属的 checkout 集合 ∪ 工作区文件的 allow-list`，且这个集合同时决定行的可选性。
 - 代价：`off` 时只要 cwd 里有工作区文件就会显示一行提示，用户即使是有意关闭也会看到它——提示不可关闭，这是有意的（它就是本 ADR 要修的那个沉默）。若要更强的「别再提示我」，需要一个新的显式状态，本期不做。
 - 行为变更：已有用户（`detectCheckouts` 默认开）会突然多出若干**可选**的 cwd 外 worktree 行。这是 ADR 之内的放宽，但对外是可见变化，发布说明必须写明。
 - 写入面随之扩大：选中 cwd 外 worktree 后，文件编辑落在那里。编辑边界（白名单后缀、2 MiB、UTF-8 往返、`baseSha256` 比对、原子替换）不变，只有「选中的根」变了。
-- 认证集合的 15 秒缓存意味着刚 `git worktree add` 出来的 checkout 最多晚 15 秒可选；行本身来自未缓存的列表，因此先出现、后可选。
+- 一次拒绝会触发重读，因此刚 `git worktree add` 出来的 checkout 在第一次点击时就能用；代价是一次被拒的选择器可能多跑一次 `git worktree list`（负缓存随后封住 15 秒）。
+- 身份校验让「换掉同一路径」立即失效，但也意味着指向上层的合法记录（例如移动过目录的 worktree）在 `git worktree prune` 之前会被判为 `stale` 而不是可进入——这是 `git` 自己的判定，插件不替它猜。
+- `disabled` 因此有三种：`outside`（跨盘符，没有相对选择器）、`uncertified`（本仓库不拥有，或超出认证上限）、`stale`（目录已不在）。
 - 提示行在「存储库」块之外（折叠区外）渲染：块默认是收起的，把提示放进折叠体等于把可发现性又藏回去。
 - `codeWorkspace` 仍是插件级设置；会话级差异只来自各自的 cwd。以后若要按会话记忆「已拒绝的提示」，必须另立状态并写 ADR。

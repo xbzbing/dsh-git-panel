@@ -28,7 +28,7 @@
 - Git 命令必须使用 argv 数组，禁止 shell 字符串；cwd 锁定在已解析仓库根，带超时、输出上限和 `GIT_TERMINAL_PROMPT=0`。
 - RPC 传入的 path、ref、分支、标签、remote 名称先过 `src/host/validate.ts`；可用时追加 `--end-of-options`。`checkout` / `reset` 不支持该参数，只依赖校验。
 - `dir-list`、`file-content`、`writeFile` 和未跟踪删除是直接触碰工作区的入口：必须做安全路径校验、realpath 包含检查，拒绝越界软链和 `.git`。
-- cwd 之外只有三道门，且都按 realpath 精确判定：`repoDirFor`（cwd 内嵌套）、`repoDirExternal`（`.code-workspace` 认证的 allow-list 成员，ADR-0030）、`repoDirCertified`（会话自己仓库 `git worktree list` 报告的任一 checkout，ADR-0035）。放宽 `isSafePath` 会同时放宽 diff 路径与写入目标，禁止；新增出口必须另加一道门并写 ADR。
+- cwd 之外只有三道门，且都按 realpath 精确判定：`repoDirFor`（cwd 内嵌套）、`repoDirExternal`（`.code-workspace` 认证的 allow-list 成员，ADR-0030）、`repoDirCertified`（会话自己仓库**验证过归属**的 checkout，ADR-0035）。第三道门不认「记录存在」：`git worktree list` 只是回放 `.git/worktrees/*/gitdir` 里写的路径，必须逐条验证 `.git` 回指 `<git-common-dir>/worktrees/`（主工作树回指 common dir 本身），缓存命中也要重验；列表行按同一集合决定可选性，未认证的行标 `disabled: 'uncertified'`。放宽 `isSafePath` 会同时放宽 diff 路径与写入目标，禁止；新增出口必须另加一道门并写 ADR。
 - 编辑规则单源在 `types.ts`：白名单、`.env` / `.env.*`、2 MiB、UTF-8 往返、只读检查、`baseSha256` 比对写；写入使用同目录 `wx` 临时文件再 rename，失败清理临时文件。详见 ADR-0024。
 - push 不得 force，且只在严格领先时提供；pull 只允许 `--ff-only`；不直接检出远程引用；远程链接必须去除内嵌凭据。删远端分支只经配置的 remote 解析（远端名可含 `/`），目标固定为 `refs/heads/<branch>`，不得按短名或同名标签猜测。
 - discard、reset、stash-drop、删标签、删本地分支（未合并时的强制 `-D` 需在确认框里再次勾选）、删远端分支（必须勾选确认）、合并分支、拣选提交和带贮藏的切换必须二次确认。合并 / 拣选冲突由 host 自动 `git merge --abort` / `git cherry-pick --abort` 恢复操作前状态，中止失败分别报 `merge-stuck` / `pick-stuck`（空拣选取消为 `pick-empty`）。未跟踪条目若本身是嵌套仓库或子模块必须拒绝，并报告批量删除中的部分失败。

@@ -43,7 +43,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 面板以 DSH 进程的权限运行，安装前值得知道这些边界：
 
 - **Git 命令**：经宿主的 `subprocess` 服务以 argv 数组执行，不拼接 shell 字符串，工作目录锁定在仓库根，带超时与输出上限。不使用强制推送或重置；删除本地分支默认走安全删除（`-d`），只在确认框中再次勾选后才用 `-D`；删除远端分支必须勾选确认。合并与拣选只走 git 默认行为，冲突时自动中止并恢复到操作前状态。除「设置上游」、你确认的「发布」（`git push -u`）和从远端分支创建本地分支（`--track`）写入 tracking 配置外，不改动 git 配置。
-- **文件访问**：只读工作区内的文件（差异、文件浏览、AI 生成的输入），路径经校验并做 realpath 包含检查——软链指向仓库外一律拒绝，`.git` 不可浏览。走出工作区只有两种方式，都按 realpath 精确比对：会话自己仓库的 worktree（`git worktree list` 报告的 checkout）可以在任意位置直接切换；`.code-workspace` 列出的仓库则要先把 `codeWorkspace` 打开（默认关闭）。两类根都要先经 `git rev-parse --show-toplevel` 确认才成为切换器的一行，选中后文件浏览与编辑跟随到那个根，规则不变。
+- **文件访问**：只读工作区内的文件（差异、文件浏览、AI 生成的输入），路径经校验并做 realpath 包含检查——软链指向仓库外一律拒绝，`.git` 不可浏览。走出工作区只有两种方式，都按 realpath 精确比对：会话自己仓库的 worktree 可以在任意位置直接切换，但要求该目录的 `.git` 回指本仓库的 `worktrees/` 记录（记录本身可被复制或手写，单凭 `git worktree list` 不算证据）；`.code-workspace` 列出的仓库则要先把 `codeWorkspace` 打开（默认关闭）。两类根都要先经 `git rev-parse --show-toplevel` 确认才成为切换器的一行，选中后文件浏览与编辑跟随到那个根，规则不变。
 - **写盘只有两处**：「放弃未跟踪条目」按确认删除工作区文件，条目本身是 Git 仓库时整批拒绝；文件浏览里编辑已有文件，限白名单后缀、单个不超过 2 MiB 且为 UTF-8，保存前比对版本、经临时文件原子替换，`.env` 等含密钥的变体也可编辑，可在配置里关闭。
 - **网络**：插件自身只发一个请求——`GET https://api.github.com/repos/<owner>/<repo>/releases/latest`，用于版本条上的「有新版本」提示（5 秒超时、进程内缓存）。`fetch` / `pull` / `push` / `publish` / `push --delete` 只在你点击后经 git 联网；「设置上游」不联网。凭据始终由 git 处理，插件不读取、不存储、不返回任何令牌。
 - **外部服务**：只有「AI 生成提交信息」会把 diff 内容发送给你在 DSH 中配置的模型供应商；模型调用由宿主完成，插件不持有凭据。
