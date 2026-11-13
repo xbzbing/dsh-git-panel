@@ -50,7 +50,7 @@ export function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Ele
     if (entry.dir) {
       const isOpen = cb.open.has(path)
       rows.push(h('button', {
-        key: path, type: 'button', className: `gp-tree-row gp-files__entry gp-files__entry--dir${entry.ignored ? ' gp-tree-row--ignored' : ''}${entry.sourceRoot === true ? ' gp-files__entry--source-root' : ''}`,
+        key: path, type: 'button', className: `gp-tree-row gp-files__entry gp-files__entry--dir${entry.ignored ? ' gp-tree-row--ignored' : ''}`,
         style: { paddingLeft: 8 + depth * 16 }, 'aria-expanded': isOpen,
         'aria-label': entry.ignored ? `${label} (${cb.t('files.ignored')})` : label,
         // The folded label hides the parent segments; the tooltip spells the

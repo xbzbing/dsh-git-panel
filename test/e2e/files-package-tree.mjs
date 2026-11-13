@@ -43,7 +43,7 @@ const CHAIN_LABEL = 'com.example.demo'
 const PHYSICAL = { '': [['src', true]] }
 const PACKED = {
   '': [
-    ['src/main/java', true, { sourceRoot: true }],
+    ['src/main/java', true],
     ['pom.xml', false],
   ],
   'src/main/java': [
@@ -132,18 +132,16 @@ await page.evaluate(async ({ snap, physical, packed }) => {
       label: (row.textContent || '').trim(),
       aria: (row.getAttribute('aria-label') || '').trim(),
       title: row.getAttribute('title'),
-      sourceRoot: row.classList.contains('gp-files__entry--source-root'),
       pad: parseFloat(getComputedStyle(row).paddingLeft),
     }
   }
 }, { snap: SNAP, physical: PHYSICAL, packed: PACKED })
 
 const report = {}
-report.sourceRoot = await page.evaluate(() => window.__rowInfo('src/main/java'))
-assert.notEqual(report.sourceRoot, null, 'the projected source root is a row of its own')
-assert.equal(report.sourceRoot.label, 'src/main/java', 'the source root keeps its full path as the label')
-assert.equal(report.sourceRoot.sourceRoot, true, 'the row carries the source-root marker class')
-assert.equal(report.sourceRoot.pad, 8, 'the source root is a root-level row (8 + 0)')
+report.sourceRow = await page.evaluate(() => window.__rowInfo('src/main/java'))
+assert.notEqual(report.sourceRow, null, 'the projected source root is a row of its own')
+assert.equal(report.sourceRow.label, 'src/main/java', 'the source root keeps its full path as the label')
+assert.equal(report.sourceRow.pad, 8, 'the source root is a root-level row (8 + 0)')
 
 
 await page.evaluate(() => window.__clickRow('src/main/java'))
@@ -193,12 +191,10 @@ report.flipOff = await page.evaluate(async () => {
   const row = await window.__waitFor(() => window.__rowInfo('src'))
   return {
     row,
-    sourceRoots: document.querySelectorAll('.gp-files__entry--source-root').length,
     roots: window.__requests.filter((r) => r.path === ''),
   }
 })
 assert.notEqual(report.flipOff.row, null, 'disabling the setting brings the physical src row back')
-assert.equal(report.flipOff.sourceRoots, 0, 'no projected source-root row survives the flip')
 assert.equal(report.flipOff.roots.length, 2, 'the flip re-lists the root exactly once')
 assert.notEqual(report.flipOff.roots[1].packages, true, 'the re-listed root drops the packages flag')
 
