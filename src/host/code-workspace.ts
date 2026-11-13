@@ -20,6 +20,7 @@
  */
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { isOutwardSelector, isWithin, samePath } from './repos.js'
+import type { WorkspaceInvalidReason } from './types.js'
 
 /** One folder entry from the workspace file. */
 export interface WorkspaceFolder {
@@ -49,6 +50,9 @@ export interface CodeWorkspaceScan {
   /** Recognition state; absent when nothing was configured for this session
    * (`off`, or `auto` with no candidate). */
   readonly state?: CodeWorkspaceState
+  /** `invalid` only: the check that refused the file (see
+   * `WorkspaceInvalidReason`). */
+  readonly reason?: WorkspaceInvalidReason
 }
 
 /** The filesystem face this module needs — a structural subset of the host's
@@ -250,11 +254,13 @@ export function explicitCodeWorkspaceName(setting: string): string | null {
   return setting
 }
 
-/** What the setting resolves to for one session. */
+/** What the setting resolves to for one session. `invalid` carries the failed
+ * check and, where one could be named, the candidate path the user configured or
+ * that discovery picked — the panel names it so the message points at a file. */
 type LocatedWorkspace =
   | { readonly kind: 'none' }
   | { readonly kind: 'ambiguous' }
-  | { readonly kind: 'invalid' }
+  | { readonly kind: 'invalid'; readonly reason: WorkspaceInvalidReason; readonly file?: string }
   | { readonly kind: 'missing'; readonly file: string }
   | { readonly kind: 'file'; readonly file: string }
 
@@ -263,9 +269,9 @@ async function confirmWorkspaceFile(fs: CodeWorkspaceFs, root: string, candidate
   const real = await fs.realpath(candidate).catch(() => null)
   if (real === null) return { kind: 'missing', file: candidate }
   // A symlink out of the workspace would let the setting escape the cwd.
-  if (!isWithin(root, real)) return { kind: 'invalid' }
+  if (!isWithin(root, real)) return { kind: 'invalid', reason: 'link', file: candidate }
   try {
-    if (!(await fs.stat(real)).isFile()) return { kind: 'invalid' }
+    if (!(await fs.stat(real)).isFile()) return { kind: 'invalid', reason: 'not-file', file: candidate }
   } catch {
     return { kind: 'missing', file: candidate }
   }
@@ -309,7 +315,7 @@ async function locateCodeWorkspace(
     const name = explicitCodeWorkspaceName(setting)
     // A malformed value is reported, not treated as "off": a typo in the
     // setting is exactly the failure a silent fallback would hide.
-    if (name === null) return { kind: 'invalid' }
+    if (name === null) return { kind: 'invalid', reason: 'name' }
     return confirmWorkspaceFile(fs, root, join(root, name))
   }
   const candidates = await workspaceCandidates(fs, root)
@@ -399,7 +405,11 @@ async function resolveFolder(
  *
  * The state answers "was the file recognised", independently of how many
  * folders it yielded: a parsed file with no checkouts is `applied`, not empty
- * by accident.
+ * by accident. An `invalid` answer also says which check refused the file
+ * (`reason`), because the repairs differ — a typo in the setting, a symlink out
+ * of the cwd, a directory in the file's place, a file too large, an unreadable
+ * file, or content that is not a workspace file. One message for all six would
+ * only say that something is wrong.
  */
 export async function scanCodeWorkspace(
   fs: CodeWorkspaceFs,
@@ -411,7 +421,14 @@ export async function scanCodeWorkspace(
   const located = await locateCodeWorkspace(fs, cwd, setting)
   if (located.kind === 'none') return { file: null, roots: [] }
   if (located.kind === 'ambiguous') return { file: null, roots: [], state: 'ambiguous' }
-  if (located.kind === 'invalid') return { file: null, roots: [], state: 'invalid' }
+  if (located.kind === 'invalid') {
+    return {
+      file: located.file ?? null,
+      roots: [],
+      state: 'invalid',
+      reason: located.reason,
+    }
+  }
   if (located.kind === 'missing') return { file: located.file, roots: [], state: 'missing' }
   const file = located.file
   let stamp: string
@@ -448,17 +465,17 @@ export async function scanCodeWorkspace(
   // The cap is enforced before the read: a hostile file must never enter
   // memory, and `info.size` already says how big it is. The post-read check
   // stays, for a file swapped out between `stat` and `readFile`.
-  if (size > CODE_WORKSPACE_MAX_BYTES) return { file, roots: [], state: 'invalid' }
+  if (size > CODE_WORKSPACE_MAX_BYTES) return { file, roots: [], state: 'invalid', reason: 'size' }
   let text: string
   try {
     const raw = await fs.readFile(file)
-    if (raw.byteLength > CODE_WORKSPACE_MAX_BYTES) return { file, roots: [], state: 'invalid' }
+    if (raw.byteLength > CODE_WORKSPACE_MAX_BYTES) return { file, roots: [], state: 'invalid', reason: 'size' }
     text = Buffer.from(raw).toString('utf8')
   } catch {
-    return { file, roots: [], state: 'invalid' }
+    return { file, roots: [], state: 'invalid', reason: 'read' }
   }
   const folders = parseWorkspaceFolders(text)
-  if (folders === null) return { file, roots: [], state: 'invalid' }
+  if (folders === null) return { file, roots: [], state: 'invalid', reason: 'parse' }
   const workspaceDir = dirname(file)
   const seen = new Set<string>()
   const roots: ExternalRoot[] = []

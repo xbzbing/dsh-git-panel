@@ -611,6 +611,18 @@ export interface GitRepoEntry {
   readonly locked?: boolean
 }
 
+/** Why a configured `.code-workspace` file is unusable (`state: 'invalid'`).
+ * Each value is one failed check with its own repair:
+ *
+ *  - `name`     the plugin setting is not a single `*.code-workspace` filename
+ *  - `link`     the file resolves outside the cwd (a symlink pointing out)
+ *  - `not-file` something that is not a regular file sits at the path
+ *  - `size`     the file is past `CODE_WORKSPACE_MAX_BYTES`
+ *  - `read`     the file exists but could not be read
+ *  - `parse`    the content is not a workspace file (JSON, folders, entry path)
+ */
+export type WorkspaceInvalidReason = 'name' | 'link' | 'not-file' | 'size' | 'read' | 'parse'
+
 /** Repositories a session's cwd offers, ordered for the switcher. */
 export interface GitRepoList {
   readonly cwd: string
@@ -639,6 +651,11 @@ export interface GitRepoList {
   readonly codeWorkspace?: {
     readonly state: 'applied' | 'missing' | 'invalid' | 'ambiguous' | 'available'
     readonly file?: string
+    /** `invalid` only: which check refused the file. Each cause has its own
+     * repair, so one message for all of them only tells the user that something
+     * is wrong. Absent on an older host, and the client then falls back to the
+     * generic message. */
+    readonly reason?: WorkspaceInvalidReason
     /** `available` only: how many workspace files the cwd holds. */
     readonly count?: number
     /** `applied` only: how many repositories the file produced. Not derivable

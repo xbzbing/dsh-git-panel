@@ -874,6 +874,9 @@ export async function listSessionRepos(
       recognition = {
         state: external.state,
         ...(external.file !== null ? { file: external.file } : {}),
+        // Which check refused the file, for `invalid` — the state alone cannot
+        // say whether the setting or the file is at fault.
+        ...(external.reason !== undefined ? { reason: external.reason } : {}),
         // How many roots the file actually produced. The client cannot infer
         // this from the rows: a root this list already carried (a worktree of
         // the session's own repository) is merged into that row rather than
