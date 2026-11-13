@@ -105,17 +105,21 @@ test('a worktree inside the cwd becomes a selectable relative row', async () => 
   assert.equal(rows[1].disabled, undefined)
 })
 
-test('a sibling worktree outside the cwd stays visible but unchoosable', async () => {
+test('a sibling worktree outside the cwd is a selectable row', async () => {
   const fs = fsOf(new Map([
     ['/w/main', '/w/main'],
     ['/tmp/spike', '/tmp/spike'],
   ]))
   const rows = await worktreeCheckouts(fs, '/w/main', '/w/main', [info('/w/main'), info('/tmp/spike')])
-  assert.equal(rows[1].disabled, 'outside', 'only the repository root escapes the cwd')
+  // `git worktree add ../spike` is a checkout of the session's own repository:
+  // its record is host-local, so the certified door admits its `..` selector
+  // (ADR-0035) and the row must not say otherwise.
+  assert.equal(rows[1].disabled, undefined, 'a worktree of the own repository is choosable wherever it lives')
   assert.equal(rows[1].root, '/tmp/spike', 'the row still shows where it lives')
-  assert.ok(rows[1].path.startsWith('../'), 'its selector path is inert: ../ never resolves to a repository')
+  assert.equal(rows[1].path, '../../tmp/spike', 'addressed by its relative path')
   assert.equal(rows[1].role, 'linked')
 })
+
 
 test('a prunable row and a vanished directory both report themselves as stale', async () => {
   const fs = fsOf(new Map([['/w/main', '/w/main']]))
@@ -158,7 +162,8 @@ test('cwd inside a linked worktree: that record is the workspace row, the primar
   assert.equal(rows[0].disabled, undefined, 'the repository root is selectable')
   assert.equal(rows[0].path, '../../../..', 'addressed by its relative path')
   assert.equal(rows[0].role, 'main')
-  // A sibling is not: the root is one hop away and lists it inside its own cwd.
-  assert.equal(rows[2].disabled, 'outside', 'a sibling checkout stays unchoosable here')
+  // A sibling is: it is a checkout of the same repository, so its record
+  // certifies it too (ADR-0035).
+  assert.equal(rows[2].disabled, undefined, 'a sibling checkout is choosable')
   assert.equal(rows[2].role, 'linked')
 })
