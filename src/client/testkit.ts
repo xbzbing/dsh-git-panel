@@ -63,6 +63,7 @@ export { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, subscribeRepoSele
 export { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, repoRowTip, filesRootRows, gitRepoForFilesRoot } from './repo-list.js'
 export type { RepoChoice, RepoGroup, RepoGroupKey, FilesRootRow, FilesRootMenu } from './repo-list.js'
 export { rtlPathText } from './rtl-path.js'
+export { workspaceInvalidKey } from './workspace-hint.js'
 export { GitController } from './controller.js'
 export { createVisibilitySource } from './visibility.js'
 export { DICTIONARIES } from './locale-dicts.js'

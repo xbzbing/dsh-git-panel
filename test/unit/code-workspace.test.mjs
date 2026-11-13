@@ -178,7 +178,23 @@ test('an explicit file that is a symlink out of the cwd is refused', async (t) =
   writeFileSync(outside, '{"folders": []}')
   const ok = linkOrSkip(t, outside, join(dir, 'escapes.code-workspace'))
   if (!ok) return
-  assert.equal((await scanCodeWorkspace(fs, toplevel, dir, 'escapes.code-workspace')).state, 'invalid')
+  const scan = await scanCodeWorkspace(fs, toplevel, dir, 'escapes.code-workspace')
+  assert.equal(scan.state, 'invalid')
+  assert.equal(scan.reason, 'link')
+  // The candidate inside the cwd is named, not the target it points at: the
+  // message has to point at the path the user can repair.
+  assert.equal(scan.file, join(realpathSync.native(dir), 'escapes.code-workspace'))
+})
+
+test('a directory where the file should be is reported as such', async () => {
+  // `explicit` is the only way in: `auto` discovery filters directories out.
+  const dir = scratch('dir-as-file')
+  mkdirSync(join(dir, 'blocked.code-workspace'), { recursive: true })
+  const scan = await scanCodeWorkspace(fs, toplevel, dir, 'blocked.code-workspace')
+  assert.deepEqual(scan.roots, [])
+  assert.equal(scan.state, 'invalid')
+  assert.equal(scan.reason, 'not-file')
+  assert.equal(scan.file, join(realpathSync.native(dir), 'blocked.code-workspace'))
 })
 
 test('a missing explicit file is reported as missing, not swallowed', async () => {
@@ -193,6 +209,7 @@ test('a malformed setting value is reported as invalid', async () => {
   const scan = await scanCodeWorkspace(fs, toplevel, hub, '../escape.code-workspace')
   assert.deepEqual(scan.roots, [])
   assert.equal(scan.state, 'invalid')
+  assert.equal(scan.reason, 'name')
   assert.equal(scan.file, null)
 })
 
@@ -243,6 +260,22 @@ test('an unparsable file yields no roots and reports invalid', async () => {
   const scan = await scanCodeWorkspace(fs, toplevel, hub, 'broken.code-workspace')
   assert.deepEqual(scan.roots, [])
   assert.equal(scan.state, 'invalid')
+  assert.equal(scan.reason, 'parse')
+  assert.equal(scan.file, join(realpathSync.native(hub), 'broken.code-workspace'))
+})
+
+test('a file that cannot be read is reported apart from one that cannot be parsed', async () => {
+  writeWorkspace('unreadable.code-workspace', '{"folders": []}')
+  const guarded = {
+    ...createFsDeps(),
+    readFile: async () => {
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    },
+  }
+  const scan = await scanCodeWorkspace(guarded, toplevel, hub, 'unreadable.code-workspace')
+  assert.deepEqual(scan.roots, [])
+  assert.equal(scan.state, 'invalid')
+  assert.equal(scan.reason, 'read')
 })
 
 test('the scan cache misses after the file changes', async () => {
@@ -423,6 +456,7 @@ test('a workspace file past the size cap is invalid, and never read', async () =
   const scan = await scanCodeWorkspace(guarded, toplevel, hub, 'huge.code-workspace')
   assert.deepEqual(scan.roots, [])
   assert.equal(scan.state, 'invalid')
+  assert.equal(scan.reason, 'size')
   assert.equal(reads, 0, 'the size is known from stat, so a hostile file never enters memory')
 })
 

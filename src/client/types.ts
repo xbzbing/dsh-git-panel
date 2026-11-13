@@ -8,7 +8,7 @@ export type {
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, ChangesViewMode, GraphStyle, FontDelta, DirEntry, ResetMode, GitPanelPlacement,
-  GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList,
+  GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList, WorkspaceInvalidReason,
   GitWriteFileRequest, GitWriteFileResult, FileEditInfo, FileEditBlock,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, TruncationReason,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure, RemoteMethod,
