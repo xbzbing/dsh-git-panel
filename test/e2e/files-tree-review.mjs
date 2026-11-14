@@ -138,7 +138,7 @@ await page.evaluate(async () => { await window.__expand('docs'); await window.__
 // row is indented `8 + depth * 16`, so the hint (depth 2, under docs/assets) is
 // at 40 and the assets row itself at 24 — that geometry is what proves the hint
 // belongs to the empty directory rather than floating at the tree's root.
-const EMPTY_LABEL = '空目录' // locales.ts › zh › files.emptyDir
+const EMPTY_LABEL = '空目录' // locales/zh.ts › files.emptyDir
 const treeRows = () => page.evaluate((label) => ({
   hints: [...document.querySelectorAll('.gp-files__tree .gp-tree-row--muted')]
     .map((r) => ({ text: (r.textContent || '').trim(), pad: parseFloat(getComputedStyle(r).paddingLeft) }))

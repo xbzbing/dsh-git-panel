@@ -85,7 +85,7 @@ npm run check         # lint + typecheck + 单测 + e2e
 
 - TypeScript 严格模式；相对导入带 `.js`；wire 新字段保持旧 client 可忽略、旧 host 缺字段时 client 降级。
 - 注释写当前行为和不可见约束，不写演进过程；理由写 ADR，功能变化同步 README。
-- `src/client/locales.ts` 的 zh 是键集源；en、ja、es、fr、de、ru、pt 必须同步，locale 测试校验键和占位符。
+- `src/client/locales/zh.ts` 是键集源，其余七份字典必须同步；`locales.ts` 只保留 `GitKey` 与 zh / en 的再导出，locale 测试校验键和占位符。
 - 八份 `locale/*.json` 必须同时出现在 `package.json.exports`；八份详情页必须出现在 `package.json.files`。详情页只放简介、功能和仓库地址。
 - 安装身份必须一致：`package.json.name`、`cordis.patch.yml` 的 row name、构建产物 ModuleLoader id 都是 `@xbzbing/dsh-git-panel`。
 
