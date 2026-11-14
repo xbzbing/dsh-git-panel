@@ -125,8 +125,14 @@ export const CSS = `
 /* pill wrapper + rounded hover tooltip panel (openviking-manager style):
  * soft radius, layered shadow, subtle border, portaled above the pill.
  * width:max-content is load-bearing: a fixed box with only left set would
- * shrink to the room on its right (a phone row icon left a 36px column). */
-.gp-tip{position:fixed;z-index:60;width:max-content;box-sizing:border-box;max-width:520px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;white-space:pre-line;pointer-events:none}
+ * shrink to the room on its right (a phone row icon left a 36px column).
+ * overflow-wrap is load-bearing too, and only for the same reason: with
+ * width:max-content the line is laid out at its max-content width and the
+ * max-width clamp then shrinks the box around it, so the last glyphs of a long
+ * path are painted past the rounded edge (a repo root wider than the tip's
+ * maxWidth showed its tail outside the bubble). Breaking anywhere keeps every
+ * line inside the padding box. */
+.gp-tip{position:fixed;z-index:60;width:max-content;box-sizing:border-box;max-width:520px;overflow-wrap:anywhere;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;white-space:pre-line;pointer-events:none}
 .gp-tip__path{color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);word-break:break-all}
 .gp-tip__note{margin-top:4px;color:var(--dsw-alias-label-tertiary)}
 .gp-tip--sb{color:var(--dsw-alias-label-secondary);line-height:1.45}

@@ -47,6 +47,10 @@ const RUNNERS = [
   // Files preview toolbar at five widths: review screenshots plus the wrap
   // contract (the trailing cluster moves as one item, never split).
   'files-bar-review',
+  // The hover tip over a browse root longer than its width cap: every laid-out
+  // line must stay inside the bubble (the max-content clamp used to paint the
+  // tail past the rounded edge).
+  'tip-overflow',
   // Edit mode against the real CodeMirror chunk: save / conflict / guards /
   // reader keys / chunk retry.
   'files-edit',
