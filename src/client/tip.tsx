@@ -25,12 +25,16 @@
  * icons sit at the panel's right edge, where a left-anchored bubble reads as
  * belonging to the wrong row — while the wide layout keeps the familiar left
  * anchor. Centring needs no measuring: the bubble shifts itself by half its own
- * width. Either way a control near a viewport edge would hang the bubble
- * outside, so the measured overflow is folded back into `left` once.
+ * width. Either way a control near the panel edge would hang the bubble
+ * outside, so the measured overflow is folded back into `left` once, against
+ * the panel (the viewport when the control has no panel ancestor, or when a
+ * compact tip is deliberately centred on its control).
  */
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
+import { fitTipLeft, fitTipWidth } from './tip-fit.js'
+import type { TipBounds } from './tip-fit.js'
 
 const DEFAULT_DELAY_MS = 140
 const DEFAULT_MAX_W = 260
@@ -39,7 +43,7 @@ const DEFAULT_MAX_W = 260
  * structured block the caller composes (icon-led lines, hairlines). */
 export type TipContent = string | JSX.Element
 
-interface TipState { content: TipContent; left: number; top?: number; bottom?: number; center?: boolean; maxW: number }
+interface TipState { content: TipContent; left: number; top?: number; bottom?: number; center?: boolean; maxW: number; bounds: TipBounds }
 
 export interface HoverTip {
   /** Spread onto a control to give it the tooltip on hover/focus. */
@@ -95,12 +99,21 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
     // A fixed box with only `left` shrinks to the room on its right (a phone
     // row icon used to yield a 36px-wide column). Pin the width to its natural
     // size first — `.gp-tip` also carries `width:max-content` — capped to the
-    // viewport so the measured pass below can always fit it back inside.
-    const maxW = Math.min(maxWidth, Math.max(80, window.innerWidth - 16))
+    // panel that owns the control, not the viewport: a sidebar is narrower than
+    // the window, and a bubble wider than its pane hangs over the one beside it.
+    // Compact centring is the exception: the phone panel is the viewport, and
+    // the bubble is deliberately centred on its control, so it keeps the
+    // viewport bound the centring contract is written against.
+    const panel = el.closest('.gp-panel')
+    const panelRect = center ? undefined : panel?.getBoundingClientRect()
+    const bounds: TipBounds = panelRect === undefined
+      ? { left: 0, right: window.innerWidth }
+      : { left: panelRect.left, right: panelRect.right }
+    const maxW = fitTipWidth(maxWidth, bounds)
     // Anchor below the control (near the top of the panel) or above it
     // (the left-column footer); the measured pass keeps it on screen.
-    if (placement === 'below') setTip({ content, left, center, maxW, top: r.bottom + 6 })
-    else setTip({ content, left, center, maxW, bottom: Math.max(8, window.innerHeight - r.top + 6) })
+    if (placement === 'below') setTip({ content, left, center, maxW, bounds, top: r.bottom + 6 })
+    else setTip({ content, left, center, maxW, bounds, bottom: Math.max(8, window.innerHeight - r.top + 6) })
   }, [placement, maxWidth])
 
   const showTip = useCallback((el: HTMLElement, content: TipContent) => {
@@ -118,21 +131,19 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
     placeTip(el, content)
   }, [placeTip])
 
-  // A bubble on a control near an edge would hang outside the viewport; measure
-  // it once it is in the DOM and clamp both axes to absolute values. The clamp
-  // is idempotent: the second pass computes the same numbers and stops, whereas
-  // an additive correction keeps pushing when the bubble cannot fit at all.
+  // A bubble on a control near an edge would hang outside its panel (or the
+  // viewport when it has no panel); measure it once it is in the DOM and clamp
+  // both axes to absolute values. The clamp is idempotent: the second pass
+  // computes the same numbers and stops, whereas an additive correction keeps
+  // pushing when the bubble cannot fit at all.
   const tipRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
     const el = tipRef.current
     if (el === null || tip === null) return
     const margin = 8
-    const viewportW = window.innerWidth
     const viewportH = window.innerHeight
     const r = el.getBoundingClientRect()
-    const minLeft = tip.center === true ? margin + r.width / 2 : margin
-    const maxLeft = tip.center === true ? viewportW - margin - r.width / 2 : viewportW - margin - r.width
-    const left = Math.min(Math.max(tip.left, minLeft), Math.max(minLeft, maxLeft))
+    const left = fitTipLeft(tip.left, r.width, tip.bounds, tip.center === true)
     // For both anchors the bubble's near edge must stay margin-clear of the
     // viewport edge: `top` counts from the top, `bottom` from the bottom, and
     // the tallest box either way is viewport - 2*margin.

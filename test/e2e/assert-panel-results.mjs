@@ -442,6 +442,7 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.copyTip?.onBody, true, 'the tip is portaled to the body (no clipping ancestor)')
   assert.equal(out.copyTip?.nativeTitle, null, 'the icon carries no native title (the tip is the one hint)')
   assert.equal(out.copyTip?.below, true, 'the tip opens below the toolbar control, into the preview area')
+  assert.equal(out.copyTip?.withinPanel, true, 'the tip stays inside the panel instead of spilling over the next pane')
   assert.equal(out.copyTip?.hoverDismissed, true, 'moving off the icon dismisses the hover tip')
   assert.equal(out.copyTip?.hiddenOnClick, true, 'pressing the control dismisses its own tip')
   assert.equal(out.copyTip?.feedbackTip, 'files.contentCopied', 'inside the confirmation window the tip reports the outcome (the live region is screen-reader only)')

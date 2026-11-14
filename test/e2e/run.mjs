@@ -2185,11 +2185,13 @@ const copyTip = await (async () => {
     if (el === null || btn === null) return null
     const t = el.getBoundingClientRect()
     const b = btn.getBoundingClientRect()
+    const panel = btn.closest('.gp-panel')?.getBoundingClientRect() ?? null
     return {
       text: el.textContent,
       onBody: el.parentElement === document.body,
       nativeTitle: btn.getAttribute('title'),
       below: t.top >= b.bottom - 1,
+      withinPanel: panel === null ? null : t.left >= panel.left + 7 && t.right <= panel.right - 7,
     }
   })
   // A pointer that leaves the control takes the hover tip with it.
