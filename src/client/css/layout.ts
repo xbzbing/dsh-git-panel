@@ -89,8 +89,15 @@ export const CSS = `
  * keeps its scroll position. The card is fixed rather than portaled (moving
  * the node would reload the frame), so it depends on no ancestor creating a
  * containing block (transform, filter, contain: paint) and on the backdrop
- * sitting below it in document order. */
-.gp-files .gp-files__preview--full{position:fixed;inset:0;margin:auto;z-index:1000;width:min(920px,86vw);height:min(680px,82vh);min-width:0;max-height:100vh;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:14px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 12px rgba(0,0,0,.18);animation:gp-modal-in .18s cubic-bezier(.16,1,.3,1)}
+ * sitting below it in document order.
+ *
+ * Size: a floor the reader never drops below (920x680 — the size it shipped
+ * with, right for a laptop), growth with the viewport (68vw / 80vh) so a big
+ * screen gets a big reader instead of a small card floating in it, and a
+ * ceiling (1600x1100) past which longer lines stop being readable. The outer
+ * min(86vw …) / min(84vh …) arms are the small-window guards: below the floor
+ * the vw/vh arm wins exactly as it did before the growth arms existed. */
+.gp-files .gp-files__preview--full{position:fixed;inset:0;margin:auto;z-index:1000;width:min(86vw,1600px,max(920px,68vw));height:min(84vh,1100px,max(680px,80vh));min-width:0;max-height:100vh;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:14px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 12px rgba(0,0,0,.18);animation:gp-modal-in .18s cubic-bezier(.16,1,.3,1)}
 .gp-files__fs-backdrop{position:fixed;inset:0;z-index:999;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 62%,transparent);animation:gp-fade-in .12s ease}
 .gp-files__fs-screen{flex:none}
 
