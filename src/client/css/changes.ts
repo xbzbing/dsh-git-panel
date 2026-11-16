@@ -143,7 +143,16 @@ export const CSS = `
  * under the panel's own popovers (root menu 40, tips 60+), which must keep
  * covering the document they open over. */
 .gp-files__mdwrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
-.gp-files__toc{position:absolute;top:8px;right:8px;z-index:8;display:flex;flex-direction:column;width:min(220px,58%);max-height:calc(100% - 16px);padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 8px 24px rgba(0,0,0,.14),0 1px 3px rgba(0,0,0,.08)}
+/* Closed by default: one small button in the corner, opening the card below in
+ * the same corner so the click does not move anything. */
+.gp-files__toc-open{position:absolute;top:8px;right:13px;z-index:8;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:1;cursor:pointer}
+.gp-files__toc-open:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-files__toc-open:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+/* The open card is a pointer, not a reading column: 142px / 35% is about 60% of
+ * the 220px card it replaced, plus a 10px nudge; rows ellipsize rather than
+ * widening over text. The 13px right inset (5px more than the corner's own)
+ * keeps both the button and the card clear of the document's scrollbar. */
+.gp-files__toc{position:absolute;top:8px;right:13px;z-index:8;display:flex;flex-direction:column;width:min(142px,35%);max-height:calc(100% - 16px);padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 8px 24px rgba(0,0,0,.14),0 1px 3px rgba(0,0,0,.08)}
 .gp-files__toc-head{flex:none;display:flex;align-items:center;gap:4px;padding:1px 2px 3px 6px}
 .gp-files__toc-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:600;color:var(--dsw-alias-label-tertiary)}
 .gp-files__toc-close,.gp-files__toc-fold{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
@@ -152,9 +161,6 @@ export const CSS = `
 .gp-files__toc-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-files__toc-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-files__toc-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column}
-/* Folded: the card keeps its header (and the button that unfolds it) but the
- * rows are gone, so it stops covering the text below its corner. */
-.gp-files__toc--folded .gp-files__toc-list{display:none}
 /* flex:none is load-bearing: the list is a flex column, so a shrinkable row
  * would compress instead of overflowing — an outline longer than the card
  * would squeeze every row into unreadable slivers rather than scroll. */
@@ -162,12 +168,13 @@ export const CSS = `
 .gp-files__toc-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-files__toc-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-files__toc-item--active{color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover)}
-/* Closing the card leaves nothing behind — no pill, no placeholder. The
- * document scrolls bare until the file is opened again, which remounts the
- * outline (see MarkdownPane's openToken). */
+/* Closing the card leaves nothing behind — no button, no placeholder. The
+ * document scrolls bare until the file is opened again, which re-reads the
+ * open token and restores the outline (see MarkdownPane's openToken). */
 /* Touch: the outline's controls take the same 34px box as the panel's other
  * icon buttons, and its rows grow to a 36px line. */
 @media (hover:none){
+  .gp-files__toc-open{height:34px;padding:0 10px;font-size:12px}
   .gp-files__toc-close,.gp-files__toc-fold{width:34px;height:34px}
   .gp-files__toc-item{padding-top:9px;padding-bottom:9px}
 }

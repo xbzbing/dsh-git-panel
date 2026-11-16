@@ -911,7 +911,7 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       h('div', {
         key: 'pv', ...tabPanel('preview'),
         style: editPreview.text === null ? { display: 'none' } : { display: 'contents' },
-      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, openSeq, tocState, compact, t, previewMenu)),
+      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, openSeq, tocState, t, previewMenu)),
     ]
     : editing
     ? fileEdit.editorNode(wrap, false)
@@ -920,13 +920,13 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       h('div', {
         key: 'src', ...tabPanel('source'),
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, compact, t, previewMenu)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, t, previewMenu)),
       h('div', {
         key: 'rnd', ...tabPanel('render'),
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, compact, t, previewMenu) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, t, previewMenu) : null),
     ]
-    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, compact, t, previewMenu)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, t, previewMenu)
 
   // A heavy document asks in a modal before its frame is mounted: the choice
   // is about a page that can freeze the whole app while it paints, so it must
@@ -1055,13 +1055,11 @@ function renderContent(
   htmlFrame: HtmlFrameSpec | null | undefined,
   htmlHint: { readonly run: () => void } | undefined,
   htmlStop: (() => void) | undefined,
-  // Rendered Markdown only: `openToken` bumps on every file open (so opening a
-  // document again restores an outline the reader dismissed), and
-  // `startsFolded` is the compact tier's header-only start — there the whole
-  // column is the document, so the rows would cover what they index.
+  // Rendered Markdown only: `openToken` bumps on every file open, so opening a
+  // document again restores an outline the reader dismissed (and starts it
+  // collapsed again — the outline always starts as its corner button).
   openToken: number,
   toc: { readonly hidden: boolean; readonly onDismiss: () => void },
-  startsFolded: boolean,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
   imageMenu?: MenuTriggerHandlers,
 ): JSX.Element {
@@ -1074,7 +1072,7 @@ function renderContent(
     // The pane owns the floating outline; the document keeps its two boxes
     // (scrollport + inset body) so a sticky code banner still sticks flush.
     const pane = (body: JSX.Element | JSX.Element[]): JSX.Element => h(MarkdownPane, {
-      body, source: file.content, openToken, hidden: toc.hidden, onDismiss: toc.onDismiss, startsFolded, t,
+      body, source: file.content, openToken, hidden: toc.hidden, onDismiss: toc.onDismiss, t,
     })
     if (markdownSegments.length === 1 && markdownSegments[0].kind === 'markdown') {
       return pane(h(MarkdownText, { text: markdownSegments[0].text, ...markdownProps }))

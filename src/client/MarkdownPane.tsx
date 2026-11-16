@@ -8,18 +8,21 @@
  * what the reader can actually scroll to is the one the DOM shows. It floats
  * over the document (the reading column keeps its full width).
  *
- * Dismissing it removes it: nothing is left behind in its corner, so the page
- * the reader wanted to read bare really is bare. That is only acceptable
- * because opening the document brings it back, and "open" is the tab's call —
+ * It starts collapsed into a button in that corner: the reader opened a
+ * document to read it, and the outline is a detour they have to ask for. The
+ * button opens the card over the same corner; the card folds back into the
+ * button, or closes outright. Closing removes it — nothing is left behind, so
+ * the page a reader wanted bare really is bare. That is only acceptable because
+ * opening the document brings the button back, and "open" is the tab's call:
  * `hidden` is owned by FilesTab and keyed to the open it belongs to, so
  * re-opening the file (or another one) restores the outline while a re-render,
  * a refresh or a source/render switch does not. The text is deliberately not a
  * reset signal: a live draft preview changes it on every keystroke.
  */
-import { createElement as h, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import type { GitKey } from './locales.js'
-import { ChevronIcon, CloseIcon } from './icons.js'
+import { ChevronIcon, CloseIcon, ListIcon } from './icons.js'
 import { activeTocIndex, tocEntries, tocIndent, tocScrollTarget, type TocEntry } from './markdown-toc.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
@@ -67,32 +70,41 @@ export function MarkdownPane(props: {
    * cannot bring it back. */
   readonly hidden: boolean
   readonly onDismiss: () => void
-  /** The compact tier is one narrow column that *is* the document, so its
-   * outline starts folded to its header instead of covering the text. Open is
-   * the default everywhere else. */
-  readonly startsFolded: boolean
   readonly t: Translate
 }): JSX.Element {
-  const { body, source, openToken, hidden, onDismiss, startsFolded, t } = props
+  const { body, source, openToken, hidden, onDismiss, t } = props
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const listRef = useRef<HTMLElement | null>(null)
+  const openRef = useRef<HTMLButtonElement | null>(null)
+  const foldRef = useRef<HTMLButtonElement | null>(null)
+  // Set by a dismissal, read once the outline has left the page.
+  const refocusDoc = useRef(false)
+  // The button and the card take each other's place, so the control the reader
+  // was on is unmounted by their own click: the focus it should land on only
+  // exists after the next render.
+  const focusAfterSwap = useRef<'open' | 'fold' | null>(null)
   const [entries, setEntries] = useState<readonly TocEntry[]>([])
   const [active, setActive] = useState(-1)
-  // The card's own fold: rows hidden, header (and both header controls) kept.
-  // Per reading, so it resets on a new open and survives a remount only as
-  // far as this pane instance does.
-  const [listOpen, setListOpen] = useState(!startsFolded)
-  const listId = useId()
-  const refocusDoc = useRef(false)
+  // Collapsed to the corner button. Per reading: the reader's choice here is
+  // about this document, and a new open starts over.
+  const [expanded, setExpanded] = useState(false)
 
-  // A new document re-reads its headings and starts unfolded (the compact tier
-  // starts folded). Keyed on the open token, not on the text — an edit must
-  // update the rows, never reopen a card the reader closed.
+  // A new open starts over: collapsed, with no section carried over from the
+  // document that was on screen before. The open token is the only signal for
+  // that — the text is not one (a refresh re-reads the same file, a draft
+  // preview changes it on every keystroke) and neither is a re-render.
   useEffect(() => {
-    setListOpen(!startsFolded)
+    setExpanded(false)
     setActive(-1)
-  }, [openToken, startsFolded])
+  }, [openToken])
+
+  useEffect(() => {
+    const target = focusAfterSwap.current
+    if (target === null) return
+    focusAfterSwap.current = null
+    ;(target === 'fold' ? foldRef : openRef).current?.focus({ preventScroll: true })
+  }, [expanded])
 
   const measure = useCallback(() => {
     const box = scrollRef.current
@@ -149,6 +161,16 @@ export function MarkdownPane(props: {
     onDismiss()
   }, [onDismiss])
 
+  const expand = useCallback(() => {
+    focusAfterSwap.current = 'fold'
+    setExpanded(true)
+  }, [])
+
+  const fold = useCallback(() => {
+    focusAfterSwap.current = 'open'
+    setExpanded(false)
+  }, [])
+
   // Keep the current row inside the card: an outline longer than the card is
   // scrollable, and a highlight nobody can see reads as a frozen list. Runs on
   // the row's position inside the list, so the document never scrolls.
@@ -183,12 +205,24 @@ export function MarkdownPane(props: {
       key: 'body', ref: bodyRef, className: 'gp-files__markdown-body',
     }, body)),
     showOutline
-      ? h(TocPanel, {
-        key: 'toc', entries, active, listOpen, listId, t, listRef,
-        onClose: dismiss,
-        onToggleList: () => setListOpen((open) => !open),
-        onGoTo: goTo,
-      })
+      ? (expanded
+        ? h(TocCard, {
+          key: 'toc', entries, active, t, listRef, foldRef,
+          onFold: fold,
+          onClose: dismiss,
+          onGoTo: goTo,
+        })
+        : h('button', {
+          key: 'toc',
+          ref: openRef,
+          type: 'button',
+          className: 'gp-files__toc-open',
+          // The visible text is the panel's name; the label says what the click
+          // does, and names the same thing, so it still reads true when spoken.
+          title: t('files.tocExpand'),
+          'aria-label': t('files.tocExpand'),
+          onClick: expand,
+        }, [h(ListIcon, { key: 'i', size: 12 }), t('files.toc')]))
       : null,
   ])
 }
@@ -206,40 +240,37 @@ function sameOutline(a: readonly TocEntry[], b: readonly TocEntry[]): boolean {
 /**
  * The floating outline card: a header (title plus its two controls) over the
  * row list. The controls are deliberately different magnitudes — the fold
- * shrinks the card to its header, the close takes it off the page entirely and
- * leaves nothing behind.
+ * shrinks the card back into the corner button, the close takes it off the page
+ * entirely and leaves nothing behind.
  */
-function TocPanel(props: {
+function TocCard(props: {
   readonly entries: readonly TocEntry[]
   readonly active: number
-  readonly listOpen: boolean
-  /** Id of the row list, so the fold control names what it shows and hides. */
-  readonly listId: string
   readonly t: Translate
   readonly listRef: RefObject<HTMLElement | null>
+  /** The fold control, so a collapse can hand the keyboard back to the button. */
+  readonly foldRef: RefObject<HTMLButtonElement | null>
+  readonly onFold: () => void
   readonly onClose: () => void
-  readonly onToggleList: () => void
   readonly onGoTo: (index: number) => void
 }): JSX.Element {
-  const { entries, active, listOpen, listId, t, listRef, onClose, onToggleList, onGoTo } = props
+  const { entries, active, t, listRef, foldRef, onFold, onClose, onGoTo } = props
   const label = t('files.toc')
-  const foldLabel = t(listOpen ? 'files.tocCollapse' : 'files.tocExpand')
-  return h('div', { className: `gp-files__toc${listOpen ? '' : ' gp-files__toc--folded'}` }, [
+  return h('div', { className: 'gp-files__toc' }, [
     h('div', { key: 'hd', className: 'gp-files__toc-head' }, [
       h('span', { key: 't', className: 'gp-files__toc-title' }, label),
       h('button', {
-        key: 'c', type: 'button', className: 'gp-files__toc-fold',
-        title: foldLabel, 'aria-label': foldLabel,
-        'aria-expanded': listOpen, 'aria-controls': listId,
-        onClick: onToggleList,
-      }, h(ChevronIcon, { size: 12, open: listOpen })),
+        key: 'f', ref: foldRef, type: 'button', className: 'gp-files__toc-fold',
+        title: t('files.tocCollapse'), 'aria-label': t('files.tocCollapse'),
+        onClick: onFold,
+      }, h(ChevronIcon, { size: 12, open: true })),
       h('button', {
         key: 'x', type: 'button', className: 'gp-files__toc-close',
         title: t('files.tocHide'), 'aria-label': t('files.tocHide'),
         onClick: onClose,
       }, h(CloseIcon, { size: 13 })),
     ]),
-    h('nav', { key: 'list', id: listId, ref: listRef, className: 'gp-files__toc-list', 'aria-label': label },
+    h('nav', { key: 'list', ref: listRef, className: 'gp-files__toc-list', 'aria-label': label },
       entries.map((entry, index) => h('button', {
         // Index only: positions move when an image or a diagram finishes
         // loading, and a keyed-on-offset row would remount (dropping the focus
