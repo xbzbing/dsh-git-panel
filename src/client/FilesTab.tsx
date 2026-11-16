@@ -36,6 +36,7 @@ import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { useHtmlPreview } from './use-html-preview.js'
 import { MermaidFigure } from './MermaidFigure.js'
 import { CodePreview, fileStateOf, renderPreview, type FileState } from './files-preview.js'
+import { MarkdownPane } from './MarkdownPane.js'
 import { renderTree } from './files-tree.js'
 import type { Loaded } from './files-types.js'
 import { wrapCapOk } from './wrap-cap.js'
@@ -480,8 +481,18 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
   }, [remote, sessionId])
 
+  // Bumped on every open — including a second click on the same path — so the
+  // preview can tell "this document was opened again" from "same document, one
+  // more render" (the Markdown outline comes back on a re-open).
+  const [openSeq, setOpenSeq] = useState(0)
+  // The open whose outline the reader closed, if any. Storing the sequence
+  // rather than a flag is what makes re-opening (or opening another file)
+  // restore it for free, and keeps the choice across a remount of the preview
+  // (the source/render switch unmounts it).
+  const [tocClosedAt, setTocClosedAt] = useState<number | null>(null)
   const openFile = useCallback((path: string) => {
     setSelected(path)
+    setOpenSeq((n) => n + 1)
     if (compact) setPane('preview')
     // Rendered view is the default for Markdown; HTML defaults to source so a
     // page never auto-executes on selection — the user opts into the preview.
@@ -883,6 +894,12 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
     ? { id: `${modeId}-${mode}-panel` }
     : { id: `${modeId}-${mode}-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-${mode}` })
   const draftFile: FileState | null = editing && editPreview.text !== null && file.kind === 'text' ? { ...file, content: editPreview.text } : null
+  // One open at a time: closing the outline stamps the current open sequence,
+  // so the next open (any file, or the same one again) mismatches and shows it.
+  const tocState = useMemo(
+    () => ({ hidden: tocClosedAt === openSeq, onDismiss: () => setTocClosedAt(openSeq) }),
+    [tocClosedAt, openSeq],
+  )
   const previewContent = isMarkdownEdit
     ? [
       // The editor stays mounted under the draft preview, so undo history and
@@ -894,7 +911,7 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       h('div', {
         key: 'pv', ...tabPanel('preview'),
         style: editPreview.text === null ? { display: 'none' } : { display: 'contents' },
-      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, t, previewMenu)),
+      }, draftFile === null ? null : renderContent(draftFile, true, wrap, markdownLabels, pathImages, editPreview.segments, undefined, undefined, undefined, openSeq, tocState, compact, t, previewMenu)),
     ]
     : editing
     ? fileEdit.editorNode(wrap, false)
@@ -903,13 +920,13 @@ export function FilesTab({ remote, editBaseRemote, sessionId, compact, stacked, 
       h('div', {
         key: 'src', ...tabPanel('source'),
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, compact, t, previewMenu)),
       h('div', {
         key: 'rnd', ...tabPanel('render'),
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, compact, t, previewMenu) : null),
     ]
-    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t, previewMenu)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, openSeq, tocState, compact, t, previewMenu)
 
   // A heavy document asks in a modal before its frame is mounted: the choice
   // is about a page that can freeze the whole app while it paints, so it must
@@ -1038,6 +1055,13 @@ function renderContent(
   htmlFrame: HtmlFrameSpec | null | undefined,
   htmlHint: { readonly run: () => void } | undefined,
   htmlStop: (() => void) | undefined,
+  // Rendered Markdown only: `openToken` bumps on every file open (so opening a
+  // document again restores an outline the reader dismissed), and
+  // `startsFolded` is the compact tier's header-only start — there the whole
+  // column is the document, so the rows would cover what they index.
+  openToken: number,
+  toc: { readonly hidden: boolean; readonly onDismiss: () => void },
+  startsFolded: boolean,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
   imageMenu?: MenuTriggerHandlers,
 ): JSX.Element {
@@ -1047,16 +1071,20 @@ function renderContent(
   }
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
     const markdownProps = { labels: markdownLabels, variant: 'body' as const, ...(pathImages !== undefined ? { pathImages } : {}) }
+    // The pane owns the floating outline; the document keeps its two boxes
+    // (scrollport + inset body) so a sticky code banner still sticks flush.
+    const pane = (body: JSX.Element | JSX.Element[]): JSX.Element => h(MarkdownPane, {
+      body, source: file.content, openToken, hidden: toc.hidden, onDismiss: toc.onDismiss, startsFolded, t,
+    })
     if (markdownSegments.length === 1 && markdownSegments[0].kind === 'markdown') {
-      return h('div', { className: 'gp-files__markdown' }, h('div', { className: 'gp-files__markdown-body' }, h(MarkdownText, { text: markdownSegments[0].text, ...markdownProps })))
+      return pane(h(MarkdownText, { text: markdownSegments[0].text, ...markdownProps }))
     }
     // Mermaid fences render through the lazy engine chunk; every other
     // segment stays on the official MarkdownText, in document order, with
     // kbd hints already rewritten (see the memoized markdownSegments).
-    return h('div', { className: 'gp-files__markdown' }, h('div', { className: 'gp-files__markdown-body' },
-      markdownSegments.map((segment, index) => segment.kind === 'mermaid'
-        ? h(MermaidFigure, { key: index, source: segment.source, t })
-        : h(MarkdownText, { key: index, text: segment.text, ...markdownProps }))))
+    return pane(markdownSegments.map((segment, index) => segment.kind === 'mermaid'
+      ? h(MermaidFigure, { key: index, source: segment.source, t })
+      : h(MarkdownText, { key: index, text: segment.text, ...markdownProps })))
   }
   if (file.kind === 'text' && htmlFrame !== undefined) {
     // The pack is in flight: hold the source preview instead of flashing an

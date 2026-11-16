@@ -126,8 +126,51 @@ export const CSS = `
  * A sticky child (the platform's code-block banner) sticks to the scrollport's
  * CONTENT edge, so padding on the scroll container would leave a band above the
  * stuck banner that scrolling code shows through. */
-.gp-files__markdown{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.gp-files__markdown{position:relative;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+/* Focus target for a dismissed outline (tabIndex -1): a script-focus after a
+ * click shows no ring, a keyboard close lands here with a visible one. */
+.gp-files__markdown:focus{outline:none}
+.gp-files__markdown:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-files__markdown-body{padding:16px 24px;color:var(--dsw-alias-label-primary)}
+/* Rendered-Markdown pane: the scroll box plus the reader's floating outline.
+ * The wrap is the positioning context (the outline is absolute inside it) and
+ * passes its height through, so the document keeps the whole column and the
+ * outline covers a corner of it instead of shrinking the reading measure.
+ *
+ * z-index 8 is deliberate: the platform's code-block banner is
+ * position:sticky, top:0, z-index 6 and the sticky in-document headings are 1,
+ * so anything at 5 or below scrolls OVER the outline's rows. It still stays
+ * under the panel's own popovers (root menu 40, tips 60+), which must keep
+ * covering the document they open over. */
+.gp-files__mdwrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+.gp-files__toc{position:absolute;top:8px;right:8px;z-index:8;display:flex;flex-direction:column;width:min(220px,58%);max-height:calc(100% - 16px);padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 8px 24px rgba(0,0,0,.14),0 1px 3px rgba(0,0,0,.08)}
+.gp-files__toc-head{flex:none;display:flex;align-items:center;gap:4px;padding:1px 2px 3px 6px}
+.gp-files__toc-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:600;color:var(--dsw-alias-label-tertiary)}
+.gp-files__toc-close,.gp-files__toc-fold{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.gp-files__toc-fold:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-files__toc-fold:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-files__toc-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-files__toc-close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-files__toc-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column}
+/* Folded: the card keeps its header (and the button that unfolds it) but the
+ * rows are gone, so it stops covering the text below its corner. */
+.gp-files__toc--folded .gp-files__toc-list{display:none}
+/* flex:none is load-bearing: the list is a flex column, so a shrinkable row
+ * would compress instead of overflowing — an outline longer than the card
+ * would squeeze every row into unreadable slivers rather than scroll. */
+.gp-files__toc-item{flex:none;display:block;width:100%;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:17px;padding:3px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;cursor:pointer}
+.gp-files__toc-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-files__toc-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-files__toc-item--active{color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover)}
+/* Closing the card leaves nothing behind — no pill, no placeholder. The
+ * document scrolls bare until the file is opened again, which remounts the
+ * outline (see MarkdownPane's openToken). */
+/* Touch: the outline's controls take the same 34px box as the panel's other
+ * icon buttons, and its rows grow to a 36px line. */
+@media (hover:none){
+  .gp-files__toc-close,.gp-files__toc-fold{width:34px;height:34px}
+  .gp-files__toc-item{padding-top:9px;padding-bottom:9px}
+}
 /* Mermaid figures: the SVG centers and never overflows the pane width; a
  * parse/load failure falls back to the source as a plain code block. */
 .gp-mermaid{overflow-x:auto;padding:4px 0}
