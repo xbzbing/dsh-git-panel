@@ -50,6 +50,8 @@
 - 使用 dsh 主题变量，不硬编码颜色；布局判定、断点和三档规则以 ADR-0023 与 `panel-fit.ts` 为准。手机判定必须同时满足 `(pointer: coarse)`；只有 `isCramped` 才隐藏内容。
 - `repoSwitching` 时不要自动夹取页签或回落到 files-only；选中页签同时加入 `visited`。带 `aria-controls` 的控件必须渲染对应 `role="tabpanel"`。
 - 弹窗统一复用 `ops-modals.tsx` 和 `dialog-focus.ts`；每个浮层声明 `data-gp-overlay`，在途操作禁用 Escape / backdrop。
+- 全屏阅读器（`.gp-files__preview--full`）原地换样式，不 portal、不重挂；尺寸只在 `layout.ts` 的一条声明里算，改地板会同时改小窗表现（e2e 钉住两档具体数字，改公式要一起改）。
+- Markdown 悬浮目录：条目读渲染后的 DOM（平台若不再输出 `h1…h6` 会静默空掉，`files-markdown-toc` 就是那个报警器）；`markdown-toc.ts` 只放无 DOM 的纯逻辑。关闭状态由 `FilesTab` 按 `openSeq` 记（`tocClosedAt`），所以只有「再打开一次文件」能恢复，refresh、重渲染、源码/渲染切换都不行——**不要把它挪回 `MarkdownPane` 的局部 state**，切视图会重挂组件、把关闭撤销掉；也不要用文本变化做重置信号，编辑草稿每敲一个字都会换文本。z-index 必须高于平台吸顶条（6）而低于面板浮层（40+）。
 - 长列表使用 `virtual-list.ts` + `use-viewport.ts`；memo props 不在 render 中新建对象；高亮使用 `highlight-cache.ts`。
 - row slider 是唯一选中底色：宿主滚动容器必须 `position: relative`，行的 active 状态只改文字色；虚拟窗口和字号 zoom 必须纳入量测。详见 `test/e2e/row-slider.mjs`。
 - 右键菜单的目标值在手势时捕获（thunk），owner 解析前必须复核 sessionId / repo / browse root（仓库行自带检出，只要求 root 非空）；菜单项不改选中与 row slider；破坏性项只打开既有确认框；菜单打开期间不显示指针锚定的浮层（提交 hover 卡片先收起，再由 `contextMenus.active` 门控）。详见 ADR-0028。
