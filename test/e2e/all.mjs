@@ -41,6 +41,10 @@ const RUNNERS = [
   // re-break either.
   'history-time-column',
   'branch-status-review', 'files-tree-review', 'files-refresh',
+  // Rendered Markdown: the reader's floating outline (read off the document,
+  // floating over it, current-section tracking, put-away / bring-back) and the
+  // reader card's viewport-relative size.
+  'files-markdown-toc',
   // File browser package mode: projected source roots and folded package
   // chains, and the `packages` flag the client sends with each listing.
   'files-package-tree',

@@ -86,6 +86,32 @@ test('the module boundaries are the declared ones, with no overlap or gap', () =
   assert.equal(at, STYLESHEET.length, 'the parts must cover the whole sheet')
 })
 
+test('the assembled sheet is syntactically closed: comments and blocks balance', () => {
+  // A comment opener typed as `/ *`, or a comment left unclosed, does not throw:
+  // the CSS parser skips from the bad token to the next `*/` — or to the end of
+  // the sheet — and every rule after it silently stops existing. The per-module
+  // checks above cannot see that (the literal is still intact), and a geometry
+  // assertion only notices if it happens to measure a swallowed rule. So the
+  // sheet is walked the way the parser walks it.
+  assert.equal(STYLESHEET.includes('/ *'), false, 'no comment opener with a space in it')
+  let inComment = false
+  let depth = 0
+  for (let i = 0; i < STYLESHEET.length; i++) {
+    const pair = STYLESHEET.slice(i, i + 2)
+    if (!inComment && pair === '/*') { inComment = true; i += 1; continue }
+    if (inComment && pair === '*/') { inComment = false; i += 1; continue }
+    if (inComment) continue
+    const char = STYLESHEET[i]
+    if (char === '{') depth += 1
+    else if (char === '}') {
+      depth -= 1
+      assert.ok(depth >= 0, `a closing brace at offset ${i} has no opener`)
+    }
+  }
+  assert.equal(inComment, false, 'every comment opener has its closer')
+  assert.equal(depth, 0, 'every rule block is closed')
+})
+
 test('a module cannot silently swallow another (each part appears once)', () => {
   for (const [name, part] of CSS_PARTS) {
     const needle = part.trim()

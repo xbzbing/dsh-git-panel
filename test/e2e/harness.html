@@ -72,9 +72,47 @@
           }) : undefined;
         }, [language]);
       },
+      // The stub renders a CommonMark subset rather than one lump of text: ATX
+      // headings become real h1..h6 (the reader's floating outline reads the
+      // document's headings off the DOM, so a stub that flattened them would
+      // hide the whole feature), fenced code becomes a <pre>, and the rest
+      // keeps its words in paragraphs so surrounding copy stays assertable.
       MarkdownText: function ({ text }) {
-        return window.React.createElement('article', { 'data-markdown-rendered': '' },
-          window.React.createElement('h1', null, text.replace(/^#\s*/, '').trim()));
+        var react = window.React;
+        var lines = String(text === undefined || text === null ? '' : text).split('\n');
+        var nodes = [];
+        var fence = null;
+        var para = [];
+        var flushPara = function () {
+          if (para.length === 0) return;
+          nodes.push(react.createElement('p', { key: 'p' + nodes.length }, para.join(' ')));
+          para = [];
+        };
+        var flushFence = function () {
+          nodes.push(react.createElement('pre', { key: 'c' + nodes.length },
+            react.createElement('code', null, fence.join('\n'))));
+          fence = null;
+        };
+        for (var i = 0; i < lines.length; i += 1) {
+          var line = lines[i];
+          var marker = /^\s*(```|~~~)/.test(line);
+          if (fence !== null) {
+            if (marker) flushFence(); else fence.push(line);
+            continue;
+          }
+          if (marker) { flushPara(); fence = []; continue; }
+          var heading = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+          if (heading !== null) {
+            flushPara();
+            nodes.push(react.createElement('h' + heading[1].length, { key: 'h' + nodes.length }, heading[2]));
+            continue;
+          }
+          if (line.trim() === '') { flushPara(); continue; }
+          para.push(line.trim());
+        }
+        flushPara();
+        if (fence !== null) flushFence();
+        return react.createElement('article', { 'data-markdown-rendered': '' }, nodes);
       },
       // Official dsh Menu: a controlled anchored dropdown. The stub keeps the
       // observable contract the plugin relies on — a role="menu" surface with
