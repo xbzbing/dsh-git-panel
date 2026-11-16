@@ -2,11 +2,12 @@
  * Rendered Markdown: the reader's floating outline, and the reader card's size.
  *
  * Locks the two things a Markdown document now carries:
- *  - the outline is read off the rendered document, floats in the document's
- *    top-right corner without narrowing the reading column, marks the section
- *    the reader is in while scrolling, jumps to a section when a row is
- *    picked, and can be put away — with the pill that brings it back, because
- *    hiding it must not be a one-way door for the file;
+ *  - the outline is read off the rendered document. It starts collapsed into a
+ *    button in the document's top-right corner; the button opens a card that
+ *    floats there without narrowing the reading column, marks the section the
+ *    reader is in while scrolling, jumps to a section when a row is picked, and
+ *    folds back into the button or closes outright — closing leaves nothing
+ *    behind, and only opening the file again brings the button back;
  *  - a document with nothing to navigate gets no outline at all;
  *  - the reader card grows with a big screen instead of sitting at the size it
  *    shipped with, and still fits inside a small one.
@@ -188,7 +189,97 @@ await boot(page)
 await openFiles(page)
 await selectFile(page, 'README.md', 'Panel guide')
 
-// ── The outline lists the document's sections, in document order ───────────
+// The platform's code banner is position:sticky, top:0, z-index 6; at the
+// outline's old z-index the banner scrolled over its rows (and would scroll
+// over the collapsed button in the same corner). The probe below is the
+// platform's own shape (sticky at 6, full content width), so a hit test at a
+// point both cover reports whichever actually paints on top.
+const bannerHit = async (selector) => page.evaluate(async (sel) => {
+  const body = document.querySelector('.gp-files__markdown-body')
+  const box = document.querySelector('.gp-files__markdown')
+  const probe = document.createElement('div')
+  probe.setAttribute('data-sticky-probe', '')
+  probe.style.cssText = 'position:sticky;top:0;z-index:6;height:30px;background:#fff;border-bottom:1px solid #ccc'
+  probe.textContent = 'probe-banner'
+  body.insertBefore(probe, body.firstChild)
+  box.scrollTop = 260
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+  const el = document.querySelector(sel)
+  const elBox = el.getBoundingClientRect()
+  const bannerBox = probe.getBoundingClientRect()
+  const hit = document.elementFromPoint(
+    Math.round(elBox.left + elBox.width / 2),
+    Math.round(bannerBox.top + bannerBox.height / 2),
+  )
+  const out = {
+    elZ: Number(getComputedStyle(el).zIndex),
+    bannerZ: Number(getComputedStyle(probe).zIndex),
+    bannerStuck: Math.round(bannerBox.top - box.getBoundingClientRect().top),
+    overlaps: bannerBox.bottom > elBox.top && bannerBox.top < elBox.bottom,
+    // DOCUMENT_POSITION over the point, not just "an element": the hit must be
+    // the outline's own control or something inside it.
+    hitInsideOutline: !!(hit && hit.closest('.gp-files__toc-open, .gp-files__toc')),
+  }
+  probe.remove()
+  box.scrollTop = 0
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+  return out
+}, selector)
+
+// ── It starts collapsed into a button in the corner ────────────────────────
+// The reader opened a document to read it: until they ask, the outline takes
+// one button in the corner and nothing else.
+const collapsed = await page.evaluate(() => {
+  const button = document.querySelector('.gp-files__toc-open')
+  const wrap = document.querySelector('.gp-files__mdwrap')
+  const box = document.querySelector('.gp-files__markdown')
+  const buttonBox = button?.getBoundingClientRect()
+  const wrapBox = wrap?.getBoundingClientRect()
+  const boxBox = box?.getBoundingClientRect()
+  return {
+    hasButton: button !== null,
+    hasCard: document.querySelector('.gp-files__toc') !== null,
+    rows: document.querySelectorAll('.gp-files__toc-item').length,
+    text: (button?.textContent || '').trim(),
+    label: button?.getAttribute('aria-label'),
+    title: button?.getAttribute('title'),
+    name: window.__t('files.toc'),
+    action: window.__t('files.tocExpand'),
+    position: button === null ? null : getComputedStyle(button).position,
+    insideWrap: !!(wrap && button && wrap.contains(button)),
+    topGap: buttonBox && wrapBox ? Math.round(buttonBox.top - wrapBox.top) : null,
+    rightGap: buttonBox && wrapBox ? Math.round(wrapBox.right - buttonBox.right) : null,
+    // A button, not a card: it is only as big as its own label.
+    buttonSize: buttonBox ? { width: Math.round(buttonBox.width), height: Math.round(buttonBox.height) } : null,
+    columnKeptFullWidth: !!(boxBox && wrapBox) && Math.round(boxBox.width) === Math.round(wrapBox.width),
+  }
+})
+assert.equal(collapsed.hasButton, true, 'a document with several sections gets the outline button')
+assert.equal(collapsed.hasCard, false, 'and starts collapsed: no card covers the document')
+assert.equal(collapsed.rows, 0, 'no rows are rendered until it is opened')
+assert.equal(collapsed.text, collapsed.name, 'the button is the outline by name')
+assert.equal(collapsed.label, collapsed.action, 'its label names what clicking it does')
+assert.equal(collapsed.title, collapsed.action, 'and hovering it says the same')
+assert.equal(collapsed.position, 'absolute', 'it floats over the document rather than taking a column')
+assert.equal(collapsed.insideWrap, true, 'it belongs to the document pane, so it leaves with it')
+assert.equal(collapsed.topGap, 8, 'it sits 8px below the pane top')
+assert.equal(collapsed.rightGap, 13, 'and 13px in from the right edge — clear of the scrollbar')
+assert.ok(collapsed.buttonSize !== null && collapsed.buttonSize.width < 100 && collapsed.buttonSize.height <= 30,
+  `the collapsed outline is a button, not a card (${JSON.stringify(collapsed.buttonSize)})`)
+assert.equal(collapsed.columnKeptFullWidth, true, 'the document keeps the full column width')
+
+const buttonStacking = await bannerHit('.gp-files__toc-open')
+assert.equal(buttonStacking.bannerStuck, 0, 'the probe really sticks to the top of the scroll box')
+assert.equal(buttonStacking.overlaps, true, 'the stuck banner and the button share screen space')
+assert.ok(buttonStacking.elZ > buttonStacking.bannerZ,
+  `the collapsed button paints above the code banner (${buttonStacking.elZ} vs ${buttonStacking.bannerZ})`)
+assert.equal(buttonStacking.hitInsideOutline, true, 'a point both cover belongs to the button, not the banner')
+
+// ── Clicking it opens the card, which lists the sections ───────────────────
+await page.evaluate(async () => {
+  document.querySelector('.gp-files__toc-open')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+})
 const outline = await page.evaluate(() => {
   const card = document.querySelector('.gp-files__toc')
   const wrap = document.querySelector('.gp-files__mdwrap')
@@ -199,24 +290,29 @@ const outline = await page.evaluate(() => {
   const boxBox = box?.getBoundingClientRect()
   return {
     hasCard: card !== null,
-    closed: card?.classList.contains('gp-files__toc--closed') ?? null,
+    buttonGone: document.querySelector('.gp-files__toc-open') === null,
     labels: rows.map((r) => (r.textContent || '').trim()),
     // Indent is the nesting the outline draws for h1 / h2 / h3.
     indents: rows.map((r) => parseInt(getComputedStyle(r).paddingLeft, 10)),
     position: card === null ? null : getComputedStyle(card).position,
     zIndex: card === null ? null : getComputedStyle(card).zIndex,
     insideWrap: !!(wrap && card && wrap.contains(card)),
-    // The card floats in the top-right corner of the document's box.
+    // The card floats in the top-right corner of the document's box, where the
+    // button was: opening it moves nothing.
     topGap: cardBox && wrapBox ? Math.round(cardBox.top - wrapBox.top) : null,
     rightGap: cardBox && wrapBox ? Math.round(wrapBox.right - cardBox.right) : null,
+    // The card's own width (content box): its 5px padding and 1px border are
+    // chrome around it, not the measure this test is about.
+    width: card === null ? null : Math.round(parseFloat(getComputedStyle(card).width)),
+    wrapWidth: wrapBox ? Math.round(wrapBox.width) : null,
     // The reading column is untouched: the outline covers a corner instead of
     // taking a column of its own.
     columnKeptFullWidth: !!(boxBox && wrapBox) && Math.round(boxBox.width) === Math.round(wrapBox.width),
     scrollable: box ? box.scrollHeight > box.clientHeight : false,
   }
 })
-assert.equal(outline.hasCard, true, 'a document with several sections gets an outline')
-assert.equal(outline.closed, false, 'the wide tier opens it')
+assert.equal(outline.hasCard, true, 'clicking the button opens the outline card')
+assert.equal(outline.buttonGone, true, 'and the button gives way to it')
 assert.deepEqual(outline.labels, ['Panel guide', 'Install', 'Usage', 'Keyboard', 'Security', 'Troubleshooting'],
   'every heading, in document order, with its own label')
 assert.deepEqual(outline.indents, [8, 18, 18, 28, 18, 18],
@@ -224,10 +320,41 @@ assert.deepEqual(outline.indents, [8, 18, 18, 28, 18, 18],
 assert.equal(outline.position, 'absolute', 'the outline floats over the document rather than being laid out beside it')
 assert.notEqual(outline.zIndex, 'auto', 'it paints above the text it covers')
 assert.equal(outline.insideWrap, true, 'it belongs to the document pane, so it leaves with it')
-assert.equal(outline.topGap, 8, 'it sits 8px below the pane top')
-assert.equal(outline.rightGap, 8, 'and 8px in from the right edge')
+assert.equal(outline.topGap, 8, 'it opens over the corner the button sat in')
+assert.equal(outline.rightGap, 13, '13px in from the right edge, the same corner the button sat in')
+// 142px / 35% is 60% of the card this shipped with (220px / 58%) plus a
+// nudge: a pointer, not a reading column.
+assert.equal(outline.width, 142, `the open card is about 60% of its old width (${outline.width}px)`)
+assert.ok(outline.wrapWidth * 0.35 > 142, 'the px branch of min() is the one in play here')
 assert.equal(outline.columnKeptFullWidth, true, 'the document keeps the full column width')
 assert.equal(outline.scrollable, true, 'fixture is long enough to scroll')
+
+// ── A narrower column opens a narrower card ───────────────────────────────
+// The 142px cap is the wide case; below ~406px of column the 35% takes over, so
+// the card never eats a third of the text it floats over. The column is pinned
+// here rather than chased through layout tiers: this is the rule, not the tier.
+const narrow = await page.evaluate(async () => {
+  const wrap = document.querySelector('.gp-files__mdwrap')
+  const card = document.querySelector('.gp-files__toc')
+  const style = wrap.getAttribute('style')
+  wrap.style.width = '300px'
+  wrap.style.flex = 'none'
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+  const wrapBox = wrap.getBoundingClientRect()
+  const cardBox = card.getBoundingClientRect()
+  const out = {
+    width: Math.round(parseFloat(getComputedStyle(card).width)),
+    wrapWidth: Math.round(wrapBox.width),
+    insideColumn: cardBox.right <= wrapBox.right + 1,
+  }
+  if (style === null) wrap.removeAttribute('style')
+  else wrap.setAttribute('style', style)
+  return out
+})
+assert.equal(narrow.width, Math.round(narrow.wrapWidth * 0.35),
+  `a 300px column opens the card at 35% of it (${narrow.width} of ${narrow.wrapWidth}px)`)
+assert.ok(narrow.width < 142, 'which is narrower than the cap')
+assert.equal(narrow.insideColumn, true, 'and it stays inside the column')
 
 // ── Picking a row jumps to its heading and marks the section ───────────────
 const jump = await page.evaluate(async () => {
@@ -277,52 +404,18 @@ assert.deepEqual(spy.top, ['Panel guide'], 'at the start of the document the fir
 assert.deepEqual(spy.usage, ['Usage'], 'scrolling to a heading makes its row current')
 assert.deepEqual(spy.bottom, ['Troubleshooting'], 'at the end of the document the last section is current')
 
-// ── The outline paints above a stuck code-block banner ────────────────────
-// The platform's code banner is position:sticky, top:0, z-index 6; at the
-// outline's old z-index the banner scrolled over its rows. The probe below is
-// the platform's own shape (sticky at 6, full content width), so a hit test at
-// a point both cover reports whichever actually paints on top.
-const stacking = await page.evaluate(async () => {
-  const body = document.querySelector('.gp-files__markdown-body')
-  const box = document.querySelector('.gp-files__markdown')
-  const probe = document.createElement('div')
-  probe.setAttribute('data-sticky-probe', '')
-  probe.style.cssText = 'position:sticky;top:0;z-index:6;height:30px;background:#fff;border-bottom:1px solid #ccc'
-  probe.textContent = 'probe-banner'
-  body.insertBefore(probe, body.firstChild)
-  box.scrollTop = 260
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
-  const card = document.querySelector('.gp-files__toc')
-  const row = document.querySelector('.gp-files__toc-item')
-  const cardBox = card.getBoundingClientRect()
-  const bannerBox = probe.getBoundingClientRect()
-  const point = {
-    x: Math.round(cardBox.left + cardBox.width / 2),
-    y: Math.round(bannerBox.top + bannerBox.height / 2),
-  }
-  const hit = document.elementFromPoint(point.x, point.y)
-  const out = {
-    tocZ: Number(getComputedStyle(card).zIndex),
-    bannerZ: Number(getComputedStyle(probe).zIndex),
-    bannerStuck: Math.round(bannerBox.top - box.getBoundingClientRect().top),
-    overlaps: bannerBox.bottom > cardBox.top && bannerBox.top < cardBox.bottom,
-    // DOCUMENT_POSITION over the point, not just "an element": the hit must be
-    // the outline's card or something inside it.
-    hitInsideOutline: !!(hit && hit.closest('.gp-files__toc')),
-    firstRowBox: row ? { top: Math.round(row.getBoundingClientRect().top) } : null,
-  }
-  probe.remove()
-  box.scrollTop = 0
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
-  return out
-})
-assert.equal(stacking.bannerStuck, 0, 'the probe really sticks to the top of the scroll box')
-assert.equal(stacking.overlaps, true, 'the stuck banner and the outline share screen space')
-assert.ok(stacking.tocZ > stacking.bannerZ,
-  `the outline paints above the code banner (${stacking.tocZ} vs ${stacking.bannerZ})`)
-assert.equal(stacking.hitInsideOutline, true, 'a point both cover belongs to the outline, not the banner')
+// ── The open card paints above a stuck code-block banner too ──────────────
+const cardStacking = await bannerHit('.gp-files__toc')
+assert.equal(cardStacking.bannerStuck, 0, 'the probe really sticks to the top of the scroll box')
+assert.equal(cardStacking.overlaps, true, 'the stuck banner and the card share screen space')
+assert.ok(cardStacking.elZ > cardStacking.bannerZ,
+  `the card paints above the code banner (${cardStacking.elZ} vs ${cardStacking.bannerZ})`)
+assert.equal(cardStacking.hitInsideOutline, true, 'a point both cover belongs to the card, not the banner')
 
-// ── The header fold: rows away, header (and both controls) kept ───────────
+// ── Folding puts the button back in the corner ────────────────────────────
+// Two magnitudes on purpose: the fold gives back the card's place as a button,
+// the close takes the outline off the page. Neither is a one-way door for the
+// file, but only one of them leaves something to come back to in place.
 const fold = await page.evaluate(async () => {
   const head = document.querySelector('.gp-files__toc-head')
   const foldBtn = document.querySelector('.gp-files__toc-fold')
@@ -335,49 +428,43 @@ const fold = await page.evaluate(async () => {
     inHeader: !!(head && foldBtn && head.contains(foldBtn)),
     leftOfClose: !!(foldBox && closeBox) && foldBox.right <= closeBox.left + 1,
     sameRow: !!(foldBox && closeBox) && Math.abs((foldBox.top + foldBox.height / 2) - (closeBox.top + closeBox.height / 2)) <= 2,
-    expanded: foldBtn?.getAttribute('aria-expanded'),
-    controls: foldBtn?.getAttribute('aria-controls'),
-    controlsResolve: !!(foldBtn && document.getElementById(foldBtn.getAttribute('aria-controls') || '') === list),
-    rowsShown: list ? getComputedStyle(list).display !== 'none' && list.querySelectorAll('.gp-files__toc-item').length : 0,
+    rows: list ? list.querySelectorAll('.gp-files__toc-item').length : 0,
+    label: foldBtn?.getAttribute('aria-label'),
+    expectedLabel: window.__t('files.tocCollapse'),
   }
   foldBtn?.click()
-  await new Promise((r) => setTimeout(r, 120))
+  await new Promise((r) => setTimeout(r, 150))
   const folded = {
-    classed: document.querySelector('.gp-files__toc')?.classList.contains('gp-files__toc--folded'),
-    rowsHidden: getComputedStyle(document.querySelector('.gp-files__toc-list')).display === 'none',
-    headerKept: document.querySelector('.gp-files__toc-head') !== null,
-    titleKept: (document.querySelector('.gp-files__toc-title')?.textContent || '') !== '',
-    bothControlsKept: document.querySelector('.gp-files__toc-fold') !== null && document.querySelector('.gp-files__toc-close') !== null,
-    expanded: document.querySelector('.gp-files__toc-fold')?.getAttribute('aria-expanded'),
-    label: document.querySelector('.gp-files__toc-fold')?.getAttribute('aria-label'),
+    cardGone: document.querySelector('.gp-files__toc') === null,
+    buttonBack: document.querySelector('.gp-files__toc-open') !== null,
+    rows: document.querySelectorAll('.gp-files__toc-item').length,
+    // The keyboard was on the control the click removed: the focus has to move
+    // to the one that took its place, not fall back to <body>.
+    focusOnButton: document.activeElement?.classList.contains('gp-files__toc-open') ?? false,
     documentKept: document.querySelector('[data-markdown-rendered]') !== null,
   }
-  document.querySelector('.gp-files__toc-fold')?.click()
-  await new Promise((r) => setTimeout(r, 120))
-  const unfolded = {
-    classed: document.querySelector('.gp-files__toc')?.classList.contains('gp-files__toc--folded'),
+  document.querySelector('.gp-files__toc-open')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  const reopened = {
+    card: document.querySelector('.gp-files__toc') !== null,
     rows: document.querySelectorAll('.gp-files__toc-item').length,
-    expanded: document.querySelector('.gp-files__toc-fold')?.getAttribute('aria-expanded'),
+    focusOnFold: document.activeElement?.classList.contains('gp-files__toc-fold') ?? false,
   }
-  return { before, folded, unfolded }
+  return { before, folded, reopened }
 })
 assert.equal(fold.before.inHeader, true, 'the fold control lives in the outline header')
 assert.equal(fold.before.leftOfClose, true, 'and stands immediately left of the close control')
 assert.equal(fold.before.sameRow, true, 'both controls share the header row')
-assert.equal(fold.before.expanded, 'true', 'the fold control reports the rows as shown')
-assert.equal(fold.before.controlsResolve, true, 'its aria-controls names the row list that exists')
-assert.equal(fold.before.rowsShown, 6, 'the rows are listed before folding')
-assert.equal(fold.folded.classed, true, 'folding marks the card as folded')
-assert.equal(fold.folded.rowsHidden, true, 'the rows are gone')
-assert.equal(fold.folded.headerKept, true, 'the header stays, so the card can be unfolded from it')
-assert.equal(fold.folded.titleKept, true, 'with its title')
-assert.equal(fold.folded.bothControlsKept, true, 'and both header controls')
-assert.equal(fold.folded.expanded, 'false', 'the fold control now reports the rows as hidden')
-assert.equal(fold.folded.label !== '', true, 'and names what clicking it does')
+assert.equal(fold.before.rows, 6, 'the rows are listed before folding')
+assert.equal(fold.before.label, fold.before.expectedLabel, 'the fold control names what clicking it does')
+assert.equal(fold.folded.cardGone, true, 'folding takes the card off the page')
+assert.equal(fold.folded.buttonBack, true, 'and puts the button back in its corner')
+assert.equal(fold.folded.rows, 0, 'with no rows left behind')
+assert.equal(fold.folded.focusOnButton, true, 'focus follows the control instead of falling back to the body')
 assert.equal(fold.folded.documentKept, true, 'the document is untouched by folding')
-assert.equal(fold.unfolded.classed, false, 'clicking again unfolds the card')
-assert.equal(fold.unfolded.rows, 6, 'and the same rows come back')
-assert.equal(fold.unfolded.expanded, 'true', 'with the control reporting them as shown again')
+assert.equal(fold.reopened.card, true, 'clicking the button opens the card again')
+assert.equal(fold.reopened.rows, 6, 'with the same rows')
+assert.equal(fold.reopened.focusOnFold, true, 'and the focus moves into the card it opened')
 
 // ── A layout shift re-measures the rows' offsets ──────────────────────────
 // The outline stores each heading's offset. Anything that grows above them —
@@ -414,8 +501,9 @@ const close = await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 150))
   return {
     cardGone: document.querySelector('.gp-files__toc') === null,
+    buttonGone: document.querySelector('.gp-files__toc-open') === null,
     // Nothing is left behind in the corner: the pane holds the document and
-    // nothing else — no pill, no placeholder, no empty floating box.
+    // nothing else — no button, no placeholder, no empty floating box.
     onlyDocumentLeft: wrap !== null && wrap.children.length === 1
       && wrap.firstElementChild?.classList.contains('gp-files__markdown') === true,
     // A second render would replace this node; an equal reference proves the
@@ -427,7 +515,8 @@ const close = await page.evaluate(async () => {
     rows: document.querySelectorAll('.gp-files__toc-item').length,
   }
 })
-assert.equal(close.cardGone, true, 'closing removes the outline entirely')
+assert.equal(close.cardGone, true, 'closing removes the outline card')
+assert.equal(close.buttonGone, true, 'and the corner button with it — nothing is left behind')
 assert.equal(close.onlyDocumentLeft, true, 'and leaves nothing of it in the pane')
 assert.equal(close.docKept, true, 'the document is not re-rendered by the dismissal')
 assert.equal(close.rendered, true, 'and stays on screen, bare')
@@ -445,10 +534,12 @@ const afterRefresh = await page.evaluate(async () => {
   return {
     bodyText: document.querySelector('.gp-files__markdown-body')?.textContent ?? '',
     toc: document.querySelector('.gp-files__toc') !== null,
+    button: document.querySelector('.gp-files__toc-open') !== null,
   }
 })
 assert.ok(afterRefresh.bodyText.includes('refreshed'), 'the refresh actually replaced the rendered document')
 assert.equal(afterRefresh.toc, false, 'a re-read does not resurrect a closed outline')
+assert.equal(afterRefresh.button, false, 'not even as the button')
 
 // The source/render switch unmounts the pane. The closure is owned by the tab
 // (keyed to the open it was made in), so coming back to the rendered view does
@@ -458,65 +549,86 @@ const afterModes = await page.evaluate(async () => {
     .find((b) => (b.textContent || '').trim() === window.__t(key))
   mode('files.source')?.click()
   await new Promise((r) => setTimeout(r, 150))
-  const inSource = document.querySelector('.gp-files__toc') !== null
+  const inSource = document.querySelector('.gp-files__toc, .gp-files__toc-open') !== null
   mode('files.render')?.click()
   await new Promise((r) => setTimeout(r, 200))
-  return { inSource, backInRender: document.querySelector('.gp-files__toc') !== null }
+  return { inSource, backInRender: document.querySelector('.gp-files__toc, .gp-files__toc-open') !== null }
 })
 assert.equal(afterModes.inSource, false, 'the source view carries no outline')
 assert.equal(afterModes.backInRender, false, 'and switching back to the rendered view does not undo the close')
 
 // The same file opened again restores it — the dismissal belongs to the
-// reading that ended, not to the file.
+// reading that ended, not to the file — and it starts collapsed again, the way
+// a freshly opened document does.
 await selectFile(page, 'README.md', 'Panel guide')
 const reopened = await page.evaluate(() => ({
   card: document.querySelector('.gp-files__toc') !== null,
+  button: document.querySelector('.gp-files__toc-open') !== null,
   rows: document.querySelectorAll('.gp-files__toc-item').length,
-  expanded: document.querySelector('.gp-files__toc-fold')?.getAttribute('aria-expanded'),
 }))
-assert.equal(reopened.card, true, 'opening the file again restores the outline')
-assert.equal(reopened.rows, 6, 'with the same rows')
-assert.equal(reopened.expanded, 'true', 'expanded, in the wide tier')
+assert.equal(reopened.button, true, 'opening the file again restores the outline')
+assert.equal(reopened.card, false, 'collapsed to its button, not left open')
+assert.equal(reopened.rows, 0, 'so no rows are rendered yet')
 
 // Closing again, then leaving and coming back through another file: also back.
 await page.evaluate(async () => {
+  document.querySelector('.gp-files__toc-open')?.click()
+  await new Promise((r) => setTimeout(r, 120))
   document.querySelector('.gp-files__toc-close')?.click()
   await new Promise((r) => setTimeout(r, 120))
 })
 await selectFile(page, 'one.md', 'Only section')
 await selectFile(page, 'README.md', 'Panel guide')
-const afterRoundTrip = await page.evaluate(() => document.querySelector('.gp-files__toc') !== null)
+const afterRoundTrip = await page.evaluate(() => document.querySelector('.gp-files__toc-open') !== null)
 assert.equal(afterRoundTrip, true, 'switching files and coming back also restores it')
 
 // ── A document with one heading has nothing to navigate ────────────────────
 await selectFile(page, 'one.md', 'Only section')
 const single = await page.evaluate(() => ({
   card: document.querySelector('.gp-files__toc') !== null,
-  pill: document.querySelector('.gp-files__toc-open') !== null,
+  button: document.querySelector('.gp-files__toc-open') !== null,
   rendered: document.querySelector('[data-markdown-rendered]') !== null,
 }))
 assert.equal(single.rendered, true, 'the document still renders')
 assert.equal(single.card, false, 'one section gets no outline card')
-assert.equal(single.pill, false, 'and no pill either — there is nothing to open')
+assert.equal(single.button, false, 'and no button either — there is nothing to open')
 
-// ── The compact tier starts the outline closed ─────────────────────────────
-await selectFile(page, 'README.md', 'Panel guide')
+// ── The narrow tier works the same way ────────────────────────────────────
+// Same default (one button), and the card it opens is narrower still: below
+// ~406px of document column the 35% branch of min() takes over from the 142px
+// cap.
 await page.evaluate(async () => {
   document.getElementById('panel').style.width = '480px'
   await new Promise((r) => setTimeout(r, 250))
 })
 await selectFile(page, 'README.md', 'Panel guide')
 const compact = await page.evaluate(() => ({
+  button: document.querySelector('.gp-files__toc-open') !== null,
   card: document.querySelector('.gp-files__toc') !== null,
-  folded: document.querySelector('.gp-files__toc--folded') !== null,
-  rowsHidden: document.querySelector('.gp-files__toc-list') === null
-    || getComputedStyle(document.querySelector('.gp-files__toc-list')).display === 'none',
-  foldControl: document.querySelector('.gp-files__toc-fold')?.getAttribute('aria-expanded'),
+  rows: document.querySelectorAll('.gp-files__toc-item').length,
 }))
-assert.equal(compact.card, true, 'the narrow tier still has the outline')
-assert.equal(compact.folded, true, 'it starts folded: the whole column is the document there')
-assert.equal(compact.rowsHidden, true, 'so the rows are not covering the text it indexes')
-assert.equal(compact.foldControl, 'false', 'and the fold control offers to open them')
+assert.equal(compact.button, true, 'the narrow tier still has the outline')
+assert.equal(compact.card, false, 'collapsed by default there too')
+assert.equal(compact.rows, 0, 'so no rows are covering the column that is the document')
+const compactOpen = await page.evaluate(async () => {
+  document.querySelector('.gp-files__toc-open')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  const card = document.querySelector('.gp-files__toc')
+  const wrap = document.querySelector('.gp-files__mdwrap')
+  if (card === null || wrap === null) return null
+  const cardBox = card.getBoundingClientRect()
+  const wrapBox = wrap.getBoundingClientRect()
+  return {
+    rows: document.querySelectorAll('.gp-files__toc-item').length,
+    width: Math.round(parseFloat(getComputedStyle(card).width)),
+    wrapWidth: Math.round(wrapBox.width),
+    insideColumn: cardBox.left >= wrapBox.left - 1 && cardBox.right <= wrapBox.right + 1,
+  }
+})
+assert.ok(compactOpen !== null, 'the button opens the card in the narrow tier as well')
+assert.equal(compactOpen.rows, 6, 'with the same six rows')
+assert.equal(compactOpen.width, 142, `the card keeps its 142px cap in the narrow tier (${compactOpen.width}px)`)
+assert.equal(compactOpen.insideColumn, true, 'and stays inside the document column')
 await page.evaluate(async () => {
   document.getElementById('panel').style.width = '960px'
   await new Promise((r) => setTimeout(r, 250))
@@ -528,6 +640,10 @@ await selectFile(page, 'README.md', 'Panel guide')
 // following the current row, scrolling the document leaves the highlight above
 // the card's viewport and the outline reads as frozen.
 await selectFile(page, 'long.md', 'Section 1')
+await page.evaluate(async () => {
+  document.querySelector('.gp-files__toc-open')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+})
 const longList = await page.evaluate(async () => {
   const box = document.querySelector('.gp-files__markdown')
   const list = document.querySelector('.gp-files__toc-list')
