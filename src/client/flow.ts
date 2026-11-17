@@ -29,11 +29,6 @@ export const FLOW_PREFIX: Record<FlowKind, string> = {
 export const DEVELOP_BRANCH = 'develop'
 const MAIN_CANDIDATES: readonly string[] = ['main', 'master']
 
-/** Default merge message the finish dialog opens with (the reference flow
- * editor uses the same text even in non-English UIs; it is a commit message,
- * not a UI label, so it is not translated here). */
-export const FLOW_FINISH_MESSAGE = 'Finish git-flow'
-
 export type FlowStrategy = 'merge' | 'squash' | 'rebase'
 
 /** Which flow, if any, a branch name belongs to. A name that is only the prefix
@@ -110,6 +105,29 @@ export function flowMainlines(local: readonly string[], defaultBranch: string | 
  * dialog's). */
 export function finishTarget(kind: FlowKind, bases: FlowBases): string | null {
   return kind === 'hotfix' ? bases.main : bases.develop
+}
+
+/**
+ * The finish dialog's target-branch field. A feature and a release have one
+ * possible landing branch, so the field only shows it; a hotfix lands on a main
+ * line, and a checkout that keeps both `main` and `master` chooses between
+ * them — the resolved main line is preselected.
+ */
+export interface FlowFinishTargets {
+  /** The branches the selector offers, in the order the branch list shows them. */
+  readonly options: readonly string[]
+  /** The preselected branch. */
+  readonly selected: string
+  /** False when there is nothing to choose between: the field is read-only. */
+  readonly editable: boolean
+}
+
+export function finishTargets(kind: FlowKind, bases: FlowBases, mainlines: readonly string[]): FlowFinishTargets | null {
+  const selected = finishTarget(kind, bases)
+  if (selected === null) return null
+  if (kind !== 'hotfix') return { options: [selected], selected, editable: false }
+  const options = mainlines.includes(selected) ? mainlines : [selected, ...mainlines]
+  return { options, selected, editable: true }
 }
 
 /** The branch a new flow starts from. `develop` is created from `main` on the
@@ -215,10 +233,15 @@ export interface FlowFinishRequest {
   /** The flow branch being finished (usually HEAD, but a branch row's own
    * right-click names it explicitly). */
   readonly branch: string
+  /** The branch the work lands on: `develop`, or the chosen main line for a
+   * hotfix. */
+  readonly target: string
   readonly strategy: FlowStrategy
   readonly message: string
   readonly deleteBranch: boolean
   readonly deleteRemote: boolean
+  /** Push the target branch to its remote after the integration. */
+  readonly push: boolean
   /** Release / hotfix only. */
   readonly tag?: string
 }

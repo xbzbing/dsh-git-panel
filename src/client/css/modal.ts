@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 弹窗：文件 diff 弹窗 / 小对话框 / 文件属性面板。
  *
  * 层叠顺序即本文件的挂载顺序（见 styles.ts 的 CSS_PARTS）：写在后面的模块
@@ -100,6 +100,9 @@ export const CSS = `
 .gp-flow__label{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
 .gp-flow__field .gp-input{flex:1 1 auto;min-width:0;width:auto}
 .gp-flow__select{cursor:pointer}
+/* The finish target when it is not a choice (a feature / release lands on
+ * develop): a value, not a disabled control, so it does not look editable. */
+.gp-flow__target{flex:1 1 auto;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);overflow-wrap:anywhere}
 .gp-flow__preview{padding-left:2px;font-size:11px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
 .gp-flow__modes{display:flex;flex-direction:column;gap:8px;padding:2px 0}
 .gp-flow__mode{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none}

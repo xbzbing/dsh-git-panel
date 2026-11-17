@@ -38,7 +38,7 @@ import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { renderBranchDeleteConfirm, renderRemoteBranchDeleteConfirm } from './branch-delete.js'
 import { renderBranchCreateModal } from './branch-create.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
-import { finishTarget, flowBases, flowMainlines, nextFlowVersion, startBase, type FlowDialog } from './flow.js'
+import { finishTargets, flowBases, flowMainlines, nextFlowVersion, startBase, type FlowDialog } from './flow.js'
 import { renderFlowAboutModal, renderFlowFinishModal, renderFlowIntegrateModal, renderFlowStartModal } from './flow-dialogs.js'
 import { usePanelRoot } from './panel-root.js'
 import { renderStatusBar } from './overview-statusbar.js'
@@ -404,6 +404,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const flowLocalNames = tree?.local.map((branch) => branch.name) ?? []
   const flowBasesInfo = flowBases(flowLocalNames, tree?.defaultBranch ?? null)
   const flowMains = flowMainlines(flowLocalNames, tree?.defaultBranch ?? null)
+  const flowRemoteNames = (tree?.remote ?? []).map((branch) => branch.name)
   // A clean work tree switches straight away (git carries nothing across and
   // has nothing to lose); a dirty one still opens the confirm so the user can
   // pick between carrying the changes and stashing first.
@@ -1152,14 +1153,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       t,
     }))
   } else if (flowDialog?.type === 'finish') {
-    const target = finishTarget(flowDialog.flow, flowBasesInfo)
-    flowDialogs.push(target === null ? null : renderFlowFinishModal({
+    const targets = finishTargets(flowDialog.flow, flowBasesInfo, flowMains)
+    flowDialogs.push(targets === null ? null : renderFlowFinishModal({
       flow: flowDialog.flow,
       branch: flowDialog.branch,
-      target,
+      targets,
       // A row that is not HEAD has no sampled upstream: the remote cleanup
       // stays off instead of claiming there is none.
       hasUpstream: flowDialog.branch === snapshot.branch && snapshot.hasUpstream,
+      remote: { name: remoteName, branches: flowRemoteNames },
       busy: opInFlight,
       pending: flowPending,
       onSubmit: submitFlow,

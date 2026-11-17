@@ -6,8 +6,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  detectFlowBranch, flowBranchName, defaultTagName, flowBases, flowMainlines, finishTarget, startBase, flowMenuItems,
-  nextFlowVersion, parseFlowVersion, FLOW_FINISH_MESSAGE,
+  detectFlowBranch, flowBranchName, defaultTagName, flowBases, flowMainlines, finishTarget, finishTargets, startBase,
+  flowMenuItems, nextFlowVersion, parseFlowVersion,
 } from '../../lib/testkit.mjs'
 
 const BRANCHES = ['main', 'develop', 'feature/login', 'release/1.2.0']
@@ -73,6 +73,31 @@ test('a hotfix lands on the main line, the other flows on develop', () => {
   assert.equal(finishTarget('feature', { develop: null, main: 'main' }), null)
 })
 
+test('only a hotfix chooses its target among the main lines', () => {
+  const both = ['main', 'master']
+  assert.deepEqual(finishTargets('feature', { develop: 'develop', main: 'main' }, both), {
+    options: ['develop'], selected: 'develop', editable: false,
+  })
+  assert.deepEqual(finishTargets('release', { develop: 'develop', main: 'main' }, both), {
+    options: ['develop'], selected: 'develop', editable: false,
+  })
+  // The remote's default line is preselected, and both stay selectable.
+  assert.deepEqual(finishTargets('hotfix', { develop: 'develop', main: 'master' }, both), {
+    options: ['main', 'master'], selected: 'master', editable: true,
+  })
+  assert.deepEqual(finishTargets('hotfix', { develop: 'develop', main: 'main' }, both), {
+    options: ['main', 'master'], selected: 'main', editable: true,
+  })
+})
+
+test('a lone main line is still shown for a hotfix, but it is no choice', () => {
+  assert.deepEqual(finishTargets('hotfix', { develop: 'develop', main: 'main' }, ['main']), {
+    options: ['main'], selected: 'main', editable: true,
+  })
+  assert.equal(finishTargets('hotfix', { develop: 'develop', main: null }, []), null)
+  assert.equal(finishTargets('release', { develop: null, main: 'main' }, ['main']), null)
+})
+
 test('finish entries exist only on the matching current branch', () => {
   const onFeature = flowMenuItems({ current: 'feature/login', local: BRANCHES, defaultBranch: 'main' })
   const byId = Object.fromEntries(onFeature.map((item) => [item.id, item.disabled]))
@@ -125,7 +150,6 @@ test('release and hotfix propose their branch suffix as the tag', () => {
   assert.equal(defaultTagName('release/1.2.0'), '1.2.0')
   assert.equal(defaultTagName('hotfix/1.2.1'), '1.2.1')
   assert.equal(defaultTagName('feature/login'), 'login')
-  assert.equal(FLOW_FINISH_MESSAGE, 'Finish git-flow')
 })
 
 test('a version tag is parsed with its v and padded parts', () => {

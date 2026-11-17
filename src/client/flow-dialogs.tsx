@@ -16,8 +16,8 @@ import type { JSX } from 'react'
 import { BranchIcon, MergeIcon } from './icons.js'
 import { renderConfirmModal, renderModalFooter, renderModalShell, type OpT } from './ops-modals.js'
 import {
-  DEVELOP_BRANCH, FLOW_FINISH_MESSAGE, defaultTagName, flowBranchName,
-  type FlowFinishRequest, type FlowKind, type FlowStartRequest, type FlowStrategy,
+  DEVELOP_BRANCH, defaultTagName, flowBranchName,
+  type FlowFinishRequest, type FlowFinishTargets, type FlowKind, type FlowStartRequest, type FlowStrategy,
 } from './flow.js'
 
 /** The convention's own vocabulary: these stay English in every UI, as in the
@@ -121,11 +121,15 @@ export interface FlowFinishArgs {
   readonly flow: FlowKind
   /** The checked-out flow branch (`feature/…`). */
   readonly branch: string
-  /** The branch the flow lands on when finished (`develop` or the main line). */
-  readonly target: string
+  /** The branch the flow lands on when finished (`develop` or a main line),
+   * plus whether that is a choice (a hotfix between `main` and `master`). */
+  readonly targets: FlowFinishTargets
   /** Whether the flow branch has an upstream: the remote cleanup is offered
    * only then (nothing would be deleted on the server otherwise). */
   readonly hasUpstream: boolean
+  /** The checkout's remote and its tracking branch names, so the push option
+   * can say which ref it would publish (and follow the chosen target). */
+  readonly remote: { readonly name: string | null; readonly branches: readonly string[] }
   readonly busy?: boolean
   readonly pending?: boolean
   readonly onSubmit: (request: FlowFinishRequest) => void
@@ -139,22 +143,33 @@ export function renderFlowFinishModal(args: FlowFinishArgs): JSX.Element | null 
   return h(FlowFinishModal, args)
 }
 
-function FlowFinishModal({ flow, branch, target, hasUpstream, busy = false, pending = false, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
+function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = false, pending = false, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
   const [strategy, setStrategy] = useState<FlowStrategy>('merge')
-  const [message, setMessage] = useState(FLOW_FINISH_MESSAGE)
+  // The default message is a commit subject, so it follows the UI language:
+  // `完成 git-flow` in Chinese, `Finish git-flow` in English.
+  const [message, setMessage] = useState(t('flow.finish.messageDefault'))
+  const [target, setTarget] = useState(targets.selected)
   const [deleteBranch, setDeleteBranch] = useState(true)
   const [deleteRemote, setDeleteRemote] = useState(false)
+  const [push, setPush] = useState(false)
   const [tag, setTag] = useState(flow === 'feature' ? '' : defaultTagName(branch))
   const uid = useId()
   const messageId = `${uid}-message`
   const tagId = `${uid}-tag`
+  const targetId = `${uid}-target`
   const kind = KIND_LABEL[flow]
   const slug = KIND_SLUG[flow]
   const needsTag = flow !== 'feature'
+  // The ref a push would publish, resolved for the branch actually chosen: a
+  // target the remote does not have cannot be pushed, so the option stays off.
+  const pushRef = remote.name !== null && remote.branches.includes(`${remote.name}/${target}`)
+    ? `${remote.name}/${target}`
+    : null
   const submit = (): void => {
     if (busy) return
     onSubmit({
-      flow, branch, strategy, message: message.trim(), deleteBranch, deleteRemote,
+      flow, branch, target, strategy, message: message.trim(), deleteBranch, deleteRemote,
+      push: pushRef !== null && push,
       ...(needsTag ? { tag: tag.trim() } : {}),
     })
   }
@@ -182,6 +197,21 @@ function FlowFinishModal({ flow, branch, target, hasUpstream, busy = false, pend
           }),
           h('span', { key: 'l' }, strategyLabel[value]),
         ]))),
+      // Where the work lands. Only a hotfix can pick (a checkout keeping both
+      // `main` and `master`); the other flows show their one target instead of
+      // a control that cannot change.
+      h('div', { key: 'target', className: 'gp-flow__field' }, targets.editable
+        ? [
+          h('label', { key: 'l', className: 'gp-flow__label', htmlFor: targetId }, t('flow.finish.target')),
+          h('select', {
+            key: 's', id: targetId, className: 'gp-input gp-flow__select', value: target,
+            onChange: (e: { target: { value: string } }) => setTarget(e.target.value),
+          }, targets.options.map((name) => h('option', { key: name, value: name }, name))),
+        ]
+        : [
+          h('span', { key: 'l', className: 'gp-flow__label' }, t('flow.finish.target')),
+          h('span', { key: 'v', className: 'gp-flow__target', title: t('flow.finish.targetFixed') }, target),
+        ]),
       h('div', { key: 'msg', className: 'gp-flow__field gp-flow__field--stack' }, [
         h('label', { key: 'l', className: 'gp-flow__label', htmlFor: messageId }, t('flow.finish.message')),
         h('textarea', {
@@ -208,6 +238,16 @@ function FlowFinishModal({ flow, branch, target, hasUpstream, busy = false, pend
           onChange: () => setDeleteRemote((v) => !v),
         }),
         t('flow.finish.deleteRemote', { kind: slug }),
+      ]),
+      // Push the landing branch to its remote. Off by default: finishing the
+      // flow is a local integration, publishing it is a separate decision.
+      h('label', { key: 'push', className: `gp-modal__check${pushRef === null ? ' gp-flow__check--off' : ''}`, title: pushRef === null ? t('flow.finish.pushDisabled') : undefined }, [
+        h('input', {
+          key: 'cb', type: 'checkbox', className: 'gp-check',
+          checked: pushRef !== null && push, disabled: pushRef === null,
+          onChange: () => setPush((v) => !v),
+        }),
+        t('flow.finish.push', { ref: pushRef ?? target }),
       ]),
       pending ? h('div', { key: 'pending', className: 'gp-flow__pending' }, t('flow.pending')) : null,
     ],
