@@ -13,6 +13,16 @@ import { copyText } from './menu-actions.js'
 import { menuIcon } from './menu-icons.js'
 import { commitQuote } from './quote.js'
 import type { MenuEnv } from './menu-actions.js'
+import { detectFlowBranch, type FlowKind } from './flow.js'
+import type { GitKey } from './locales.js'
+
+/** Finish entry per flow, so the context menu and the branch-list menu use the
+ * same wording. */
+const FINISH_LABEL: Record<FlowKind, GitKey> = {
+  feature: 'flow.menu.finishFeature',
+  hotfix: 'flow.menu.finishHotfix',
+  release: 'flow.menu.finishRelease',
+}
 
 /** What the overview's own entries need to run. */
 export interface OverviewMenuCommands {
@@ -43,6 +53,14 @@ export interface OverviewMenuCommands {
   /** Open the merge confirmation: the row's ref merges into the current
    * branch (issue #118). Same `start`/`label` split as the create form. */
   readonly openBranchMerge: (target: { readonly start: string; readonly label: string }) => void
+  /** Open a Git Flow dialog: the branch-list button and the branch rows' menus
+   * raise the same one. `base` names the row's branch when the start was
+   * clicked there (a hotfix from `master` must not silently start from `main`);
+   * a finish names the row's branch so a non-current flow branch can be
+   * finished without guessing which one was clicked. */
+  readonly openFlowStart: (flow: FlowKind, base?: string) => void
+  readonly openFlowFinish: (flow: FlowKind, branch: string) => void
+  readonly openFlowIntegrate: () => void
   /** Open the cherry-pick confirmation for one commit onto the current
    * branch (issue #118). */
   readonly openCherryPick: (value: CommitTargetValue) => void
@@ -73,6 +91,11 @@ export interface OverviewMenuFacts {
    * land on the current branch, so their entries are offered only while one
    * exists. */
   readonly currentBranch?: string | null
+  /** The checkout's long-lived branches, for the Git Flow entries on their
+   * rows. `flowMains` lists every main-line branch present (`main` and
+   * `master` can coexist); absent while the branch list is still loading. */
+  readonly flowDevelop?: string | null
+  readonly flowMains?: readonly string[]
 }
 
 /** Branch-row entries: switch, create / merge (issue #118), history filter,
@@ -95,6 +118,61 @@ export function branchMenuActions(
       failureLabel: env.t('common.operationFailed'),
       run: () => cmds.switchBranch(value),
     })
+  }
+  // Git Flow entries for the rows the convention knows: a flow branch can be
+  // finished, develop starts features / releases and integrates develop back,
+  // the main line starts hotfixes. Start entries work from a row that is not
+  // checked out (they branch off it); integrate acts on HEAD, so it is offered
+  // only while a feature branch is checked out. Execution arrives with the host
+  // actions, so these are not gated on a capability yet.
+  if (isBranch && !value.isRemote) {
+    const flow = detectFlowBranch(value.name)
+    if (flow !== null) {
+      group.push({
+        id: 'flow-finish',
+        label: env.t(FINISH_LABEL[flow.kind]),
+        icon: menuIcon('merge'),
+        disabled: facts.busy,
+        failureLabel: env.t('common.operationFailed'),
+        run: () => cmds.openFlowFinish(flow.kind, value.name),
+      })
+    }
+    if (facts.flowDevelop !== undefined && value.name === facts.flowDevelop) {
+      group.push({
+        id: 'flow-start-feature',
+        label: env.t('flow.menu.startFeature'),
+        icon: menuIcon('branch'),
+        disabled: facts.busy,
+        failureLabel: env.t('common.operationFailed'),
+        run: () => cmds.openFlowStart('feature', value.name),
+      })
+      group.push({
+        id: 'flow-start-release',
+        label: env.t('flow.menu.startRelease'),
+        icon: menuIcon('branch'),
+        disabled: facts.busy,
+        failureLabel: env.t('common.operationFailed'),
+        run: () => cmds.openFlowStart('release', value.name),
+      })
+      group.push({
+        id: 'flow-integrate',
+        label: env.t('flow.menu.integrate'),
+        icon: menuIcon('merge'),
+        disabled: facts.busy || detectFlowBranch(facts.currentBranch ?? null)?.kind !== 'feature',
+        failureLabel: env.t('common.operationFailed'),
+        run: () => cmds.openFlowIntegrate(),
+      })
+    }
+    if (facts.flowMains !== undefined && facts.flowMains.includes(value.name)) {
+      group.push({
+        id: 'flow-start-hotfix',
+        label: env.t('flow.menu.startHotfix'),
+        icon: menuIcon('branch'),
+        disabled: facts.busy,
+        failureLabel: env.t('common.operationFailed'),
+        run: () => cmds.openFlowStart('hotfix', value.name),
+      })
+    }
   }
   // The row's addressable ref (issue #118): local rows fall back to their
   // short name — git resolves it and the host revalidates it — while a remote

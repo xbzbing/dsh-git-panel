@@ -54,6 +54,17 @@ export const CSS = `
 .gp-branch-row__ic{display:inline-flex;flex:none;width:14px;align-items:center;justify-content:center}
 .gp-branch-row--dir{color:var(--dsw-alias-label-secondary)}
 .gp-branch-row--dir .gp-tree-name{font-weight:600}
+/* The branch list's top row carries two controls: the filter clear on the left
+ * and the Git Flow entry on the right. They are separate buttons — the flow
+ * entry opens a menu and must not also clear the history filter. */
+.gp-branch-head{display:flex;align-items:center;gap:6px;padding:3px 8px 3px 10px}
+.gp-branch-head__filter{flex:1 1 auto;min-width:0;padding:3px 4px;border:0;border-radius:5px;background:none;font:inherit;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.gp-branch-head__filter:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-branch-head__filter:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.gp-flow{flex:none;display:inline-flex}
+.gp-flow-btn{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:11px;line-height:18px;color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
+.gp-flow-btn:hover,.gp-flow-btn[aria-expanded="true"]{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+.gp-flow-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
 
 /* left-column footer status bar: repo icon (left) + branch sync (right) */
 .gp-statusbar{flex:none;display:flex;align-items:center;gap:8px;min-height:30px;padding:4px 8px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);font-size:11px}

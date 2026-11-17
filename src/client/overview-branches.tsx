@@ -14,6 +14,8 @@ import { OVERLAY_ATTR, useDialogFocus } from './dialog-focus.js'
 import { useRowSlider } from './row-slider.js'
 import type { BranchOption } from './branch-options.js'
 import type { BranchTree } from './overview-hooks.js'
+import { FlowMenu } from './flow-menu.js'
+import type { FlowDialog } from './flow.js'
 
 /** Row geometry of the branch/tag list; the compact sheet indents the same way. */
 export const BRANCH_BASE = 22
@@ -30,6 +32,12 @@ export interface BranchCbs {
   onRetry: () => void
   /** Right-click props for one branch row (absent on hosts without menus). */
   menu?: (value: { name: string; isCurrent: boolean; isRemote: boolean; isTag: boolean; ref?: string }) => Record<string, unknown>
+  /** Any write in flight in the pane: the Git Flow menu's entries are disabled
+   * while one runs. */
+  busy: boolean
+  /** Open one of the panel's Git Flow dialogs (the branch rows' menus use the
+   * same opener, so the dialog lives in one place). */
+  openFlow: (dialog: FlowDialog) => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -174,12 +182,25 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
     ])
   }
   return h('div', {}, [
-    h('div', {
-      key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' },
-      role: 'button', tabIndex: 0,
-      onClick: () => cb.onFilter(null),
-      onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cb.onFilter(null) } },
-    }, cb.t('overview.head')),
+    // Two controls on one row: the filter clear (the row's old whole-row click)
+    // and the Git Flow entry. The row itself is not a button any more — a
+    // button cannot contain another interactive control.
+    h('div', { key: 'head-row', className: 'gp-branch-head' }, [
+      h('button', {
+        key: 'all', type: 'button', className: 'gp-branch-head__filter',
+        'aria-pressed': activeRef === null,
+        onClick: () => cb.onFilter(null),
+      }, cb.t('overview.head')),
+      h(FlowMenu, {
+        key: 'flow',
+        current: tree.current,
+        local: tree.local.map((b) => b.name),
+        defaultBranch: tree.defaultBranch,
+        busy: cb.busy,
+        onOpen: cb.openFlow,
+        t: cb.t,
+      }),
+    ]),
     section('local', 'overview.local', tree.local.length, h(BranchIcon, { size: 13 }), trees.local, trees.localPinned),
     section('remote', 'overview.remote', tree.remote.length, h(BranchIcon, { size: 13 }), trees.remote),
     section('tags', 'overview.tags', tree.tags.length, h(TagIcon, { size: 13 }), trees.tags),

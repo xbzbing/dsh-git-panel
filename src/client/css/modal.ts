@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 弹窗：文件 diff 弹窗 / 小对话框 / 文件属性面板。
  *
  * 层叠顺序即本文件的挂载顺序（见 styles.ts 的 CSS_PARTS）：写在后面的模块
@@ -63,6 +63,49 @@ export const CSS = `
 .gp-input--area{height:auto;min-height:60px;padding:8px 10px;resize:vertical;line-height:1.5}
 .gp-modal__footer{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2)}
 .gp-modal__hint{font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+/* Git Flow dialogs: a heading, labelled fields and the finish-strategy list.
+ * A little wider than the plain confirm so the branch preview and the tag
+ * field keep their label and value on one line. */
+.gp-modal--flow{width:min(520px,94vw);max-height:min(640px,88vh)}
+/* A dialog raised by the Git panel belongs to the panel: its backdrop fills the
+ * panel's box (the panel is positioned) instead of dimming the whole window.
+ * The layer still sits above the compact branch sheet — that sheet is portaled
+ * to the body at z-index 1000, and a flow dialog opened from it must render
+ * above it, not behind. The frame is capped to the panel so a narrow sidebar
+ * keeps the dialog scrollable instead of overflowing it. */
+.gp-modal-backdrop--contained{position:absolute;inset:0;z-index:1001;padding:16px}
+.gp-modal-backdrop--contained .gp-modal--flow{width:min(520px,100%);max-height:100%}
+/* Git Flow's branch diagram: long-lived lanes solid, short-lived branches
+ * leaving and returning, dashed edges for the extra merge a release / hotfix
+ * performs. Lane names double as the legend, so no separate key. */
+.gp-flow-graph{display:block;width:100%;height:auto;margin:2px 0 4px}
+.gp-flow-graph__path{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.gp-flow-graph__path--main,.gp-flow-graph__dot--main{stroke:var(--dsw-alias-state-success-primary)}
+.gp-flow-graph__path--develop,.gp-flow-graph__dot--develop{stroke:var(--dsw-alias-state-business-primary)}
+.gp-flow-graph__path--feature,.gp-flow-graph__dot--feature{stroke:var(--dsw-alias-state-warn-primary)}
+.gp-flow-graph__path--release,.gp-flow-graph__dot--release{stroke:var(--dsw-alias-label-primary)}
+.gp-flow-graph__path--hotfix,.gp-flow-graph__dot--hotfix{stroke:var(--dsw-alias-state-error-primary)}
+.gp-flow-graph__path--merge{stroke-width:1.4;stroke-dasharray:3 3;opacity:.8}
+.gp-flow-graph__dot{fill:var(--dsw-alias-bg-layer-2);stroke-width:2}
+.gp-flow-graph__label{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px;fill:var(--dsw-alias-label-tertiary)}
+.gp-flow-graph__label--main{fill:var(--dsw-alias-state-success-primary)}
+.gp-flow-graph__label--develop{fill:var(--dsw-alias-state-business-primary)}
+.gp-flow-graph__label--feature{fill:var(--dsw-alias-state-warn-primary)}
+.gp-flow-graph__label--release{fill:var(--dsw-alias-label-primary)}
+.gp-flow-graph__label--hotfix{fill:var(--dsw-alias-state-error-primary)}
+.gp-flow-graph__tag{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;fill:var(--dsw-alias-label-secondary)}
+.gp-flow__heading{font-size:16px;font-weight:600;line-height:1.3;color:var(--dsw-alias-label-primary)}
+.gp-flow__field{display:flex;align-items:center;gap:8px;min-width:0}
+.gp-flow__field--stack{flex-direction:column;align-items:stretch;gap:6px}
+.gp-flow__label{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.gp-flow__field .gp-input{flex:1 1 auto;min-width:0;width:auto}
+.gp-flow__select{cursor:pointer}
+.gp-flow__preview{padding-left:2px;font-size:11px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
+.gp-flow__modes{display:flex;flex-direction:column;gap:8px;padding:2px 0}
+.gp-flow__mode{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none}
+.gp-flow__check--off{color:var(--dsw-alias-label-tertiary);cursor:default}
+.gp-flow__hint{font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+.gp-flow__pending{font-size:11px;line-height:1.5;color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
 .gp-btn--sm{height:24px;padding:0 8px;font-size:11px}
 .gp-btn--danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}
 .gp-btn--danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 85%,#000);color:#fff}

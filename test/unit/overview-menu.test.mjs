@@ -29,6 +29,9 @@ function commands(log) {
     openRevert: (value) => log.push(['revert', value.hash]),
     openReset: (value) => log.push(['reset', value.hash]),
     openCheckout: (value) => log.push(['checkout', value.hash]),
+    openFlowStart: (flow, base) => log.push(base === undefined ? ['flowStart', flow] : ['flowStart', flow, base]),
+    openFlowFinish: (flow, branchName) => log.push(['flowFinish', flow, branchName]),
+    openFlowIntegrate: () => log.push(['flowIntegrate']),
     quote: (text) => log.push(['quote', text]),
   }
 }
@@ -93,8 +96,7 @@ test('a busy overview disables the branch delete too', () => {
   assert.equal(actions.find((a) => a.id === 'delete-branch').disabled, true)
 })
 
-test('a remote row offers the remote delete only with the capability and its full ref', () => {
-  const remote = { ...branch, isRemote: true, ref: 'refs/remotes/origin/feature/x' }
+test('a remote row offers the remote delete only with the capability and its full ref', () => {  const remote = { ...branch, isRemote: true, ref: 'refs/remotes/origin/feature/x' }
   const log = []
   const actions = branchMenuActions(remote, env(), commands(log), { busy: false, remoteBranchDelete: true })
   assert.deepEqual(actions.map((a) => a.id), ['switch-branch', 'show-history', 'copy-branch', 'delete-remote-branch'])
@@ -184,12 +186,12 @@ test('a host with the create/merge capabilities offers both entries for a local 
   const actions = branchMenuActions({ ...branch, name: 'feature/x', ref: 'refs/heads/feature/x' }, env(), commands(log), facts)
   assert.deepEqual(
     actions.map((a) => a.id),
-    ['switch-branch', 'create-branch', 'merge-branch', 'show-history', 'copy-branch'],
-    'the two writes sit with the switch, above the history and copy entries',
+    ['switch-branch', 'flow-finish', 'create-branch', 'merge-branch', 'show-history', 'copy-branch'],
+    'the Git Flow finish and the two writes sit with the switch, above the history and copy entries',
   )
   // Both entries only open their dialogs — and both carry the full ref.
-  void actions[1].run()
   void actions[2].run()
+  void actions[3].run()
   assert.deepEqual(log, [
     ['create', 'refs/heads/feature/x', 'feature/x'],
     ['merge', 'refs/heads/feature/x', 'feature/x'],
@@ -284,4 +286,70 @@ test('create-branch and cherry-pick are gated on capabilities and a current bran
   const detached = commitMenuActions(commit, env(), commands([]), { busy: false, branchCreate: true, cherryPick: true, currentBranch: null })
   assert.ok(detached.some((a) => a.id === 'create-branch'))
   assert.ok(!detached.some((a) => a.id === 'cherry-pick'))
+})
+
+/** Facts a branch row sees once the branch list has loaded a flow-shaped repo. */
+const FLOW_FACTS = { busy: false, flowDevelop: 'develop', flowMains: ['main', 'master'], currentBranch: 'feature/login' }
+
+test('develop offers the two flow starts and integrate', () => {
+  const log = []
+  const develop = { ...branch, name: 'develop' }
+  const actions = branchMenuActions(develop, env(), commands(log), FLOW_FACTS)
+  assert.deepEqual(actions.map((a) => a.id), [
+    'switch-branch', 'flow-start-feature', 'flow-start-release', 'flow-integrate', 'show-history', 'copy-branch',
+  ])
+  void actions[1].run()
+  void actions[2].run()
+  void actions[3].run()
+  assert.deepEqual(log, [['flowStart', 'feature', 'develop'], ['flowStart', 'release', 'develop'], ['flowIntegrate']])
+})
+
+test('the main line offers the hotfix start', () => {
+  const log = []
+  const main = { ...branch, name: 'main' }
+  const actions = branchMenuActions(main, env(), commands(log), FLOW_FACTS)
+  assert.ok(actions.some((a) => a.id === 'flow-start-hotfix'))
+  void actions.find((a) => a.id === 'flow-start-hotfix').run()
+  assert.deepEqual(log, [['flowStart', 'hotfix', 'main']])
+})
+
+test('a repository that also keeps master offers the hotfix start on that row too', () => {
+  const log = []
+  const master = { ...branch, name: 'master' }
+  const actions = branchMenuActions(master, env(), commands(log), FLOW_FACTS)
+  const start = actions.find((a) => a.id === 'flow-start-hotfix')
+  assert.ok(start !== undefined, 'master must carry the entry')
+  void start.run()
+  assert.deepEqual(log, [['flowStart', 'hotfix', 'master']], 'the clicked row is the base, not main')
+})
+
+test('a flow branch row offers its finish entry and names the branch', () => {
+  const log = []
+  const feature = { ...branch, name: 'feature/login', isCurrent: true }
+  const actions = branchMenuActions(feature, env(), commands(log), FLOW_FACTS)
+  const finish = actions.find((a) => a.id === 'flow-finish')
+  assert.ok(finish !== undefined)
+  assert.equal(finish.label, 'flow.menu.finishFeature')
+  void finish.run()
+  assert.deepEqual(log, [['flowFinish', 'feature', 'feature/login']])
+
+  const release = branchMenuActions({ ...branch, name: 'release/1.2.0' }, env(), commands([]), FLOW_FACTS)
+  assert.equal(release.find((a) => a.id === 'flow-finish').label, 'flow.menu.finishRelease')
+  const hotfix = branchMenuActions({ ...branch, name: 'hotfix/1.2.1' }, env(), commands([]), FLOW_FACTS)
+  assert.equal(hotfix.find((a) => a.id === 'flow-finish').label, 'flow.menu.finishHotfix')
+})
+
+test('integrate is disabled unless a feature branch is checked out', () => {
+  const develop = { ...branch, name: 'develop' }
+  for (const currentBranch of ['main', 'develop', 'release/1.2.0', 'hotfix/1.2.1', null]) {
+    const actions = branchMenuActions(develop, env(), commands([]), { ...FLOW_FACTS, currentBranch })
+    assert.equal(actions.find((a) => a.id === 'flow-integrate').disabled, true, `current=${currentBranch}`)
+  }
+  const onFeature = branchMenuActions(develop, env(), commands([]), FLOW_FACTS)
+  assert.equal(onFeature.find((a) => a.id === 'flow-integrate').disabled, false)
+})
+
+test('flow entries stay off rows the convention does not know', () => {
+  const actions = branchMenuActions({ ...branch, name: 'release-candidate' }, env(), commands([]), FLOW_FACTS)
+  assert.ok(!actions.some((a) => a.id.startsWith('flow-')))
 })

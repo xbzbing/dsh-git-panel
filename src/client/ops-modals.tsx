@@ -159,6 +159,12 @@ export interface ModalShellProps {
   /** A modifier class for the frame (`gp-modal--sm` stays): a dialog whose body
    * is a list rather than a form sizes and pads itself through it. */
   variant?: string
+  /** Render the backdrop inside the portal container's bounds (an absolutely
+   * positioned layer) instead of over the viewport. The container must be
+   * positioned; the Git panel root is. Used by dialogs that belong to the panel
+   * rather than the whole application — they must not dim what sits beside the
+   * panel. */
+  contained?: boolean
   t: OpT
 }
 
@@ -172,7 +178,7 @@ export function renderModalShell(props: ModalShellProps): JSX.Element | null {
   return h(ModalShell, props)
 }
 
-function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, overlay, portalKey, container, trapFocus, variant, t }: ModalShellProps): JSX.Element {
+function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, overlay, portalKey, container, trapFocus, variant, contained = false, t }: ModalShellProps): JSX.Element {
   // Busy is declared, never inferred: an overlay only exists for dialogs that
   // also pass a label, and inferring from it left reset/revert/tag-delete
   // dismissible mid-flight (their error line then had no dialog to render in).
@@ -211,7 +217,7 @@ function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, 
   }, [onClose, busy, trapFocus])
   const modal = h('div', {
     ref: backdropRef,
-    className: 'gp-modal-backdrop',
+    className: `gp-modal-backdrop${contained ? ' gp-modal-backdrop--contained' : ''}`,
     // Declares this dialog as an overlay above the page, so a lower layer's
     // Escape handler (the branch drawer) can yield the keystroke to it.
     [OVERLAY_ATTR]: '',
@@ -264,6 +270,8 @@ export interface ConfirmCbs {
   /** See `ModalShellProps.container` / `trapFocus`. */
   container?: Element | null
   trapFocus?: boolean
+  /** See `ModalShellProps.contained`. */
+  contained?: boolean
   t: OpT
 }
 
@@ -278,6 +286,7 @@ export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
     portalKey: 'confirm-modal',
     ...(cb.container !== undefined ? { container: cb.container } : {}),
     ...(cb.trapFocus !== undefined ? { trapFocus: cb.trapFocus } : {}),
+    ...(cb.contained === true ? { contained: true } : {}),
     t: cb.t,
     body: [
       h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, cb.body),
