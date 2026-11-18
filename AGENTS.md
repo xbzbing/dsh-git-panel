@@ -58,6 +58,7 @@
 - 折叠滚动区用 `grid 1fr/0fr` 时，折叠层为 flex 列，列表 `flex: 1 1 auto; min-height: 0`。
 - 加载指示使用平台 `StateDot(state="ongoing")`；图片放大图必须 `flex: none`，拖拽监听 window 且不 `setPointerCapture`。
 - hover 提示只对 hover / 键盘焦点显示，触摸不显示；文件工具栏尾部按钮放入一个 `.gp-files__bar-end`，整组换行。
+- 总览状态栏的状态位只渲染符号：`✓` / `↑n` / `↓n` / `↓n ↑n` / `HEAD`，无上游是一个不带计数的 `↑`（不是文案——`无上游` 33px 能塞进 130px 的列，但 `Unpushed` 54 / `No upstream` 67 / `Нет upstream` 72 塞不进，八份字典里五份会把省略号带回来）；整句只进 `aria-label`（`role="img"`）与提示，不回到文案。宽度降级由状态栏自身实测宽度决定（`STATUSBAR_REPO_BP` / `STATUSBAR_ACTION_BP`，`data-narrow` 丢仓库链接、`data-dense` 让动作只留图标），不要改回按布局档近似；断言读 `aria-label` 而不是 `textContent`，并保证 `state.scrollWidth <= state.clientWidth`（见 `test/e2e/statusbar-compact.mjs`）。
 
 ## 依赖与构建
 
