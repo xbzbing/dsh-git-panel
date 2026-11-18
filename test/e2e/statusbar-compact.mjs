@@ -3,9 +3,10 @@
  *
  * The overview's left column is 200px at its default, user-resizable to 130 and
  * `clamp(120px,38%,180px)` in the stacked band. After the row's own controls
- * (~140px) the state cell gets 40–60px, while the zh sentence needs 77px and
- * the en one 107px — so the steady states are glyphs with counts (`✓`, `↓5`,
- * `↓5 ↑3`, `HEAD`) and the sentence rides the accessible name and the tip.
+ * (~140px) the state cell gets 40–60px, while the zh sentence needs 66–143px
+ * and the en one 107–210px depending on the state — so the steady states are
+ * glyphs with counts (`✓`, `↓5`, `↓5 ↑3`, `HEAD`) and the sentence rides the
+ * accessible name and the tip.
  *
  * This runner pins both halves of that contract:
  * - every steady state renders its glyph, keeps the sentence as `aria-label`,
@@ -24,11 +25,13 @@ import { chromium } from 'playwright-core'
 const E2E = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(E2E, 'harness.html')
 
-// A clean work tree, so the panel lands on the overview tab by itself.
+// `host` is part of the wire type: a fixture without it would label the repo
+// link "open the repository home on undefined" and quietly stop covering the
+// branch that names the host.
 const BASE = {
   root: 'fixture-repo', branch: 'main', head: 'ba78eb4', unborn: false, dirty: false,
   staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: true,
-  remote: { name: 'origin', webUrl: 'https://github.com/example/repo', hostKind: 'github' },
+  remote: { name: 'origin', url: 'git@github.com:example/repo.git', webUrl: 'https://github.com/example/repo', host: 'github.com', hostKind: 'github' },
   lastCommit: null, changes: [],
   stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, suggestEnabled: true,
@@ -116,6 +119,7 @@ await page.evaluate((initial) => {
       narrow: bar?.getAttribute('data-narrow') ?? null,
       dense: bar?.getAttribute('data-dense') ?? null,
       repo: bar?.querySelector('a.gp-statusbar__repo') !== null && bar?.querySelector('a.gp-statusbar__repo') !== undefined,
+      repoLabel: bar?.querySelector('a.gp-statusbar__repo')?.getAttribute('aria-label') ?? null,
       stateText: state === null || state === undefined ? null : state.textContent,
       stateLabel: state?.getAttribute('aria-label') ?? null,
       stateRole: state?.getAttribute('role') ?? null,
@@ -125,6 +129,7 @@ await page.evaluate((initial) => {
       pullW: rect(pull),
       labelShown: label === null || label === undefined ? null : label.getBoundingClientRect().width > 0,
       hasPublish: bar?.querySelector('button[aria-label="发布分支并设置上游"]') !== null && bar?.querySelector('button[aria-label="发布分支并设置上游"]') !== undefined,
+      hasSetUpstream: bar?.querySelector('button[aria-label="设置上游"]') !== null && bar?.querySelector('button[aria-label="设置上游"]') !== undefined,
       hasPull: bar?.querySelector('button[aria-label="快进拉取远程更新"]') !== null && bar?.querySelector('button[aria-label="快进拉取远程更新"]') !== undefined,
       hasPush: bar?.querySelector('button[aria-label="推送本地提交到远程"]') !== null && bar?.querySelector('button[aria-label="推送本地提交到远程"]') !== undefined,
     }
@@ -141,6 +146,22 @@ assert.equal(wide.colW, 200, 'the left column is at its 200px default')
 assert.equal(wide.narrow, null, 'a 200px bar is not narrow')
 assert.equal(wide.dense, null, 'a 200px bar keeps its action labels')
 assert.equal(wide.repo, true, 'the wide bar keeps the GitHub link')
+assert.equal(wide.repoLabel, 'example/repo · 在 github.com 打开仓库主页',
+  'the link names the host the fixture sends')
+
+// A snapshot from a host that predates `host` (an undefined field, not null):
+// the link must fall back to the generic name instead of printing "undefined".
+const oldHost = await page.evaluate(async () => {
+  const host = await window.__stage({
+    remote: { name: 'origin', url: 'git@github.com:example/repo.git', webUrl: 'https://github.com/example/repo', hostKind: 'github' },
+  }, 1000)
+  return window.__probe(host)
+})
+assert.equal(oldHost.repo, true, 'the link still renders for a GitHub remote')
+assert.equal(oldHost.repoLabel, 'example/repo · 在浏览器打开仓库主页',
+  'a missing host falls back to the generic label, never "undefined"')
+assert.ok(!(oldHost.repoLabel || '').includes('undefined'), 'no undefined leaks into the accessible name')
+
 assert.equal(wide.stateText, '✓', 'synced renders the check glyph, not a sentence')
 assert.equal(wide.stateLabel, '已与远程同步', 'the sentence is the accessible name')
 assert.equal(wide.stateRole, 'img', 'the glyph cell exposes itself as a named image, not raw punctuation')
@@ -219,6 +240,20 @@ assert.equal(detached.stateText, 'HEAD', 'a detached head renders the HEAD tag')
 assert.equal(detached.stateLabel, '游离 HEAD，无分支同步状态', 'the detached sentence stays the accessible name')
 assert.equal(detached.stateOverflow, 0, 'the HEAD tag fits the 200px bar')
 
+// Unborn branch (a fresh repo, no commits): `branch` is set but `head` is null,
+// so the bare `↑` renders while both publish and set-upstream stay away (there
+// is nothing to push and no hash to attach). Pinned so the glyph never promises
+// an action the row does not offer.
+const unborn = await page.evaluate(async () => {
+  const host = await window.__stage({ branch: 'main', head: null, unborn: true, ahead: 0, behind: 0, hasUpstream: false }, 1000)
+  return window.__probe(host)
+})
+assert.equal(unborn.stateText, '↑', 'an unborn branch reads as no-upstream')
+assert.equal(unborn.stateLabel, '未跟踪远程分支', 'and keeps the sentence as its name')
+assert.equal(unborn.hasPublish, false, 'but offers no publish: there is nothing to push')
+assert.equal(unborn.hasSetUpstream, false, 'and no set-upstream: there is no hash to attach')
+assert.equal(unborn.stateOverflow, 0, 'the arrow fits the 200px bar')
+
 // ── width-driven degradation, measured on the bar itself ──
 const setCol = (w) => page.evaluate(async (width) => {
   // Scope to the stage under test: earlier stages stay mounted in the fixture.
@@ -232,7 +267,7 @@ await page.evaluate(async () => {
 })
 // Exact breakpoint boundaries: both constants use `<=`. These four points pin
 // the numbers themselves — nudging STATUSBAR_REPO_BP 175→165 or
-// STATUSBAR_ACTION_BP 150→145 would leave the 160/140 checks above green, but
+// STATUSBAR_ACTION_BP 150→145 would leave the 160/140 checks below green, but
 // must turn one of these red.
 await setCol(176)
 const aboveRepo = await page.evaluate(() => window.__probe(window.__host))
@@ -277,11 +312,9 @@ assert.equal(dense.stateOverflow, 0, 'the glyph is still not ellipsised at 140px
 // The 130px floor: the narrowest column the layout allows. This is the width a
 // word label could not survive in, and the reason the no-upstream state is a
 // glyph rather than text.
-const floor = await page.evaluate(async () => {
+await page.evaluate(async () => {
   window.__floorHost = await window.__stage({ ahead: 0, behind: 0, hasUpstream: false }, 1000)
-  return null
 })
-assert.equal(floor, null)
 await page.evaluate(async () => {
   window.__floorHost.querySelector('.gp-col--left').style.flex = '0 0 130px'
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
