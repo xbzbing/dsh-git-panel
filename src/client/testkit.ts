@@ -13,7 +13,7 @@ export { buildSideBySide, retargetTrailingGap, summarize, isBinaryDiff, extractA
 export { buildFileTree } from './file-tree.js'
 export { buildChangeRows, dirKey, dirDiscardPaths, dirStageAction, normalizeViewMode, visibleChangeGroups } from './changes-tree.js'
 export { buildBranchTree, buildLocalBranchSection, primaryBranchName, pinPrimaryFirst, primaryRemoteRef } from './branch-tree.js'
-export { detectFlowBranch, flowBranchName, defaultTagName, flowBases, flowMainlines, finishTarget, finishTargets, startBase, flowMenuItems, parseFlowVersion, nextFlowVersion, FLOW_KINDS, FLOW_PREFIX, DEVELOP_BRANCH } from './flow.js'
+export { detectFlowBranch, flowBranchName, defaultTagName, flowBases, flowMainlines, finishTarget, finishTargets, startBase, flowMenuItems, parseFlowVersion, nextFlowVersion, flowLane, startFlowPreview, finishFlowPreview, flowPreviewChain, flowPreviewRemotes, FLOW_KINDS, FLOW_PREFIX, DEVELOP_BRANCH } from './flow.js'
 export { layoutGraph, graphWidth } from './git-graph.js'
 export { layoutFilteredGraph } from './filtered-graph.js'
 export { gitPanelRemoteOf, queryAs, hasSession } from './rpc.js'

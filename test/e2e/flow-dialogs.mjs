@@ -140,13 +140,48 @@ assert.equal((await page.locator('.gp-flow-btn').textContent()).trim(), 'Git Flo
 
 await pickEntry(page, '开始 Feature')
 assert.equal(await page.locator('.gp-modal--flow .gp-flow__field select').inputValue(), 'develop', 'a feature starts on develop when it exists')
+assert.deepEqual(
+  await page.locator('.gp-flow-chain__col > .gp-flow-map__node:first-child .gp-flow-map__name').allTextContents(),
+  ['develop', 'feature/…'],
+  'the chain starts from the resolved base and previews the new branch',
+)
 await page.locator('.gp-modal--flow .gp-flow__field input').fill('login2')
 await flush(page)
-assert.match(await page.locator('.gp-flow__preview').textContent(), /feature\/login2/, 'the form previews the full branch name')
+assert.match(await page.locator('.gp-flow-map').textContent(), /feature\/login2/, 'the legend previews the full branch name')
+assert.equal(await page.locator('.gp-flow-map__node--new').count(), 1, 'the new branch reads as created')
+assert.equal(await page.locator('.gp-flow-map__node--gone').count(), 0, 'a start deletes nothing')
 await submit(page)
 await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 let sent = await actions(page)
 assert.deepEqual(sent[sent.length - 1], { kind: 'flow-start', flow: 'feature', branch: 'feature/login2', base: 'develop' }, 'the start action carries the resolved base')
+
+// ── 1b. the legend reflows inside a phone-width dialog ─────────────────────
+
+const phone = await openPanel(SNAP)
+await pickEntry(phone, '开始 Feature')
+await phone.setViewportSize({ width: 390, height: 844 })
+await phone.evaluate(() => {
+  const panel = document.getElementById('panel')
+  panel.style.width = '390px'
+  panel.style.height = '760px'
+})
+await flush(phone)
+const phoneFit = await phone.evaluate(() => {
+  const card = document.querySelector('.gp-flow-map')
+  const form = document.querySelector('.gp-modal--flow .gp-modal__form')
+  const chain = card.querySelector('.gp-flow-chain')
+  return {
+    cardOverflow: card.scrollWidth - card.clientWidth,
+    formOverflow: form.scrollWidth - form.clientWidth,
+    cols: chain.querySelectorAll('.gp-flow-chain__col').length,
+    width: document.querySelector('.gp-modal--flow').getBoundingClientRect().width,
+  }
+})
+assert.equal(phoneFit.cardOverflow, 0, 'the legend does not overflow a phone-width dialog')
+assert.equal(phoneFit.formOverflow, 0, 'the dialog body does not scroll sideways')
+assert.equal(phoneFit.cols, 2, 'the phone keeps the two-node chain')
+assert.ok(phoneFit.width < 420, 'the dialog is inside the narrow container-query band')
+await phone.close()
 
 // ── 2. finish form: squash needs the forced-delete acknowledgement ─────────
 
@@ -155,6 +190,12 @@ const confirm = page.locator('.gp-modal__footer .gp-btn--primary')
 assert.equal(await confirm.isDisabled(), false, 'merge + delete is the default and needs no extra step')
 assert.equal(await page.locator('.gp-modal__check').count(), 3, 'delete branch / delete remote / push (no force box yet)')
 assert.equal(await page.locator('.gp-modal__check input').last().isChecked(), true, 'push-to-remote defaults on when the remote has the branches')
+assert.equal(await page.locator('.gp-flow-map__node--gone').count(), 1, 'the source branch reads as deleted in the preview')
+assert.equal(await page.locator('.gp-flow-chain--2').count(), 1, 'a feature is a two-branch chain')
+assert.equal(await page.locator('.gp-flow-chain__col > .gp-flow-map__node:first-child').count(), 2, 'two local branch nodes')
+assert.match(await page.locator('.gp-flow-chain').textContent(), /origin\/develop/, 'the pushed remote hangs under develop')
+assert.equal(await page.locator('.gp-flow-chain__v:not(.gp-flow-chain__v--none)').count(), 1, 'one remote connector')
+assert.equal(await page.locator('.gp-flow-chain__v--del').count(), 0, 'nothing is deleted on the remote')
 
 await page.locator('.gp-flow__mode input').nth(1).check()
 await flush(page)
@@ -182,12 +223,35 @@ assert.deepEqual(sent[sent.length - 1], {
 
 const releasePage = await openPanel({ ...SNAP, branch: 'release/1.2.0' })
 await pickEntry(releasePage, '完成 Release')
-assert.match(await releasePage.locator('.gp-modal__confirmtext').textContent(), /main.*develop/, 'the body says the release is merged into main and back into develop')
-assert.deepEqual(await releasePage.locator('.gp-flow__target').allTextContents(), ['main', 'develop'], 'target view shows main, back-merge shows develop')
+assert.equal(await releasePage.locator('.gp-flow-chain--3').count(), 1, 'a release is a three-branch chain')
+assert.deepEqual(
+  await releasePage.locator('.gp-flow-chain__col > .gp-flow-map__node:first-child .gp-flow-map__name').allTextContents(),
+  ['release/1.2.0', 'main', 'develop'],
+  'the local chain runs release → main → develop',
+)
+assert.equal(await releasePage.locator('.gp-flow-chain__h').count(), 2, 'two horizontal edges')
+assert.deepEqual(
+  await releasePage.locator('.gp-flow-map__node--remote').allTextContents(),
+  ['origin/main', 'origin/develop'],
+  'both moved branches hang under their local branch',
+)
+assert.equal(await releasePage.locator('.gp-flow-chain__v:not(.gp-flow-chain__v--none)').count(), 2, 'two remote connectors')
+assert.match(await releasePage.locator('.gp-flow-map__tag').textContent(), /1\.2\.0/, 'the tag rides on the main line')
+assert.equal(await releasePage.locator('.gp-flow__target').count(), 0, 'the chain names the fixed target, so no duplicate value row')
+assert.equal(await releasePage.locator('.gp-modal__confirmtext').count(), 0, 'the legend replaced the prose body')
 assert.equal(await releasePage.locator('.gp-flow__field select').count(), 0, 'a release has one fixed landing main line')
 const releasePush = await releasePage.locator('.gp-modal__check').last().textContent()
 assert.match(releasePush, /origin\/main.*origin\/develop/, 'the push option names both moved branches')
 assert.equal(await releasePage.locator('.gp-modal__check input').last().isChecked(), true, 'pushing both branches is on by default')
+
+// The remote delete gets the same struck pill under the source branch.
+await releasePage.locator('.gp-modal__check input').nth(1).check()
+await flush(releasePage)
+assert.equal(await releasePage.locator('.gp-flow-map__node--gone').count(), 2, 'source and its remote both read as deleted')
+assert.equal(await releasePage.locator('.gp-flow-chain__v--del').count(), 1, 'the deleted remote connector is red')
+assert.match(await releasePage.locator('.gp-flow-chain').textContent(), /origin\/release\/1\.2\.0/)
+await releasePage.locator('.gp-modal__check input').nth(1).uncheck()
+await flush(releasePage)
 await submit(releasePage)
 await releasePage.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 sent = await actions(releasePage)

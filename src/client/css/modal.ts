@@ -66,7 +66,7 @@ export const CSS = `
 /* Git Flow dialogs: a heading, labelled fields and the finish-strategy list.
  * A little wider than the plain confirm so the branch preview and the tag
  * field keep their label and value on one line. */
-.gp-modal--flow{width:min(520px,94vw);max-height:min(640px,88vh)}
+.gp-modal--flow{width:min(520px,94vw);max-height:min(680px,88vh);container-type:inline-size}
 /* A dialog raised by the Git panel belongs to the panel: its backdrop fills the
  * panel's box (the panel is positioned) instead of dimming the whole window.
  * The layer still sits above the compact branch sheet — that sheet is portaled
@@ -87,13 +87,13 @@ export const CSS = `
 .gp-flow-graph__path--hotfix,.gp-flow-graph__dot--hotfix{stroke:var(--dsw-alias-state-error-primary)}
 .gp-flow-graph__path--merge{stroke-width:1.4;stroke-dasharray:3 3;opacity:.8}
 .gp-flow-graph__dot{fill:var(--dsw-alias-bg-layer-2);stroke-width:2}
-.gp-flow-graph__label{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px;fill:var(--dsw-alias-label-tertiary)}
+.gp-flow-graph__label{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px;font-weight:500;fill:var(--dsw-alias-label-tertiary)}
 .gp-flow-graph__label--main{fill:var(--dsw-alias-state-success-primary)}
 .gp-flow-graph__label--develop{fill:var(--dsw-alias-state-business-primary)}
 .gp-flow-graph__label--feature{fill:var(--dsw-alias-state-warn-primary)}
 .gp-flow-graph__label--release{fill:var(--dsw-alias-label-primary)}
 .gp-flow-graph__label--hotfix{fill:var(--dsw-alias-state-error-primary)}
-.gp-flow-graph__tag{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;fill:var(--dsw-alias-label-secondary)}
+.gp-flow-graph__tag{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;font-weight:500;fill:var(--dsw-alias-label-secondary)}
 .gp-flow__heading{font-size:16px;font-weight:600;line-height:1.3;color:var(--dsw-alias-label-primary)}
 .gp-flow__field{display:flex;align-items:center;gap:8px;min-width:0}
 .gp-flow__field--stack{flex-direction:column;align-items:stretch;gap:6px}
@@ -108,6 +108,66 @@ export const CSS = `
 .gp-flow__mode{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none}
 .gp-flow__check--off{color:var(--dsw-alias-label-tertiary);cursor:default}
 .gp-flow__hint{font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+/* Git Flow change preview: the operation's edges (solid current branches,
+ * dashed created ones, struck-through deleted ones) with an animated connector
+ * that names the direction. The dialog is the query container, so the card
+ * reflows on a phone or a narrow sidebar panel, not only on a narrow viewport. */
+.gp-flow-map{--gp-flow-canvas:color-mix(in srgb,var(--dsw-alias-state-business-primary) 5%,var(--dsw-alias-bg-layer-2));display:flex;flex-direction:column;gap:7px;padding:9px 10px 8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,var(--dsw-alias-border-l1));border-radius:9px;background:var(--gp-flow-canvas)}
+.gp-flow-map__head{display:flex;align-items:center;gap:8px;min-width:0;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.gp-flow-map__key{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:10px;font-weight:400;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
+.gp-flow-map__key-item{display:inline-flex;align-items:center;gap:3px}
+.gp-flow-map__key-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary);flex:none}
+.gp-flow-map__key-dot--new{background:transparent;border:1px dashed var(--dsw-alias-label-tertiary)}
+.gp-flow-map__key-dot--gone{background:transparent;border:1px solid var(--dsw-alias-state-error-primary)}
+.gp-flow-map__key-tag{display:inline-flex;align-items:center;justify-content:center;width:10px;height:10px;border:1px dashed color-mix(in srgb,var(--dsw-alias-state-warn-primary) 65%,transparent);border-radius:3px;color:var(--dsw-alias-state-warn-primary);font-size:8px;font-style:normal;line-height:1}
+.gp-flow-map__key-flow{color:var(--dsw-alias-state-business-primary);font-size:11px;font-style:normal;letter-spacing:-.5px;line-height:1}
+.gp-flow-chain{display:flex;align-items:flex-start;min-width:0;width:100%}
+.gp-flow-chain__col{display:flex;flex-direction:column;align-items:center;flex:0 1 auto;min-width:0;color:var(--dsw-alias-state-business-primary)}
+.gp-flow-chain__col > .gp-flow-map__node{max-width:100%}
+.gp-flow-chain__h{flex:1 1 24px;min-width:16px;height:21px;margin:0 4px;color:var(--dsw-alias-state-business-primary);background:currentColor;opacity:.78;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M5 2l5 5-5 5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") repeat-x 0 50%/14px 14px;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M5 2l5 5-5 5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") repeat-x 0 50%/14px 14px;animation:gp-flow-map-stream .8s linear infinite}
+.gp-flow-chain__v{width:100%;height:42px;background:currentColor;opacity:.78;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M2 5l5 5 5-5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") repeat-y 50% 0/14px 14px;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M2 5l5 5 5-5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") repeat-y 50% 0/14px 14px;animation:gp-flow-map-stream-v .8s linear infinite}
+.gp-flow-chain__v--del{color:var(--dsw-alias-state-error-primary)}
+.gp-flow-chain__v--none{background:none}
+.gp-flow-chain__empty{width:100%;height:19px}
+.gp-flow-map__node{--gp-flow-lane:var(--dsw-alias-label-tertiary);display:inline-flex;align-items:center;gap:5px;flex:none;min-width:0;max-width:100%;height:21px;padding:0 7px;border:1px solid var(--dsw-alias-border-l3);border-radius:999px;background:var(--dsw-alias-bg-layer-2);font-family:inherit;font-size:11px;font-weight:500;line-height:1;color:var(--dsw-alias-label-primary);box-sizing:border-box}
+.gp-flow-map__node--main{--gp-flow-lane:var(--dsw-alias-state-success-primary)}
+.gp-flow-map__node--develop{--gp-flow-lane:var(--dsw-alias-state-business-primary)}
+.gp-flow-map__node--feature{--gp-flow-lane:var(--dsw-alias-state-warn-primary)}
+.gp-flow-map__node--release{--gp-flow-lane:var(--dsw-alias-label-primary)}
+.gp-flow-map__node--hotfix{--gp-flow-lane:var(--dsw-alias-state-error-primary)}
+.gp-flow-map__dot{width:5px;height:5px;border-radius:50%;flex:none;background:var(--gp-flow-lane)}
+.gp-flow-map__name{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4}
+.gp-flow-map__node--new{border-style:dashed;background:color-mix(in srgb,var(--gp-flow-lane) 8%,var(--dsw-alias-bg-layer-2))}
+.gp-flow-map__node--new .gp-flow-map__dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--gp-flow-lane)}
+.gp-flow-map__node--gone{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--dsw-alias-label-tertiary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 7%,var(--dsw-alias-bg-layer-2))}
+.gp-flow-map__node--gone .gp-flow-map__dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--dsw-alias-state-error-primary)}
+.gp-flow-map__node--remote{height:19px;padding:0 6px;font-size:10px;background:var(--dsw-alias-bg-layer-2)}
+.gp-flow-map__tag{display:inline-flex;align-items:center;gap:3px;flex:none;height:19px;padding:0 6px;border:1px dashed color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,transparent);border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,var(--dsw-alias-bg-layer-2));font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:10px;line-height:1;color:var(--dsw-alias-state-warn-primary);white-space:nowrap;box-sizing:border-box}
+.gp-flow-map__tag--node{height:15px;padding:0 4px;margin-left:auto;font-size:9px;border-radius:3px}
+.gp-flow-map__tag-hash{font-size:9px;opacity:.8}
+.gp-flow-map__note{display:flex;gap:5px;padding-top:6px;border-top:1px solid color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);font-size:10px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+.gp-flow-map__note b{font-weight:600;color:var(--dsw-alias-label-secondary)}
+.gp-flow-map__note--error{color:var(--dsw-alias-state-error-primary)}
+.gp-flow-map__note--error b{color:var(--dsw-alias-state-error-primary)}
+@keyframes gp-flow-map-stream{to{-webkit-mask-position:14px 50%;mask-position:14px 50%}}
+@keyframes gp-flow-map-stream-v{to{-webkit-mask-position:50% 14px;mask-position:50% 14px}}
+@container (max-width:420px){
+  .gp-flow-map{padding:8px;gap:6px}
+  .gp-flow-map__head{flex-wrap:wrap;gap:4px 8px;font-size:10.5px}
+  .gp-flow-map__note{padding-top:5px;font-size:9.5px}
+  .gp-flow-map__node{height:20px;font-size:10.5px}
+  .gp-flow-map__node--remote{height:18px;font-size:9.5px}
+  .gp-flow-chain__h{height:20px;margin:0 3px}
+  .gp-flow-chain__v{height:28px}
+  .gp-flow-map__tag--node{display:none}
+  .gp-flow-chain__empty{height:18px}
+}
+@container (max-width:310px){
+  .gp-flow-map__node{height:19px;font-size:9.5px;max-width:90px}
+  .gp-flow-map__node--remote{height:17px;font-size:9px;max-width:90px}
+  .gp-flow-chain__h{height:19px;min-width:12px;margin:0 2px}
+  .gp-flow-chain__empty{height:17px}
+}
 .gp-btn--sm{height:24px;padding:0 8px;font-size:11px}
 .gp-btn--danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}
 .gp-btn--danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 85%,#000);color:#fff}

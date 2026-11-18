@@ -15,8 +15,10 @@ import type { JSX } from 'react'
 import { BranchIcon, MergeIcon } from './icons.js'
 import { renderConfirmModal, renderModalFooter, renderModalShell, type OpT } from './ops-modals.js'
 import {
-  DEVELOP_BRANCH, defaultTagName, flowBranchName,
-  type FlowFinishRequest, type FlowFinishTargets, type FlowKind, type FlowStartRequest, type FlowStrategy,
+  DEVELOP_BRANCH, FLOW_PREFIX, defaultTagName, flowBranchName, flowPreviewChain, flowPreviewRemotes,
+  finishFlowPreview, startFlowPreview,
+  type FlowFinishRequest, type FlowFinishTargets, type FlowKind, type FlowPreview,
+  type FlowPreviewNode, type FlowStartRequest, type FlowStrategy,
 } from './flow.js'
 
 /** The convention's own vocabulary: these stay English in every UI, as in the
@@ -25,6 +27,91 @@ const KIND_LABEL: Record<FlowKind, string> = { feature: 'Feature', hotfix: 'Hotf
 const KIND_SLUG: Record<FlowKind, string> = { feature: 'feature', hotfix: 'hotfix', release: 'release' }
 
 const STRATEGIES: readonly FlowStrategy[] = ['merge', 'squash', 'rebase']
+
+/** One branch pill. The optional tag rides inside the pill, right-aligned, so
+ * the tag stays attached to the branch it was created on. */
+function previewNode(node: FlowPreviewNode, key: string, extra = '', tag?: string): JSX.Element {
+  const state = node.state === 'created'
+    ? ' gp-flow-map__node--new'
+    : node.state === 'deleted' ? ' gp-flow-map__node--gone' : ''
+  return h('span', {
+    key,
+    className: `gp-flow-map__node gp-flow-map__node--${node.lane}${state}${extra === '' ? '' : ` ${extra}`}`,
+    title: node.name,
+  }, [
+    h('i', { key: 'dot', className: 'gp-flow-map__dot' }),
+    h('span', { key: 'name', className: 'gp-flow-map__name' }, node.name),
+    tag === undefined
+      ? null
+      : h('span', { key: 'tag', className: 'gp-flow-map__tag gp-flow-map__tag--node' }, [
+        h('span', { key: 'hash', className: 'gp-flow-map__tag-hash' }, '#'),
+        tag,
+      ]),
+  ])
+}
+
+/** The local branches as one left-to-right chain, with pushed / deleted remote
+ * branches hanging under their own branch. Every edge is the same animated
+ * connector; the form below owns the strategy wording. */
+function flowChain(preview: FlowPreview, remoteName: string | null, t: OpT): JSX.Element {
+  const nodes = flowPreviewChain(preview.routes)
+  const remotes = new Map(flowPreviewRemotes(preview.ops, remoteName).map((remote) => [remote.branch, remote]))
+  const hasRemote = nodes.some((node) => remotes.has(node.name))
+  const children: JSX.Element[] = []
+  nodes.forEach((node, index) => {
+    const tag = preview.routes.find((route) => route.to.name === node.name)?.tag
+    const remote = remotes.get(node.name)
+    const edge = `${index === 0 ? ' gp-flow-chain__col--first' : ''}${index === nodes.length - 1 ? ' gp-flow-chain__col--last' : ''}`
+    children.push(h('div', { key: `col-${index}`, className: `gp-flow-chain__col${edge}` }, [
+      previewNode(node, 'local', '', tag),
+      hasRemote
+        ? (remote === undefined
+          ? h('span', { key: 'v', className: 'gp-flow-chain__v gp-flow-chain__v--none' })
+          : h('span', {
+            key: 'v',
+            className: `gp-flow-chain__v${remote.deleted ? ' gp-flow-chain__v--del' : ''}`,
+            'aria-hidden': 'true',
+          }))
+        : null,
+      hasRemote
+        ? (remote === undefined
+          ? h('span', { key: 'empty', className: 'gp-flow-chain__empty' })
+          : previewNode({ name: remote.ref, lane: 'other', state: remote.deleted ? 'deleted' : 'existing' }, 'remote', 'gp-flow-map__node--remote'))
+        : null,
+    ]))
+    if (index < nodes.length - 1) {
+      children.push(h('span', { key: `h-${index}`, className: 'gp-flow-chain__h', 'aria-hidden': 'true' }))
+    }
+  })
+  return h('div', { className: `gp-flow-chain gp-flow-chain--${nodes.length}`, role: 'group', 'aria-label': t('flow.preview.title') }, children)
+}
+
+/** The change preview both flow dialogs render: the branch chain, plus the
+ * form's own error when the input cannot be submitted. */
+function renderFlowPreview(card: {
+  readonly preview: FlowPreview
+  /** A validation error (taken name / invalid name / empty tag); normal states
+   * show no explanatory line under the graph. */
+  readonly errorText?: string | null
+  /** The checkout's remote name, for splitting `origin/<branch>` refs. */
+  readonly remoteName?: string | null
+  readonly t: OpT
+}): JSX.Element {
+  return h('div', {
+    className: 'gp-flow-map', role: 'group', 'aria-label': card.t('flow.preview.title'),
+  }, [
+    h('div', { key: 'head', className: 'gp-flow-map__head' }, [
+      h('span', { key: 'title', className: 'gp-flow-map__title' }, card.t('flow.preview.title')),
+    ]),
+    flowChain(card.preview, card.remoteName ?? null, card.t),
+    card.errorText === undefined || card.errorText === null || card.errorText === ''
+      ? null
+      : h('div', { key: 'error', className: 'gp-flow-map__note gp-flow-map__note--error', role: 'alert' }, [
+        h('b', { key: 'mark' }, '!'),
+        card.errorText,
+      ]),
+  ])
+}
 
 export interface FlowStartArgs {
   readonly flow: FlowKind
@@ -64,6 +151,17 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
   const taken = branch !== null && existing.includes(branch)
   const invalid = name.trim() !== '' && branch === null
   const kind = KIND_LABEL[flow]
+  const hasDevelop = branches.includes(DEVELOP_BRANCH)
+  // The dialog's own placeholder keeps the picture readable while the name is
+  // still empty; the host still receives a real branch or nothing.
+  const shownBranch = branch ?? `${FLOW_PREFIX[flow]}…`
+  const preview = startFlowPreview({ flow, branch: shownBranch, base, hasDevelop })
+  const errorText = taken
+    ? t('flow.start.exists')
+    : invalid ? t('flow.start.invalid') : null
+  const intro = flow === 'feature' && !hasDevelop
+    ? t('flow.start.initDevelop', { base })
+    : t('flow.start.body', { kind: KIND_SLUG[flow], base })
   const confirmDisabled = busy || branch === null || taken || base === ''
   const submit = (): void => {
     if (confirmDisabled || branch === null) return
@@ -79,13 +177,8 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
     t,
     body: [
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.start.heading', { kind: KIND_SLUG[flow] })),
-      h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, t('flow.start.body', { kind: KIND_SLUG[flow], base })),
-      // The first feature start creates `develop` from the chosen base: the
-      // dialog says so rather than claiming the flow branches off the base
-      // directly.
-      flow === 'feature' && !branches.includes(DEVELOP_BRANCH)
-        ? h('div', { key: 'init', className: 'gp-flow__hint' }, t('flow.start.initDevelop', { base }))
-        : null,
+      h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, intro),
+      h(renderFlowPreview, { key: 'preview', preview, errorText, t }),
       h('div', { key: 'name', className: 'gp-flow__field' }, [
         h('label', { key: 'l', className: 'gp-flow__label', htmlFor: nameId }, t('flow.start.nameLabel', { kind })),
         h('input', {
@@ -96,8 +189,6 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
           onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') submit() },
         }),
       ]),
-      h('div', { key: 'preview', className: 'gp-flow__preview' },
-        t('flow.start.result', { branch: branch ?? '—' })),
       h('div', { key: 'base', className: 'gp-flow__field' }, [
         h('label', { key: 'l', className: 'gp-flow__label', htmlFor: baseId }, t('flow.start.base')),
         h('select', {
@@ -105,8 +196,6 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
           onChange: (e: { target: { value: string } }) => setBase(e.target.value),
         }, branches.map((b) => h('option', { key: b, value: b }, b))),
       ]),
-      taken ? h('div', { key: 'taken', className: 'gp-feedback' }, t('flow.start.exists')) : null,
-      invalid ? h('div', { key: 'invalid', className: 'gp-feedback' }, t('flow.start.invalid')) : null,
       error !== null ? h('div', { key: 'error', className: 'gp-feedback' }, error) : null,
     ],
     footer: renderModalFooter({
@@ -191,6 +280,22 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
     squash: t('flow.finish.strategySquash'),
     rebase: t('flow.finish.strategyRebase', { target }),
   }
+  // The card only carries the graph; the strategy wording lives in the radio
+  // list and its existing labels, not in a second sentence under the branches.
+  const errorText = needsTag && tag.trim() === '' ? t('flow.preview.tagRequired') : null
+  const preview = finishFlowPreview({
+    flow,
+    branch,
+    target,
+    backMerge: targets.backMerge,
+    strategy,
+    tag: needsTag ? tag : '',
+    deleteBranch,
+    deleteRemote: hasUpstream && deleteRemote,
+    pushRefs: pushRefs !== null && push ? pushRefs : null,
+    remoteName: remote.name,
+    forceDelete: strategy === 'squash' && forceDelete,
+  })
   return renderModalShell({
     onClose,
     title: t('flow.finish.title', { kind }),
@@ -201,12 +306,7 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
     t,
     body: [
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.finish.heading', { branch })),
-      // A release / hotfix moves two long-lived branches: the main line (with
-      // the tag) and then `develop`. The body names both so the dialog does not
-      // read as a develop-only finish.
-      h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, targets.backMerge.length > 0
-        ? t('flow.finish.bodyMainline', { kind: slug, target, back: targets.backMerge.join(' / ') })
-        : t('flow.finish.body', { kind: slug, target })),
+      h(renderFlowPreview, { key: 'preview', preview, errorText, remoteName: remote.name, t }),
       h('div', { key: 'modes', className: 'gp-flow__modes', role: 'radiogroup', 'aria-label': t('flow.finish.strategy') }, STRATEGIES.map((value) =>
         h('label', { key: value, className: 'gp-flow__mode' }, [
           h('input', {
@@ -216,26 +316,15 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
           h('span', { key: 'l' }, strategyLabel[value]),
         ]))),
       // Where the work lands. Only a hotfix can pick (a checkout keeping both
-      // `main` and `master`); the other flows show their one target instead of
-      // a control that cannot change.
-      h('div', { key: 'target', className: 'gp-flow__field' }, targets.editable
-        ? [
+      // `main` and `master`); the legend already names a fixed target, so a
+      // control that cannot change is not rendered.
+      targets.editable
+        ? h('div', { key: 'target', className: 'gp-flow__field' }, [
           h('label', { key: 'l', className: 'gp-flow__label', htmlFor: targetId }, t('flow.finish.target')),
           h('select', {
             key: 's', id: targetId, className: 'gp-input gp-flow__select', value: target,
             onChange: (e: { target: { value: string } }) => setTarget(e.target.value),
           }, targets.options.map((name) => h('option', { key: name, value: name }, name))),
-        ]
-        : [
-          h('span', { key: 'l', className: 'gp-flow__label' }, t('flow.finish.target')),
-          h('span', { key: 'v', className: 'gp-flow__target', title: t('flow.finish.targetFixed') }, target),
-        ]),
-      // The second landing branch: a release / hotfix back-merges the main line
-      // into develop, which is where the checkout ends up.
-      targets.backMerge.length > 0
-        ? h('div', { key: 'back', className: 'gp-flow__field' }, [
-          h('span', { key: 'l', className: 'gp-flow__label' }, t('flow.finish.backMerge')),
-          h('span', { key: 'v', className: 'gp-flow__target', title: t('flow.finish.backMergeHint') }, targets.backMerge.join(' / ')),
         ])
         : null,
       h('div', { key: 'msg', className: 'gp-flow__field gp-flow__field--stack' }, [

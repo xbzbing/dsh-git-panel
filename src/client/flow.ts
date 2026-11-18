@@ -152,6 +152,175 @@ export function startBase(kind: FlowKind, bases: FlowBases): string | null {
   return bases.develop ?? (kind === 'feature' ? bases.main : null)
 }
 
+/** The lanes a change-preview node can sit on: the three flow kinds plus the
+ * two long-lived branches. Any other base (a custom default branch) reads as
+ * `other` and stays neutral. */
+export type FlowLane = FlowKind | 'main' | 'develop' | 'other'
+
+/** What a node means in the preview: a branch that stays, one the action
+ * creates, or one it deletes. */
+export type FlowNodeState = 'existing' | 'created' | 'deleted'
+
+export interface FlowPreviewNode {
+  readonly name: string
+  readonly lane: FlowLane
+  readonly state: FlowNodeState
+}
+
+/** What a directed edge does. `checkout` moves HEAD; the rest name the way the
+ * integration lands, with `backMerge` the release / hotfix return trip. */
+export type FlowPreviewAction = 'checkout' | 'merge' | 'squash' | 'rebase' | 'backMerge'
+
+export interface FlowPreviewRoute {
+  readonly from: FlowPreviewNode
+  readonly to: FlowPreviewNode
+  /** Null for the implicit `develop` creation step. */
+  readonly action: FlowPreviewAction | null
+  /** Tag created on `to` (a release / hotfix finish). */
+  readonly tag?: string
+}
+
+export type FlowPreviewOpKind = 'delete' | 'deleteRemote' | 'push'
+
+export interface FlowPreviewOp {
+  readonly kind: FlowPreviewOpKind
+  /** Refs a push publishes, e.g. `origin/main`. */
+  readonly refs?: readonly string[]
+  /** A squash finish deletes its branch with `-D`. */
+  readonly force?: boolean
+}
+
+/** What a dialog's change legend renders: the edges the operation performs and
+ * the cleanup / publish work that follows. Strings stay in the view, so the
+ * model can be unit-tested without a renderer. */
+export interface FlowPreview {
+  readonly routes: readonly FlowPreviewRoute[]
+  readonly ops: readonly FlowPreviewOp[]
+  /** The start creates `develop` from the base first (the first feature). */
+  readonly createsDevelop: boolean
+}
+
+/** The lane a branch name belongs to; `other` covers a custom base branch. */
+export function flowLane(name: string): FlowLane {
+  if (name === DEVELOP_BRANCH) return 'develop'
+  if (MAIN_CANDIDATES.includes(name)) return 'main'
+  return detectFlowBranch(name)?.kind ?? 'other'
+}
+
+export interface FlowStartPreviewInput {
+  readonly flow: FlowKind
+  /** The full name the new branch will get (the view also passes a placeholder
+   * while the name is empty). */
+  readonly branch: string
+  readonly base: string
+  readonly hasDevelop: boolean
+}
+
+/** The start legend: one edge from the base to the new branch, or two when the
+ * first feature creates `develop` first (the host does the same). */
+export function startFlowPreview(input: FlowStartPreviewInput): FlowPreview {
+  const { flow, branch, base, hasDevelop } = input
+  const createsDevelop = flow === 'feature' && !hasDevelop
+  const route = (from: string, to: string, action: FlowPreviewAction | null): FlowPreviewRoute => ({
+    from: { name: from, lane: flowLane(from), state: 'existing' },
+    to: { name: to, lane: flowLane(to), state: 'created' },
+    action,
+  })
+  return {
+    createsDevelop,
+    routes: createsDevelop
+      ? [route(base, DEVELOP_BRANCH, null), route(DEVELOP_BRANCH, branch, 'checkout')]
+      : [route(base, branch, 'checkout')],
+    ops: [],
+  }
+}
+
+export interface FlowFinishPreviewInput {
+  readonly flow: FlowKind
+  readonly branch: string
+  readonly target: string
+  /** Long-lived branches the finish also moves (a release / hotfix). */
+  readonly backMerge: readonly string[]
+  readonly strategy: FlowStrategy
+  /** The tag the finish creates; empty for a feature. */
+  readonly tag: string
+  readonly deleteBranch: boolean
+  readonly deleteRemote: boolean
+  /** Refs the push publishes; null when the option is off or unavailable. */
+  readonly pushRefs: readonly string[] | null
+  /** The checkout's remote, for the deleted upstream's ref. */
+  readonly remoteName?: string | null
+  readonly forceDelete?: boolean
+}
+
+/** The finish legend: the integration edge (with its tag), the back-merge, and
+ * the cleanup / publish ops the checkboxes select. The source node reads as
+ * deleted as soon as the branch delete is requested. */
+export function finishFlowPreview(input: FlowFinishPreviewInput): FlowPreview {
+  const needsTag = input.flow !== 'feature'
+  const tag = needsTag ? input.tag.trim() : ''
+  const routes: FlowPreviewRoute[] = [{
+    from: { name: input.branch, lane: flowLane(input.branch), state: input.deleteBranch ? 'deleted' : 'existing' },
+    to: { name: input.target, lane: flowLane(input.target), state: 'existing' },
+    action: input.strategy,
+    ...(tag === '' ? {} : { tag }),
+  }]
+  for (const back of input.backMerge) {
+    routes.push({
+      from: { name: input.target, lane: flowLane(input.target), state: 'existing' },
+      to: { name: back, lane: flowLane(back), state: 'existing' },
+      action: 'backMerge',
+    })
+  }
+  const ops: FlowPreviewOp[] = []
+  if (input.deleteBranch) ops.push({ kind: 'delete', ...(input.forceDelete === true ? { force: true } : {}) })
+  if (input.deleteRemote) {
+    ops.push({
+      kind: 'deleteRemote',
+      ...(input.remoteName != null ? { refs: [`${input.remoteName}/${input.branch}`] } : {}),
+    })
+  }
+  if (input.pushRefs !== null && input.pushRefs.length > 0) ops.push({ kind: 'push', refs: input.pushRefs })
+  return { routes, ops, createsDevelop: false }
+}
+
+/** The local branches a preview draws left-to-right: the first edge's source
+ * plus every edge's target. A release finish therefore reads
+ * `release/… → main → develop`. */
+export function flowPreviewChain(routes: readonly FlowPreviewRoute[]): readonly FlowPreviewNode[] {
+  if (routes.length === 0) return []
+  return [routes[0].from, ...routes.map((route) => route.to)]
+}
+
+/** One remote branch under its local branch. */
+export interface FlowPreviewRemote {
+  readonly ref: string
+  /** The local branch it belongs to (`origin/develop` → `develop`). */
+  readonly branch: string
+  /** False for a push, true for a delete-remote. */
+  readonly deleted: boolean
+}
+
+/** Remote branches the preview should draw under their local branch. The
+ * remote name may itself contain `/`, so split on the full configured name
+ * rather than the first slash. */
+export function flowPreviewRemotes(
+  ops: readonly FlowPreviewOp[],
+  remoteName: string | null,
+): readonly FlowPreviewRemote[] {
+  if (remoteName === null) return []
+  const prefix = `${remoteName}/`
+  const remotes: FlowPreviewRemote[] = []
+  for (const op of ops) {
+    if (op.kind !== 'push' && op.kind !== 'deleteRemote') continue
+    for (const ref of op.refs ?? []) {
+      if (!ref.startsWith(prefix) || ref.length === prefix.length) continue
+      remotes.push({ ref, branch: ref.slice(prefix.length), deleted: op.kind === 'deleteRemote' })
+    }
+  }
+  return remotes
+}
+
 export type FlowMenuItemId =
   | 'start-feature'
   | 'integrate-develop'
