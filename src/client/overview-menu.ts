@@ -91,6 +91,9 @@ export interface OverviewMenuFacts {
    * land on the current branch, so their entries are offered only while one
    * exists. */
   readonly currentBranch?: string | null
+  /** The host declared `capabilities.flow`: an older host has no flow actions,
+   * so the Git Flow entries are hidden instead of sending a value it lacks. */
+  readonly flow?: boolean
   /** The checkout's long-lived branches, for the Git Flow entries on their
    * rows. `flowMains` lists every main-line branch present (`main` and
    * `master` can coexist); absent while the branch list is still loading. */
@@ -123,9 +126,9 @@ export function branchMenuActions(
   // finished, develop starts features / releases and integrates develop back,
   // the main line starts hotfixes. Start entries work from a row that is not
   // checked out (they branch off it); integrate acts on HEAD, so it is offered
-  // only while a feature branch is checked out. Execution arrives with the host
-  // actions, so these are not gated on a capability yet.
-  if (isBranch && !value.isRemote) {
+  // only while a feature branch is checked out. All of them are gated on the
+  // host's `flow` capability: an older host would reject the actions.
+  if (isBranch && !value.isRemote && facts.flow === true) {
     const flow = detectFlowBranch(value.name)
     if (flow !== null) {
       group.push({

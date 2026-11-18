@@ -46,6 +46,7 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'branch-unmerged': return t('branchDelete.unmergedWarn')
     // `git branch` refused a taken name: nothing was created (issue #118).
     case 'branch-exists': return t('error.branchExists')
+    case 'tag-exists': return t('error.tagExists')
     // A merge conflicted and the host auto-aborted it (the panel has no
     // conflict UI), so the work tree is back to the pre-merge state; the
     // "stuck" half says the abort itself failed and the repo is mid-merge.
@@ -59,6 +60,10 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // Cherry-picking a merge commit: a mainline parent is required, which the
     // panel cannot choose (the twin of reverting one).
     case 'pick-merge': return t('error.pickMerge')
+    // A Git Flow finish integrated the branch and a later step failed: the
+    // target branch already moved, so the copy must not read as "nothing
+    // happened" (the reason names the step).
+    case 'flow-partial': return t('error.flowPartial', { reason: message ?? '' })
     case 'nested-repo': return t('error.nestedRepo')
     // The same refusal raised mid-loop, after earlier paths were deleted: the
     // copy must not read as "nothing happened".

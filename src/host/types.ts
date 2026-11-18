@@ -250,6 +250,10 @@ export interface GitSnapshot {
      * client keeps the diverged state without an upload control instead of
      * sending an action the host would reject. */
     readonly syncMerge?: true
+    /** The `flow-start` / `flow-finish` / `flow-integrate` actions run here.
+     * An older host has no such actions, so the client hides the Git Flow
+     * entries rather than sending a value it would reject. */
+    readonly flow?: true
   }
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
@@ -314,6 +318,13 @@ export interface GitChange {
 }
 
 // ── actions (run endpoint) ────────────────────────────────────────────────
+
+/** The three short-lived Git Flow branches (branch-name convention). */
+export type FlowKind = 'feature' | 'hotfix' | 'release'
+export const FLOW_KINDS: readonly FlowKind[] = ['feature', 'hotfix', 'release']
+
+/** How a finished flow is integrated into its target branch. */
+export type FlowStrategy = 'merge' | 'squash' | 'rebase'
 
 export type GitAction =
   | { readonly kind: 'stage'; readonly paths: readonly string[] }
@@ -431,6 +442,40 @@ export type GitAction =
   // tree is discarded; the branch simply stops being checked out, and the status
   // bar says so.
   | { readonly kind: 'commit-checkout'; readonly commit: string }
+  // ── Git Flow (branch-name convention, no `git flow` CLI) ────────────────
+  // Start `feature/…`, `hotfix/…` or `release/…` from `base` and switch to it.
+  // The first feature start creates `develop` from `base` when the checkout has
+  // none. The host re-checks the prefix against `flow`, refuses a taken name,
+  // and resolves `base` as a local branch (never a tag of the same name).
+  | { readonly kind: 'flow-start'; readonly flow: FlowKind; readonly branch: string; readonly base: string }
+  // Finish a flow branch: integrate it into `target` with `strategy`, then run
+  // the flow's extra steps (a release also lands on the main line; a hotfix is
+  // merged back into develop; release / hotfix tag the main line), and finally
+  // the requested cleanup (remote delete, local delete, push). A conflict in
+  // the first integration aborts and restores the pre-op checkout; a failure
+  // after it reports `flow-partial` because the target branch already moved.
+  | {
+    readonly kind: 'flow-finish'
+    readonly flow: FlowKind
+    readonly branch: string
+    readonly target: string
+    readonly strategy: FlowStrategy
+    readonly message: string
+    readonly deleteBranch?: boolean
+    /** Delete the branch's configured upstream after the integration. */
+    readonly deleteRemote?: boolean
+    /** Push `target` to this configured remote after the integration. */
+    readonly pushRemote?: string
+    /** Release / hotfix only: annotated tag created on the main line. */
+    readonly tag?: string
+    /** Squash integration rewrites the branch out of the target's ancestry, so
+     * deleting it needs git's forced `-D`; only sent after the dialog's own
+     * acknowledgement. */
+    readonly forceDelete?: boolean
+  }
+  // `整合开发`: merge `develop` into the checked-out feature branch. The host
+  // verifies HEAD is a feature branch and aborts a conflict (no conflict UI).
+  | { readonly kind: 'flow-integrate'; readonly develop: string }
 
 /** `git reset` modes, from least to most destructive. Single source so the
  * client dialog and the command builder cannot drift. */
@@ -496,6 +541,9 @@ export type GitErrorCode =
   | 'branch-unmerged'
   // `git branch` refused because the name is taken. Nothing was created.
   | 'branch-exists'
+  // A Git Flow release / hotfix would create a tag whose name is already taken.
+  // The finish checks it before writing anything, so the checkout is untouched.
+  | 'tag-exists'
   // A merge conflicted and was auto-aborted: the work tree is back to the
   // pre-merge state (the panel offers no conflict resolution).
   | 'merge-conflict'
@@ -512,6 +560,11 @@ export type GitErrorCode =
   // Cherry-picking a merge commit: a mainline parent is required, which the
   // panel cannot choose (the same refusal as reverting one).
   | 'pick-merge'
+  // A Git Flow finish integrated the flow branch and then a later step failed
+  // (the second merge, the tag, a push or a delete). The target branch already
+  // moved, so this is not a plain failure: the message names the failed step and
+  // the client tells the user to re-check the branch state.
+  | 'flow-partial'
   // A stash-then-switch checkout stashed the local changes but the switch still
   // failed: the work tree changed, and the stash is kept (recoverable).
   | 'stash-switch-failed'

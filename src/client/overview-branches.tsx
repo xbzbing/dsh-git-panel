@@ -38,6 +38,9 @@ export interface BranchCbs {
   /** Open one of the panel's Git Flow dialogs (the branch rows' menus use the
    * same opener, so the dialog lives in one place). */
   openFlow: (dialog: FlowDialog) => void
+  /** The host declared `capabilities.flow`: without it the button is hidden
+   * (an older host has no flow actions to run). */
+  flowSupported?: boolean
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -191,15 +194,17 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
         'aria-pressed': activeRef === null,
         onClick: () => cb.onFilter(null),
       }, cb.t('overview.head')),
-      h(FlowMenu, {
-        key: 'flow',
-        current: tree.current,
-        local: tree.local.map((b) => b.name),
-        defaultBranch: tree.defaultBranch,
-        busy: cb.busy,
-        onOpen: cb.openFlow,
-        t: cb.t,
-      }),
+      cb.flowSupported === true
+        ? h(FlowMenu, {
+          key: 'flow',
+          current: tree.current,
+          local: tree.local.map((b) => b.name),
+          defaultBranch: tree.defaultBranch,
+          busy: cb.busy,
+          onOpen: cb.openFlow,
+          t: cb.t,
+        })
+        : null,
     ]),
     section('local', 'overview.local', tree.local.length, h(BranchIcon, { size: 13 }), trees.local, trees.localPinned),
     section('remote', 'overview.remote', tree.remote.length, h(BranchIcon, { size: 13 }), trees.remote),

@@ -15,6 +15,7 @@ import { normalizeConfig, resolveBrowseRoot, snapshotForSession, DEFAULT_CONFIG,
 import { canOpenWithSystem, openWithSystem } from './open-file.js'
 import { writeWorkspaceFile } from './write-file.js'
 import { runAction } from './actions.js'
+import { isFlowAction, runFlowAction } from './flow-ops.js'
 import { runQuery } from './queries.js'
 import { runSuggest } from './suggest.js'
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
@@ -26,7 +27,7 @@ import { EDITABLE_EXTENSIONS, EDITABLE_FILENAMES } from './types.js'
 
 export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
-  GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
+  GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, FlowKind, FlowStrategy,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode, GitPanelPlacement,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
@@ -37,11 +38,13 @@ export type {
 
 /** The seven wire endpoints, exported so the contract test can pin them. */
 export { REMOTE_METHODS } from './types.js'
+export { FLOW_KINDS } from './types.js'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, listSessionRepos, parseFetchRemotes, parsePrimaryRemote, readSuggestLanguage, readPlacement } from './core.js'
 export { createGitRunner } from './git.js'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 export { parseRemote, classifyHost } from './remote.js'
 export { isSafePath, planAction, runAction, classifyActionFailure, splitRemoteTrackingRef, planRemoteBranchDelete } from './actions.js'
+export { runFlowAction, isFlowAction } from './flow-ops.js'
 export { openerArgv, canOpenWithSystem, openWithSystem } from './open-file.js'
 export { writeWorkspaceFile } from './write-file.js'
 export { editInfo, encodeEdit, eolStyle, sha256Hex } from './edit-info.js'
@@ -224,6 +227,9 @@ export class GitPanelService extends TypertRemoteService {
 
   @Remote('run')
   async run(request: GitActionRequest, signal?: AbortSignal): Promise<GitActionResult> {
+    // Git Flow is a multi-step sequence with its own probes and rollback, not a
+    // single planned argv, so it is dispatched before the action pipeline.
+    if (isFlowAction(request.action)) return runFlowAction(this.withSignal(signal), this.liveConfig(), request)
     return runAction(this.withSignal(signal), this.liveConfig(), request)
   }
 

@@ -6,10 +6,9 @@
  *    deleted;
  *  - integrate: merge `develop` into the current branch.
  *
- * They are the shell of the feature: the forms decide and emit a FlowRequest,
- * and the write path that runs it arrives with the host actions. Until a
- * runner is wired, the dialog says so after submit and changes nothing —
- * never a button that silently does nothing.
+ * The forms only decide: they emit a wire action (`flow-start` /
+ * `flow-finish`) that the panel runs through `onAction`, and render the host's
+ * error inside the dialog while it runs. Nothing here touches git.
  */
 import { createElement as h, useId, useState } from 'react'
 import type { JSX } from 'react'
@@ -39,8 +38,8 @@ export interface FlowStartArgs {
   readonly initialName?: string
   /** Submit is disabled while a write runs. */
   readonly busy?: boolean
-  /** The execution is not wired yet (shell phase): shown after submit. */
-  readonly pending?: boolean
+  /** The host's refusal, rendered in the form (the dialog stays open). */
+  readonly error?: string | null
   readonly onSubmit: (request: FlowStartRequest) => void
   readonly onClose: () => void
   /** The Git panel root: the dialog is confined to it (see panel-root.ts). */
@@ -53,7 +52,7 @@ export function renderFlowStartModal(args: FlowStartArgs): JSX.Element | null {
   return h(FlowStartModal, args)
 }
 
-function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '', busy = false, pending = false, onSubmit, onClose, container, t }: FlowStartArgs): JSX.Element | null {
+function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '', busy = false, error = null, onSubmit, onClose, container, t }: FlowStartArgs): JSX.Element | null {
   const [name, setName] = useState(initialName)
   const [base, setBase] = useState(defaultBase)
   // Two panels of one session can be mounted at once (conversation + sidebar),
@@ -68,7 +67,7 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
   const confirmDisabled = busy || branch === null || taken || base === ''
   const submit = (): void => {
     if (confirmDisabled || branch === null) return
-    onSubmit({ flow, branch, base })
+    onSubmit({ kind: 'flow-start', flow, branch, base })
   }
   return renderModalShell({
     onClose,
@@ -108,12 +107,13 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
       ]),
       taken ? h('div', { key: 'taken', className: 'gp-feedback' }, t('flow.start.exists')) : null,
       invalid ? h('div', { key: 'invalid', className: 'gp-feedback' }, t('flow.start.invalid')) : null,
-      pending ? h('div', { key: 'pending', className: 'gp-flow__pending' }, t('flow.pending')) : null,
+      error !== null ? h('div', { key: 'error', className: 'gp-feedback' }, error) : null,
     ],
     footer: renderModalFooter({
       onClose, onConfirm: submit, confirmLabel: t('flow.start.confirm'),
       confirmDisabled, danger: false, t,
     }),
+    ...(busy ? { busy: true } : {}),
   })
 }
 
@@ -131,7 +131,8 @@ export interface FlowFinishArgs {
    * can say which ref it would publish (and follow the chosen target). */
   readonly remote: { readonly name: string | null; readonly branches: readonly string[] }
   readonly busy?: boolean
-  readonly pending?: boolean
+  /** The host's refusal, rendered in the form (the dialog stays open). */
+  readonly error?: string | null
   readonly onSubmit: (request: FlowFinishRequest) => void
   readonly onClose: () => void
   readonly container?: Element | null
@@ -143,13 +144,17 @@ export function renderFlowFinishModal(args: FlowFinishArgs): JSX.Element | null 
   return h(FlowFinishModal, args)
 }
 
-function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = false, pending = false, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
+function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = false, error = null, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
   const [strategy, setStrategy] = useState<FlowStrategy>('merge')
   // The default message is a commit subject, so it follows the UI language:
   // `完成 git-flow` in Chinese, `Finish git-flow` in English.
   const [message, setMessage] = useState(t('flow.finish.messageDefault'))
   const [target, setTarget] = useState(targets.selected)
   const [deleteBranch, setDeleteBranch] = useState(true)
+  // A squash finish leaves the flow branch outside the target's ancestry, so
+  // deleting it needs git's forced `-D`. That is a second, explicit decision:
+  // the host refuses the delete otherwise and leaves the branch in place.
+  const [forceDelete, setForceDelete] = useState(false)
   const [deleteRemote, setDeleteRemote] = useState(false)
   const [push, setPush] = useState(false)
   const [tag, setTag] = useState(flow === 'feature' ? '' : defaultTagName(branch))
@@ -168,8 +173,9 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
   const submit = (): void => {
     if (busy) return
     onSubmit({
-      flow, branch, target, strategy, message: message.trim(), deleteBranch, deleteRemote,
-      push: pushRef !== null && push,
+      kind: 'flow-finish', flow, branch, target, strategy, message: message.trim(), deleteBranch, deleteRemote,
+      ...(pushRef !== null && push ? { pushRemote: remote.name! } : {}),
+      forceDelete: strategy === 'squash' && forceDelete,
       ...(needsTag ? { tag: tag.trim() } : {}),
     })
   }
@@ -231,6 +237,15 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
         h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: deleteBranch, onChange: () => setDeleteBranch((v) => !v) }),
         t('flow.finish.deleteBranch', { kind: slug }),
       ]),
+      // Squash integration: the branch's commits are not in the target's
+      // ancestry, so the delete is a forced `-D` and asks for its own
+      // acknowledgement (the same contract as the branch-delete dialog).
+      strategy === 'squash' && deleteBranch
+        ? h('label', { key: 'force', className: 'gp-modal__check' }, [
+          h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: forceDelete, onChange: () => setForceDelete((v) => !v) }),
+          t('flow.finish.forceDelete'),
+        ])
+        : null,
       h('label', { key: 'remote', className: `gp-modal__check${hasUpstream ? '' : ' gp-flow__check--off'}`, title: hasUpstream ? undefined : t('flow.finish.remoteDisabled') }, [
         h('input', {
           key: 'cb', type: 'checkbox', className: 'gp-check',
@@ -249,11 +264,11 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
         }),
         t('flow.finish.push', { ref: pushRef ?? target }),
       ]),
-      pending ? h('div', { key: 'pending', className: 'gp-flow__pending' }, t('flow.pending')) : null,
+      error !== null ? h('div', { key: 'error', className: 'gp-feedback' }, error) : null,
     ],
     footer: renderModalFooter({
       onClose, onConfirm: submit, confirmLabel: t('flow.finish.confirm'),
-      confirmDisabled: busy || (needsTag && tag.trim() === ''), danger: false, t,
+      confirmDisabled: busy || (needsTag && tag.trim() === '') || (strategy === 'squash' && deleteBranch && !forceDelete), danger: false, t,
     }),
     ...(busy ? { busy: true } : {}),
   })
@@ -264,7 +279,8 @@ export interface FlowIntegrateArgs {
   readonly current: string | null
   readonly dirty: boolean
   readonly busy?: boolean
-  readonly pending?: boolean
+  /** The host's refusal, rendered in the confirm body. */
+  readonly error?: string | null
   readonly onSubmit: () => void
   readonly onClose: () => void
   readonly container?: Element | null
@@ -273,14 +289,14 @@ export interface FlowIntegrateArgs {
 
 /** `整合开发`: merge `develop` into the current branch. It moves the work tree
  * and can conflict, so it keeps the same confirmation contract as a merge. */
-export function renderFlowIntegrateModal({ develop, current, dirty, busy = false, pending = false, onSubmit, onClose, container, t }: FlowIntegrateArgs): JSX.Element | null {
+export function renderFlowIntegrateModal({ develop, current, dirty, busy = false, error = null, onSubmit, onClose, container, t }: FlowIntegrateArgs): JSX.Element | null {
   return renderConfirmModal({
     title: t('flow.integrate.title'),
     body: t('flow.integrate.body', { develop, current: current ?? t('switch.detached') })
       + (dirty ? `\n\n${t('flow.integrate.dirty')}` : ''),
     confirmLabel: t('flow.integrate.confirm'),
     danger: false,
-    error: pending ? t('flow.pending') : null,
+    error,
     confirmBusy: busy,
     confirmDisabled: busy,
     onConfirm: onSubmit,

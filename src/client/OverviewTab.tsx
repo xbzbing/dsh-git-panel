@@ -276,10 +276,12 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // the shared op-scope effect below (same contract as the switch confirm).
   const [branchMergeTarget, setBranchMergeTarget] = useState<{ start: string; label: string } | null>(null)
   // Git Flow: one dialog state for the branch-list button and the branch rows'
-  // right-click entries, so both raise the same dialog. The write path lands
-  // here with the host actions; until then `flowPending` says so in the form.
+  // right-click entries, so both raise the same dialog. The submit runs the
+  // host's flow action through `onAction`: the fresh snapshot refreshes every
+  // pane, and a refusal renders inside the dialog.
   const [flowDialog, setFlowDialog] = useState<FlowDialog | null>(null)
-  const [flowPending, setFlowPending] = useState(false)
+  const [flowBusy, setFlowBusy] = useState(false)
+  const flowInFlight = useRef(false)
   const [pickTarget, setPickTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   // Commit-undo targets (revert confirm + reset mode dialog), each a selected commit.
   const [revertTarget, setRevertTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
@@ -414,11 +416,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     setSwitchTarget(option)
   }
   // Git Flow entries: the button and the branch rows' menus raise the same
-  // dialog. The form's submit lands here; the host actions arrive next, so an
-  // accepted form reports that and writes nothing.
-  const openFlow = (dialog: FlowDialog): void => { setFlowPending(false); setFlowDialog(dialog) }
-  const closeFlow = (): void => { setFlowDialog(null); setFlowPending(false) }
-  const submitFlow = (): void => setFlowPending(true)
+  // dialog. The form's submit runs the host action; the dialog holds the busy
+  // state and the refusal so a double press or a second submit cannot fire.
+  const openFlow = (dialog: FlowDialog): void => { setOpError(null); setFlowBusy(false); setFlowDialog(dialog) }
+  const closeFlow = (): void => { setFlowDialog(null); setFlowBusy(false); setOpError(null) }
+  const flowEnv = { busy: flowBusy, setBusy: setFlowBusy, setError: setOpError, inFlight: flowInFlight }
+  const runFlow = (action: GitAction): void => {
+    void runSnapshotAction(flowEnv, onAction, action, closeFlow, t('error.generic'))
+  }
   // The shared popup is an overlay above everything the panel draws, including
   // the pointer-anchored commit card: keep the card out of its way while it is
   // open instead of letting it peek out from underneath.
@@ -472,8 +477,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }
   }
   const opScopeRef = useRef<string | null>(null)
-  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null || branchToDelete !== null || remoteBranchToDelete !== null || branchMergeTarget !== null || pickTarget !== null
-  const opInFlight = opBusy || switchBusy || mergeSyncBusy
+  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null || branchToDelete !== null || remoteBranchToDelete !== null || branchMergeTarget !== null || pickTarget !== null || flowDialog !== null
+  const opInFlight = opBusy || switchBusy || mergeSyncBusy || flowBusy
   // The runs the menu offers, closing over this render's state (the owner reads
   // the published object at resolve time, so a fresh one each render is enough).
   const overviewMenuCommands: OverviewMenuCommands = {
@@ -517,6 +522,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       branchMerge: snapshot.capabilities?.branchMerge === true,
       cherryPick: snapshot.capabilities?.cherryPick === true,
       currentBranch: snapshot.branch,
+      flow: snapshot.capabilities?.flow === true,
       flowDevelop: flowBasesInfo.develop,
       flowMains,
     }
@@ -541,6 +547,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     setRemoteBranchToDelete(null)
     setBranchMergeTarget(null)
     setPickTarget(null)
+    setFlowDialog(null)
     setOpError(null)
   }, [opScope, opDialogOpen, opInFlight, opError])
 
@@ -1145,9 +1152,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       defaultBase: base,
       existing: flowLocalNames,
       initialName,
-      busy: opInFlight,
-      pending: flowPending,
-      onSubmit: submitFlow,
+      busy: flowBusy,
+      error: opError,
+      onSubmit: (request) => runFlow(request),
       onClose: closeFlow,
       ...(panelRoot !== null ? { container: panelRoot } : {}),
       t,
@@ -1162,9 +1169,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       // stays off instead of claiming there is none.
       hasUpstream: flowDialog.branch === snapshot.branch && snapshot.hasUpstream,
       remote: { name: remoteName, branches: flowRemoteNames },
-      busy: opInFlight,
-      pending: flowPending,
-      onSubmit: submitFlow,
+      busy: flowBusy,
+      error: opError,
+      onSubmit: (request) => runFlow(request),
       onClose: closeFlow,
       ...(panelRoot !== null ? { container: panelRoot } : {}),
       t,
@@ -1175,9 +1182,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       develop,
       current: snapshot.branch,
       dirty: snapshot.dirty,
-      busy: opInFlight,
-      pending: flowPending,
-      onSubmit: submitFlow,
+      busy: flowBusy,
+      error: opError,
+      onSubmit: () => runFlow({ kind: 'flow-integrate', develop }),
       onClose: closeFlow,
       ...(panelRoot !== null ? { container: panelRoot } : {}),
       t,
@@ -1488,6 +1495,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       switchOptions,
       switchBusy,
       busy: opInFlight,
+      flowSupported: snapshot.capabilities?.flow === true,
       openFlow,
       onSwitch: openSwitch,
       onToggle: toggleSection,
@@ -1549,6 +1557,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             switchOptions,
             switchBusy,
             busy: opInFlight,
+            flowSupported: snapshot.capabilities?.flow === true,
             openFlow,
             onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
             onToggle: toggleSection,
@@ -1580,6 +1589,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         switchOptions,
         switchBusy,
         busy: opInFlight,
+        flowSupported: snapshot.capabilities?.flow === true,
         openFlow,
         onSwitch: (option) => { setSheetOpen(false); openSwitch(option) },
         onToggle: toggleSection,
@@ -1604,6 +1614,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         switchOptions,
         switchBusy,
         busy: opInFlight,
+        flowSupported: snapshot.capabilities?.flow === true,
         openFlow,
         onSwitch: openSwitch,
         onToggle: toggleSection,

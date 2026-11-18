@@ -108,7 +108,6 @@ export const CSS = `
 .gp-flow__mode{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none}
 .gp-flow__check--off{color:var(--dsw-alias-label-tertiary);cursor:default}
 .gp-flow__hint{font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
-.gp-flow__pending{font-size:11px;line-height:1.5;color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
 .gp-btn--sm{height:24px;padding:0 8px;font-size:11px}
 .gp-btn--danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}
 .gp-btn--danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 85%,#000);color:#fff}

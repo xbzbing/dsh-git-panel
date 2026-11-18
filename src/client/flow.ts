@@ -12,12 +12,15 @@
  * offering impossible combinations.
  */
 
+import type { FlowKind, FlowStrategy, GitAction } from './types.js'
+import { FLOW_KINDS } from './types.js'
+
 /** The three short-lived flows. `bugfix/` and `support/` are deliberately out:
  * the convention leaves them optional, and the editor menu this follows does
- * not list them. */
-export type FlowKind = 'feature' | 'hotfix' | 'release'
-
-export const FLOW_KINDS: readonly FlowKind[] = ['feature', 'hotfix', 'release']
+ * not list them. The values and the wire action shapes live in the host's
+ * `types.ts` (single source); this module re-exports them for the views. */
+export type { FlowKind, FlowStrategy }
+export { FLOW_KINDS }
 
 export const FLOW_PREFIX: Record<FlowKind, string> = {
   feature: 'feature/',
@@ -28,8 +31,6 @@ export const FLOW_PREFIX: Record<FlowKind, string> = {
 /** The long-lived branches the flows hang off. */
 export const DEVELOP_BRANCH = 'develop'
 const MAIN_CANDIDATES: readonly string[] = ['main', 'master']
-
-export type FlowStrategy = 'merge' | 'squash' | 'rebase'
 
 /** Which flow, if any, a branch name belongs to. A name that is only the prefix
  * (`feature/`) belongs to none. */
@@ -219,41 +220,12 @@ export function flowMenuItems(facts: FlowMenuFacts): readonly FlowMenuItemState[
   ]
 }
 
-/** One request the UI hands to the write path (the host actions arrive with the
- * execution step; the shell only builds these today). */
-export interface FlowStartRequest {
-  readonly flow: FlowKind
-  /** Full branch name, e.g. `feature/login`. */
-  readonly branch: string
-  readonly base: string
-}
-
-export interface FlowFinishRequest {
-  readonly flow: FlowKind
-  /** The flow branch being finished (usually HEAD, but a branch row's own
-   * right-click names it explicitly). */
-  readonly branch: string
-  /** The branch the work lands on: `develop`, or the chosen main line for a
-   * hotfix. */
-  readonly target: string
-  readonly strategy: FlowStrategy
-  readonly message: string
-  readonly deleteBranch: boolean
-  readonly deleteRemote: boolean
-  /** Push the target branch to its remote after the integration. */
-  readonly push: boolean
-  /** Release / hotfix only. */
-  readonly tag?: string
-}
-
-export interface FlowIntegrateRequest {
-  readonly develop: string
-}
-
-export type FlowRequest =
-  | ({ readonly type: 'start' } & FlowStartRequest)
-  | ({ readonly type: 'finish' } & FlowFinishRequest)
-  | ({ readonly type: 'integrate' } & FlowIntegrateRequest)
+/** One request the UI hands to the write path. The shape is the host's wire
+ * action (single source), so a dialog cannot emit a field the host will not
+ * read. */
+export type FlowStartRequest = Extract<GitAction, { kind: 'flow-start' }>
+export type FlowFinishRequest = Extract<GitAction, { kind: 'flow-finish' }>
+export type FlowIntegrateRequest = Extract<GitAction, { kind: 'flow-integrate' }>
 
 /** Which dialog the panel currently has open. The button and the branch rows'
  * context menus raise the same values, and the panel owns the dialog so either

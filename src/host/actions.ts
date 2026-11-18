@@ -244,6 +244,13 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       // git refuse the whole checkout.
       return { argv: [['git', 'checkout', action.commit, '--']] }
     }
+    case 'flow-start':
+    case 'flow-finish':
+    case 'flow-integrate':
+      // Unreachable from runAction: the run endpoint routes these to the flow
+      // runner before planning (flow-ops.ts), which needs probes and a
+      // multi-step sequence rather than one argv.
+      return { error: 'git-error', message: 'flow actions are executed by the flow runner' }
   }
 }
 

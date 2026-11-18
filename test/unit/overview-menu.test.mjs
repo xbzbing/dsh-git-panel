@@ -182,7 +182,7 @@ test('the commit menu names the kind it belongs to', () => {
 
 test('a host with the create/merge capabilities offers both entries for a local row (#118)', () => {
   const log = []
-  const facts = { busy: false, branchCreate: true, branchMerge: true, currentBranch: 'main' }
+  const facts = { busy: false, branchCreate: true, branchMerge: true, currentBranch: 'main', flow: true }
   const actions = branchMenuActions({ ...branch, name: 'feature/x', ref: 'refs/heads/feature/x' }, env(), commands(log), facts)
   assert.deepEqual(
     actions.map((a) => a.id),
@@ -289,7 +289,7 @@ test('create-branch and cherry-pick are gated on capabilities and a current bran
 })
 
 /** Facts a branch row sees once the branch list has loaded a flow-shaped repo. */
-const FLOW_FACTS = { busy: false, flowDevelop: 'develop', flowMains: ['main', 'master'], currentBranch: 'feature/login' }
+const FLOW_FACTS = { busy: false, flow: true, flowDevelop: 'develop', flowMains: ['main', 'master'], currentBranch: 'feature/login' }
 
 test('develop offers the two flow starts and integrate', () => {
   const log = []
@@ -352,4 +352,11 @@ test('integrate is disabled unless a feature branch is checked out', () => {
 test('flow entries stay off rows the convention does not know', () => {
   const actions = branchMenuActions({ ...branch, name: 'release-candidate' }, env(), commands([]), FLOW_FACTS)
   assert.ok(!actions.some((a) => a.id.startsWith('flow-')))
+})
+
+test('flow entries are hidden on a host without the flow capability', () => {
+  const facts = { ...FLOW_FACTS, flow: false }
+  const onDevelop = branchMenuActions({ ...branch, name: 'develop' }, env(), commands([]), facts)
+  const onFeature = branchMenuActions({ ...branch, name: 'feature/login' }, env(), commands([]), facts)
+  assert.ok(![...onDevelop, ...onFeature].some((a) => a.id.startsWith('flow-')), 'an older host has no flow actions to run')
 })
