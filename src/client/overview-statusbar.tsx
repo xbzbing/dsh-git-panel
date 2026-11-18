@@ -7,14 +7,22 @@
  * never a sentence (issue #131). The bar lives in the overview's left column,
  * which is 200px at its default and can be dragged to 130 — after the row's own
  * chrome (padding, repo link, check and action controls, ~140px) the state cell
- * gets 40–60px, while the zh sentence needs 77px and the en one 107px. So prose
- * could only ever be an ellipsis. The sentence is not dropped: it is the cell's
- * accessible name and its hover tip, and it survives at every width.
+ * gets 40–60px. Measured at the same 11px label font, the sentences need 66px
+ * (`已与远程同步`) to 143px (`游离 HEAD，无分支同步状态`) in zh, and 107px
+ * (`No upstream branch`) to 210px in en, so prose could only ever be an
+ * ellipsis. The sentence is not dropped: it is the cell's accessible name and
+ * its hover tip, and it survives at every width.
  *
  * Two width-driven degradations keep that budget (thresholds in panel-fit.ts,
  * measured on the bar itself): `data-narrow` drops the repository link, and
  * `data-dense` lets pull/push/publish keep only their icon (label, tooltip and
  * accessible name unchanged).
+ *
+ * Dropping the repository link is a deliberate trade, not an oversight: it is a
+ * convenience jump, and the status glyph is what the row exists to show. It is
+ * also the only `remote.webUrl` consumer in the client, so a narrow bar has no
+ * other way to that page — accepted, because the alternative was a status cell
+ * that never fits.
  */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
@@ -95,7 +103,11 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
       // A GitHub remote we couldn't turn into a web URL: icon only, URL in the tooltip.
       return h('span', { key: 'r', className: 'gp-statusbar__repo gp-statusbar__repo--none', 'aria-label': remote.url, ...tipProps(remote.url) }, h('span', { className: 'gp-statusbar__ic' }, icon))
     }
-    const title = remote.host !== null ? t('status.openRepoOn', { host: remote.host }) : t('status.openRepo')
+    // `!= null` on purpose: an older host that predates `host` sends nothing,
+    // and `!== null` would take that undefined into the string and label the
+    // link "open the repository home on undefined". Same tolerance as `remote`
+    // and `hasUpstream` above.
+    const title = remote.host != null ? t('status.openRepoOn', { host: remote.host }) : t('status.openRepo')
     const label = `${repoLabel(remote.webUrl)} · ${title}`
     return h('a', {
       key: 'r', className: 'gp-statusbar__repo', href: remote.webUrl, target: '_blank', rel: 'noreferrer',
