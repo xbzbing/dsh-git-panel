@@ -331,7 +331,10 @@ const out = await page.evaluate(async (snap) => {
   const repoLink = statusbar?.querySelector('a.gp-statusbar__repo')
   result.statusRepoHref = repoLink?.getAttribute('href') ?? null
   result.statusRepoNewTab = repoLink?.getAttribute('target') === '_blank'
-  result.statusBehindShown = (statusbar?.querySelector('.gp-statusbar__state')?.textContent || '').includes('status.behind')
+  // The steady state is a glyph; the sentence is its accessible name (issue #131).
+  const behindState = statusbar?.querySelector('.gp-statusbar__state')
+  result.statusBehindShown = behindState?.getAttribute('aria-label') === 'overview.branchBehind'
+    && (behindState?.textContent || '').startsWith('↓')
   const pullBtn = statusbar?.querySelector('.gp-statusbar__pull')
   result.statusPullShown = pullBtn != null
   const pullsBefore = runActions.filter((a) => a.kind === 'pull-ff').length

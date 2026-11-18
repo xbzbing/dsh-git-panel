@@ -41,6 +41,10 @@ const RUNNERS = [
   // re-break either.
   'history-time-column',
   'branch-status-review', 'files-tree-review', 'files-refresh',
+  // The status bar's compact sync state (issue #131): steady states are glyphs
+  // with counts, the sentence is the accessible name, and the two width-driven
+  // degradations follow the bar's measured width rather than the layout tier.
+  'statusbar-compact',
   // Rendered Markdown: the reader's floating outline (read off the document,
   // floating over it, current-section tracking, put-away / bring-back) and the
   // reader card's viewport-relative size.
