@@ -9,6 +9,8 @@
  *   - a finish form's squash strategy with the branch delete needs the extra
  *     forced-delete acknowledgement, and the submitted action carries exactly
  *     the choices the form showed (strategy / forceDelete / pushRemote);
+ *   - a release finish shows both landing branches (the main line it tags and
+ *     the develop it merges back into) and submits the main line as target;
  *   - an in-flight submit locks the dialog, and a refusal renders inside it
  *     instead of closing it or claiming success.
  *
@@ -78,7 +80,7 @@ async function openPanel(snapshot) {
       const request = payload?.args?.request
       if (endpoint === 'dbGitPanel/query' && request?.query?.kind === 'branches') {
         fixture.branchQueries += 1
-        return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'feature/login', defaultBranch: 'main', local, remote: remoteBranches } } }
+        return { ok: true, value: { ok: true, value: { kind: 'branches', current: snapshot.branch ?? 'feature/login', defaultBranch: 'main', local, remote: remoteBranches } } }
       }
       if (endpoint === 'dbGitPanel/query' && request?.query?.kind === 'tags') {
         return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [{ name: 'v1.2.3', shortHash: 'de54fc0' }] } } }
@@ -152,6 +154,7 @@ await pickEntry(page, '完成 Feature')
 const confirm = page.locator('.gp-modal__footer .gp-btn--primary')
 assert.equal(await confirm.isDisabled(), false, 'merge + delete is the default and needs no extra step')
 assert.equal(await page.locator('.gp-modal__check').count(), 3, 'delete branch / delete remote / push (no force box yet)')
+assert.equal(await page.locator('.gp-modal__check input').last().isChecked(), true, 'push-to-remote defaults on when the remote has the branches')
 
 await page.locator('.gp-flow__mode input').nth(1).check()
 await flush(page)
@@ -163,7 +166,7 @@ await page.locator('.gp-modal__check input').nth(1).check()
 await flush(page)
 assert.equal(await confirm.isDisabled(), false, 'the acknowledgement unlocks the finish')
 const finishLabels = await page.locator('.gp-modal__check').allTextContents()
-await page.locator('.gp-modal__check input').nth(3).check()
+assert.equal(await page.locator('.gp-modal__check input').nth(3).isChecked(), true, 'the push choice survived the force acknowledgement')
 await flush(page)
 assert.ok(finishLabels.length === 4)
 await submit(page)
@@ -171,9 +174,26 @@ await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === n
 sent = await actions(page)
 assert.deepEqual(sent[sent.length - 1], {
   kind: 'flow-finish', flow: 'feature', branch: 'feature/login', target: 'develop',
-  strategy: 'squash', message: '完成 git-flow', deleteBranch: true, deleteRemote: false,
+  strategy: 'squash', message: '完成 feature/login', deleteBranch: true, deleteRemote: false,
   pushRemote: 'origin', forceDelete: true,
 }, 'the finish action carries exactly the choices the form showed')
+
+// ── 2b. a release finish names both landing branches ──────────────────────
+
+const releasePage = await openPanel({ ...SNAP, branch: 'release/1.2.0' })
+await pickEntry(releasePage, '完成 Release')
+assert.match(await releasePage.locator('.gp-modal__confirmtext').textContent(), /main.*develop/, 'the body says the release is merged into main and back into develop')
+assert.deepEqual(await releasePage.locator('.gp-flow__target').allTextContents(), ['main', 'develop'], 'target view shows main, back-merge shows develop')
+assert.equal(await releasePage.locator('.gp-flow__field select').count(), 0, 'a release has one fixed landing main line')
+const releasePush = await releasePage.locator('.gp-modal__check').last().textContent()
+assert.match(releasePush, /origin\/main.*origin\/develop/, 'the push option names both moved branches')
+assert.equal(await releasePage.locator('.gp-modal__check input').last().isChecked(), true, 'pushing both branches is on by default')
+await submit(releasePage)
+await releasePage.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
+sent = await actions(releasePage)
+assert.equal(sent[sent.length - 1].target, 'main', 'a release submits the main line as its target')
+assert.equal(sent[sent.length - 1].pushRemote, 'origin', 'the default push is part of the submitted action')
+await releasePage.close()
 
 // ── 3. busy lock + a refusal stays inside the dialog ───────────────────────
 

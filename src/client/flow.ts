@@ -100,19 +100,24 @@ export function flowMainlines(local: readonly string[], defaultBranch: string | 
   return lines
 }
 
-/** The branch a flow is integrated into when finished. A hotfix lands on the
- * main line first; a feature and a release land on `develop` (a release also
- * visits the main line, which is the finish sequence's business, not the
- * dialog's). */
+/** The branch a flow is integrated into when finished: a feature lands on
+ * `develop`; a release and a hotfix land on the main line, which is where the
+ * convention puts the release commit and its tag. The main line is then merged
+ * back into `develop` (`finishTargets.backMerge`), for a release so that
+ * `develop` contains the tagged commit, for a hotfix so the fix reaches the
+ * next version too. */
 export function finishTarget(kind: FlowKind, bases: FlowBases): string | null {
-  return kind === 'hotfix' ? bases.main : bases.develop
+  return kind === 'feature' ? bases.develop : bases.main
 }
 
 /**
- * The finish dialog's target-branch field. A feature and a release have one
- * possible landing branch, so the field only shows it; a hotfix lands on a main
- * line, and a checkout that keeps both `main` and `master` chooses between
- * them — the resolved main line is preselected.
+ * The finish dialog's landing branches. `selected` is the branch the chosen
+ * strategy integrates into (a release / hotfix: the main line; a feature:
+ * `develop`), and `backMerge` is what the finish then merges back into
+ * (`develop` for a release / hotfix, nothing for a feature). A hotfix lands on
+ * a main line, and only a checkout that keeps both `main` and `master` has
+ * something to choose — the resolved main line is preselected. A lone main line
+ * is shown as a value, never as a selector with a single option.
  */
 export interface FlowFinishTargets {
   /** The branches the selector offers, in the order the branch list shows them. */
@@ -121,14 +126,23 @@ export interface FlowFinishTargets {
   readonly selected: string
   /** False when there is nothing to choose between: the field is read-only. */
   readonly editable: boolean
+  /** The long-lived branches the finish merges back into after the integration
+   * (empty for a feature). A release / hotfix needs `develop` to exist. */
+  readonly backMerge: readonly string[]
 }
 
 export function finishTargets(kind: FlowKind, bases: FlowBases, mainlines: readonly string[]): FlowFinishTargets | null {
   const selected = finishTarget(kind, bases)
   if (selected === null) return null
-  if (kind !== 'hotfix') return { options: [selected], selected, editable: false }
+  const backMerge = kind !== 'feature' && bases.develop !== null && bases.develop !== selected
+    ? [bases.develop]
+    : []
+  // A release / hotfix always merges back into `develop`; without it the flow
+  // has nowhere to land the second half of the convention.
+  if (kind !== 'feature' && backMerge.length === 0) return null
+  if (kind !== 'hotfix') return { options: [selected], selected, editable: false, backMerge }
   const options = mainlines.includes(selected) ? mainlines : [selected, ...mainlines]
-  return { options, selected, editable: true }
+  return { options, selected, editable: options.length > 1, backMerge }
 }
 
 /** The branch a new flow starts from. `develop` is created from `main` on the

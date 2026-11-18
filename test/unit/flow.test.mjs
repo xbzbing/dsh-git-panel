@@ -66,36 +66,36 @@ test('a feature starts on develop, or on main when develop is not created yet', 
   assert.equal(startBase('hotfix', { develop: 'develop', main: 'main' }), 'main')
 })
 
-test('a hotfix lands on the main line, the other flows on develop', () => {
+test('a release and a hotfix land on the main line, a feature on develop', () => {
   assert.equal(finishTarget('hotfix', { develop: 'develop', main: 'main' }), 'main')
   assert.equal(finishTarget('feature', { develop: 'develop', main: 'main' }), 'develop')
-  assert.equal(finishTarget('release', { develop: 'develop', main: 'main' }), 'develop')
+  assert.equal(finishTarget('release', { develop: 'develop', main: 'main' }), 'main')
   assert.equal(finishTarget('feature', { develop: null, main: 'main' }), null)
 })
 
 test('only a hotfix chooses its target among the main lines', () => {
   const both = ['main', 'master']
   assert.deepEqual(finishTargets('feature', { develop: 'develop', main: 'main' }, both), {
-    options: ['develop'], selected: 'develop', editable: false,
+    options: ['develop'], selected: 'develop', editable: false, backMerge: [],
   })
   assert.deepEqual(finishTargets('release', { develop: 'develop', main: 'main' }, both), {
-    options: ['develop'], selected: 'develop', editable: false,
+    options: ['main'], selected: 'main', editable: false, backMerge: ['develop'],
   })
   // The remote's default line is preselected, and both stay selectable.
   assert.deepEqual(finishTargets('hotfix', { develop: 'develop', main: 'master' }, both), {
-    options: ['main', 'master'], selected: 'master', editable: true,
+    options: ['main', 'master'], selected: 'master', editable: true, backMerge: ['develop'],
   })
   assert.deepEqual(finishTargets('hotfix', { develop: 'develop', main: 'main' }, both), {
-    options: ['main', 'master'], selected: 'main', editable: true,
+    options: ['main', 'master'], selected: 'main', editable: true, backMerge: ['develop'],
   })
 })
 
 test('a lone main line is still shown for a hotfix, but it is no choice', () => {
   assert.deepEqual(finishTargets('hotfix', { develop: 'develop', main: 'main' }, ['main']), {
-    options: ['main'], selected: 'main', editable: true,
+    options: ['main'], selected: 'main', editable: false, backMerge: ['develop'],
   })
   assert.equal(finishTargets('hotfix', { develop: 'develop', main: null }, []), null)
-  assert.equal(finishTargets('release', { develop: null, main: 'main' }, ['main']), null)
+  assert.equal(finishTargets('release', { develop: null, main: 'main' }, ['main']), null, 'a release needs develop to merge back into')
 })
 
 test('finish entries exist only on the matching current branch', () => {

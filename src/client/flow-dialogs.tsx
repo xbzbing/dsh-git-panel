@@ -146,9 +146,10 @@ export function renderFlowFinishModal(args: FlowFinishArgs): JSX.Element | null 
 
 function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = false, error = null, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
   const [strategy, setStrategy] = useState<FlowStrategy>('merge')
-  // The default message is a commit subject, so it follows the UI language:
-  // `完成 git-flow` in Chinese, `Finish git-flow` in English.
-  const [message, setMessage] = useState(t('flow.finish.messageDefault'))
+  // The default message is a commit subject, so it follows the UI language and
+  // names the branch being finished: `完成 feature/login`, not a fixed
+  // `完成 git-flow`.
+  const [message, setMessage] = useState(t('flow.finish.messageDefault', { branch }))
   const [target, setTarget] = useState(targets.selected)
   const [deleteBranch, setDeleteBranch] = useState(true)
   // A squash finish leaves the flow branch outside the target's ancestry, so
@@ -156,7 +157,10 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
   // the host refuses the delete otherwise and leaves the branch in place.
   const [forceDelete, setForceDelete] = useState(false)
   const [deleteRemote, setDeleteRemote] = useState(false)
-  const [push, setPush] = useState(false)
+  // Publishing the moved branches is the expected end of a finish, so the push
+  // option starts checked; it falls back to off when the remote lacks one of
+  // the branches (then the option is disabled anyway).
+  const [push, setPush] = useState(true)
   const [tag, setTag] = useState(flow === 'feature' ? '' : defaultTagName(branch))
   const uid = useId()
   const messageId = `${uid}-message`
@@ -165,16 +169,19 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
   const kind = KIND_LABEL[flow]
   const slug = KIND_SLUG[flow]
   const needsTag = flow !== 'feature'
-  // The ref a push would publish, resolved for the branch actually chosen: a
-  // target the remote does not have cannot be pushed, so the option stays off.
-  const pushRef = remote.name !== null && remote.branches.includes(`${remote.name}/${target}`)
-    ? `${remote.name}/${target}`
+  // The branches this finish actually publishes: the landing branch plus the
+  // long-lived branch it is merged back into (a release / hotfix also moves
+  // `develop`). One missing remote branch keeps the option off, because the
+  // push must publish the same set the local finish moved.
+  const pushBranches = [target, ...targets.backMerge]
+  const pushRefs = remote.name !== null && pushBranches.every((name) => remote.branches.includes(`${remote.name}/${name}`))
+    ? pushBranches.map((name) => `${remote.name}/${name}`)
     : null
   const submit = (): void => {
     if (busy) return
     onSubmit({
       kind: 'flow-finish', flow, branch, target, strategy, message: message.trim(), deleteBranch, deleteRemote,
-      ...(pushRef !== null && push ? { pushRemote: remote.name! } : {}),
+      ...(pushRefs !== null && push ? { pushRemote: remote.name! } : {}),
       forceDelete: strategy === 'squash' && forceDelete,
       ...(needsTag ? { tag: tag.trim() } : {}),
     })
@@ -194,7 +201,12 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
     t,
     body: [
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.finish.heading', { branch })),
-      h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, t('flow.finish.body', { kind: slug, target })),
+      // A release / hotfix moves two long-lived branches: the main line (with
+      // the tag) and then `develop`. The body names both so the dialog does not
+      // read as a develop-only finish.
+      h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, targets.backMerge.length > 0
+        ? t('flow.finish.bodyMainline', { kind: slug, target, back: targets.backMerge.join(' / ') })
+        : t('flow.finish.body', { kind: slug, target })),
       h('div', { key: 'modes', className: 'gp-flow__modes', role: 'radiogroup', 'aria-label': t('flow.finish.strategy') }, STRATEGIES.map((value) =>
         h('label', { key: value, className: 'gp-flow__mode' }, [
           h('input', {
@@ -218,6 +230,14 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
           h('span', { key: 'l', className: 'gp-flow__label' }, t('flow.finish.target')),
           h('span', { key: 'v', className: 'gp-flow__target', title: t('flow.finish.targetFixed') }, target),
         ]),
+      // The second landing branch: a release / hotfix back-merges the main line
+      // into develop, which is where the checkout ends up.
+      targets.backMerge.length > 0
+        ? h('div', { key: 'back', className: 'gp-flow__field' }, [
+          h('span', { key: 'l', className: 'gp-flow__label' }, t('flow.finish.backMerge')),
+          h('span', { key: 'v', className: 'gp-flow__target', title: t('flow.finish.backMergeHint') }, targets.backMerge.join(' / ')),
+        ])
+        : null,
       h('div', { key: 'msg', className: 'gp-flow__field gp-flow__field--stack' }, [
         h('label', { key: 'l', className: 'gp-flow__label', htmlFor: messageId }, t('flow.finish.message')),
         h('textarea', {
@@ -254,15 +274,16 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
         }),
         t('flow.finish.deleteRemote', { kind: slug }),
       ]),
-      // Push the landing branch to its remote. Off by default: finishing the
-      // flow is a local integration, publishing it is a separate decision.
-      h('label', { key: 'push', className: `gp-modal__check${pushRef === null ? ' gp-flow__check--off' : ''}`, title: pushRef === null ? t('flow.finish.pushDisabled') : undefined }, [
+      // Push the branches the finish moved to their remote. On by default:
+      // finishing the flow is expected to publish the long-lived branches it
+      // moved; unchecking keeps the finish local.
+      h('label', { key: 'push', className: `gp-modal__check${pushRefs === null ? ' gp-flow__check--off' : ''}`, title: pushRefs === null ? t('flow.finish.pushDisabled') : undefined }, [
         h('input', {
           key: 'cb', type: 'checkbox', className: 'gp-check',
-          checked: pushRef !== null && push, disabled: pushRef === null,
+          checked: pushRefs !== null && push, disabled: pushRefs === null,
           onChange: () => setPush((v) => !v),
         }),
-        t('flow.finish.push', { ref: pushRef ?? target }),
+        t('flow.finish.push', { ref: pushRefs?.join(' + ') ?? target }),
       ]),
       error !== null ? h('div', { key: 'error', className: 'gp-feedback' }, error) : null,
     ],

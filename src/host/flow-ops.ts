@@ -14,8 +14,8 @@
  *
  * Partial state is reported honestly: the first integration (the one that moves
  * the target branch) is rolled back when it conflicts, but a failure after it —
- * the release's main-line merge, a tag, a push, a delete — returns
- * `flow-partial`, because the target branch already moved and pretending
+ * the release / hotfix back-merge into develop, a tag, a push, a delete —
+ * returns `flow-partial`, because the target branch already moved and pretending
  * nothing happened would be false.
  */
 import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.js'
@@ -345,28 +345,23 @@ async function finishFlow(
   if (action.target === action.branch) return fail('invalid-name', 'a flow cannot be finished into itself')
 
   // Where the flow lands is a property of the convention, re-checked here: a
-  // feature / release lands on develop, a hotfix on one of the main lines.
+  // feature lands on develop; a release / hotfix lands on one of the main
+  // lines (and is merged back into develop afterwards).
   const develop = await hasRef(deps, root, `refs/heads/${DEVELOP}`)
   if (!develop.ok) return develop
   if (!develop.exists) return fail('not-found', `develop branch not found: ${DEVELOP}`)
-  if (action.flow === 'feature' || action.flow === 'release') {
+  if (action.flow === 'feature') {
     if (action.target !== DEVELOP) return fail('invalid-name', `a ${action.flow} lands on ${DEVELOP}`)
   } else {
     const mainlines = await mainlineCandidates(deps, root)
     if (!mainlines.ok) return mainlines
-    if (mainlines.names.length === 0) return fail('git-error', 'no main line branch (main / master / remote HEAD) to finish the hotfix on')
+    if (mainlines.names.length === 0) return fail('git-error', `no main line branch (main / master / remote HEAD) to finish the ${action.flow} on`)
     if (!mainlines.names.includes(action.target)) {
       return fail('invalid-name', `${action.target} is not a main line (${mainlines.names.join(' / ')})`)
     }
   }
-  // A release also lands on the default main line; resolve it before anything
-  // moves so a repository without one refuses the whole finish up front.
-  let releaseMainline: string | null = null
-  if (action.flow === 'release') {
-    const mainlines = await mainlineCandidates(deps, root)
-    if (!mainlines.ok) return mainlines
-    if (mainlines.names.length === 0) return fail('git-error', 'no main line branch (main / master / remote HEAD) to finish the release on')
-    releaseMainline = mainlines.names[0]!
+  if (action.flow === 'release' && action.target === DEVELOP) {
+    return fail('invalid-name', `a release lands on a main line, not ${DEVELOP}`)
   }
 
   const tagTaken = tag === '' ? null : await hasRef(deps, root, `refs/tags/${tag}`)
@@ -423,22 +418,14 @@ async function finishFlow(
     return created.ok ? null : partial(created)
   }
 
-  if (action.flow === 'release') {
-    if (releaseMainline === null) return fail('git-error', 'no main line branch (main / master / remote HEAD) to finish the release on')
-    const toMain = await checkout(deps, root, releaseMainline)
-    if (toMain !== null) return partial(toMain)
-    const merged = await git(deps, root, ['git', 'merge', '--no-ff', '-m', message, '--end-of-options', `refs/heads/${action.branch}`], 'flow-main-merge')
-    if (!merged.ok) {
-      await git(deps, root, ['git', 'merge', '--abort'], 'flow-main-abort')
-      return partial(merged)
-    }
+  if (action.flow === 'release' || action.flow === 'hotfix') {
+    // The tag belongs to the main-line merge, so it is created before the
+    // back-merge into develop.
     const tagged = await tagOn()
     if (tagged !== null) return tagged
-  } else if (action.flow === 'hotfix') {
-    const tagged = await tagOn()
-    if (tagged !== null) return tagged
-    // The main line carries the fix; develop gets it too, as the convention
-    // requires ("hotfix finishes merge back into develop").
+    // A release / hotfix moves two long-lived branches: the convention merges
+    // the main line back into develop as well, so develop contains the tagged
+    // commit (a release) and the fix (a hotfix).
     const toDevelop = await checkout(deps, root, DEVELOP)
     if (toDevelop !== null) return partial(toDevelop)
     const merged = await git(deps, root, ['git', 'merge', '--no-ff', '-m', message, '--end-of-options', `refs/heads/${action.target}`], 'flow-develop-merge')
@@ -460,7 +447,14 @@ async function finishFlow(
     output = removed.stdout
   }
   if (action.pushRemote !== undefined) {
-    const pushed = await git(deps, root, ['git', 'push', action.pushRemote, `refs/heads/${action.target}:refs/heads/${action.target}`], 'flow-push')
+    // Publish every long-lived branch the finish moved: a feature only
+    // `develop`, a release / hotfix the main line and `develop`.
+    const branches = action.flow === 'feature' ? [action.target] : [action.target, DEVELOP]
+    const pushed = await git(
+      deps, root,
+      ['git', 'push', action.pushRemote, ...branches.map((name) => `refs/heads/${name}:refs/heads/${name}`)],
+      'flow-push',
+    )
     if (!pushed.ok) return partial(pushed)
     output = pushed.stdout
   }

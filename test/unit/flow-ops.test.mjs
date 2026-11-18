@@ -199,7 +199,7 @@ test('flow-finish (squash) commits once and deletes only after the forced acknow
   }
 })
 
-test('flow-finish (release) merges develop, lands on the main line and tags it', async () => {
+test('flow-finish (release) lands on the main line, tags it and merges it back into develop', async () => {
   const dir = await freshRepo('gp-flow-finish-release-')
   try {
     await withDevelop(dir)
@@ -210,16 +210,17 @@ test('flow-finish (release) merges develop, lands on the main line and tags it',
     const releaseHead = out(dir, ['rev-parse', 'HEAD'])
 
     const finished = await run(dir, {
-      kind: 'flow-finish', flow: 'release', branch: 'release/1.2.0', target: 'develop',
+      kind: 'flow-finish', flow: 'release', branch: 'release/1.2.0', target: 'main',
       strategy: 'merge', message: 'release 1.2.0', deleteBranch: true, tag: 'v1.2.0',
     })
     assert.equal(finished.ok, true, JSON.stringify(finished))
-    assert.equal(finished.snapshot.branch, 'main', 'the release ends on the main line')
+    assert.equal(finished.snapshot.branch, 'develop', 'the release back-merges into develop and ends there')
     assert.ok(out(dir, ['merge-base', '--is-ancestor', releaseHead, 'develop']) === '')
     assert.ok(out(dir, ['merge-base', '--is-ancestor', releaseHead, 'main']) === '')
     assert.ok(tagExists(dir, 'v1.2.0'), 'the release tag exists')
     assert.equal(out(dir, ['cat-file', '-t', 'refs/tags/v1.2.0']), 'tag', 'the tag is annotated')
     assert.equal(out(dir, ['rev-list', '-n', '1', 'v1.2.0']), out(dir, ['rev-parse', 'main']), 'the tag points at the main-line merge')
+    assert.ok(out(dir, ['merge-base', '--is-ancestor', 'v1.2.0', 'develop']) === '', 'develop contains the tagged main-line merge')
     assert.equal(branchExists(dir, 'release/1.2.0'), false)
     assert.ok(clean(dir))
   } finally {
@@ -266,7 +267,7 @@ test('flow-finish refuses a taken tag before touching the branches', async () =>
     const mainBefore = out(dir, ['rev-parse', 'main'])
 
     const refused = await run(dir, {
-      kind: 'flow-finish', flow: 'release', branch: 'release/1.2.0', target: 'develop',
+      kind: 'flow-finish', flow: 'release', branch: 'release/1.2.0', target: 'main',
       strategy: 'merge', message: 'release 1.2.0', deleteBranch: true, tag: 'v1.2.0',
     })
     assert.equal(refused.ok, false)
@@ -465,6 +466,20 @@ test('flow-finish deletes the remote branch and pushes the target to the configu
     })
     assert.equal(refusedPush.ok, false)
     assert.equal(refusedPush.error.code, 'invalid-name', 'an unconfigured remote is refused before the integration')
+
+    // A release publishes both branches it moved: the tagged main line and the
+    // develop it was merged back into.
+    await run(dir, { kind: 'flow-start', flow: 'release', branch: 'release/1.3.0', base: 'develop' })
+    writeFileSync(join(dir, 'rel.txt'), '1.3.0\n')
+    await runGit(dir, ['add', 'rel.txt'])
+    await runGit(dir, ['commit', '-qm', 'chore: 1.3.0'])
+    const released = await run(dir, {
+      kind: 'flow-finish', flow: 'release', branch: 'release/1.3.0', target: 'main',
+      strategy: 'merge', message: 'release 1.3.0', deleteBranch: true, tag: 'v1.3.0', pushRemote: 'origin',
+    })
+    assert.equal(released.ok, true, JSON.stringify(released))
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/main']), out(dir, ['rev-parse', 'main']), 'the main line was pushed')
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/develop']), out(dir, ['rev-parse', 'develop']), 'the develop back-merge was pushed')
   } finally {
     rmSync(dir, { recursive: true, force: true })
     rmSync(remote, { recursive: true, force: true })

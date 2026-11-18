@@ -449,11 +449,11 @@ export type GitAction =
   // and resolves `base` as a local branch (never a tag of the same name).
   | { readonly kind: 'flow-start'; readonly flow: FlowKind; readonly branch: string; readonly base: string }
   // Finish a flow branch: integrate it into `target` with `strategy`, then run
-  // the flow's extra steps (a release also lands on the main line; a hotfix is
-  // merged back into develop; release / hotfix tag the main line), and finally
-  // the requested cleanup (remote delete, local delete, push). A conflict in
-  // the first integration aborts and restores the pre-op checkout; a failure
-  // after it reports `flow-partial` because the target branch already moved.
+  // the flow's extra steps (release / hotfix tag the main line, then merge it
+  // back into develop), and finally the requested cleanup (remote delete, local
+  // delete, push). A conflict in the first integration aborts and restores the
+  // pre-op checkout; a failure after it reports `flow-partial` because the
+  // target branch already moved.
   | {
     readonly kind: 'flow-finish'
     readonly flow: FlowKind
@@ -464,7 +464,8 @@ export type GitAction =
     readonly deleteBranch?: boolean
     /** Delete the branch's configured upstream after the integration. */
     readonly deleteRemote?: boolean
-    /** Push `target` to this configured remote after the integration. */
+    /** Push every long-lived branch the finish moved (feature: `develop`;
+     * release / hotfix: the main line and `develop`) to this configured remote. */
     readonly pushRemote?: string
     /** Release / hotfix only: annotated tag created on the main line. */
     readonly tag?: string
