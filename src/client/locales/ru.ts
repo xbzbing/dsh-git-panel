@@ -445,8 +445,6 @@ export const ru: Record<GitKey, string> = {
   'status.openRepo': 'Открыть главную страницу репозитория в браузере',
   'status.openRepoOn': 'Открыть главную страницу репозитория на {host}',
   'status.synced': 'Синхронизировано с удалённым репозиторием',
-  'status.ahead': 'Опережает: {n}',
-  'status.behind': 'Отстаёт: {n}',
   'status.diverged': 'Разошлись (опережает: {ahead} / отстаёт: {behind})',
   'status.noUpstream': 'Нет вышестоящей ветви',
   'status.detached': 'Отсоединённый HEAD — нет состояния синхронизации ветви',

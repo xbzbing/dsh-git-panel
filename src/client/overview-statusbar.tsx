@@ -2,6 +2,19 @@
  * Git overview left-column footer status bar.
  * Split out of OverviewTab so the composition layer stays focused on data
  * wiring; this module owns the status-bar presentation only.
+ *
+ * Steady states are a glyph with a count (`✓`, `↑2`, `↓3`, `↓3 ↑2`, `HEAD`),
+ * never a sentence (issue #131). The bar lives in the overview's left column,
+ * which is 200px at its default and can be dragged to 130 — after the row's own
+ * chrome (padding, repo link, check and action controls, ~140px) the state cell
+ * gets 40–60px, while the zh sentence needs 77px and the en one 107px. So prose
+ * could only ever be an ellipsis. The sentence is not dropped: it is the cell's
+ * accessible name and its hover tip, and it survives at every width.
+ *
+ * Two width-driven degradations keep that budget (thresholds in panel-fit.ts,
+ * measured on the bar itself): `data-narrow` drops the repository link, and
+ * `data-dense` lets pull/push/publish keep only their icon (label, tooltip and
+ * accessible name unchanged).
  */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
@@ -10,6 +23,8 @@ import type { GitKey } from './locales.js'
 import { DownloadIcon, GitHubIcon, LinkIcon, SyncIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { pushIntent as pushIntentOf } from './push-policy.js'
+import { useElementWidth } from './use-element-width.js'
+import { STATUSBAR_ACTION_BP, STATUSBAR_REPO_BP } from './panel-fit.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
 
@@ -27,8 +42,9 @@ export interface StatusBarCbs {
   readonly onPublish: () => void
   readonly onSetUpstream: () => void
   readonly t: Translate
-  /** Drop the GitHub repo link: a narrow panel (compact footer, the tight
-   * tier's drawer) spends the row on the sync state instead. */
+  /** The caller's own tiers also drop the repository link (a compact footer,
+   * the tight drawer). That decision and the bar's own measured width are
+   * ORed, so either one is enough to hide it. */
   readonly hideRepo?: boolean
 }
 
@@ -43,7 +59,7 @@ function repoLabel(webUrl: string): string {
  * Left-column footer status bar: the repository's remote link (shown only for
  * GitHub projects, opening the repo page in a new tab) on the left, and the
  * current branch's sync state with a fetch-check and a fast-forward pull on the
- * right. A detached HEAD or an untracked branch shows the state text only (no
+ * right. A detached HEAD or an untracked branch shows the state glyph only (no
  * pull); a strictly-behind branch is the one case that offers the pull.
  */
 export function renderStatusBar(snapshot: GitSnapshot, cb: StatusBarCbs): JSX.Element {
@@ -54,6 +70,13 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
   const { t } = cb
   // Snappy tooltip anchored above the footer controls (shared hook).
   const { tipProps, tipNode, hideTip } = useHoverTip({ placement: 'above' })
+  // The bar's own width decides both degradations. The layout tier only
+  // approximates it: the left column is user-resizable and the stacked band
+  // clamps to 38%, so 0 (not measured yet) keeps the widest rendering rather
+  // than hiding the link on a wide bar for one frame.
+  const { setEl, width } = useElementWidth()
+  const narrow = width > 0 && width <= STATUSBAR_REPO_BP
+  const dense = width > 0 && width <= STATUSBAR_ACTION_BP
 
   // Tolerate a snapshot predating these fields (older host / cached snapshot):
   // a missing remote reads as "no remote", a missing upstream flag as false.
@@ -62,8 +85,9 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
 
   // ── left: repo link, shown only for GitHub projects (icon only; path in tooltip) ──
   const repoNode = ((): JSX.Element | null => {
-    // Narrow panels skip the link outright — the sync state keeps the row.
-    if (cb.hideRepo === true) return null
+    // A narrow bar spends the row on the sync state; the caller's tiers do the
+    // same for a compact footer or the tight drawer.
+    if (cb.hideRepo === true || narrow) return null
     // Non-GitHub remotes (gitlab/gitee/other) and repos with no remote show nothing.
     if (remote === null || remote.hostKind !== 'github') return null
     const icon = h(GitHubIcon, { size: 14 })
@@ -89,15 +113,18 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
   // already at HEAD (set-upstream, config only) or is published (push -u). The
   // states are mutually exclusive: one control, one intent, never two.
   const intent = pushIntentOf(snapshot)
+  // One glyph cell per steady state. `gp-statusbar__state` stays on it so the
+  // existing queries keep finding the cell; the sentence rides the accessible
+  // name (role=img, so the glyph itself is not read as punctuation) and the
+  // shared hover tip.
+  const symbol = (glyph: string, label: string, tone = ''): JSX.Element => h('span', {
+    key: 'sym',
+    className: `gp-statusbar__state gp-statusbar__state--symbol${tone}`,
+    role: 'img',
+    'aria-label': label,
+    ...tipProps(label),
+  }, glyph)
   const stateNode = ((): JSX.Element => {
-    let text: string
-    let tone = ''
-    if (branch === null) { text = t('status.detached') }
-    else if (!hasUpstream) { text = t('status.noUpstream') }
-    else if (ahead === 0 && behind === 0) { text = t('status.synced'); tone = ' gp-statusbar__state--ok' }
-    else if (ahead > 0 && behind > 0) { text = t('status.diverged', { ahead, behind }); tone = ' gp-statusbar__state--warn' }
-    else if (behind > 0) { text = t('status.behind', { n: behind }); tone = ' gp-statusbar__state--warn' }
-    else { text = t('status.ahead', { n: ahead }) }
     if (cb.switchBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy) {
       const text = cb.switchBusy
         ? t('status.switching')
@@ -114,7 +141,26 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     if (cb.syncError !== null) {
       return h('span', { key: 'error', className: 'gp-statusbar__state gp-statusbar__state--warn', role: 'alert', title: cb.syncError }, cb.syncError)
     }
-    return h('span', { key: 's', className: `gp-statusbar__state${tone}` }, text)
+    if (branch === null) return symbol('HEAD', t('status.detached'))
+    // No upstream: a bare `↑` (no count — there is no counterpart to count
+    // against). It sits in the same family as `↑n`, so the row still reads as
+    // "work waiting to go up", and it costs 9px in every language.
+    //
+    // A word was the obvious alternative and does not survive translation: the
+    // cell has 60px at the 200px default column and 52px once the column is
+    // dragged narrow, while `无上游` is 33px · `Sin subir` 46 · `Unpushed` 54 ·
+    // `Ungepusht` 58 · `Non poussé` 62 · `Não enviado` 65 · `No upstream` 67 ·
+    // `Нет upstream` 72. A label would put the ellipsis back for five of the
+    // eight dictionaries. The sentence lives on as the accessible name and the
+    // hover tip, and the publish / set-upstream control beside it names the
+    // action (VS Code's status item does the same with a `cloud-upload` icon).
+    if (!hasUpstream) return symbol('↑', t('status.noUpstream'))
+    if (ahead === 0 && behind === 0) return symbol('✓', t('status.synced'), ' gp-statusbar__state--ok')
+    // Behind first, like VS Code's `behind↓ ahead↑`: pulling is what blocks a
+    // fast-forward, so the blocking half reads first.
+    if (ahead > 0 && behind > 0) return symbol(`↓${behind} ↑${ahead}`, t('status.diverged', { ahead, behind }), ' gp-statusbar__state--warn')
+    if (behind > 0) return symbol(`↓${behind}`, t('overview.branchBehind', { n: behind }), ' gp-statusbar__state--warn')
+    return symbol(`↑${ahead}`, t('overview.branchAhead', { n: ahead }))
   })()
 
   // Tip handlers live on a non-disabled wrapper so a busy (`disabled`) control
@@ -135,14 +181,14 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.pullBusy, 'aria-label': t('status.pullTitle'),
       onClick: () => { hideTip(); cb.onPull() },
-    }, [h(DownloadIcon, { key: 'i', size: 12 }), t('status.pull')])) : null,
+    }, [h(DownloadIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.pull'))])) : null,
     intent === 'push' ? h(TipWrapper, {
       key: 'push', tipProps: tipProps(t('status.pushTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.pushBusy, 'aria-label': t('status.pushTitle'),
       onClick: () => { hideTip(); cb.onPush() },
-    }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.push')])) : null,
+    }, [h(UploadIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.push'))])) : null,
     intent === 'set-upstream' ? h(TipWrapper, {
       key: 'set-upstream',
       tipProps: tipProps(t('status.setUpstreamTitle')),
@@ -150,21 +196,28 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.setUpstreamBusy, 'aria-label': t('status.setUpstream'),
       onClick: () => { hideTip(); cb.onSetUpstream() },
-    }, [h(LinkIcon, { key: 'i', size: 12 }), t('status.setUpstream')])) : null,
+    }, [h(LinkIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.setUpstream'))])) : null,
     intent === 'publish' ? h(TipWrapper, {
       key: 'publish', tipProps: tipProps(t('status.publishTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.publishBusy, 'aria-label': t('status.publishTitle'),
       onClick: () => { hideTip(); cb.onPublish() },
-    }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.publish')])) : null,
+    }, [h(UploadIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.publish'))])) : null,
   ]
 
   // The publish modal and the set-upstream chooser own their own in-flight
   // locks; their busy callbacks still drive the bar's busy state and label
   // while the write runs behind the overlay.
   const barBusy = cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy || cb.switchBusy
-  return h('div', { key: 'statusbar', className: `gp-statusbar${barBusy ? ' gp-statusbar--busy' : ''}`, 'aria-busy': barBusy }, [
+  return h('div', {
+    key: 'statusbar',
+    ref: setEl,
+    className: `gp-statusbar${barBusy ? ' gp-statusbar--busy' : ''}`,
+    'aria-busy': barBusy,
+    ...(narrow ? { 'data-narrow': 'true' } : {}),
+    ...(dense ? { 'data-dense': 'true' } : {}),
+  }, [
     repoNode,
     h('div', { key: 'sync', className: 'gp-statusbar__sync' }, [stateNode, ...actions]),
     tipNode,

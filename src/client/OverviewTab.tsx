@@ -867,7 +867,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
     t,
     // Narrow panels drop the repo link: the compact footer and the tight
-    // drawer spend the row on the sync state; wide and stacked 381–760 keep it.
+    // drawer spend the row on the sync state. The status bar additionally drops
+    // it by its own measured width (panel-fit.ts STATUSBAR_REPO_BP), so the
+    // 145–215px band no longer squeezes the state glyph to an ellipsis.
     hideRepo: compact || tight,
   }
 

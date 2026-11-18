@@ -445,8 +445,6 @@ export const fr: Record<GitKey, string> = {
   'status.openRepo': 'Ouvrir la page du dépôt dans le navigateur',
   'status.openRepoOn': 'Ouvrir la page du dépôt sur {host}',
   'status.synced': 'À jour avec le distant',
-  'status.ahead': '{n} en avance',
-  'status.behind': '{n} en retard',
   'status.diverged': 'Divergé ({ahead} en avance / {behind} en retard)',
   'status.noUpstream': 'Pas de branche amont',
   'status.detached': 'HEAD détachée — pas d’état de synchronisation',

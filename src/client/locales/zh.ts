@@ -469,8 +469,6 @@ export const zh = {
   'status.openRepo': '在浏览器打开仓库主页',
   'status.openRepoOn': '在 {host} 打开仓库主页',
   'status.synced': '已与远程同步',
-  'status.ahead': '领先 {n}',
-  'status.behind': '落后 {n}',
   'status.diverged': '已分叉（领先 {ahead} / 落后 {behind}）',
   'status.noUpstream': '未跟踪远程分支',
   'status.detached': '游离 HEAD，无分支同步状态',

@@ -63,6 +63,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-statusbar__ic{flex:none;display:inline-flex;align-items:center}
 .gp-statusbar__sync{display:flex;align-items:center;gap:6px;margin-left:auto;min-width:0}
 .gp-statusbar__state{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
+/* Steady states are a glyph with a count, not a sentence (issue #131): the row
+ * only has 40-60px for them once its controls are laid out. Tabular numerals
+ * keep the cell from jittering as the count changes; the sentence rides the
+ * accessible name and the shared tip. */
+.gp-statusbar__state--symbol{font-variant-numeric:tabular-nums;letter-spacing:.01em}
+/* A narrow bar drops the action labels and keeps icon, tooltip and accessible
+ * name — the trade the check button has always made. Thresholds live in
+ * panel-fit.ts and are applied by the component's own measurement. */
+.gp-statusbar[data-dense="true"] .gp-btn__label{display:none}
+.gp-statusbar[data-dense="true"] .gp-statusbar__pull{width:24px;height:24px;padding:0;justify-content:center;gap:0}
 .gp-statusbar__state--ok{color:var(--dsw-alias-state-success-primary)}
 .gp-statusbar__state--warn{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
 .gp-statusbar__state--busy{display:inline-flex;align-items:center;gap:6px;min-width:0}

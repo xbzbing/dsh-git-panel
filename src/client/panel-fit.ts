@@ -93,6 +93,30 @@ export const SIDEBAR_WIDE_BP = 760
  */
 export const STACKED_TIGHT_BP = 380
 
+/**
+ * Status-bar width (px) at or below which the repository link makes way for the
+ * sync state. The bar lives in the overview's left column, which is 200px at
+ * its default (user-resizable down to 130) and `clamp(120px, 38%, 180px)` in the
+ * stacked band — so the layout tier only approximates the room the row really
+ * has, and the 145–215 band is where the state label used to be squeezed to
+ * "未跟…". Measured on the bar itself, not inferred from the panel.
+ *
+ * The row's own numbers, at the platform's 11px label font: padding 16, repo
+ * link 24, the three 6–8px gaps, the 24px check button and a 56px action label
+ * add up to ~140px of chrome. Below 175 the link's 32px (24 + gap) is what the
+ * state glyph needs; at 180 the row still holds both.
+ */
+export const STATUSBAR_REPO_BP = 175
+
+/**
+ * Status-bar width (px) at or below which pull/push/publish drop their label
+ * and keep the icon (the tooltip and the accessible name still say the word —
+ * the check button has always been icon-only for the same reason). Below this
+ * even the glyph row needs the 32px the labels take: a 130px column leaves 54px
+ * for the state instead of 22.
+ */
+export const STATUSBAR_ACTION_BP = 150
+
 /** How the panel arranges its panes: see `panelMode`. */
 export type PanelMode = 'wide' | 'stacked' | 'compact'
 
