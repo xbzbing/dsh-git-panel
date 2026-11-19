@@ -87,13 +87,16 @@ export const CSS = `
 .gp-flow-graph__path--hotfix,.gp-flow-graph__dot--hotfix{stroke:var(--dsw-alias-state-error-primary)}
 .gp-flow-graph__path--merge{stroke-width:1.4;stroke-dasharray:3 3;opacity:.8}
 .gp-flow-graph__dot{fill:var(--dsw-alias-bg-layer-2);stroke-width:2}
-.gp-flow-graph__label{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px;font-weight:500;fill:var(--dsw-alias-label-tertiary)}
+.gp-flow-graph__label{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:14px;font-weight:600;fill:var(--dsw-alias-label-tertiary)}
 .gp-flow-graph__label--main{fill:var(--dsw-alias-state-success-primary)}
 .gp-flow-graph__label--develop{fill:var(--dsw-alias-state-business-primary)}
 .gp-flow-graph__label--feature{fill:var(--dsw-alias-state-warn-primary)}
 .gp-flow-graph__label--release{fill:var(--dsw-alias-label-primary)}
 .gp-flow-graph__label--hotfix{fill:var(--dsw-alias-state-error-primary)}
-.gp-flow-graph__tag{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;font-weight:500;fill:var(--dsw-alias-label-secondary)}
+.gp-flow-graph__tag{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:13px;font-weight:600;fill:var(--dsw-alias-label-secondary)}
+/* The About explanation lists the three flows as separate lines instead of
+ * one wrapped paragraph; the newlines are part of the locale string. */
+.gp-flow__about-detail{display:flex;flex-direction:column;gap:5px}
 .gp-flow__heading{font-size:16px;font-weight:600;line-height:1.3;color:var(--dsw-alias-label-primary)}
 .gp-flow__field{display:flex;align-items:center;gap:8px;min-width:0}
 .gp-flow__field--stack{flex-direction:column;align-items:stretch;gap:6px}
@@ -139,7 +142,7 @@ export const CSS = `
 .gp-flow-map__name{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4}
 .gp-flow-map__node--new{border-style:dashed;background:color-mix(in srgb,var(--gp-flow-lane) 8%,var(--dsw-alias-bg-layer-2))}
 .gp-flow-map__node--new .gp-flow-map__dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--gp-flow-lane)}
-.gp-flow-map__node--gone{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--dsw-alias-label-tertiary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 7%,var(--dsw-alias-bg-layer-2))}
+.gp-flow-map__node--gone{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-skip-ink:none;text-decoration-color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 9%,var(--dsw-alias-bg-layer-2))}
 .gp-flow-map__node--gone .gp-flow-map__dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--dsw-alias-state-error-primary)}
 .gp-flow-map__node--remote{height:19px;padding:0 6px;font-size:10px;background:var(--dsw-alias-bg-layer-2)}
 .gp-flow-map__tag{display:inline-flex;align-items:center;gap:3px;flex:none;height:19px;padding:0 6px;border:1px dashed color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,transparent);border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,var(--dsw-alias-bg-layer-2));font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:10px;line-height:1;color:var(--dsw-alias-state-warn-primary);white-space:nowrap;box-sizing:border-box}

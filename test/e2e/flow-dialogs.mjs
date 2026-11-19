@@ -190,12 +190,13 @@ const confirm = page.locator('.gp-modal__footer .gp-btn--primary')
 assert.equal(await confirm.isDisabled(), false, 'merge + delete is the default and needs no extra step')
 assert.equal(await page.locator('.gp-modal__check').count(), 3, 'delete branch / delete remote / push (no force box yet)')
 assert.equal(await page.locator('.gp-modal__check input').last().isChecked(), true, 'push-to-remote defaults on when the remote has the branches')
-assert.equal(await page.locator('.gp-flow-map__node--gone').count(), 1, 'the source branch reads as deleted in the preview')
+assert.equal(await page.locator('.gp-modal__check input').nth(1).isChecked(), true, 'the remote delete starts checked when the branch has an upstream')
+assert.equal(await page.locator('.gp-flow-map__node--gone').count(), 2, 'source branch and its remote read as deleted in the preview')
 assert.equal(await page.locator('.gp-flow-chain--2').count(), 1, 'a feature is a two-branch chain')
 assert.equal(await page.locator('.gp-flow-chain__col > .gp-flow-map__node:first-child').count(), 2, 'two local branch nodes')
 assert.match(await page.locator('.gp-flow-chain').textContent(), /origin\/develop/, 'the pushed remote hangs under develop')
-assert.equal(await page.locator('.gp-flow-chain__v:not(.gp-flow-chain__v--none)').count(), 1, 'one remote connector')
-assert.equal(await page.locator('.gp-flow-chain__v--del').count(), 0, 'nothing is deleted on the remote')
+assert.equal(await page.locator('.gp-flow-chain__v:not(.gp-flow-chain__v--none)').count(), 2, 'the pushed develop and the deleted feature upstream')
+assert.equal(await page.locator('.gp-flow-chain__v--del').count(), 1, 'the default remote delete is painted as a red connector')
 
 await page.locator('.gp-flow__mode input').nth(1).check()
 await flush(page)
@@ -215,7 +216,7 @@ await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === n
 sent = await actions(page)
 assert.deepEqual(sent[sent.length - 1], {
   kind: 'flow-finish', flow: 'feature', branch: 'feature/login', target: 'develop',
-  strategy: 'squash', message: '完成 feature/login', deleteBranch: true, deleteRemote: false,
+  strategy: 'squash', message: '完成 feature/login', deleteBranch: true, deleteRemote: true,
   pushRemote: 'origin', forceDelete: true,
 }, 'the finish action carries exactly the choices the form showed')
 
@@ -232,10 +233,10 @@ assert.deepEqual(
 assert.equal(await releasePage.locator('.gp-flow-chain__h').count(), 2, 'two horizontal edges')
 assert.deepEqual(
   await releasePage.locator('.gp-flow-map__node--remote').allTextContents(),
-  ['origin/main', 'origin/develop'],
-  'both moved branches hang under their local branch',
+  ['origin/release/1.2.0', 'origin/main', 'origin/develop'],
+  'the default remote delete and both pushed branches hang under their local branch',
 )
-assert.equal(await releasePage.locator('.gp-flow-chain__v:not(.gp-flow-chain__v--none)').count(), 2, 'two remote connectors')
+assert.equal(await releasePage.locator('.gp-flow-chain__v:not(.gp-flow-chain__v--none)').count(), 3, 'two pushes and one remote delete')
 assert.match(await releasePage.locator('.gp-flow-map__tag').textContent(), /1\.2\.0/, 'the tag rides on the main line')
 assert.equal(await releasePage.locator('.gp-flow__target').count(), 0, 'the chain names the fixed target, so no duplicate value row')
 assert.equal(await releasePage.locator('.gp-modal__confirmtext').count(), 0, 'the legend replaced the prose body')
@@ -244,20 +245,34 @@ const releasePush = await releasePage.locator('.gp-modal__check').last().textCon
 assert.match(releasePush, /origin\/main.*origin\/develop/, 'the push option names both moved branches')
 assert.equal(await releasePage.locator('.gp-modal__check input').last().isChecked(), true, 'pushing both branches is on by default')
 
-// The remote delete gets the same struck pill under the source branch.
-await releasePage.locator('.gp-modal__check input').nth(1).check()
-await flush(releasePage)
+// The remote delete starts checked (there is an upstream), and unchecking
+// removes the struck pill again.
+assert.equal(await releasePage.locator('.gp-modal__check input').nth(1).isChecked(), true, 'the remote delete defaults on')
 assert.equal(await releasePage.locator('.gp-flow-map__node--gone').count(), 2, 'source and its remote both read as deleted')
 assert.equal(await releasePage.locator('.gp-flow-chain__v--del').count(), 1, 'the deleted remote connector is red')
 assert.match(await releasePage.locator('.gp-flow-chain').textContent(), /origin\/release\/1\.2\.0/)
 await releasePage.locator('.gp-modal__check input').nth(1).uncheck()
 await flush(releasePage)
+assert.equal(await releasePage.locator('.gp-flow-map__node--gone').count(), 1, 'unchecking leaves only the local delete')
+await releasePage.locator('.gp-modal__check input').nth(1).check()
+await flush(releasePage)
+assert.equal(await releasePage.locator('.gp-flow-map__node--gone').count(), 2, 'rechecking restores the remote delete')
 await submit(releasePage)
 await releasePage.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 sent = await actions(releasePage)
 assert.equal(sent[sent.length - 1].target, 'main', 'a release submits the main line as its target')
+assert.equal(sent[sent.length - 1].deleteRemote, true, 'the default remote delete is part of the submitted action')
 assert.equal(sent[sent.length - 1].pushRemote, 'origin', 'the default push is part of the submitted action')
 await releasePage.close()
+
+// ── 2c. no upstream: the remote delete stays off and disabled ──────────────
+
+const noUpstream = await openPanel({ ...SNAP, hasUpstream: false })
+await pickEntry(noUpstream, '完成 Feature')
+const remoteChoice = noUpstream.locator('.gp-modal__check input').nth(1)
+assert.equal(await remoteChoice.isChecked(), false, 'nothing to delete on the remote leaves the choice off')
+assert.equal(await remoteChoice.isDisabled(), true, 'the remote delete is disabled without an upstream')
+await noUpstream.close()
 
 // ── 3. busy lock + a refusal stays inside the dialog ───────────────────────
 

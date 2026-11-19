@@ -53,7 +53,7 @@ export const en: Record<GitKey, string> = {
   'flow.about.title': 'Git Flow',
   'flow.about.heading': 'What is Git Flow?',
   'flow.about.intro': 'Git Flow organizes work around two long-lived branches: main/master is always releasable, develop integrates the next version. Everyday work happens on short-lived branches and merges back when done.',
-  'flow.about.detail': 'feature/* starts from develop and merges back into develop; release/* starts from develop, merges into main/master with a tag and back into develop; hotfix/* starts from main/master, then merges into main/master (tagged) and develop.',
+  'flow.about.detail': 'feature/* starts from develop and merges back into develop when finished.\nrelease/* starts from develop, merges into main/master with a tag when finished, then merges back into develop.\nhotfix/* starts from main/master, merges into main/master with a tag when finished, then merges back into develop.',
   'flow.about.diagramAlt': 'Git Flow branch diagram: main/master and develop with feature, release and hotfix branches starting from and merging back into them',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': 'Change preview',

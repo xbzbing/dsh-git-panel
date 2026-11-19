@@ -245,7 +245,10 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
   // deleting it needs git's forced `-D`. That is a second, explicit decision:
   // the host refuses the delete otherwise and leaves the branch in place.
   const [forceDelete, setForceDelete] = useState(false)
-  const [deleteRemote, setDeleteRemote] = useState(false)
+  // Finishing a flow normally means the short-lived branch is gone for good,
+  // so the remote cleanup starts checked whenever there is an upstream to
+  // delete; without one the option is disabled and the choice has no effect.
+  const [deleteRemote, setDeleteRemote] = useState(hasUpstream)
   // Publishing the moved branches is the expected end of a finish, so the push
   // option starts checked; it falls back to off when the remote lacks one of
   // the branches (then the option is disabled anyway).
@@ -505,7 +508,9 @@ export function renderFlowAboutModal({ container, onClose, t }: FlowAboutArgs): 
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.about.heading')),
       h('div', { key: 'intro', className: 'gp-modal__confirmtext' }, t('flow.about.intro')),
       h(FlowGraph, { key: 'graph', t }),
-      h('div', { key: 'detail', className: 'gp-modal__confirmtext' }, t('flow.about.detail')),
+      h('div', { key: 'detail', className: 'gp-modal__confirmtext gp-flow__about-detail' },
+        t('flow.about.detail').split('\n').map((line, index) =>
+          h('div', { key: index, className: 'gp-flow__about-line' }, line))),
     ],
     footer: h('div', { key: 'footer', className: 'gp-modal__footer' }, [
       h('button', { key: 'close', type: 'button', className: 'gp-btn gp-btn--primary', onClick: onClose }, t('common.close')),

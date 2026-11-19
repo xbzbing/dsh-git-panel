@@ -53,7 +53,7 @@ export const ru: Record<GitKey, string> = {
   'flow.about.title': 'Git Flow',
   'flow.about.heading': 'Что такое Git Flow?',
   'flow.about.intro': 'Git Flow организует работу вокруг двух долгоживущих веток: main/master всегда готова к выпуску, develop собирает следующую версию. Текущая работа идёт в коротких ветках и возвращается в них по завершении.',
-  'flow.about.detail': 'feature/* отделяется от develop и вливается обратно в develop; release/* отделяется от develop, вливается в main/master с тегом и возвращается в develop; hotfix/* отделяется от main/master и вливается в main/master (с тегом) и в develop.',
+  'flow.about.detail': 'feature/* отделяется от develop и после завершения вливается обратно в develop.\nrelease/* отделяется от develop, после завершения вливается в main/master с тегом и затем возвращается в develop.\nhotfix/* отделяется от main/master, после завершения вливается в main/master с тегом и затем возвращается в develop.',
   'flow.about.diagramAlt': 'Схема веток Git Flow: main/master и develop с ветками feature, release и hotfix',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': 'Предпросмотр изменений',

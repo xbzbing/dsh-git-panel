@@ -41,7 +41,7 @@ finish 的前置条件全部在第一次写之前判定：flow / 分支前缀一
 
 ### 4. 清理动作沿用既有安全策略
 
-- 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`；没有上游时拒绝（`upstream-missing`）。
+- 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`；没有上游时 host 拒绝（`upstream-missing`）。完成对话框在有上游时默认勾选（预览同时画出远端删除，取消勾选即保留），没有上游时该项禁用并说明原因。
 - 删本地分支：默认 `git branch -d`。squash 集成后分支不在 target 的祖先链上，`-d` 必然失败，因此 `-D` 只在该策略被选中**且**对话框里额外勾选强制删除后才会发送；没有这个勾选，host 在写之前就拒绝。
 - 推送：`git push <remote> refs/heads/<branch>:refs/heads/<branch> …`，一次推送本次移动的长期分支（feature 只有 `develop`，release / hotfix 是主分支与 `develop`），从不 force；remote 名必须出现在 `git remote` 里。
 - `flow-integrate`（整合开发）只允许在 `feature/*` 上，`git merge develop` 冲突时 `merge --abort`，与 `branch-merge` 同一契约。

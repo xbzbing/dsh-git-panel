@@ -52,7 +52,7 @@ export const zh = {
   'flow.about.title': 'Git Flow',
   'flow.about.heading': '什么是 Git Flow？',
   'flow.about.intro': 'Git Flow 用两条长期分支组织开发：main/master 随时可发布，develop 集成下一个版本。日常改动都在短分支上进行，完成后再合并回来。',
-  'flow.about.detail': 'feature/* 从 develop 切出，完成时合并回 develop；release/* 从 develop 切出，完成时合并到 main/master 并打标签，同时合并回 develop；hotfix/* 从 main/master 切出，修完同样合并到 main/master（打标签）和 develop。',
+  'flow.about.detail': 'feature/* 从 develop 切出，完成时合并回 develop。\nrelease/* 从 develop 切出，完成时合并到 main/master 并打标签，然后合并回 develop。\nhotfix/* 从 main/master 切出，完成时合并到 main/master 并打标签，然后合并回 develop。',
   'flow.about.diagramAlt': 'Git Flow 分支示意图：main/master 与 develop 两条长期分支，以及 feature、release、hotfix 短分支的派生和合并方向',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': '变更预览',

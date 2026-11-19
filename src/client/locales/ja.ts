@@ -53,7 +53,7 @@ export const ja: Record<GitKey, string> = {
   'flow.about.title': 'Git Flow',
   'flow.about.heading': 'Git Flow とは？',
   'flow.about.intro': 'Git Flow は 2 本の長期ブランチで開発を整理します。main/master はいつでもリリース可能、develop は次のバージョンを統合します。日々の変更は短命ブランチで行い、完了したら戻します。',
-  'flow.about.detail': 'feature/* は develop から分岐し、完了時に develop へマージします。release/* は develop から分岐し、main/master へマージしてタグを付け、develop にも戻します。hotfix/* は main/master から分岐し、main/master（タグ付き）と develop の両方へマージします。',
+  'flow.about.detail': 'feature/* は develop から分岐し、完了時に develop へマージします。\nrelease/* は develop から分岐し、完了時に main/master へマージしてタグを付け、その後 develop へマージし戻します。\nhotfix/* は main/master から分岐し、完了時に main/master へマージしてタグを付け、その後 develop へマージし戻します。',
   'flow.about.diagramAlt': 'Git Flow のブランチ図：main/master と develop、および feature・release・hotfix の分岐とマージ',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': '変更プレビュー',
