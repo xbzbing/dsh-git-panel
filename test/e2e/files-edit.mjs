@@ -246,6 +246,14 @@ assert.equal(editing.save, '保存')
 assert.equal(editing.cancel, '取消')
 assert.equal(editing.saveDisabled, true, 'save is disabled until something changes')
 assert.equal(editing.focused, true, 'entering edit mode focuses the editor')
+// The editor's own Mod-a binding is not a plugin feature; pin it so a keymap
+// change cannot silently remove the everyday select-all from the edit surface.
+const modA = process.platform === 'darwin' ? 'Meta+A' : 'Control+A'
+await page.keyboard.press(modA)
+await page.waitForTimeout(100)
+const selectedAll = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+assert.ok(selectedAll.includes('a: 1') && selectedAll.includes('list'), `Ctrl/Cmd+A selects the whole editor buffer (${JSON.stringify(selectedAll)})`)
+await page.keyboard.press('ArrowLeft')
 assert.equal(editing.stray, 0, 'the edit toolbar keeps its trailing controls in one group')
 assert.match(editing.status, /LF · UTF-8 · 第 1 行，第 1 列/)
 assert.equal(editing.bg, 'rgb(255, 255, 255)', 'the editor background comes from --dsw-alias-bg-layer-1')

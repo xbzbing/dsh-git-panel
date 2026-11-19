@@ -15,6 +15,9 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     suggestCalls: 0, releaseSuggest: null,
     defaultStashes: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }],
     fileQueries: [],
+    // Version reads behind the commit dialog's file view / copy action.
+    versionQueries: [],
+    versionText: null,
     // Paths served through the file-content query (the HTML asset packer's
     // reads land here); the styled.html assertion checks the css was read
     // through this route rather than the network.
@@ -132,6 +135,15 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             if (q.path.endsWith('.ts')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-const count = 1\n+const count = 2\n', newLines: 1 } } }
             const addedLine = fixture.repeatedDiffRevision !== null && q.path === 'a.txt' ? 'repeat-diff-' + ++fixture.repeatedDiffRevision : fixture.diffText ?? 'line2'
             return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+${addedLine}\n`, newLines: 2 } } }
+          }
+          if (q.kind === 'file-version') {
+            fixture.versionQueries.push({ path: q.path, base: q.base, commit: q.commit ?? null })
+            if (q.path === 'huge.txt') return { ok: true, value: { ok: true, value: { kind: 'file-version', path: q.path, variant: 'tooLarge', size: 11 * 1024 * 1024 } } }
+            if (q.path === 'gone.txt') return { ok: true, value: { ok: true, value: { kind: 'file-version', path: q.path, variant: 'absent' } } }
+            if (q.path.endsWith('.bin')) return { ok: true, value: { ok: true, value: { kind: 'file-version', path: q.path, variant: 'binary', size: 5 } } }
+            const content = fixture.versionText ?? 'line1\nline2\n'
+            const lines = content === '' ? 0 : content.replace(/\n$/, '').split('\n').length
+            return { ok: true, value: { ok: true, value: { kind: 'file-version', path: q.path, variant: 'text', content, lines, size: content.length } } }
           }
           if (q.kind === 'image-diff') return { ok: true, value: { ok: true, value: { kind: 'image-diff', path: q.path, mime: q.path.endsWith('.svg') ? 'image/svg+xml' : 'image/png', old: `data:image/png;base64,${MOCK_PNG}`, new: `data:image/png;base64,${MOCK_PNG}` } } }
           if (q.kind === 'dir-list') {

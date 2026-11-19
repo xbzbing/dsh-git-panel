@@ -43,6 +43,11 @@ export const CSS = `
 .gp-modal__bar .gp-files__fs-screen{flex:none;height:25px;gap:5px;padding:0 8px;font-size:12px}
 .gp-modal__bar .gp-files__fs-screen[aria-pressed="true"]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
 .gp-modal__scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-bg-layer-2)}
+/* The read-only file view owns its own scroller (CodePreview does the
+ * windowing); the modal body only gives it a bounded flex column. */
+.gp-modal__file{flex:1;min-height:0;display:flex;flex-direction:column}
+.gp-modal__copy--copied{color:var(--dsw-alias-state-success-primary)}
+.gp-modal__copy--error{color:var(--dsw-alias-state-error-primary)}
 
 /* small dialog (tag create/delete, stash push/drop): auto-height form modal */
 .gp-modal--sm{width:min(460px,92vw);height:auto;max-height:min(560px,86vh)}
