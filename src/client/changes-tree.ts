@@ -118,14 +118,16 @@ const EMPTY_FOLDS: ReadonlySet<string> = new Set()
  * their order; tree mode nests each group's changes under their directories,
  * directories before files, a directory with a single directory child collapsed
  * into one row (`src/client`).
+ *
+ * Every passed group keeps its header, including one at `(0)` with no rows: the
+ * tab decides which groups exist, and the staged / unstaged pair is its fixed
+ * frame — a header that vanished at zero forced the reader to re-read the labels
+ * to tell "nothing staged" from "no such section".
  */
 export function buildChangeRows(input: ChangeRowsInput): ChangeListRow[] {
   const rows: ChangeListRow[] = []
   for (const group of input.groups) {
     const items = group.items
-    // A group whose rows all fell past the host's cap keeps its honest count
-    // on screen; one with nothing at all (and no count to show) is noise.
-    if (items.length === 0 && group.count === 0) continue
     const closed = input.closedGroups.has(group.key)
     rows.push({
       kind: 'head',

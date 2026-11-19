@@ -213,7 +213,12 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     unstaged: snapshot.stats.modified,
     untracked: snapshot.stats.untracked,
   }
-  const groups = allGroups.filter((g) => g.items.length > 0 || (snapshot.truncated && counts[g.key] > 0))
+  // The staged / unstaged pair is the list's fixed frame: its headers stay put at
+  // `(0)` so the reader can tell "nothing staged" from "no such section" without
+  // re-reading the labels (issue #135). Untracked has no such frame — it is a
+  // separate pile, shown only once it holds something (or hides rows past the
+  // cap, which the honest count keeps visible).
+  const groups = allGroups.filter((g) => g.key !== 'untracked' || g.items.length > 0 || (snapshot.truncated && counts[g.key] > 0))
 
   // The directory dialog's targets, re-derived from the live rows on every
   // render: same group, same directory prefix — so a poll that removes files
@@ -845,10 +850,14 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
       : null,
     h('div', { key: 'list', className: 'gp-changes__list', ref: listNode }, [
       rowSliderNode,
+      // The headers are rows of the same window whether or not anything sits
+      // under them, so the clean tree still mounts its two `(0)` heads and only
+      // the note below the list is extra.
+      h('div', { key: 'vlist', className: 'gp-changes__vlist', style: { height: totalH } },
+        items.slice(first, last).map((it, k) => renderChangeRow(it, rowCtx, tops[first + k]))),
       snapshot.changes.length === 0
-        ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
-        : h('div', { className: 'gp-changes__vlist', style: { height: totalH } },
-            items.slice(first, last).map((it, k) => renderChangeRow(it, rowCtx, tops[first + k]))),
+        ? h('div', { key: 'empty', className: 'gp-empty gp-changes__emptynote' }, t('changes.noChanges'))
+        : null,
     ]),
     // Truncation control: expand lifts the host list cap (fullChanges mode,
     // kept for the controller's lifetime so the next poll does not re-truncate
