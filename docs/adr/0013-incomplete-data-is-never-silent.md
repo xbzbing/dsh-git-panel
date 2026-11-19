@@ -16,6 +16,7 @@
 - 每一条降级路径都带**显式标记**并在 UI 用 `NoticeBar` 提示：快照截断（`truncated` + `truncatedReason`）、未跟踪回落折叠（`untrackedCollapsed`）、统计降级（`stats.partial`）、diff 输出截断（`truncated`）、suggest 输入截断。
 - `newLines === 0` 表示新侧行数不可信，**视图不得渲染尾部展开控件**。
 - 「文件较大，其余保持折叠」这类提示必须由**实际剩下的隐藏行**判定，而不是按估算——否则在「改动贴着文件一端」与「相邻改动把 hunk 合并」两种情况下会分别漏报与误报。
+- `file-version` 的 `tooLarge` / `binary` / `absent` 必须显式返回，并在文件视图与复制入口说明，不得把缺失版本或超限内容当作空文件。
 - 宁可多一个提示条，也不让降级数据冒充完整数据。
 
 ## Consequences

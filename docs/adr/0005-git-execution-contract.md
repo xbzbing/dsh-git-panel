@@ -17,6 +17,7 @@
 - 所有 git 命令经宿主 `subprocess` 服务执行，**argv 数组**传递，禁止拼接 shell 字符串；`shell: true` 在插件里不存在。
 - **cwd 锁仓库根**：`core.ts` 用 realpath 解析出仓库根，每条命令都以它为 cwd；非 Git 目录回退到 cwd 作为浏览根。
 - 每条命令带**超时与输出上限**，超限即截断并在结果里标记（见 ADR-0013），不把无界输出读进内存。
+- 唯一例外是 `file-version` 的版本读取：先读 blob 大小，再按实际大小设置本次 collect 上限（仍不超过 `FILE_COPY_MAX_BYTES` + 64 KiB）；配置的默认上限不变。
 - 每条命令注入 `GIT_TERMINAL_PROMPT=0`（以及清空的 askpass 环境），让需要交互的命令**快速失败**成 `auth-failed`，而不是挂到超时。
 - 写操作不继承调用方的环境变量：走 scrubbed env，避免把宿主的凭据相关变量意外带进子进程。
 
