@@ -62,11 +62,22 @@ export function useGapExpander(
     // frame time, and whatever is left stays a gap the reader can click again.
     const first = sliceRequest(gap, direction)
     const steps = direction === 'all' ? EXPAND_ALL_STEPS : 1
+    const gapEnd = gap.rightStart + gap.count - 1
     void (async () => {
+      // A gap is addressed by its rightStart, and that address moves while this
+      // gesture walks: the residual gap left by a batch starts after the lines
+      // it revealed. `setRows` only runs its updater once the whole loop is
+      // done, so the address and range must be captured per iteration — closing
+      // over the advancing loop variables splices at the position the walk
+      // finished at, where no gap is left, and the click then looks dead.
+      let cursor = gap.rightStart
       let start = first.start
       let end = first.end
       for (let step = 0; step < steps; step += 1) {
-        const res = await remote.query({ sessionId, query: queryAt(start, end) })
+        const at = cursor
+        const from = start
+        const to = end
+        const res = await remote.query({ sessionId, query: queryAt(from, to) })
         if (my !== gen.current) return
         const fl = queryAs(res, 'file-lines')
         if (fl === null) {
@@ -76,11 +87,12 @@ export function useGapExpander(
           if (my === gen.current) setFailed(!res.ok && typeof res.error.message === 'string' && res.error.message !== '' ? res.error.message : '')
           break
         }
-        setRows((prev) => spliceGap(prev, start, direction, fl.start, fl.lines, fl.eof))
+        setRows((prev) => spliceGap(prev, at, direction, fl.start, fl.lines, fl.eof))
         if (fl.eof || fl.lines.length === 0 || direction !== 'all') break
+        cursor = at + fl.lines.length
         start = fl.start + fl.lines.length
-        if (start > gap.rightStart + gap.count - 1) break
-        end = Math.min(start + FILE_LINES_MAX_LINES - 1, gap.rightStart + gap.count - 1)
+        if (start > gapEnd) break
+        end = Math.min(start + FILE_LINES_MAX_LINES - 1, gapEnd)
       }
       if (my === gen.current) setBusy(null)
     })().catch(() => { if (my === gen.current) { setFailed(''); setBusy(null) } })
