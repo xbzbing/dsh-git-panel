@@ -5,7 +5,7 @@
  * tree + toolbar + pane assembly.
  */
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { JSX } from 'react'
+import type { JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { GitKey } from './locales.js'
 import type { FileEditInfo, GitQueryResult } from './types.js'
 import { languageForPath, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -142,9 +142,19 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
   const { setEl: setContainerEl, viewport, elRef: containerRef } = useViewportTracker()
   const inputRef = useRef<HTMLInputElement | null>(null)
   const activeRef = useRef<HTMLElement | null>(null)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  // A Ctrl/Cmd+A on a virtualized file can only select the rows that are
+  // mounted. The notice stays until the next press or file change; a timed
+  // tip would vanish before the copy it is warning about.
+  const [partialSelect, setPartialSelect] = useState(false)
 
   // Reset the find state when the previewed file changes.
   useEffect(() => { setFindOpen(false); setQuery(''); setActiveIndex(0) }, [path])
+  // A partial-selection notice belongs to the body it was raised on and to the
+  // render tier that produced it: a reloaded body, or one that is fully mounted
+  // again, is no longer described by it. (Find state is separate — a refresh
+  // must not close a search the user is reading.)
+  useEffect(() => { setPartialSelect(false) }, [path, content, wrap])
 
   // Debounce the scan (not the input) so typing does not re-match + re-render
   // the whole grid on every keystroke.
@@ -256,8 +266,9 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
     onStep: step, onClose: () => setFindOpen(false), t,
   }) : null
 
-  const header = (plain || findOpen) ? h('div', { key: 'hd', className: 'gp-files__header' }, [
+  const header = (plain || findOpen || partialSelect) ? h('div', { key: 'hd', className: 'gp-files__header' }, [
     plain ? h('div', { key: 'note', className: 'gp-files__note' }, t('files.highlightOff')) : null,
+    partialSelect ? h('div', { key: 'partial', className: 'gp-files__note', role: 'status' }, t('files.selectAllPartial')) : null,
     findBox,
   ]) : null
 
@@ -289,13 +300,59 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
     }
   }
 
+  // Ctrl/Cmd+A is scoped to the code body. It must not fall through to the
+  // document: the browser would select the panel chrome as well, and in a
+  // virtualized file it would still only cover the mounted rows. The range is
+  // set over the grid (not the header), and the gutter is `user-select:none`,
+  // so the copied text is code only.
+  const selectAll = (): void => {
+    const body = bodyRef.current
+    const selection = typeof document.getSelection === 'function' ? document.getSelection() : null
+    if (body === null || selection === null) return
+    const range = document.createRange()
+    range.selectNodeContents(body)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    setPartialSelect(!wrapActive)
+  }
+  const onPreviewKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    // `code` as well as `key`: a non-Latin layout (the panel ships a Russian
+    // dictionary) reports the physical A as a different character.
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
+    if (e.key !== 'a' && e.key !== 'A' && e.code !== 'KeyA') return
+    const target = e.target instanceof Element ? e.target : null
+    if (target !== null && target.closest('input, textarea, select, button, [contenteditable="true"]') !== null) return
+    e.preventDefault()
+    selectAll()
+  }
+  const onPreviewMouseDown = (e: ReactMouseEvent<HTMLDivElement>): void => {
+    const target = e.target instanceof Element ? e.target : null
+    if (target !== null && target.closest('.gp-find, input, textarea, select, button') !== null) return
+    // Focus without scrolling: the container is the code area itself, and
+    // revealing it would jump a preview that is already in view.
+    containerRef.current?.focus({ preventScroll: true })
+    // A new press starts a new selection; the previous partial-selection notice
+    // no longer describes it.
+    if (partialSelect) setPartialSelect(false)
+  }
+
   // Three-digit gutter by default, four once the file is that long (gutterWidth):
   // every row is its own grid, so the width has to come from the container or the
   // rows would disagree.
-  return h('div', { className: `gp-files__code gp-diff__scroll${wrapActive ? ' gp-files__code--wrap' : ' gp-files__code--nowrap'}`, ref: setContainerEl, style: { '--gp-gutter-w': gutterWidth(lines.length) } }, [
+  return h('div', {
+    className: `gp-files__code gp-diff__scroll${wrapActive ? ' gp-files__code--wrap' : ' gp-files__code--nowrap'}`,
+    ref: setContainerEl,
+    style: { '--gp-gutter-w': gutterWidth(lines.length) },
+    tabIndex: 0,
+    role: 'region',
+    'aria-label': t('files.previewLabel', { path }),
+    onKeyDown: onPreviewKeyDown,
+    onMouseDown: onPreviewMouseDown,
+  }, [
     header,
     h('div', {
       key: 'grid',
+      ref: bodyRef,
       className: 'gp-files__single gp-files__single--virt',
       ...(wrapActive ? {} : { style: { height: total * ROW_HEIGHT } }),
     }, windowRows),
@@ -317,7 +374,10 @@ function renderCodeLine(
   active: Match | null,
   activeRef: { current: HTMLElement | null },
 ): JSX.Element {
-  if (line === '') return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, '\u00a0')
+  // The NBSP keeps an empty line's row height; excluding it from selection keeps
+  // Ctrl/⌘+A (and a manual drag) faithful — a copied blank line stays blank
+  // instead of becoming U+00A0.
+  if (line === '') return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, h('span', { className: 'gp-files__blank' }, '\u00a0'))
   const cellSpans = line.length > MAX_LINE_CHARS ? undefined : spans
   if (ranges === undefined || ranges.length === 0) {
     return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, cellSpans !== undefined

@@ -17,6 +17,8 @@ import type { GitKey } from './locales.js'
 import type { DiffMode } from './DiffView.js'
 import { renderFileDiffModal } from './overview-filediff.js'
 import { useCopyFeedback } from './copy-feedback.js'
+import { fileVersionKey } from './file-version.js'
+import { useFileVersion } from './use-file-version.js'
 import { DIFF_EXPAND_CONTEXT } from './types.js'
 import { ComparePicker } from './compare-flow.js'
 import { loadCompareCandidates, revisionCandidates, type CompareRef } from './compare-refs.js'
@@ -172,6 +174,16 @@ function RevDiffOverlay(props: {
   const [mode, setMode] = useState<DiffMode>(defaultMode)
   const [expanded, setExpanded] = useState(false)
   const copy = useCopyFeedback(path)
+  // A revision comparison's new side is the work tree, so the file view/copy
+  // read `worktree`; the host never needs a `rev` variant for this query.
+  const versionTarget = { path, base: 'worktree' } as const
+  const versionKey = fileVersionKey(versionTarget)
+  // Keyed like the read itself: switching rev/path must not paint the previous
+  // file's view for a frame, and no reset effect has to race the next paint.
+  const [viewSlot, setViewSlot] = useState<{ readonly key: string | null; readonly view: 'diff' | 'file' }>({ key: versionKey, view: 'diff' })
+  const view: 'diff' | 'file' = viewSlot.key === versionKey ? viewSlot.view : 'diff'
+  const setView = (next: 'diff' | 'file'): void => setViewSlot({ key: versionKey, view: next })
+  const version = useFileVersion(remote, sessionId, versionTarget, view === 'file')
   const seq = useRef(0)
 
   useEffect(() => {
@@ -201,5 +213,10 @@ function RevDiffOverlay(props: {
   return renderFileDiffModal({ path, rev, label }, {
     visible: true, data, error, mode, onMode: setMode, expanded, onExpand: setExpanded,
     onClose, pathFeedback: copy.feedback, onCopyPath: copy.copy, remote, sessionId, compact, t,
+    version: {
+      view,
+      onView: setView,
+      ...version,
+    },
   })
 }

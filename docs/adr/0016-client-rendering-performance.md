@@ -16,6 +16,7 @@
 ## Decision
 
 - **长列表虚拟化**：变更列表、源码视图、DiffView 一律用 `virtual-list.ts` + `use-viewport.ts`；查找跳转到窗口外命中时**窗口吸附到命中邻域**，不挂载中间的连续区间。
+- **文件差异弹窗的「文件」视图是源码视图的另一种入口**：复用 `CodePreview` 的 wrap/nowrap 两档（挂载上限见 ADR-0012，不得为全选放大）；Ctrl/⌘+A 仅在全部行已挂载时是完整选区，虚拟档必须提示并只选已挂载行。
 - **`memo` 组件的 props 传普通值**，不在渲染中新建对象字面量。
 - **逐行高亮经 `highlight-cache.ts` 缓存**，按行文本复用。
 - **图片缩放**：`.gp-zoom__img` 必须 `flex:none`；拖拽的 pointer 事件**挂 window 且不 `setPointerCapture`**。

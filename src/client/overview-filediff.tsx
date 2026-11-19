@@ -6,15 +6,38 @@
 import { createElement as h } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
-import type { GitDiffPayload } from './types.js'
+import { FILE_COPY_MAX_BYTES, type GitDiffPayload } from './types.js'
 import type { GitKey } from './locales.js'
-import { CloseIcon, FileIcon } from './icons.js'
+import { CheckIcon, CloseIcon, CopyIcon, FileIcon } from './icons.js'
 import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
+import { isBinaryDiff } from './diff.js'
+import { formatBytes } from './bytes.js'
 import { OVERLAY_ATTR } from './dialog-focus.js'
 import { pathCopyButton } from './path-copy-button.js'
 import type { CopyFeedback } from './copy-feedback.js'
 import type { GitPanelRemote } from './rpc.js'
 import { renderDiffExpand, renderDiffModes } from './diff-controls.js'
+import { CodePreview } from './files-preview.js'
+import type { FileVersionControl, FileVersionState } from './file-version.js'
+
+/** The read-only file view and the copy action share one version read. Both
+ * surfaces above (the commit overlay and the revision comparison) hand the
+ * control itself down; `undefined` keeps the dialog diff-only. */
+export interface FileVersionModal extends Omit<FileVersionControl, 'load'> {
+  readonly view: 'diff' | 'file'
+  readonly onView: (view: 'diff' | 'file') => void
+}
+
+/** A terminal version state the copy cannot use, with the reason to show. The
+ * size rides along so the message names how far over the limit the file is. */
+function versionIssueOf(state: FileVersionState): { key: GitKey; params?: Record<string, string> } | null {
+  if (state.kind === 'tooLarge') {
+    return { key: 'diff.versionTooLarge', params: { size: formatBytes(state.size ?? FILE_COPY_MAX_BYTES) } }
+  }
+  if (state.kind === 'binary') return { key: 'diff.versionBinary' }
+  if (state.kind === 'absent') return { key: 'diff.versionAbsent' }
+  return null
+}
 
 export interface FileDiffModalCbs {
   visible: boolean
@@ -33,6 +56,8 @@ export interface FileDiffModalCbs {
   remote: GitPanelRemote
   sessionId: string
   compact: boolean
+  /** Read-only file view + copy. Absent keeps the dialog diff-only. */
+  version?: FileVersionModal
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -51,7 +76,8 @@ export function renderFileDiffModal(
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
   const commitSide = 'hash' in fileDiff
-  const { visible, data, error, mode, onMode, expanded, onExpand, onClose, pathFeedback, onCopyPath, remote, sessionId, compact, t } = cb
+  const { visible, data, error, mode, onMode, expanded, onExpand, onClose, pathFeedback, onCopyPath, remote, sessionId, compact, version, t } = cb
+  const view = version?.view ?? 'diff'
   // Compact drops the side-by-side mode (no room on a phone) and renders split
   // as unified instead; the preference itself is left untouched.
   const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
@@ -64,6 +90,47 @@ export function renderFileDiffModal(
   const expandEl = renderDiffExpand(controls)
   const modesEl = renderDiffModes(controls)
   const closeEl = h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 }))
+  // A text diff has something to read/copy; a binary/image diff does not. A
+  // terminal version state (too large / binary / absent) keeps the control
+  // visible and disabled with the reason as its label; a read error leaves it
+  // clickable, so the next press retries instead of stranding the control.
+  const copyable = data !== null && data.text !== '' && !isBinaryDiff(data.text)
+  const issue = version === undefined ? null : versionIssueOf(version.state)
+  const issueText = issue === null ? null : t(issue.key, issue.params)
+  const failureText = version !== undefined && version.failure !== null ? t(version.failure) : null
+  const copyLabel = issueText ?? (version !== undefined && version.feedback === 'copied'
+    ? t('diff.copyAfterDone')
+    : t('diff.copyAfter'))
+  const copyEl = version === undefined || !copyable
+    ? null
+    : h('button', {
+      key: 'copy', type: 'button',
+      className: `gp-icon-btn gp-modal__copy${version.feedback === 'copied' ? ' gp-modal__copy--copied' : ''}${version.feedback === 'error' ? ' gp-modal__copy--error' : ''}`,
+      title: copyLabel,
+      'aria-label': copyLabel,
+      'aria-busy': version.busy,
+      disabled: version.busy || issueText !== null,
+      onClick: version.copy,
+    }, [
+      version.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
+      h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
+        issueText
+        ?? (version.feedback === 'copied'
+          ? t('diff.copyAfterDone')
+          : version.feedback === 'error' ? t('files.contentCopyFailed') : failureText ?? '')),
+    ])
+  // The label names the view the press switches to, so the button needs no
+  // separate pressed state (a changing name plus `aria-pressed` reports the
+  // same fact twice and reads as a shifting control).
+  const viewEl = version === undefined
+    ? null
+    : h('button', {
+      key: 'view', type: 'button',
+      className: 'gp-icon-btn gp-modal__view',
+      title: t(view === 'file' ? 'diff.backToDiff' : 'diff.fileView'),
+      'aria-label': t(view === 'file' ? 'diff.backToDiff' : 'diff.fileView'),
+      onClick: () => version.onView(view === 'file' ? 'diff' : 'file'),
+    }, h(FileIcon, { size: 14 }))
   // The header path doubles as its copy control, in the same shape as the
   // changes pane's and the files toolbar's (path-copy-button.tsx). `--copy`
   // carries the button affordance because the bare `.gp-modal__path` class is
@@ -86,17 +153,45 @@ export function renderFileDiffModal(
     pathEl,
     h('span', { key: 'hash', className: 'gp-modal__hash' }, commitSide ? fileDiff.shortHash : fileDiff.label),
     sumEl,
-    expandEl,
   ]
   // Compact mirrors the changes-pane toolbar: one row cannot fit header +
-  // mode switches + close at phone widths, so the switches and a bordered
-  // close button move to a dedicated second row (close at its far right).
+  // controls + close at phone widths, so the controls and a bordered close
+  // button move to a dedicated second row (close at its far right).
+  const barControls = [
+    viewEl,
+    copyEl,
+    view === 'diff' ? expandEl : null,
+    view === 'diff' ? modesEl : null,
+    closeEl,
+  ]
   const barChildren = compact
     ? [
       h('div', { key: 'brow1', className: 'gp-modal__bar-row' }, barHead),
-      h('div', { key: 'brow2', className: 'gp-modal__bar-row gp-modal__bar-row--controls' }, [modesEl, closeEl]),
+      h('div', { key: 'brow2', className: 'gp-modal__bar-row gp-modal__bar-row--controls' }, barControls),
     ]
-    : [...barHead, modesEl, closeEl]
+    : [...barHead, ...barControls]
+  const versionBody = ((): JSX.Element | null => {
+    if (version === undefined) return null
+    const state = version.state
+    if (state.kind === 'idle' || state.kind === 'loading') return h('div', { className: 'gp-empty' }, t('common.loading'))
+    if (state.kind === 'ready') {
+      return h('div', { key: 'file', className: 'gp-modal__file' },
+        h(CodePreview, { content: state.content, path: fileDiff.path, wrap: true, t }))
+    }
+    if (state.kind === 'tooLarge' || state.kind === 'binary' || state.kind === 'absent') {
+      return h('div', { className: 'gp-empty' }, issueText ?? t('files.loadFailed'))
+    }
+    return h('div', { className: 'gp-empty' }, t('files.loadFailed'))
+  })()
+  const body = view === 'file'
+    ? versionBody
+    : data === null
+      ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
+      : h(DiffView, {
+        key: 'diff', visible, text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId,
+        expanded, truncated: data.truncated === true, newLines: data.newLines, t,
+        ...(commitSide ? { base: 'commit' as const, commit: fileDiff.hash } : { base: 'rev' as const, rev: fileDiff.rev }),
+      })
   const modal = h('div', {
     className: 'gp-modal-backdrop',
     // Declares this dialog as an overlay above the page, so the branch drawer's
@@ -105,14 +200,7 @@ export function renderFileDiffModal(
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
   }, h('div', { className: 'gp-modal', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, barChildren),
-    h('div', { key: 'scroll', className: 'gp-modal__scroll' },
-      data === null
-        ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : h(DiffView, {
-          key: 'diff', visible, text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId,
-          expanded, truncated: data.truncated === true, newLines: data.newLines, t,
-          ...(commitSide ? { base: 'commit' as const, commit: fileDiff.hash } : { base: 'rev' as const, rev: fileDiff.rev }),
-        })),
+    h('div', { key: 'scroll', className: 'gp-modal__scroll' }, body),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }

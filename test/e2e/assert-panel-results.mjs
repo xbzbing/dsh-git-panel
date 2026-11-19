@@ -204,6 +204,39 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
   assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
   assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')
+  assert.equal(out.modalViewLabel, 'diff.fileView', 'the dialog offers a read-only file view')
+  assert.equal(out.modalFileView, true, 'the file view renders the shared CodePreview')
+  assert.deepEqual(out.modalFileLines, ['line0', 'line1', 'line2'], 'the file view shows the complete version body, not the diff rows')
+  assert.equal(out.modalVersionQuery?.path, out.modalPathText, 'the version read names the open file')
+  assert.equal(out.modalVersionQuery?.base, 'commit', 'a commit overlay reads the commit blob')
+  assert.equal(typeof out.modalVersionQuery?.commit, 'string', 'the read carries the commit it belongs to')
+  assert.equal(out.modalDiffModeHidden, true, 'diff-mode switches are not offered inside the file view')
+  assert.equal(out.modalCopyLabel, 'diff.copyAfter', 'the copy action names the post-change content')
+  assert.equal(out.modalCopyFeedback, true, 'copying confirms on the shared feedback clock')
+  assert.equal(out.modalCopyLive, 'diff.copyAfterDone', 'the confirmation reaches the live region')
+  assert.equal(out.modalCopyText, 'line0\nline1\nline2\n', 'the clipboard receives the complete version body')
+  assert.equal(out.modalVersionQueriesAfterCopy, 1, 'copy reuses the file view read instead of querying again')
+  assert.equal(out.modalBackToDiff, true, 'leaving the file view restores the diff')
+  assert.equal(out.modalBeforeCopyLabel, 'diff.copyAfter', 'the copy action keeps its post-change meaning in the before view')
+  assert.equal(out.modalBeforeCopyText, 'line0\nline1\nline2\n', 'copying in the before view still writes the post-change body')
+  assert.equal(out.modalUnifiedRestored, true, 'the before toggle returns to the unified diff')
+  // Degraded versions: visible reason, copy disabled with that reason as its
+  // label, and never an empty file view standing in for the real content.
+  assert.deepEqual(
+    { text: out.modalTooLarge?.text, disabled: out.modalTooLarge?.disabled, label: out.modalTooLarge?.label, file: out.modalTooLarge?.fileView, openedOn: out.modalTooLarge?.beforeLabel },
+    { text: 'diff.versionTooLarge', disabled: true, label: 'diff.versionTooLarge', file: false, openedOn: 'diff.fileView' },
+    'an over-limit version explains itself and cannot be copied',
+  )
+  assert.deepEqual(
+    { text: out.modalAbsent?.text, disabled: out.modalAbsent?.disabled, label: out.modalAbsent?.label, file: out.modalAbsent?.fileView, openedOn: out.modalAbsent?.beforeLabel },
+    { text: 'diff.versionAbsent', disabled: true, label: 'diff.versionAbsent', file: false, openedOn: 'diff.fileView' },
+    'a version without this file says so instead of showing an empty body',
+  )
+  assert.deepEqual(
+    { text: out.modalBinary?.text, disabled: out.modalBinary?.disabled, label: out.modalBinary?.label, file: out.modalBinary?.fileView, openedOn: out.modalBinary?.beforeLabel },
+    { text: 'diff.versionBinary', disabled: true, label: 'diff.versionBinary', file: false, openedOn: 'diff.fileView' },
+    'a non-text version explains itself and cannot be copied',
+  )
   // 展开全部: the same icon-only control the changes pane uses, in the same box.
   assert.deepEqual(
     { text: out.modalExpand?.text, glyph: out.modalExpand?.glyph, aria: out.modalExpand?.aria, pressed: out.modalExpand?.pressed },
@@ -234,6 +267,9 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.emptyDirHintIndented, true, 'the empty-directory hint sits one level under its directory')
   assert.equal(out.dirRowAriaExpanded, true, 'the expanded directory row reports aria-expanded (the hint row itself carries no state)')
   assert.equal(out.filesCodeShown, true, 'selecting a text file shows the code preview')
+  assert.equal(out.selectAllWrapFocused, true, 'clicking the preview makes the read-only code region focusable')
+  assert.equal(out.selectAllWrapText.trimEnd(), 'const x = 1\nconst y = 2', `Ctrl+A selects the code body only — no line numbers, no diff chrome (${JSON.stringify(out.selectAllWrapText)})`)
+  assert.ok(!out.selectAllWrapNotes.includes('files.selectAllPartial'), 'a fully mounted file needs no partial-selection warning')
   assert.equal(out.txtRowSelected, true, 'the selected file row carries the active class')
   assert.equal(out.selectionStyled, true, 'the travelling fill carries the primary-tinted highlight (shared --gp-select-* token)')
   assert.equal(out.officialCodeHighlight, true, 'code preview renders syntax spans from the DSH highlighter')
@@ -384,6 +420,10 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.bigLineFull, true, 'an over-long line renders in full (no truncation marker anywhere)')
   assert.equal(out.bigWrapDisabled, true, 'a file over the wrap cap keeps the toggle visible but disabled')
   assert.ok(out.bigMountedRows > 0 && out.bigMountedRows < out.bigTotalLines, `virtualized: mounts a window (${out.bigMountedRows}), not all ${out.bigTotalLines} rows`)
+  assert.ok(out.selectAllVirtualText > 0, 'Ctrl+A still selects the mounted rows on a virtualized file')
+  assert.ok(out.selectAllVirtualNotes.includes('files.selectAllPartial'), 'the virtualized selection warns that it may be incomplete')
+  assert.equal(out.selectAllVirtualDidNotMountAll, true, 'the shortcut never mounts the whole file')
+  assert.ok(!out.selectAllVirtualNotesAfterPress.includes('files.selectAllPartial'), 'the next press drops the partial-selection warning')
   assert.equal(out.bigSpacerHeight, out.bigTotalLines * 20, 'the virtual spacer height reflects the full line count')
   assert.equal(out.bigSelectionSurvived, true, 'a text selection survives scrolling away from the rows it covers')
   assert.ok(out.bigSelectionMounted < 200, `only the selected and visible spans mount while selecting (${out.bigSelectionMounted} rows, not the whole file)`)

@@ -210,6 +210,13 @@ export const CSS = `
 .gp-files__html-mask[data-state="ready"] .gp-files__html-mask-spin *{animation:none}
 .gp-files__html-mask-label{max-width:80%;text-align:center;line-height:1.5}
 .gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;position:relative}
+/* The preview is a focusable read-only region so Ctrl/Cmd+A can be scoped to
+ * the code body; the outline is keyboard-only (a mouse selection already shows
+ * its own highlight). */
+.gp-files__code:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+/* An empty source line's NBSP holds the row's line box; excluding it from
+ * selection keeps a copied blank line blank. */
+.gp-files__blank{user-select:none}
 /* Both sticky axes: the header must also stay put under horizontal scroll
  * (reachable only in nowrap mode), or the find bar slides out of view. */
 .gp-files__header{position:sticky;top:0;left:0;z-index:2}

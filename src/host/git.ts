@@ -6,6 +6,7 @@
  * compatible with the host `subprocess` service.
  */
 import { readFile } from 'node:fs/promises'
+import { FILE_COPY_MAX_BYTES } from './types.js'
 
 interface CollectDisposition {
   readonly collect: {
@@ -64,7 +65,24 @@ export interface GitRunner {
     readonly stdinData?: string
     /** Extra child env entries, merged over the runner's own git env. */
     readonly env?: Readonly<Record<string, string | undefined>>
+    /**
+     * Per-run stdout collect ceiling, for the one read that promises the
+     * shared `FILE_COPY_MAX_BYTES` envelope even when the profile's
+     * `maxBytes` is lower. Clamped to that envelope; every other command
+     * keeps the configured limit.
+     */
+    readonly collectMaxBytes?: number
   }): Promise<GitRunResult>
+}
+
+/** The only read allowed above the profile cap: one file body bounded by the
+ * copy/view envelope. +64 KiB covers the trailing-newline and decoding slack
+ * without letting an arbitrary caller raise the ceiling further. */
+const MAX_COLLECT_BYTES = FILE_COPY_MAX_BYTES + 64 * 1024
+
+function collectCap(requested: number | undefined, configured: number): number {
+  if (requested === undefined || !Number.isFinite(requested)) return configured
+  return Math.min(Math.max(1, Math.floor(requested)), MAX_COLLECT_BYTES)
 }
 
 /**
@@ -78,6 +96,7 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
     async run(argv, opts) {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeoutMs)
+      const stdoutMaxBytes = collectCap(opts.collectMaxBytes, maxBytes)
       try {
         const signal = opts.signal === undefined
           ? controller.signal
@@ -112,7 +131,7 @@ export function createGitRunner(subprocess: SubprocessLike, timeoutMs: number, m
           },
           stdio: {
             stdin: opts.stdinData === undefined ? 'ignore' : { data: opts.stdinData },
-            stdout: { collect: { maxBytes, spill: { maxBytes: spillMaxBytes } } },
+            stdout: { collect: { maxBytes: stdoutMaxBytes, spill: { maxBytes: spillMaxBytes } } },
             stderr: { collect: { maxBytes, spill: { maxBytes: spillMaxBytes } } },
           },
           graceMs: 200,

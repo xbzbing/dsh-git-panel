@@ -4115,3 +4115,124 @@ test('cherry-pick applies a commit; conflict, empty and merge-commit outcomes re
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('file-version reads the requested base, normalizes worktree EOL, and reports absence', async () => {
+  const { writeFileSync, truncateSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': 'committed\n', 'crlf.txt': 'x\r\ny\r\n' })
+  try {
+    writeFileSync(join(dir, 'a.txt'), 'staged\n')
+    await runGit(dir, ['add', 'a.txt'])
+    writeFileSync(join(dir, 'a.txt'), 'worktree\n')
+    const d = depsAt(dir)
+    const read = (query) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query })
+
+    const commit = await read({ kind: 'file-version', path: 'a.txt', base: 'commit', commit: 'HEAD' })
+    assert.equal(commit.ok, true)
+    assert.equal(commit.value.variant, 'text')
+    assert.equal(commit.value.content, 'committed\n', 'commit base reads the committed blob')
+
+    const staged = await read({ kind: 'file-version', path: 'a.txt', base: 'staged' })
+    assert.equal(staged.value.variant, 'text')
+    assert.equal(staged.value.content, 'staged\n', 'staged base reads the index, not the work tree')
+
+    const worktree = await read({ kind: 'file-version', path: 'a.txt', base: 'worktree' })
+    assert.equal(worktree.value.variant, 'text')
+    assert.equal(worktree.value.content, 'worktree\n', 'worktree base reads the file on disk')
+
+    const crlf = await read({ kind: 'file-version', path: 'crlf.txt', base: 'worktree' })
+    assert.equal(crlf.value.variant, 'text')
+    assert.equal(crlf.value.content, 'x\ny\n', 'worktree bodies are normalized like the diff new side')
+
+    const absent = await read({ kind: 'file-version', path: 'nope.txt', base: 'commit', commit: 'HEAD' })
+    assert.equal(absent.value.variant, 'absent')
+    const absentStaged = await read({ kind: 'file-version', path: 'nope.txt', base: 'staged' })
+    assert.equal(absentStaged.value.variant, 'absent')
+
+    // A sparse file crosses the envelope without writing the bytes.
+    writeFileSync(join(dir, 'huge.txt'), '')
+    truncateSync(join(dir, 'huge.txt'), FILE_COPY_MAX_BYTES)
+    const huge = await read({ kind: 'file-version', path: 'huge.txt', base: 'worktree' })
+    assert.equal(huge.value.variant, 'tooLarge')
+    assert.equal(huge.value.size, FILE_COPY_MAX_BYTES, 'the size names the limit the view hit')
+
+    // The git-backed side is sized before reading, so an over-envelope blob is
+    // never collected. A sparse file keeps the fixture cheap (git compresses it).
+    writeFileSync(join(dir, 'huge-commit.txt'), '')
+    truncateSync(join(dir, 'huge-commit.txt'), FILE_COPY_MAX_BYTES)
+    await runGit(dir, ['add', 'huge-commit.txt'])
+    await runGit(dir, ['commit', '-qm', 'fixture: huge blob'])
+    const hugeCommit = await read({ kind: 'file-version', path: 'huge-commit.txt', base: 'commit', commit: 'HEAD' })
+    assert.equal(hugeCommit.value.variant, 'tooLarge')
+    assert.equal(hugeCommit.value.size, FILE_COPY_MAX_BYTES, 'the blob size is read without materializing the body')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('file-version refuses binary bodies and submodule gitlinks instead of stringifying them', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'bin.dat': Buffer.from([0x61, 0x00, 0x62]) })
+  try {
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim()
+    await runGit(dir, ['update-index', '--add', '--cacheinfo', `160000,${head},sub`])
+    await runGit(dir, ['commit', '-qm', 'fixture: gitlink'])
+    const d = depsAt(dir)
+
+    const bin = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-version', path: 'bin.dat', base: 'commit', commit: 'HEAD' } })
+    assert.equal(bin.value.variant, 'binary', 'a NUL byte is not text')
+
+    const sub = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-version', path: 'sub', base: 'commit', commit: 'HEAD' } })
+    assert.equal(sub.value.variant, 'binary', 'a gitlink is not a file body')
+
+    // A worktree NUL is caught by the same rule.
+    writeFileSync(join(dir, 'bin.dat'), Buffer.from([0x61, 0x00, 0x62]))
+    const binWorktree = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-version', path: 'bin.dat', base: 'worktree' } })
+    assert.equal(binWorktree.value.variant, 'binary')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('file-version refuses unsafe paths and real git errors instead of reporting an absent side', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': 'committed\n' })
+  try {
+    const d = depsAt(dir)
+    const read = (query) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query })
+
+    for (const path of ['../escape.txt', '/etc/hosts', '.git/config', 'src/.git/HEAD']) {
+      const res = await read({ kind: 'file-version', path, base: 'worktree' })
+      assert.equal(res.ok, false, `${path} is refused`)
+      assert.equal(res.error.code, 'invalid-path', `${path} reports invalid-path`)
+    }
+
+    // A rev git cannot resolve is a failure, not "this version has no such
+    // file": the absent classifier must stay narrow enough to tell them apart.
+    const badRev = await read({ kind: 'file-version', path: 'a.txt', base: 'commit', commit: 'nope-rev' })
+    assert.equal(badRev.ok, false, 'an unresolvable rev is an error')
+    assert.equal(badRev.error.code, 'git-error')
+
+    // Present on disk, absent from the index: the staged side has no such path.
+    writeFileSync(join(dir, 'loose.txt'), 'loose\n')
+    const loose = await read({ kind: 'file-version', path: 'loose.txt', base: 'staged' })
+    assert.equal(loose.ok, true)
+    assert.equal(loose.value.variant, 'absent', 'a never-staged path has no index side')
+
+    // One byte inside the envelope still reads (the worktree read asks for
+    // FILE_COPY_MAX_BYTES - 1, because its bound is inclusive).
+    const edge = 'a'.repeat(FILE_COPY_MAX_BYTES - 1)
+    writeFileSync(join(dir, 'edge.txt'), edge)
+    const edgeRead = await read({ kind: 'file-version', path: 'edge.txt', base: 'worktree' })
+    assert.equal(edgeRead.value.variant, 'text')
+    assert.equal(edgeRead.value.size, FILE_COPY_MAX_BYTES - 1)
+    assert.equal(edgeRead.value.content.length, FILE_COPY_MAX_BYTES - 1)
+
+    // A NUL past the head sniff window stays text, the way the diff and the
+    // file browser classify the same bytes.
+    writeFileSync(join(dir, 'late-nul.txt'), 'a'.repeat(9000) + '\u0000' + 'tail')
+    const late = await read({ kind: 'file-version', path: 'late-nul.txt', base: 'worktree' })
+    assert.equal(late.value.variant, 'text', 'the sniff window is the head, not the whole body')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

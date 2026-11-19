@@ -53,6 +53,8 @@
 - 全屏阅读器（`.gp-files__preview--full`）原地换样式，不 portal、不重挂；尺寸只在 `layout.ts` 的一条声明里算，改地板会同时改小窗表现（e2e 钉住两档具体数字，改公式要一起改）。
 - Markdown 悬浮目录：条目读渲染后的 DOM（平台若不再输出 `h1…h6` 会静默空掉，`files-markdown-toc` 就是那个报警器）；`markdown-toc.ts` 只放无 DOM 的纯逻辑。默认状态是右上角一个「目录」按钮（`gp-files__toc-open`），点开才是卡片（`gp-files__toc`，宽度 `min(142px,35%)`，约旧卡片的六成；两者右缩进 13px，比上/左多 5px 以避开文档滚动条；改宽度同时要改 e2e 断言的 142 与 13）；卡片的折起回到按钮、× 关闭则整块移除，关闭状态由 `FilesTab` 按 `openSeq` 记（`tocClosedAt`），所以只有「再打开一次文件」能恢复，refresh、重渲染、源码/渲染切换都不行——**不要把 `hidden` 挪回 `MarkdownPane` 的局部 state**，切视图会重挂组件、把关闭撤销掉；也不要用文本变化做重置信号，编辑草稿每敲一个字都会换文本。展开/折起由组件本地 state 管（切视图重挂后回到默认的收起状态，这是期望行为）；两个控件互相替换时焦点要显式交到对方身上，否则键盘用户会掉回 `<body>`。z-index 必须高于平台吸顶条（6）而低于面板浮层（40+）。
 - 长列表使用 `virtual-list.ts` + `use-viewport.ts`；memo props 不在 render 中新建对象；高亮使用 `highlight-cache.ts`。
+- 提交差异弹窗的只读「文件」视图复用 `CodePreview` 的两档渲染（≤ 2000 行且 ≤ 1 MiB 才 wrap 全量挂载，超过转 nowrap 虚拟窗口）；不得为了 Ctrl/⌘+A 全量挂载或放大 diff 上下文。`CodePreview` 的 Ctrl/⌘+A 只作用于聚焦的代码区域；虚拟档只选已挂载行，必须显示 `files.selectAllPartial` 提示。
+- 提交差异弹窗（commit 与 compare 两个入口共用 `renderFileDiffModal`）的文件视图与「复制变更后的文件内容」共用 `file-version`（按 diff 的 base 读**该 base 下的新侧**版本，严格小于 10 MiB）；禁止从 DOM、`diffData.text` 或 `file-content`（工作区版本）拼全文。`tooLarge`/`binary`/`absent` 是终态，可禁用复制并把原因写进 label；读错误不是终态，必须留一次重试。
 - row slider 是唯一选中底色：宿主滚动容器必须 `position: relative`，行的 active 状态只改文字色；虚拟窗口和字号 zoom 必须纳入量测。详见 `test/e2e/row-slider.mjs`。
 - 右键菜单的目标值在手势时捕获（thunk），owner 解析前必须复核 sessionId / repo / browse root（仓库行自带检出，只要求 root 非空）；菜单项不改选中与 row slider；破坏性项只打开既有确认框；菜单打开期间不显示指针锚定的浮层（提交 hover 卡片先收起，再由 `contextMenus.active` 门控）。详见 ADR-0028。
 - 折叠滚动区用 `grid 1fr/0fr` 时，折叠层为 flex 列，列表 `flex: 1 1 auto; min-height: 0`。

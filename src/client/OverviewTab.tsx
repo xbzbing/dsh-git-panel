@@ -27,6 +27,8 @@ import { useBranchTree, useCommitDetail, useHistory, type HistoryFilter } from '
 import { useMenuActive } from './use-menu-active.js'
 import { searchPublish } from './history-filter.js'
 import { useCopyFeedback } from './copy-feedback.js'
+import { fileVersionKey, type FileVersionTarget } from './file-version.js'
+import { useFileVersion } from './use-file-version.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
@@ -878,6 +880,29 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // shows in place as a check mark + tint — the visible text never swaps to
   // the phrase, it rides aria-label / feedback-period title / live region.
   const pathCopy = useCopyFeedback(detail.fileDiff === null ? null : detail.fileDiff.path)
+  // The file view and the copy action consume the same version read. `rev`
+  // never reaches the host: a revision comparison's new side is the work tree.
+  const fileVersionTarget = useMemo<FileVersionTarget | null>(() => {
+    const target = detail.fileDiff
+    if (target === null) return null
+    return 'hash' in target
+      ? { path: target.path, base: 'commit', commit: target.hash }
+      : { path: target.path, base: 'worktree' }
+  }, [detail.fileDiff])
+  const versionKey = fileVersionKey(fileVersionTarget)
+  // A new file/commit starts on the diff; the view is a per-open choice, not a
+  // sticky preference that would hide the change the dialog exists to show.
+  // Stored with the key it belongs to and derived on render, so switching the
+  // open file cannot paint the previous body's view for a frame.
+  const [viewSlot, setViewSlot] = useState<{ readonly key: string | null; readonly view: 'diff' | 'file' }>({ key: null, view: 'diff' })
+  const fileDiffView: 'diff' | 'file' = viewSlot.key === versionKey ? viewSlot.view : 'diff'
+  // Closing the dialog forgets the entry, so reopening the same file starts on
+  // the diff again: the view is a choice made inside one open, not a remembered
+  // preference. (Deriving the view above is what keeps a target switch from
+  // painting the previous file's body for a frame; this effect only clears.)
+  useEffect(() => { if (versionKey === null) setViewSlot({ key: null, view: 'diff' }) }, [versionKey])
+  const setFileDiffView = (view: 'diff' | 'file'): void => setViewSlot({ key: versionKey, view })
+  const fileVersion = useFileVersion(remote, sessionId, fileVersionTarget, fileDiffView === 'file')
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     visible: queryVisible,
     data: detail.fileDiffData,
@@ -898,6 +923,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     remote,
     sessionId,
     compact,
+    version: {
+      view: fileDiffView,
+      onView: setFileDiffView,
+      ...fileVersion,
+    },
     t,
   })
 

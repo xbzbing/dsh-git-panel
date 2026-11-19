@@ -125,6 +125,15 @@ const out = await page.evaluate(async (snap) => {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
     await new Promise((r) => setTimeout(r, 40))
   }
+  // Real timers (copy feedback, deferred answers) need a wait, not a guess: a
+  // fixed sleep under the runner pool flakes when the machine is busy.
+  const waitFor = async (check, timeout = 2000) => {
+    for (let waited = 0; waited <= timeout; waited += 20) {
+      if (check()) return true
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    return false
+  }
 
   const ReactDOM = window.ReactDOM
   const pillEntry = registered['conversation.input.left']
@@ -882,11 +891,86 @@ const out = await page.evaluate(async (snap) => {
   // Click a changed file → the diff modal opens (portaled to document.body).
   // Re-query: the collapse/expand round above re-rendered the tree, detaching
   // the row captured earlier.
+  // The version body carries a line the diff's new side does not: rendering the
+  // diff (or its "after" rows) instead of the version read would show two lines.
+  fixture.versionText = 'line0\nline1\nline2\n'
   const freshFileRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
   if (freshFileRow) { freshFileRow.click(); await settle() }
   result.hasModal = document.querySelector('.gp-modal') !== null
   result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
   result.modalWordSyntax = [...document.querySelectorAll('.gp-modal .gp-diff-word span')].some((el) => el.style.color.includes('--shiki-keyword'))
+  // Read-only file view: its own toggle, full version body, and the copy action
+  // share one host read. The fixture serves a body for the path the diff is
+  // about; copy then reuses that read instead of fetching again.
+  result.modalPathText = document.querySelector('.gp-modal .gp-modal__path')?.textContent ?? null
+  const viewBtn = document.querySelector('.gp-modal .gp-modal__view')
+  result.modalViewLabel = viewBtn?.getAttribute('aria-label') ?? null
+  if (viewBtn) { viewBtn.click(); await settle() }
+  result.modalFileView = document.querySelector('.gp-modal .gp-modal__file .gp-files__code') !== null
+  result.modalFileLines = [...document.querySelectorAll('.gp-modal .gp-modal__file .gp-files__row .gp-diff-cell')].map((n) => n.textContent)
+  result.modalVersionQuery = fixture.versionQueries[0] ?? null
+  result.modalDiffModeHidden = document.querySelector('.gp-modal .gp-diff__modes') === null
+  const modalCopy = document.querySelector('.gp-modal .gp-modal__copy')
+  result.modalCopyLabel = modalCopy?.getAttribute('aria-label') ?? null
+  const modalClipboard = []
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { modalClipboard.push(text) } } })
+  if (modalCopy) {
+    modalCopy.click()
+    await waitFor(() => document.querySelector('.gp-modal .gp-modal__copy')?.className.includes('gp-modal__copy--copied') === true)
+  }
+  result.modalCopyFeedback = modalCopy?.className.includes('gp-modal__copy--copied') ?? false
+  result.modalCopyLive = modalCopy?.querySelector('.gp-copy-live')?.textContent ?? null
+  result.modalCopyText = modalClipboard[0] ?? null
+  result.modalVersionQueriesAfterCopy = fixture.versionQueries.length
+  const backBtn = document.querySelector('.gp-modal .gp-modal__view')
+  if (backBtn) { backBtn.click(); await settle() }
+  result.modalBackToDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
+  // The copy action is about the post-change side, not the current view: in
+  // "变更前" it still writes the new version's body.
+  const beforeToggle = document.querySelector('.gp-modal .gp-diff__modes [data-diff-mode="before"]')
+  if (beforeToggle) { beforeToggle.click(); await settle() }
+  // Wait for the previous confirmation to expire instead of sleeping past it.
+  await waitFor(() => document.querySelector('.gp-modal .gp-modal__copy')?.getAttribute('aria-label') === 'diff.copyAfter')
+  result.modalBeforeCopyLabel = document.querySelector('.gp-modal .gp-modal__copy')?.getAttribute('aria-label') ?? null
+  modalClipboard.length = 0
+  document.querySelector('.gp-modal .gp-modal__copy')?.click()
+  await waitFor(() => modalClipboard.length > 0)
+  result.modalBeforeCopyText = modalClipboard[0] ?? null
+  const beforeAgain = document.querySelector('.gp-modal .gp-diff__modes [data-diff-mode="before"]')
+  if (beforeAgain) { beforeAgain.click(); await settle() }
+  result.modalUnifiedRestored = document.querySelector('.gp-modal .gp-diff__unified') !== null
+  // Degraded versions: the copy is disabled with the reason as its label, and
+  // the file view explains instead of showing an empty file. Each variant gets a
+  // fresh dialog (a cached body would answer for the previous one).
+  const modalVariant = async (state) => {
+    document.querySelector('.gp-modal .gp-modal__close')?.click()
+    await settle()
+    fixture.versionNext = state
+    const row = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
+    row?.click()
+    await settle()
+    // Every open starts on the diff: the file view is a choice made inside one
+    // open, not a remembered preference.
+    const beforeLabel = document.querySelector('.gp-modal .gp-modal__view')?.getAttribute('aria-label') ?? null
+    document.querySelector('.gp-modal .gp-modal__view')?.click()
+    await settle()
+    const copy = document.querySelector('.gp-modal .gp-modal__copy')
+    const seen = {
+      text: document.querySelector('.gp-modal .gp-empty')?.textContent ?? null,
+      disabled: copy?.disabled === true,
+      label: copy?.getAttribute('aria-label') ?? null,
+      fileView: document.querySelector('.gp-modal .gp-modal__file') !== null,
+      beforeLabel,
+    }
+    fixture.versionNext = null
+    return seen
+  }
+  result.modalTooLarge = await modalVariant({ variant: 'tooLarge', size: 11 * 1024 * 1024 })
+  result.modalAbsent = await modalVariant({ variant: 'absent' })
+  result.modalBinary = await modalVariant({ variant: 'binary', size: 5 })
+  // Leave the dialog open on the diff for the toolbar assertions below.
+  document.querySelector('.gp-modal .gp-modal__view')?.click()
+  await settle()
   // 展开全部 in the modal is an icon button like the changes pane's: glyph only,
   // label on aria, pressed state, and the bordered box its row's seg wears.
   result.modalExpand = (() => {
@@ -1004,6 +1088,21 @@ const out = await page.evaluate(async (snap) => {
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   if (txtRow) { txtRow.click(); await settle() }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
+  // Ctrl/Cmd+A is scoped to the code body. A file inside the wrap cap mounts
+  // every line, so the selection is complete and no partial-selection notice
+  // appears; the line-number gutter is `user-select:none`.
+  {
+    const code = document.querySelector('.gp-files__code')
+    // A real press, not a programmatic focus: the pointer handler is what makes
+    // the region focusable in the first place.
+    code?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    code?.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }))
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    result.selectAllWrapText = window.getSelection()?.toString() ?? ''
+    result.selectAllWrapNotes = [...document.querySelectorAll('.gp-files__note')].map((n) => n.textContent)
+    result.selectAllWrapFocused = document.activeElement === code
+    window.getSelection()?.removeAllRanges()
+  }
   result.txtRowSelected = txtRow?.classList.contains('gp-tree-row--active') === true
   // Selection styling is shared across the list panes via --gp-select-*: the
   // travelling fill (row-slider.tsx) paints both halves, the active row leaves
@@ -1731,6 +1830,24 @@ const out = await page.evaluate(async (snap) => {
   // not all of them, while the spacer height reflects the full line count.
   result.bigMountedRows = document.querySelectorAll('.gp-files__row').length
   result.bigTotalLines = 5101
+  // Ctrl/Cmd+A on a virtualized file selects the mounted rows and says so; it
+  // must not mount the whole file just to satisfy the shortcut.
+  {
+    const code = document.querySelector('.gp-files__code')
+    const before = document.querySelectorAll('.gp-files__row').length
+    code?.focus()
+    code?.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }))
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    result.selectAllVirtualText = (window.getSelection()?.toString() ?? '').length
+    result.selectAllVirtualNotes = [...document.querySelectorAll('.gp-files__note')].map((n) => n.textContent)
+    result.selectAllVirtualRows = document.querySelectorAll('.gp-files__row').length
+    result.selectAllVirtualDidNotMountAll = result.selectAllVirtualRows <= before
+    // A new press starts a new selection, so the warning must go with it.
+    code?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    result.selectAllVirtualNotesAfterPress = [...document.querySelectorAll('.gp-files__note')].map((n) => n.textContent)
+    window.getSelection()?.removeAllRanges()
+  }
   // The gutter grows with the file: 5101 lines need four digits, and every row
   // column has to agree (each row is its own grid, so the width comes from the
   // container). A short file keeps the three-digit default — see bigGutterSmall.

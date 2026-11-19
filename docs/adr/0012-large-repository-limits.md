@@ -16,6 +16,7 @@
 
 - **逐文件 fan-out 有上限**：`STATS_FANOUT_LIMIT`（200）与 `UNTRACKED_NUMSTAT_LIMIT`（32，未跟踪侧更低，因为每个都要额外 spawn）。超限**降级统计**（`stats.partial`）并在 UI 提示，而不是每轮轮询刷出几百个 git 进程。
 - **「展开全部」上下文有界**：`DIFF_EXPAND_CONTEXT`（2000 行），够不到的部分继续以按需展开的 gap 呈现。**不要放大到整文件**。
+- **版本文件视图不绕过虚拟化**：提交差异弹窗的只读「文件」视图复用源码视图的 wrap/nowrap 两档；超过 wrap 上限仍只挂视口，不得以「方便全选」为名全量挂载。
 - **长列表虚拟化**：变更列表、源码视图、DiffView 用 `virtual-list.ts` + `use-viewport.ts`，只挂载视口（加 overscan）内的行；查找跳到窗口外命中时**窗口吸附到命中邻域**，不挂载中间的连续区间。
 - **逐行高亮缓存**（`highlight-cache.ts`），按行文本复用。
 
