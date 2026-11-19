@@ -394,6 +394,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     const localSection = buildLocalBranchSection(local, tree?.current ?? null, localPrimary)
     return {
       local: localSection.nodes,
+      localNames: local.map((branch) => branch.name),
       localPinned: localSection.pinned,
       localPrimary,
       remotePrimary,
@@ -402,11 +403,13 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }
   }, [tree, remoteName])
   // Git Flow's long-lived branches and the names its dialogs offer as bases,
-  // read from the same list the branch tree draws.
-  const flowLocalNames = tree?.local.map((branch) => branch.name) ?? []
-  const flowBasesInfo = flowBases(flowLocalNames, tree?.defaultBranch ?? null)
-  const flowMains = flowMainlines(flowLocalNames, tree?.defaultBranch ?? null)
-  const flowRemoteNames = (tree?.remote ?? []).map((branch) => branch.name)
+  // read from the same list the branch tree draws. These read every branch name,
+  // so they are folded once per tree like `branchTrees`: a render that only
+  // moves selection, expand state or a filter draft reuses them.
+  const flowLocalNames = branchTrees.localNames
+  const flowBasesInfo = useMemo(() => flowBases(flowLocalNames, tree?.defaultBranch ?? null), [flowLocalNames, tree])
+  const flowMains = useMemo(() => flowMainlines(flowLocalNames, tree?.defaultBranch ?? null), [flowLocalNames, tree])
+  const flowRemoteNames = useMemo(() => (tree?.remote ?? []).map((branch) => branch.name), [tree])
   // A clean work tree switches straight away (git carries nothing across and
   // has nothing to lose); a dirty one still opens the confirm so the user can
   // pick between carrying the changes and stashing first.

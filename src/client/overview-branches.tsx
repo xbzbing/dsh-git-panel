@@ -47,6 +47,8 @@ export interface BranchCbs {
 /** Folded trees for the three ref sections, built once per snapshot. */
 export interface BranchTrees {
   readonly local: readonly BranchTreeNode[]
+  /** Every local branch name, flat: the Git Flow menu reads it on each render. */
+  readonly localNames: readonly string[]
   readonly localPinned: readonly GitBranch[]
   readonly localPrimary: string | null
   readonly remotePrimary: string | null
@@ -198,7 +200,7 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
         ? h(FlowMenu, {
           key: 'flow',
           current: tree.current,
-          local: tree.local.map((b) => b.name),
+          local: trees.localNames,
           defaultBranch: tree.defaultBranch,
           busy: cb.busy,
           onOpen: cb.openFlow,

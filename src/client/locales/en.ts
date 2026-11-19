@@ -52,6 +52,8 @@ export const en: Record<GitKey, string> = {
   'flow.finish.releaseNamePlaceholder': 'e.g. 1.3.0',
   'flow.finish.pushRelease': 'Push the Release to the remote',
   'flow.finish.confirm': 'Finish',
+  'flow.finish.remoteConfirm': 'Delete remote and finish',
+  'flow.finish.remoteConfirmHint': 'Confirming runs the whole finish immediately, not just the remote deletion.',
   'flow.integrate.title': 'Integrate develop',
   'flow.integrate.body': 'Merge {develop} into the current branch "{current}".',
   'flow.integrate.dirty': 'There are uncommitted changes; Git may refuse the merge or fold them into the merge commit.',

@@ -52,6 +52,8 @@ export const fr: Record<GitKey, string> = {
   'flow.finish.releaseNamePlaceholder': 'ex. 1.3.0',
   'flow.finish.pushRelease': 'Pousser la Release vers le distant',
   'flow.finish.confirm': 'Terminer',
+  'flow.finish.remoteConfirm': 'Supprimer la distante et terminer',
+  'flow.finish.remoteConfirmHint': 'Confirmer exécute immédiatement tout le workflow de fin, pas seulement la suppression de la branche distante.',
   'flow.integrate.title': 'Intégrer develop',
   'flow.integrate.body': 'Fusionner {develop} dans la branche actuelle « {current} ».',
   'flow.integrate.dirty': 'Des modifications ne sont pas validées ; Git peut refuser la fusion ou les inclure dans le commit de fusion.',

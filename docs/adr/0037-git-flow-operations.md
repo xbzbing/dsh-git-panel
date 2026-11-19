@@ -44,7 +44,7 @@ finish 的前置条件全部在第一次写之前判定：flow / 分支前缀一
 
 ### 4. 清理动作沿用既有安全策略
 
-- 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`；没有上游时 host 拒绝（`upstream-missing`）。完成对话框在有上游时默认勾选（预览同时画出远端删除，取消勾选即保留），没有上游时该项禁用并说明原因。
+- 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`；没有上游时 host 拒绝（`upstream-missing`）。完成对话框在有上游时默认勾选（预览同时画出远端删除，取消勾选即保留），没有上游时该项禁用并说明原因。勾选时点击「完成」不会直接提交，而是再弹出一次只针对远端删除的确认：列出将被删除的 `remote/<branch>`、显示服务器删除不可撤销的警告，并要求勾选确认项后按钮才可用；关闭该确认（Escape / 取消）只回到完成表单，保留已填内容。这与行菜单 `RemoteBranchDeleteConfirm` 的「ack 是唯一解锁方式」是同一契约，因此「删除远端分支必须勾选确认」的不变量在 Git Flow 路径上仍然成立；默认值可以保持勾选，因为它只是意图，不是授权。
 - 删本地分支：默认 `git branch -d`。squash 集成后分支不在 target 的祖先链上，`-d` 必然失败，因此 `-D` 只在该策略被选中**且**对话框里额外勾选强制删除后才会发送；没有这个勾选，host 在写之前就拒绝。
 - 推送：`git push <remote> refs/heads/<branch>:refs/heads/<branch> …`，一次推送本次移动的长期分支（feature 只有 `develop`，release / hotfix 是主分支与 `develop`），从不 force；远端缺少的分支由这次推送创建，预览将其标为新增。remote 名必须出现在 `git remote` 里。链式 release 的推送是另一条命令（`git push -u`），只有对话框里单独勾选时才执行。
 - `flow-integrate`（整合开发）只允许在 `feature/*` 上，`git merge develop` 冲突时 `merge --abort`，与 `branch-merge` 同一契约。

@@ -52,6 +52,8 @@ export const pt: Record<GitKey, string> = {
   'flow.finish.releaseNamePlaceholder': 'ex.: 1.3.0',
   'flow.finish.pushRelease': 'Enviar o Release para o remoto',
   'flow.finish.confirm': 'Concluir',
+  'flow.finish.remoteConfirm': 'Excluir remoto e concluir',
+  'flow.finish.remoteConfirmHint': 'Confirmar executa todo o encerramento imediatamente, não apenas a exclusão do branch remoto.',
   'flow.integrate.title': 'Integrar develop',
   'flow.integrate.body': 'Mesclar {develop} na branch atual «{current}».',
   'flow.integrate.dirty': 'Há alterações não commitadas; o Git pode recusar o merge ou incluí-las no commit de merge.',

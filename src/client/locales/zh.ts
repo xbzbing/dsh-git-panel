@@ -51,6 +51,8 @@ export const zh = {
   'flow.finish.releaseNamePlaceholder': '如 1.3.0',
   'flow.finish.pushRelease': '推送到远端 Release',
   'flow.finish.confirm': '完成',
+  'flow.finish.remoteConfirm': '删除远端并完成',
+  'flow.finish.remoteConfirmHint': '确认后会立即执行完整的完成流程，而不只是删除远端分支。',
   'flow.integrate.title': '整合开发',
   'flow.integrate.body': '将 {develop} 合并进当前分支「{current}」。',
   'flow.integrate.dirty': '当前有未提交变更；合并可能被 Git 拒绝，或把变更带进合并提交。',

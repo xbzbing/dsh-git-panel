@@ -52,6 +52,8 @@ export const ja: Record<GitKey, string> = {
   'flow.finish.releaseNamePlaceholder': '例: 1.3.0',
   'flow.finish.pushRelease': 'Release をリモートへプッシュ',
   'flow.finish.confirm': '完了',
+  'flow.finish.remoteConfirm': 'リモートを削除して完了',
+  'flow.finish.remoteConfirmHint': '確認すると、リモートブランチの削除だけでなく、完了処理全体がすぐに実行されます。',
   'flow.integrate.title': 'develop を統合',
   'flow.integrate.body': '{develop} を現在のブランチ「{current}」にマージします。',
   'flow.integrate.dirty': '未コミットの変更があります。マージが拒否されるか、変更がマージコミットに含まれる可能性があります。',

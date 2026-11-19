@@ -52,6 +52,8 @@ export const es: Record<GitKey, string> = {
   'flow.finish.releaseNamePlaceholder': 'p. ej. 1.3.0',
   'flow.finish.pushRelease': 'Enviar el Release al remoto',
   'flow.finish.confirm': 'Finalizar',
+  'flow.finish.remoteConfirm': 'Eliminar remoto y finalizar',
+  'flow.finish.remoteConfirmHint': 'Confirmar ejecuta todo el cierre de inmediato, no solo la eliminación de la rama remota.',
   'flow.integrate.title': 'Integrar develop',
   'flow.integrate.body': 'Fusionar {develop} en la rama actual «{current}».',
   'flow.integrate.dirty': 'Hay cambios sin confirmar; Git puede rechazar la fusión o incluirlos en el commit de fusión.',

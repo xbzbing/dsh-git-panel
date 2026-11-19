@@ -52,6 +52,8 @@ export const ru: Record<GitKey, string> = {
   'flow.finish.releaseNamePlaceholder': 'например, 1.3.0',
   'flow.finish.pushRelease': 'Отправить Release в удалённый репозиторий',
   'flow.finish.confirm': 'Завершить',
+  'flow.finish.remoteConfirm': 'Удалить удалённую и завершить',
+  'flow.finish.remoteConfirmHint': 'Подтверждение сразу выполнит всё завершение, а не только удаление удалённой ветки.',
   'flow.integrate.title': 'Интегрировать develop',
   'flow.integrate.body': 'Слить {develop} в текущую ветку «{current}».',
   'flow.integrate.dirty': 'Есть незакоммиченные изменения; Git может отклонить слияние или включить их в коммит слияния.',
