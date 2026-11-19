@@ -73,3 +73,67 @@ test('a refused reveal surfaces the reason and leaves the gap in place', async (
   assert.ok(h.value.rows.some((r) => r.kind === 'gap'), 'the gap is not silently consumed')
   h.unmount()
 })
+
+// A hunk at line 41 of a 100-line file: a leading gap (new lines 1..40) above
+// it and a trailing one below. Neither reply has to reach EOF to be spliced.
+const LEAD_TEXT = ['@@ -41,3 +41,3 @@', ' a41', '-b42', '+c42', ' a43'].join('\n')
+
+/** Host stand-in that answers exactly the requested range and reports EOF only
+ * when that range reached the last line — the mid-file shape the walk lives in. */
+function rangeRemote(log, fileLines) {
+  return {
+    query: async ({ query }) => {
+      log.push({ start: query.start, end: query.end })
+      const stop = Math.min(query.end, fileLines)
+      const lines = []
+      for (let i = query.start; i <= stop; i++) lines.push(`L${i}`)
+      return { ok: true, value: { kind: 'file-lines', path: query.path, start: query.start, lines, eof: stop >= fileLines } }
+    },
+  }
+}
+
+function mountRows(text, remote, fileLines) {
+  const rows0 = buildSideBySide(text, fileLines)
+  return mount(() => {
+    const [rows, setRows] = React.useState(rows0)
+    return { rows, gap: useGapExpander(setRows, remote, 's', 'a.txt', 'commit', 'abc123', text, fileLines) }
+  }, { autoRender: true })
+}
+
+test('a leading gap expands all of its lines, not just the ones below the first hunk', async () => {
+  const log = []
+  const h = mountRows(LEAD_TEXT, rangeRemote(log, FILE_LINES), FILE_LINES)
+  await h.settle()
+  const lead = h.value.rows.find((r) => r.kind === 'gap' && r.gap.rightStart === 1)
+  assert.ok(lead, 'the fixture starts with the 40 hidden lines above the first hunk')
+
+  h.value.gap.run(lead.gap, 'all')
+  await h.settle()
+
+  assert.deepEqual(log, [{ start: 1, end: 40 }], 'the hidden region above the hunk is what gets asked for')
+  assert.equal(h.value.rows[0]?.kind, 'context', 'the revealed lines take the gap’s place at the top')
+  assert.equal(h.value.rows[0]?.rightNo, 1, 'starting at line 1 of the file')
+  assert.ok(!h.value.rows.some((r) => r.kind === 'gap' && r.gap.rightStart === 1), 'the leading gap is consumed')
+  assert.ok(h.value.rows.some((r) => r.kind === 'gap' && r.gap.rightStart === 44), 'the trailing gap is untouched')
+  h.unmount()
+})
+
+test('expand-up addresses the gap, not the slice it asks for', async () => {
+  const log = []
+  const h = mountRows(LEAD_TEXT, rangeRemote(log, FILE_LINES), FILE_LINES)
+  await h.settle()
+  // The gap below the hunk: new lines 44..100.
+  const trail = h.value.rows.find((r) => r.kind === 'gap' && r.gap.rightStart === 44)
+  assert.ok(trail, 'the fixture ends with a gap larger than one step')
+
+  h.value.gap.run(trail.gap, 'up')
+  await h.settle()
+
+  assert.deepEqual(log, [{ start: 81, end: 100 }], 'the bottom window of the gap is requested')
+  const last = h.value.rows[h.value.rows.length - 1]
+  assert.equal(last?.rightNo, 100, 'the revealed lines reach the last line of the file')
+  const residual = h.value.rows.find((r) => r.kind === 'gap' && r.gap.rightStart === 44)
+  assert.ok(residual, 'the rest of the gap stays clickable above the revealed tail, under the same rightStart')
+  assert.equal(residual.gap.count, 100 - 44 + 1 - 20, 'with only the revealed twenty lines taken off')
+  h.unmount()
+})

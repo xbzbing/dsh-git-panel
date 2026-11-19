@@ -198,6 +198,147 @@ async function changesScenario(newLines) {
 }
 
 /**
+ * E: a gap that is not the trailing one expands too. Both of these used to be
+ * dead buttons — the leading "expand all 40" and the mid-gap "expand up" — not
+ * because the walk was wrong but because the address it spliced at was read out
+ * of loop state the walk had already advanced past: the leading gap's own
+ * rightStart (1) became 41 after the first batch, and "up" asked for the bottom
+ * slice's start rather than the gap's. `setRows` only runs its updater after the
+ * loop, so both landed on a gap that no longer existed. Reaching EOF hid it
+ * (the loop breaks before advancing), which is why the trailing cases above
+ * never caught it.
+ */
+async function leadScenario() {
+  const page = await browser.newPage()
+  const errors = []
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()) })
+  page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
+  await page.goto(harness)
+  await page.addScriptTag({ path: resolve(DIR, 'client.js') })
+
+  // Hunk at line 41 of a 200-line file: a 40-line leading gap, then a 157-line
+  // trailing one. Neither reply reaches EOF, which is the shape that broke.
+  const LINES = 200
+  const DIFF = [
+    'diff --git a/f.txt b/f.txt',
+    '--- a/f.txt',
+    '+++ b/f.txt',
+    '@@ -41,6 +41,10 @@ const RUNNERS = [',
+    ' // re-break either.',
+    " 'history-time-column',",
+    " 'branch-status-review', 'files-tree-review', 'files-refresh',",
+    '+ // Rendered Markdown: the reader’s floating outline',
+    '+ // floating over it, current-section tracking, put-away / bring-back',
+    '+ // and the reader card’s viewport-relative size.',
+    "+ 'files-markdown-toc',",
+    " 'files-package-tree',",
+    '',
+  ].join('\n')
+  const snap = { ...SNAP }
+
+  const out = await page.evaluate(async ({ snap, diff, lines }) => {
+    const result = {}
+    const fileLinesQueries = []
+    const connection = {
+      rpc: {
+        call: async (_ch, endpoint, payload) => {
+          const request = payload && payload.args && payload.args.request
+          if (endpoint === 'dbGitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
+          if (endpoint === 'dbGitPanel/query') {
+            const q = request.query
+            if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'main', shortHash: 'de54fc0' }], remote: [] } } }
+            if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
+            if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: ['Tester'] } } }
+            if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 1, commits: [{ hash: 'a05f9a2bbb', shortHash: 'a05f9a2', subject: 'feat: lead', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [] }] } } }
+            if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: 'a05f9a2bbb', shortHash: 'a05f9a2', subject: 'feat: lead', author: 'Tester', dateIso: new Date().toISOString() }, body: '', stats: [{ path: 'f.txt', status: 'modified' }], insertions: 4, deletions: 0 } } }
+            if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: diff, newLines: lines } } }
+            if (q.kind === 'file-lines') {
+              fileLinesQueries.push({ start: q.start, end: q.end })
+              // The truth for a mid-file reveal: the requested range, EOF only
+              // when the request reached the last line.
+              const stop = Math.min(q.end, lines)
+              const slice = Array.from({ length: Math.max(0, stop - q.start + 1) }, (_, i) => `hidden ${q.start + i}`)
+              return { ok: true, value: { ok: true, value: { kind: 'file-lines', path: q.path, start: q.start, lines: slice, eof: stop >= lines } } }
+            }
+          }
+          return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
+        },
+      },
+    }
+    const registered = {}
+    const ctx = {
+      get: (k) => ({ connection })[k], effect: (cb) => { try { cb() } catch { /* */ } },
+      on: () => () => {}, inject: (_d, cb) => cb(ctx),
+      slots: { inject: (_n, p) => p(), register: (reg, component) => { registered[reg.name] = { reg, component }; return () => {} } },
+      locale: { register: () => () => {}, bind: () => (k) => k },
+    }
+    window.__getLoaded().apply(ctx)
+    window.ReactDOM.createRoot(document.getElementById('panel')).render(registered['conversation.view'].component({ sessionId: 'sess-1' }))
+    await new Promise((r) => setTimeout(r, 500))
+
+    document.querySelector('.gp-commit-row')?.click()
+    await new Promise((r) => setTimeout(r, 400))
+    const treeRow = [...document.querySelectorAll('.gp-tree-row')].find((n) => (n.textContent || '').includes('f.txt'))
+    treeRow?.click()
+    await new Promise((r) => setTimeout(r, 400))
+
+    const gapRows = () => [...document.querySelectorAll('.gp-diff-row--gap')]
+    const buttonsIn = (row) => [...row.querySelectorAll('.gp-gap__btn')].map((b) => b.textContent || '')
+    const codes = () => [...document.querySelectorAll('.gp-diff-uni__code')].map((n) => n.textContent || '')
+    const maxNo = () => Math.max(0, ...[...document.querySelectorAll('.gp-diff-no')].map((n) => Number(n.textContent) || 0))
+    const scroller = () => document.querySelector('.gp-diff__scroll')
+    const scrollToEnd = async () => {
+      const sc = scroller()
+      if (sc === null) return
+      sc.scrollTop = sc.scrollHeight
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      await new Promise((r) => setTimeout(r, 150))
+    }
+    const clickGap = async (index, label) => {
+      const row = gapRows()[index]
+      if (row === undefined) return false
+      const btn = [...row.querySelectorAll('.gp-gap__btn')].find((b) => (b.textContent || '') === label)
+      if (btn === undefined) return false
+      btn.click()
+      await new Promise((r) => setTimeout(r, 400))
+      return true
+    }
+
+    result.modalShown = document.querySelector('.gp-modal') !== null
+    result.gapCount = gapRows().length
+    result.leadButtons = gapRows()[0] === undefined ? [] : buttonsIn(gapRows()[0])
+    result.codesBefore = codes().length
+
+    // The 40-line leading gap: "expand all 40" must reveal lines 1..40.
+    // The leading gap is row 0; a consumed gap is one that is no longer there.
+    // The trailing gap may scroll out of the window as the reveal pushes it down,
+    // so counting rows would be measuring the viewport, not the splice.
+    result.leadRowIndex = gapRows()[0] === undefined ? -1 : Number(gapRows()[0].getAttribute('data-r'))
+    result.leadClicked = await clickGap(0, 'diff.expandGap')
+    result.leadQuery = fileLinesQueries[0] ?? null
+    result.leadGapGone = !gapRows().some((r) => Number(r.getAttribute('data-r')) === result.leadRowIndex)
+    result.codesAfterLead = codes().length
+    result.firstCodeQ = codes()[0] ?? null
+
+    // The 157-line trailing gap: "expand up 20" must reveal lines 181..200 and
+    // leave 137 lines hidden, not answer with the same buttons again.
+    await scrollToEnd()
+    result.trailingButtons = gapRows()[0] === undefined ? [] : buttonsIn(gapRows()[gapRows().length - 1])
+    result.maxNoBeforeUp = maxNo()
+    result.upClicked = await clickGap(gapRows().length - 1, 'diff.expandUp')
+    result.upQuery = fileLinesQueries[fileLinesQueries.length - 1] ?? null
+    await scrollToEnd()
+    result.maxNoAfterUp = maxNo()
+    result.gapCountAfterUp = gapRows().length
+    result.notice = document.querySelector('.gp-notice')?.textContent ?? null
+    return result
+  }, { snap, diff: DIFF, lines: LINES })
+
+  await page.close()
+  return { out, errors }
+}
+
+/**
  * D: an "expand all" on a large file must mount only a window of rows, not the
  * whole file. 600 lines of a single-hunk diff: the modal may mount a few dozen
  * code cells, the spacer must still reserve the full scroll height, and
@@ -477,7 +618,26 @@ try {
   assert.equal(virt.out.findMatches > 0, true, 'the far token matches')
   assert.equal(virt.out.findActiveInView, true, 'the jumped-to match ends up in view')
   assert.equal(virt.out.findPeak < 100, true, `a far Find jump mounts only the match neighbourhood (peak ${virt.out.findPeak} rows)`)
-  console.log('e2e run5.mjs: PASS', JSON.stringify({ atEof: atEof.out.gapButtons, midFile: midFile.out.gapButtons, changes: changes.out.gapButtons, virt: { ctx: virt.out.expandContext, notice: virt.out.cappedNotice, mounted: virt.out.mounted, maxNoTop: virt.out.maxNoTop, maxNoBottom: virt.out.maxNoBottom, findPeak: virt.out.findPeak } }))
+  // E: the leading and the mid-gap controls reveal their own slice — a gap that
+  // is not the trailing one must not answer with a dead button.
+  const lead = await leadScenario()
+  assert.equal(lead.errors.length, 0, 'no console errors: ' + JSON.stringify(lead.errors))
+  assert.equal(lead.out.modalShown, true, 'the commit file-diff modal opens')
+  assert.equal(lead.out.gapCount, 2, 'the fixture hides context above and below')
+  assert.deepEqual(lead.out.leadButtons, ['diff.expandGap', 'diff.expandDown'], 'a leading gap offers no "up"')
+  assert.equal(lead.out.leadClicked, true, 'the leading expand-all control is clickable')
+  assert.deepEqual(lead.out.leadQuery, { start: 1, end: 40 }, 'it asks for exactly the hidden lines above the first hunk')
+  assert.equal(lead.out.leadGapGone, true, 'the leading gap is consumed, not left in place')
+  assert.equal(lead.out.codesAfterLead > lead.out.codesBefore, true, 'the revealed lines are spliced into the rows')
+  assert.equal(lead.out.firstCodeQ, 'hidden 1', `the window starts at line 1 of the file (got ${lead.out.firstCodeQ})`)
+  assert.equal(lead.out.upClicked, true, 'the trailing expand-up control is clickable')
+  assert.deepEqual(lead.out.upQuery, { start: 181, end: 200 }, 'expand up asks for the bottom window of the gap')
+  assert.equal(lead.out.maxNoAfterUp > lead.out.maxNoBeforeUp, true, `revealed rows reach the file end (${lead.out.maxNoBeforeUp} → ${lead.out.maxNoAfterUp})`)
+  assert.equal(lead.out.maxNoAfterUp, 200, 'the revealed tail ends at the last line')
+  assert.equal(lead.out.gapCountAfterUp, 1, 'the rest of the gap stays clickable')
+  assert.equal(lead.out.notice, null, `a working reveal shows no failure notice (got ${lead.out.notice})`)
+
+  console.log('e2e run5.mjs: PASS', JSON.stringify({ atEof: atEof.out.gapButtons, midFile: midFile.out.gapButtons, changes: changes.out.gapButtons, lead: { lead: lead.out.leadButtons, leadQuery: lead.out.leadQuery, upQuery: lead.out.upQuery, maxNo: lead.out.maxNoAfterUp }, virt: { ctx: virt.out.expandContext, notice: virt.out.cappedNotice, mounted: virt.out.mounted, maxNoTop: virt.out.maxNoTop, maxNoBottom: virt.out.maxNoBottom, findPeak: virt.out.findPeak } }))
 } catch (e) {
   console.error('e2e run5.mjs: FAIL', e.message)
   process.exit(1)
