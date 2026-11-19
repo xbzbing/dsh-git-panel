@@ -163,22 +163,26 @@ export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: numb
   if (row.kind === 'head') {
     const labelKey = GROUP_LABEL[row.group]
     const pick = groupPickState(ctx.selected, row.items)
-    // A header with nothing to fold — an empty (0) frame or one kept only for
-    // its full count — has nothing to toggle: the static modifier drops the
-    // chevron and the hand.
-    const modifier = row.collapsible ? '' : ' gp-group-head--static'
+    // The empty (0) frame keeps the group's controls so it reads as a header,
+    // not a bare label. Only a header whose rows all fell past the cap stays
+    // static: it has nothing to fold and its select-all would be a lie.
+    const controls = row.collapsible || row.frame
+    // `--frame` marks the always-present (0) header (the tests key off it);
+    // `--static` is the capped header with nothing to fold or select.
+    const modifier = `${controls ? '' : ' gp-group-head--static'}${row.frame ? ' gp-group-head--frame' : ''}`
     return box(`h:${row.group}`, h('div', {
       className: `gp-group-head${modifier}`,
-      ...(row.collapsible ? { onClick: () => ctx.onToggleGroup(row.group) } : {}),
+      ...(controls ? { onClick: () => ctx.onToggleGroup(row.group) } : {}),
     }, [
-      row.collapsible
+      controls
         ? h(ChevronIcon, { key: 'chev', size: 12, open: !row.collapsed })
         : h('span', { key: 'chev', className: 'gp-group-head__chev-spacer' }),
       // Hidden while the group is capped past the list cap: the head count
       // comes from the full stats but only the prefix is loaded, so a
       // select-all would read as checked while covering just those rows.
-      // Expanding the list restores the checkbox.
-      row.items.length > 0 && !row.truncated
+      // Expanding the list restores the checkbox. The frame keeps the box in
+      // place and enabled, like every other group header.
+      (row.items.length > 0 || row.frame) && !row.truncated
         ? h('span', {
           key: 'pick', className: 'gp-group-head__pick',
           onClick: (e: Event) => e.stopPropagation(),
