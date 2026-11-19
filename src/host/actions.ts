@@ -3,7 +3,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { dirname, join, sep } from 'node:path'
+import { dirname, isAbsolute, join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
 import { parseStatus } from './parser.js'
@@ -130,6 +130,11 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       // non-zero, work tree untouched) when the branches diverged, so there is
       // no merge/rebase or conflict path to handle here.
       return { argv: [['git', 'pull', '--ff-only']] }
+    case 'pull-merge':
+      // Resolved in runPullMerge: the upstream ref must come from HEAD, the
+      // fetch needs the configured remote, and the merge needs its own abort
+      // path. A plan that reached here would be missing all three.
+      return { error: 'invalid-name', message: 'pull-merge must be resolved before planning' }
     case 'push':
       // Plain `git push` (never --force): it pushes the current branch to its
       // configured upstream and the remote refuses a non-fast-forward, so a
@@ -495,6 +500,230 @@ function sequenceAbortPlan(
 }
 
 /**
+ * True when the repository already sits in an operation that owns the index and
+ * the work tree (merge / rebase / cherry-pick / revert). `pull-merge` refuses
+ * rather than stacking a second one; the same probe is why any `MERGE_HEAD`
+ * seen after its own merge belongs to that merge, so aborting it is safe.
+ */
+async function repositoryBusy(
+  deps: SnapshotDeps,
+  root: string,
+): Promise<{ readonly busy: boolean } | { readonly error: Extract<GitActionResult, { ok: false }>['error'] }> {
+  for (const marker of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD']) {
+    const probe = await runCommand(deps.run, ['git', 'rev-parse', '--quiet', '--verify', marker], root, 'merge-busy', deps.signal)
+    const broke = probeFailure(probe)
+    if (broke !== null) return { error: broke.error }
+    if ('run' in probe && probe.run.exitCode === 0) return { busy: true }
+  }
+  // A rebase keeps no ref that `rev-parse --verify` can address in every phase,
+  // so the sequencer directories are the reliable signal.
+  for (const dir of ['rebase-merge', 'rebase-apply']) {
+    const pathProbe = await runCommand(deps.run, ['git', 'rev-parse', '--git-path', dir], root, 'merge-busy', deps.signal)
+    const broke = probeFailure(pathProbe)
+    if (broke !== null) return { error: broke.error }
+    if (!('run' in pathProbe) || pathProbe.run.exitCode !== 0) continue
+    const reported = pathProbe.run.stdout.trim()
+    if (reported === '') continue
+    const absolute = isAbsolute(reported) ? reported : join(root, reported)
+    const present = await deps.fs.stat(absolute).then(() => true).catch(() => false)
+    if (present) return { busy: true }
+  }
+  return { busy: false }
+}
+
+/**
+ * True only when the on-disk merge is the one this action started: HEAD has not
+ * moved since the pre-merge probe, and MERGE_HEAD is exactly the upstream tip
+ * this action merged. A merge that appeared during the network fetch — from the
+ * shared-worktree dsh agent or a second panel — fails the check and is left
+ * untouched.
+ */
+export function mergeIsOurs(
+  headBefore: string, upstreamTip: string, headNow: string, mergeHead: string,
+): boolean {
+  return headBefore !== '' && upstreamTip !== '' && headBefore === headNow && mergeHead === upstreamTip
+}
+
+/** What the on-disk merge state is after a failed merge: none, someone else's,
+ * ours and cleaned up, or ours and the cleanup itself failed. */
+export type MergeCleanup = 'absent' | 'foreign' | 'aborted' | 'stuck'
+
+/**
+ * Abort a merge only when `mergeIsOurs` proves it is the one this action
+ * started. A foreign state is reported, never aborted: its conflict resolution
+ * may be somebody's in-flight work.
+ */
+async function cleanupOwnMerge(
+  deps: SnapshotDeps,
+  root: string,
+  headBefore: string,
+  upstreamTip: string,
+  signal: AbortSignal | undefined,
+): Promise<MergeCleanup> {
+  const [headProbe, mergeHeadProbe] = await Promise.all([
+    runCommand(deps.run, ['git', 'rev-parse', '--verify', 'HEAD'], root, 'merge-cleanup-head', signal),
+    runCommand(deps.run, ['git', 'rev-parse', '--quiet', '--verify', 'MERGE_HEAD'], root, 'merge-cleanup-head', signal),
+  ])
+  // A probe that never produced a result establishes nothing: do not abort.
+  if ('failure' in mergeHeadProbe || mergeHeadProbe.run.cancelled || mergeHeadProbe.run.timedOut) return 'foreign'
+  if (mergeHeadProbe.run.exitCode !== 0) return 'absent'
+  const headNow = 'run' in headProbe && headProbe.run.exitCode === 0 ? headProbe.run.stdout.trim() : ''
+  if (!mergeIsOurs(headBefore, upstreamTip, headNow, mergeHeadProbe.run.stdout.trim())) return 'foreign'
+  let abort = await runCommand(deps.run, ['git', 'merge', '--abort'], root, 'merge-abort', signal)
+  if (isIndexBusy(abort)) {
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    abort = await runCommand(deps.run, ['git', 'merge', '--abort'], root, 'merge-abort-retry', signal)
+  }
+  return 'run' in abort && abort.run.exitCode === 0 ? 'aborted' : 'stuck'
+}
+
+/**
+ * `pull-merge`: fetch the current branch's upstream and merge it into HEAD.
+ * This is the additive half of a diverged sync — it never rewrites a commit and
+ * never touches the remote. The client follows a successful reply with the
+ * ordinary `push`, which is a fast-forward because the merge brought the
+ * upstream tip into HEAD. Conflicts are aborted back to the pre-merge state
+ * (the panel has no conflict UI); a foreign in-progress operation is refused
+ * before anything runs.
+ */
+async function runPullMerge(
+  deps: SnapshotDeps,
+  config: GitPanelConfig,
+  request: GitActionRequest,
+  root: string,
+  headProbe: Awaited<ReturnType<typeof runCommand>>,
+  unborn: boolean,
+): Promise<GitActionResult> {
+  const fail = (code: GitErrorCode, message: string): GitActionResult => ({ ok: false, error: { code, message } })
+
+  const headBroke = probeFailure(headProbe)
+  if (headBroke !== null) return headBroke
+  if (unborn) return fail('no-branch', 'no commits to merge')
+  // The ownership witness for a later cleanup: a merge is ours only while HEAD
+  // still points at the commit this action saw before it started.
+  const headBefore = 'run' in headProbe && headProbe.run.exitCode === 0 ? headProbe.run.stdout.trim() : ''
+
+  const branchProbe = await runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'merge-branch', deps.signal)
+  const branchBroke = probeFailure(branchProbe)
+  if (branchBroke !== null) return branchBroke
+  const branch = 'run' in branchProbe && branchProbe.run.exitCode === 0 ? branchProbe.run.stdout.trim() : ''
+  if (branch === '') return fail('no-branch', 'detached HEAD: no branch to sync')
+  if (!isSafeBranchName(branch)) return fail('invalid-name', 'HEAD names an unsafe branch')
+
+  const busy = await repositoryBusy(deps, root)
+  if ('error' in busy) return { ok: false, error: busy.error }
+  if (busy.busy) return fail('operation-in-progress', 'a merge, rebase or cherry-pick is already in progress')
+
+  // The upstream ref is resolved here, never taken from the wire. `@{upstream}`
+  // is a fixed literal (ADR-0007); only the resolved full ref reaches argv.
+  const upstreamProbe = await runCommand(deps.run, ['git', 'rev-parse', '--symbolic-full-name', '@{upstream}'], root, 'merge-upstream', deps.signal)
+  const upstreamBroke = probeFailure(upstreamProbe)
+  if (upstreamBroke !== null) return upstreamBroke
+  if (!('run' in upstreamProbe) || upstreamProbe.run.exitCode !== 0) return fail('no-upstream', 'the current branch has no upstream')
+  const upstreamRef = upstreamProbe.run.stdout.trim()
+  if (!isSafeRev(upstreamRef)) return fail('invalid-name', 'the upstream ref is unsafe to pass to git')
+  if (!upstreamRef.startsWith('refs/remotes/') && !upstreamRef.startsWith('refs/heads/')) {
+    return fail('no-upstream', 'the upstream is not a branch ref')
+  }
+
+  // Fetch only the remote that owns the upstream. `git pull` is deliberately
+  // avoided: its behaviour depends on pull.rebase / pull.ff and it would hide
+  // which half failed. A local upstream (branch.<name>.remote = .) needs none.
+  if (upstreamRef.startsWith('refs/remotes/')) {
+    const remotesProbe = await runCommand(deps.run, ['git', 'remote'], root, 'merge-remotes', deps.signal)
+    const remotesBroke = probeFailure(remotesProbe)
+    if (remotesBroke !== null) return remotesBroke
+    if (!('run' in remotesProbe) || remotesProbe.run.exitCode !== 0) {
+      const detail = 'run' in remotesProbe ? scrubCredentials(remotesProbe.run.stderr.trim()) : ''
+      return fail('git-error', detail || 'git remote failed')
+    }
+    const remotes = remotesProbe.run.stdout.split('\n').map((line: string) => line.trim()).filter((line: string) => line !== '')
+    const target = splitRemoteTrackingRef(upstreamRef, remotes)
+    if (target === null) return fail('no-upstream', 'the upstream ref names no configured remote')
+
+    const fetched = await runCommand(deps.run, ['git', 'fetch', '--prune', target.remote], root, 'merge-fetch', deps.signal)
+    if ('failure' in fetched) {
+      return fail('git-unavailable', fetched.failure instanceof Error ? fetched.failure.message : String(fetched.failure))
+    }
+    if (fetched.run.cancelled) return fail('cancelled', 'fetch cancelled')
+    if (fetched.run.timedOut) return fail('timeout', 'fetch timed out')
+    if (fetched.run.exitCode !== 0) {
+      const failure = classifyActionFailure(fetched.run.stdout, fetched.run.stderr, fetched.run.exitCode ?? -1)
+      return { ok: false, error: failure }
+    }
+  }
+
+  // The ref must still resolve after the fetch; a remote branch deleted
+  // between the snapshot and now leaves nothing to merge. The resolved hash is
+  // also the ownership witness for a later cleanup.
+  const tipProbe = await runCommand(deps.run, ['git', 'rev-parse', '--quiet', '--verify', upstreamRef], root, 'merge-upstream-verify', deps.signal)
+  const tipBroke = probeFailure(tipProbe)
+  if (tipBroke !== null) return tipBroke
+  if (!('run' in tipProbe) || tipProbe.run.exitCode !== 0) return fail('upstream-missing', 'the upstream branch no longer exists')
+  const upstreamTip = tipProbe.run.stdout.trim()
+  if (!/^[0-9a-f]{40,64}$/i.test(upstreamTip)) return fail('git-error', 'cannot resolve the upstream tip')
+
+  // Re-check after the network fetch: a merge or rebase started while this
+  // action waited is not ours to finish or abort. The window is now only the
+  // few local probes between here and the merge.
+  const busyAfterFetch = await repositoryBusy(deps, root)
+  if ('error' in busyAfterFetch) return { ok: false, error: busyAfterFetch.error }
+  if (busyAfterFetch.busy) return fail('operation-in-progress', 'another merge, rebase or cherry-pick started while fetching')
+
+  // Behind is all that decides whether a merge is needed. Ahead is not
+  // required: a behind-only branch merges as a fast-forward, which is still a
+  // safe additive step (the client only offers sync when both counts are > 0).
+  const counts = await runCommand(deps.run, ['git', 'rev-list', '--count', `HEAD..${upstreamTip}`], root, 'merge-counts', deps.signal)
+  const countsBroke = probeFailure(counts)
+  if (countsBroke !== null) return countsBroke
+  if (!('run' in counts) || counts.run.exitCode !== 0) return fail('git-error', 'cannot count the upstream commits')
+  const behind = Number(counts.run.stdout.trim())
+  if (!Number.isSafeInteger(behind) || behind < 0) return fail('git-error', 'cannot count the upstream commits')
+
+  let output = ''
+  if (behind > 0) {
+    const merged = await runCommand(
+      deps.run,
+      ['git', 'merge', '--ff', '--no-edit', '--no-autostash', '--end-of-options', upstreamRef],
+      root, 'pull-merge', deps.signal,
+    )
+    if ('failure' in merged) {
+      return fail('git-unavailable', merged.failure instanceof Error ? merged.failure.message : String(merged.failure))
+    }
+    if (merged.run.cancelled || merged.run.timedOut) {
+      // The killed git may still have written MERGE_HEAD. Clean up only a merge
+      // this action owns, and do it without the action's signal: that signal is
+      // already aborted, so reusing it would cancel the cleanup too.
+      const cleanup = await cleanupOwnMerge(deps, root, headBefore, upstreamTip, undefined)
+      if (cleanup === 'stuck') return fail('merge-stuck', 'merge cleanup failed after cancellation')
+      return merged.run.cancelled
+        ? fail('cancelled', 'merge cancelled')
+        : fail('timeout', 'merge timed out')
+    }
+    output = merged.run.stdout || merged.run.stderr
+    if (merged.run.exitCode !== 0) {
+      const failure = classifyActionFailure(merged.run.stdout, merged.run.stderr, merged.run.exitCode ?? -1)
+      // Another process owns the index: touching the merge state now could
+      // abort its operation, so report the contention unchanged.
+      if (failure.code === 'index-busy') return { ok: false, error: failure }
+      const cleanup = await cleanupOwnMerge(deps, root, headBefore, upstreamTip, undefined)
+      if (cleanup === 'aborted') {
+        // A real conflict keeps its dedicated code so the client shows the
+        // "aborted, work tree restored" copy; any other failure keeps its own.
+        return { ok: false, error: { code: failure.code === 'conflict' ? 'merge-conflict' : failure.code, message: failure.message } }
+      }
+      if (cleanup === 'stuck') return { ok: false, error: { code: 'merge-stuck', message: failure.message } }
+      if (cleanup === 'foreign') return fail('operation-in-progress', 'another merge appeared during the sync; nothing was aborted')
+      return { ok: false, error: failure }
+    }
+  }
+
+  const snapshot = await snapshotForSession(deps, config, request.sessionId, { repo: request.repo })
+  if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
+  return { ok: true, snapshot: snapshot.value, output: output.trim() }
+}
+
+/**
  * Attach the current branch to its same-named remote-tracking branch without
  * touching the remote. Offered when that branch already exists at HEAD on at
  * least one candidate remote, so `publish` would push nothing and only the
@@ -610,6 +839,10 @@ export async function runAction(
 
   if (request.action.kind === 'set-upstream') {
     return runSetUpstream(deps, config, request, request.action, root, headProbe, unborn)
+  }
+
+  if (request.action.kind === 'pull-merge') {
+    return runPullMerge(deps, config, request, root, headProbe, unborn)
   }
 
   // Stash is a stack addressed by position; under a shared worktree another

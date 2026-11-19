@@ -5,8 +5,17 @@
  * differently — `remote.run` returns a wire code the panel translates, while the
  * controller's `onAction` already returns display text.
  */
-import type { GitAction } from './types.js'
+import type { GitAction, GitSnapshot } from './types.js'
 import type { GitPanelRemote } from './rpc.js'
+
+/** The controller action's reply. `snapshot` is the fresh sample on success;
+ * a repository switch under the write deliberately omits it, so callers never
+ * chain a second write onto a checkout the user did not confirm. */
+export interface ActionReply {
+  readonly ok: boolean
+  readonly error?: string
+  readonly snapshot?: GitSnapshot
+}
 
 export interface OpEnv {
   /** True while this op is in flight; a second press is a no-op. */

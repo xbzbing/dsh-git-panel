@@ -17,6 +17,7 @@ import { diffSummary, type DiffMode } from './DiffView.js'
 import { ChevronIcon, CloseIcon, SparkleIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { renderConfirmModal } from './ops-modals.js'
+import type { ActionReply } from './op-runner.js'
 import { StashPushModal, renderChangeRow, renderStashRow, type ChangeRowCtx } from './changes-rows.js'
 import { buildChangeRows, dirDiscardPaths, dirKey, normalizeViewMode, ROW_H, visibleChangeGroups, type ChangeGroupKey, type ChangeViewMode } from './changes-tree.js'
 import { inertAttr } from './inert.js'
@@ -33,7 +34,8 @@ import { useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
 import { PublishModal } from './PublishModal.js'
 import { SetUpstreamModal } from './SetUpstreamModal.js'
-import { canPush, canSetUpstream } from './push-policy.js'
+import { canPush, canSetUpstream, canSync } from './push-policy.js'
+import { SyncConfirmModal } from './SyncConfirmModal.js'
 import { ChangesDiffPane } from './ChangesDiffPane.js'
 import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
@@ -50,7 +52,7 @@ interface ChangesTabProps {
   readonly sessionId: string
   readonly visible?: boolean
   readonly snapshot: GitSnapshot
-  readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
+  readonly onAction: (action: GitAction) => Promise<ActionReply>
   readonly onRefresh: () => Promise<void>
   /** Toggle the controller's "expand all" mode (lifts the host list cap). */
   readonly onSetFullChanges: (full: boolean) => Promise<void>
@@ -97,6 +99,9 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   const [actionBusy, setBusy] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishBusy, setPublishBusy] = useState(false)
+  // Diverged sync (ADR-0036): confirm the merge-then-push chain; the host
+  // capability gates the entry through `pushIntent`.
+  const [syncConfirmOpen, setSyncConfirmOpen] = useState(false)
   // Set-upstream always opens its chooser; the modal reports its in-flight
   // state here so the rest of the toolbar locks with it.
   const [setUpstreamOpen, setSetUpstreamOpen] = useState(false)
@@ -436,6 +441,12 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // state lags a synchronous second press by one paint, and two writes must not
   // both fire.
   const pushInFlight = useRef(false)
+  const openSync = (): void => {
+    if (busy || !canSync(snapshot)) return
+    setError(null)
+    setNotice(null)
+    setSyncConfirmOpen(true)
+  }
   const run = async (action: GitAction): Promise<boolean> => {
     if (busy) return false
     setBusy(true)
@@ -817,6 +828,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
         pushInFlight.current = true
         void run({ kind: 'push' }).finally(() => { pushInFlight.current = false })
       },
+      onSync: () => { hideTip(); openSync() },
       // Config-only, but always asks which remote to attach (even with one
       // candidate). The modal re-checks the snapshot and owns the busy lock.
       onSetUpstream: () => {
@@ -929,6 +941,16 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     // dialog attributes use, so a compact back-navigation (which unmounts the
     // diff) cannot strand a backdrop over the panel.
     diffCard.visible ? h(DiffCardBackdrop, { key: 'diff-backdrop', onClose: diffCard.close }) : null,
+    syncConfirmOpen ? h(SyncConfirmModal, {
+      key: 'sync-confirm',
+      snapshot,
+      onAction,
+      onClose: () => setSyncConfirmOpen(false),
+      // The chain's writes take the toolbar's shared lock for their duration.
+      onBusyChange: setBusy,
+      onError: setError,
+      t,
+    }) : null,
     publishOpen ? h(PublishModal, { key: 'remote-publish', snapshot, onAction, onClose: () => setPublishOpen(false), onBusyChange: setPublishBusy, t }) : null,
     setUpstreamOpen ? h(SetUpstreamModal, { key: 'remote-set-upstream', snapshot, onAction, onClose: () => setSetUpstreamOpen(false), onBusyChange: setSetUpstreamBusy, t }) : null,
     stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,

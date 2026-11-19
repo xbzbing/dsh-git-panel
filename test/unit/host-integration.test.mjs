@@ -3951,7 +3951,7 @@ test('the snapshot declares the menu capabilities', async () => {
   assert.equal(res.ok, true)
   assert.deepEqual(res.value.capabilities, {
     revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true,
-    branchCreate: true, branchMerge: true, cherryPick: true,
+    branchCreate: true, branchMerge: true, cherryPick: true, syncMerge: true,
   })
 })
 
@@ -4234,5 +4234,229 @@ test('file-version refuses unsafe paths and real git errors instead of reporting
     assert.equal(late.value.variant, 'text', 'the sniff window is the head, not the whole body')
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+
+// ── ADR-0036: merge-based sync for a diverged branch ────────────────────────
+
+/** A bare origin plus two working clones, with the branch name resolved from
+ * the first checkout so a host whose default is master still works. */
+async function divergedPair(root, shared = null) {
+  const origin = join(root, 'origin.git')
+  const work = join(root, 'work')
+  const other = join(root, 'other')
+  const { writeFileSync } = await import('node:fs')
+  await runGit(root, ['init', '-q', '--bare', 'origin.git'])
+  await runGit(root, ['clone', '-q', origin, 'work'])
+  await runGit(work, ['config', 'user.email', 't@t.co'])
+  await runGit(work, ['config', 'user.name', 'Tester'])
+  const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: work }).toString().trim()
+  writeFileSync(join(work, shared ?? 'base.txt'), shared === null ? 'base\n' : 'base\n')
+  await runGit(work, ['add', '.'])
+  await runGit(work, ['commit', '-qm', 'base'])
+  await runGit(work, ['push', '-q', '-u', 'origin', branch])
+  await runGit(root, ['clone', '-q', origin, 'other'])
+  await runGit(other, ['config', 'user.email', 't@t.co'])
+  await runGit(other, ['config', 'user.name', 'Tester'])
+  return { origin, work, other, branch }
+}
+
+test('pull-merge merges the upstream, and the following push fast-forwards the remote (ADR-0036)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'gp-sync-'))
+  try {
+    const { origin, work, other, branch } = await divergedPair(root)
+    const { writeFileSync } = await import('node:fs')
+    // Two commits on the remote side.
+    writeFileSync(join(other, 'remote1.txt'), 'r1\n')
+    await runGit(other, ['add', 'remote1.txt'])
+    await runGit(other, ['commit', '-qm', 'remote: one'])
+    writeFileSync(join(other, 'remote2.txt'), 'r2\n')
+    await runGit(other, ['add', 'remote2.txt'])
+    await runGit(other, ['commit', '-qm', 'remote: two'])
+    await runGit(other, ['push', '-q', 'origin', branch])
+    // Two commits on the local side, on top of the same base.
+    writeFileSync(join(work, 'local1.txt'), 'l1\n')
+    await runGit(work, ['add', 'local1.txt'])
+    await runGit(work, ['commit', '-qm', 'local: one'])
+    writeFileSync(join(work, 'local2.txt'), 'l2\n')
+    await runGit(work, ['add', 'local2.txt'])
+    await runGit(work, ['commit', '-qm', 'local: two'])
+
+    const d = depsAt(work)
+    const merged = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'pull-merge' } })
+    assert.equal(merged.ok, true, JSON.stringify(merged))
+    assert.equal(merged.snapshot.behind, 0, 'the upstream tip is now an ancestor')
+    assert.equal(merged.snapshot.ahead, 3, 'two local commits plus the merge commit')
+    const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { cwd: work })
+      .toString().trim().split(/\s+/)
+    assert.equal(parents.length, 3, 'the merge commit has two parents')
+    assert.ok(
+      execFileSync('git', ['cat-file', '-e', 'HEAD^2'], { cwd: work, stdio: 'pipe' }) && true,
+      'the second parent is the upstream tip',
+    )
+
+    const pushed = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'push' } })
+    assert.equal(pushed.ok, true, JSON.stringify(pushed))
+    assert.equal(pushed.snapshot.ahead, 0)
+    assert.equal(pushed.snapshot.behind, 0)
+    assert.equal(
+      execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work }).toString().trim(),
+      execFileSync('git', ['rev-parse', `refs/heads/${branch}`], { cwd: origin }).toString().trim(),
+      'the remote fast-forwarded to the merge commit; nothing was forced',
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('pull-merge aborts a conflict back to the pre-merge state (ADR-0036)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'gp-sync-conflict-'))
+  try {
+    const { work, other, branch } = await divergedPair(root, 'shared.txt')
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(other, 'shared.txt'), 'remote\n')
+    await runGit(other, ['add', 'shared.txt'])
+    await runGit(other, ['commit', '-qm', 'remote: rewrite shared'])
+    await runGit(other, ['push', '-q', 'origin', branch])
+    writeFileSync(join(work, 'shared.txt'), 'local\n')
+    await runGit(work, ['add', 'shared.txt'])
+    await runGit(work, ['commit', '-qm', 'local: rewrite shared'])
+    const before = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work }).toString().trim()
+
+    const d = depsAt(work)
+    const conflicted = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'pull-merge' } })
+    assert.equal(conflicted.ok, false)
+    assert.equal(conflicted.error.code, 'merge-conflict')
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work }).toString().trim(), before, 'HEAD restored')
+    assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: work }).toString().trim(), '', 'work tree restored')
+    let midMerge = true
+    try { execFileSync('git', ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { cwd: work, stdio: 'pipe' }) } catch { midMerge = false }
+    assert.equal(midMerge, false, 'no MERGE_HEAD survives the abort')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('pull-merge refuses without an upstream, and refuses a foreign in-progress operation (ADR-0036)', async () => {
+  // The shared `repo` has no tracking branch: a clear no-upstream, not a merge.
+  const none = await runAction(deps(), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'pull-merge' } })
+  assert.equal(none.ok, false)
+  assert.equal(none.error.code, 'no-upstream')
+
+  // A rebase directory from another actor must be refused before any merge
+  // starts; the operation-in-progress copy is what the status bar shows.
+  const dir = mkdtempSync(join(tmpdir(), 'gp-sync-busy-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(join(dir, '.git', 'rebase-merge'))
+    const busy = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'pull-merge' } })
+    assert.equal(busy.ok, false)
+    assert.equal(busy.error.code, 'operation-in-progress')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+
+test('pull-merge refuses a dirty worktree without stashing it (ADR-0036)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'gp-sync-dirty-'))
+  try {
+    const { work, other, branch } = await divergedPair(root)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(other, 'base.txt'), 'remote version\n')
+    await runGit(other, ['add', 'base.txt'])
+    await runGit(other, ['commit', '-qm', 'remote: rewrite base'])
+    await runGit(other, ['push', '-q', 'origin', branch])
+    writeFileSync(join(work, 'base.txt'), 'local dirty version\n')
+    const before = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work }).toString().trim()
+
+    const res = await runAction(depsAt(work), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'pull-merge' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'local-changes-block', '--no-autostash leaves the refusal to git')
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work }).toString().trim(), before, 'HEAD untouched')
+    assert.match(execFileSync('git', ['status', '--porcelain'], { cwd: work }).toString(), /base\.txt/, 'the dirty file stays dirty')
+    assert.equal(execFileSync('git', ['stash', 'list'], { cwd: work }).toString().trim(), '', 'nothing was stashed')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('pull-merge merges a local upstream without fetching (ADR-0036)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-sync-local-upstream-'))
+  try {
+    const { writeFileSync } = await import('node:fs')
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(dir, 'base.txt'), 'base\n')
+    await runGit(dir, ['add', 'base.txt'])
+    await runGit(dir, ['commit', '-qm', 'base'])
+    const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: dir }).toString().trim()
+    await runGit(dir, ['checkout', '-qb', 'local-base'])
+    writeFileSync(join(dir, 'upstream.txt'), 'upstream\n')
+    await runGit(dir, ['add', 'upstream.txt'])
+    await runGit(dir, ['commit', '-qm', 'local-base: ahead'])
+    await runGit(dir, ['checkout', '-q', branch])
+    writeFileSync(join(dir, 'main.txt'), 'main\n')
+    await runGit(dir, ['add', 'main.txt'])
+    await runGit(dir, ['commit', '-qm', 'main: ahead'])
+    await runGit(dir, ['branch', '--set-upstream-to=local-base', branch])
+
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'pull-merge' } })
+    assert.equal(res.ok, true, JSON.stringify(res))
+    assert.equal(res.snapshot.behind, 0)
+    const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { cwd: dir })
+      .toString().trim().split(/\s+/)
+    assert.equal(parents.length, 3, 'the local upstream was merged, not fetched')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('pull-merge refuses a foreign MERGE_HEAD before touching anything (ADR-0036)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-sync-foreign-'))
+  try {
+    const { writeFileSync } = await import('node:fs')
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim()
+    writeFileSync(join(dir, '.git', 'MERGE_HEAD'), `${head}\n`)
+
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'pull-merge' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'operation-in-progress')
+    assert.equal(execFileSync('git', ['rev-parse', '--verify', 'MERGE_HEAD'], { cwd: dir }).toString().trim(), head,
+      'the foreign state is left exactly as it was')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('pull-merge overrides merge.ff=only for an explicit diverged sync (ADR-0036)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'gp-sync-ff-only-'))
+  try {
+    const { work, other, branch } = await divergedPair(root)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(other, 'remote.txt'), 'r\n')
+    await runGit(other, ['add', 'remote.txt'])
+    await runGit(other, ['commit', '-qm', 'remote: ahead'])
+    await runGit(other, ['push', '-q', 'origin', branch])
+    writeFileSync(join(work, 'local.txt'), 'l\n')
+    await runGit(work, ['add', 'local.txt'])
+    await runGit(work, ['commit', '-qm', 'local: ahead'])
+    await runGit(work, ['config', 'merge.ff', 'only'])
+
+    const res = await runAction(depsAt(work), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'pull-merge' } })
+    assert.equal(res.ok, true, JSON.stringify(res))
+    assert.equal(res.snapshot.behind, 0)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })

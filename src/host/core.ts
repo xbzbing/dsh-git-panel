@@ -1209,7 +1209,7 @@ export async function snapshotForSession(
     collapseReposOnPick: config.collapseReposOnPick,
     allowFileEdit: config.allowFileEdit,
     compactPackages: config.compactPackages,
-    capabilities: { revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true, branchCreate: true, branchMerge: true, cherryPick: true },
+    capabilities: { revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true, branchCreate: true, branchMerge: true, cherryPick: true, syncMerge: true },
     checkedAt: Date.now(),
   }
   return { ok: true, value: { ...snapshot, stateFingerprint: snapshotFingerprint(snapshot) } }

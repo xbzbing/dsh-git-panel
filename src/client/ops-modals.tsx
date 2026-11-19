@@ -79,6 +79,12 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // The remote-tracking ref that justified the action disappeared: refresh
     // will recompute which remote write (if any) still applies.
     case 'upstream-missing': return t('error.upstreamMissing')
+    // `pull-merge` found nothing to merge: no tracking config, or the resolved
+    // upstream is not a branch ref. Nothing was changed.
+    case 'no-upstream': return t('error.noUpstream')
+    // A foreign merge/rebase/cherry-pick owns the work tree; the host refused
+    // before starting, so the repository is exactly as it was.
+    case 'operation-in-progress': return t('error.operationInProgress')
     case 'invalid-name':
     case 'invalid-index': return t('error.invalidName')
     // A rejected path came from the panel's own selection: it is outside the

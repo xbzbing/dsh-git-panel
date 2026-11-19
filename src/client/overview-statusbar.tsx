@@ -28,7 +28,7 @@ import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { DownloadIcon, GitHubIcon, LinkIcon, SyncIcon, UploadIcon } from './icons.js'
+import { DownloadIcon, GitHubIcon, LinkIcon, RefreshIcon, SyncIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { pushIntent as pushIntentOf } from './push-policy.js'
 import { useElementWidth } from './use-element-width.js'
@@ -40,12 +40,17 @@ export interface StatusBarCbs {
   readonly syncBusy: boolean
   readonly syncError: string | null
   readonly pullBusy: boolean
+  /** The whole diverged-sync chain (merge + push). It stays set through both
+   * halves so the bar keeps one label; `pushBusy` covers only the standalone
+   * push. */
+  readonly mergeSyncBusy: boolean
   readonly pushBusy: boolean
   readonly publishBusy: boolean
   readonly setUpstreamBusy: boolean
   readonly switchBusy: boolean
   readonly onCheck: () => void
   readonly onPull: () => void
+  readonly onSync: () => void
   readonly onPush: () => void
   readonly onPublish: () => void
   readonly onSetUpstream: () => void
@@ -68,7 +73,8 @@ function repoLabel(webUrl: string): string {
  * GitHub projects, opening the repo page in a new tab) on the left, and the
  * current branch's sync state with a fetch-check and a fast-forward pull on the
  * right. A detached HEAD or an untracked branch shows the state glyph only (no
- * pull); a strictly-behind branch is the one case that offers the pull.
+ * pull); a strictly-behind branch offers the fast-forward pull, and a diverged
+ * one offers the merge-based sync (ADR-0036).
  */
 export function renderStatusBar(snapshot: GitSnapshot, cb: StatusBarCbs): JSX.Element {
   return h(StatusBar, { snapshot, cb })
@@ -119,8 +125,9 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
   const { ahead, behind, branch } = snapshot
   const canPull = hasUpstream && behind > 0 && ahead === 0
   // Push is offered only when strictly ahead (ahead>0, behind=0): the push can
-  // only fast-forward the remote. A diverged branch (both ahead and behind) is
-  // deliberately not offered — the user must reconcile first.
+  // only fast-forward the remote. A diverged branch (both ahead and behind)
+  // gets the merge-based sync instead (ADR-0036) — the ordinary pull/push stay
+  // absent because neither can succeed.
   // A branch with no upstream yet either attaches the same-named remote branch
   // already at HEAD (set-upstream, config only) or is published (push -u). The
   // states are mutually exclusive: one control, one intent, never two.
@@ -137,12 +144,14 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     ...tipProps(label),
   }, glyph)
   const stateNode = ((): JSX.Element => {
-    if (cb.switchBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy) {
+    if (cb.switchBusy || cb.mergeSyncBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy) {
       const text = cb.switchBusy
         ? t('status.switching')
-        : cb.pullBusy
-          ? t('status.pulling')
-          : cb.setUpstreamBusy ? t('status.settingUpstream') : t('status.pushing')
+        : cb.mergeSyncBusy
+          ? t('status.syncing')
+          : cb.pullBusy
+            ? t('status.pulling')
+            : cb.setUpstreamBusy ? t('status.settingUpstream') : t('status.pushing')
       // The whole bar already marks the busy window with `aria-busy`, and the
       // check button spins for exactly as long (`.gp-statusbar--busy`): a second
       // loader next to the label would say the same thing twice, one of them
@@ -184,21 +193,29 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
       key: 'check', tipProps: tipProps(t('status.checkTitle')),
     }, h('button', {
       type: 'button', className: 'gp-icon-btn gp-statusbar__btn',
-      disabled: cb.syncBusy, 'aria-label': t('status.check'),
+      disabled: cb.syncBusy || cb.mergeSyncBusy, 'aria-label': t('status.check'),
       onClick: () => { hideTip(); cb.onCheck() },
-    }, h(SyncIcon, { size: 13 }))) : null,
+    }, h(RefreshIcon, { size: 13 }))) : null,
     canPull ? h(TipWrapper, {
       key: 'pull', tipProps: tipProps(t('status.pullTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
-      disabled: cb.pullBusy, 'aria-label': t('status.pullTitle'),
+      disabled: cb.pullBusy || cb.mergeSyncBusy, 'aria-label': t('status.pullTitle'),
       onClick: () => { hideTip(); cb.onPull() },
     }, [h(DownloadIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.pull'))])) : null,
+    intent === 'sync' ? h(TipWrapper, {
+      key: 'sync', tipProps: tipProps(t('status.syncTitle')),
+    }, h('button', {
+      type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull gp-statusbar__merge',
+      disabled: cb.mergeSyncBusy || cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.publishBusy || cb.setUpstreamBusy || cb.switchBusy,
+      'aria-label': t('status.syncTitle'),
+      onClick: () => { hideTip(); cb.onSync() },
+    }, [h(SyncIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.sync'))])) : null,
     intent === 'push' ? h(TipWrapper, {
       key: 'push', tipProps: tipProps(t('status.pushTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
-      disabled: cb.pushBusy, 'aria-label': t('status.pushTitle'),
+      disabled: cb.pushBusy || cb.mergeSyncBusy, 'aria-label': t('status.pushTitle'),
       onClick: () => { hideTip(); cb.onPush() },
     }, [h(UploadIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.push'))])) : null,
     intent === 'set-upstream' ? h(TipWrapper, {
@@ -206,14 +223,14 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
       tipProps: tipProps(t('status.setUpstreamTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
-      disabled: cb.setUpstreamBusy, 'aria-label': t('status.setUpstream'),
+      disabled: cb.setUpstreamBusy || cb.mergeSyncBusy, 'aria-label': t('status.setUpstream'),
       onClick: () => { hideTip(); cb.onSetUpstream() },
     }, [h(LinkIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.setUpstream'))])) : null,
     intent === 'publish' ? h(TipWrapper, {
       key: 'publish', tipProps: tipProps(t('status.publishTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
-      disabled: cb.publishBusy, 'aria-label': t('status.publishTitle'),
+      disabled: cb.publishBusy || cb.mergeSyncBusy, 'aria-label': t('status.publishTitle'),
       onClick: () => { hideTip(); cb.onPublish() },
     }, [h(UploadIcon, { key: 'i', size: 12 }), h('span', { key: 'l', className: 'gp-btn__label' }, t('status.publish'))])) : null,
   ]
@@ -221,7 +238,7 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
   // The publish modal and the set-upstream chooser own their own in-flight
   // locks; their busy callbacks still drive the bar's busy state and label
   // while the write runs behind the overlay.
-  const barBusy = cb.syncBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy || cb.switchBusy
+  const barBusy = cb.syncBusy || cb.mergeSyncBusy || cb.pullBusy || cb.pushBusy || cb.setUpstreamBusy || cb.switchBusy
   return h('div', {
     key: 'statusbar',
     ref: setEl,
