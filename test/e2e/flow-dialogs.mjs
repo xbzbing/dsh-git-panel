@@ -9,8 +9,9 @@
  *   - a finish form's squash strategy with the branch delete needs the extra
  *     forced-delete acknowledgement, and the submitted action carries exactly
  *     the choices the form showed (strategy / forceDelete / pushRemote);
- *   - deleting the remote branch asks a second time: the finish form's 完成 only
- *     raises the confirmation, whose acknowledgement unlocks the write;
+ *   - every finish raises a step confirmation before anything is written; a
+ *     remote delete adds the acknowledgement that unlocks the write;
+ *   - start and finish show the shared busy overlay while the write runs;
  *   - a release finish shows both landing branches (the main line it tags and
  *     the develop it merges back into) and submits the main line as target;
  *   - an in-flight submit locks the dialog, and a refusal renders inside it
@@ -130,21 +131,21 @@ async function submit(page) {
   await page.locator('.gp-modal__footer .gp-btn--primary').click()
 }
 
-/** The second confirmation a finish raises when it would delete the remote. */
+/** The finish confirmation raised by the form's 完成. */
 function remoteDeleteConfirm(page) {
   return page.locator('.gp-modal--sm:not(.gp-modal--flow)')
 }
 
-/** Finish through both stages: the form's 完成, then the remote-delete
- * confirmation (with its acknowledgement) when the form raises one. */
+/** Finish through both stages: the form's 完成, then the confirmation (with the
+ * remote-delete acknowledgement when the confirmation asks for one). */
 async function submitFinish(page) {
   await page.locator('.gp-modal--flow .gp-modal__footer .gp-btn:last-child').click()
   await flush(page)
   const card = remoteDeleteConfirm(page)
-  if (await card.count() > 0) {
-    await card.locator('.gp-modal__check input').check()
-    await card.locator('.gp-btn--danger').click()
-  }
+  await card.waitFor()
+  const ack = card.locator('.gp-modal__check input')
+  if (await ack.count() > 0) await ack.check()
+  await card.locator('.gp-modal__footer .gp-btn:last-child').click()
   await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 }
 
@@ -178,7 +179,17 @@ assert.equal(
   'a remote branch the push creates is marked as new',
 )
 assert.equal(await page.locator('.gp-flow-map__node--gone').count(), 0, 'a start deletes nothing')
+// The start form has no second stage: it shows the shared busy overlay while
+// the single write runs, and every dismissal path is locked meanwhile.
+await page.evaluate(() => { window.__gpFixture.holdRun = { kind: 'flow-start' } })
 await submit(page)
+await page.waitForFunction(() => window.__gpFixture.releaseRun !== null)
+assert.match(await page.locator('.gp-modal--flow .gp-modal__overlay-label').textContent(), /正在开始/, 'the start reports what is running')
+assert.equal(await page.locator('.gp-modal--flow .gp-modal__close').isDisabled(), true, 'busy start cannot be dismissed')
+await page.evaluate(() => {
+  window.__gpFixture.holdRun = null
+  window.__gpFixture.releaseRun()
+})
 await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 let sent = await actions(page)
 assert.deepEqual(sent[sent.length - 1], {
@@ -289,20 +300,22 @@ assert.equal(await releaseInput.inputValue(), 'v1.3.0', 'the next release versio
 assert.match(await chainPage.locator('.gp-flow-map').textContent(), /release\/v1\.3\.0/, 'the preview draws the new release branch')
 assert.equal(await chainPage.locator('.gp-flow-chain--3').count(), 1, 'the preview grows from a two- to a three-branch chain')
 assert.equal(await chainPage.locator('.gp-flow-chain__col').count(), 3, 'the chained release adds a visible graph column')
-assert.equal(await chainPage.locator('.gp-flow-map__node--new').count(), 1, 'only the release is new in the chained finish')
+assert.equal(await chainPage.locator('.gp-flow-map__node--new').count(), 2, 'the release and its new remote are the only new nodes')
 assert.ok((await chainPage.locator('.gp-modal__check').allTextContents()).some((text) => /开始 Release/.test(text)))
 assert.equal(await chainPage.locator('.gp-modal__check').count(), 5, 'the chained release adds its own push choice')
 const chainReleasePush = chainPage.locator('.gp-modal__check input').last()
-assert.equal(await chainReleasePush.isChecked(), false, 'pushing the new release defaults off')
-assert.doesNotMatch(await chainPage.locator('.gp-flow-map').textContent(), /origin\/release/, 'the preview adds no remote release yet')
-await chainReleasePush.check()
-await flush(chainPage)
-assert.match(await chainPage.locator('.gp-flow-map').textContent(), /origin\/release\/v1\.3\.0/, 'checking it draws the release remote branch')
+assert.equal(await chainReleasePush.isChecked(), true, 'pushing the new release defaults on')
+assert.match(await chainPage.locator('.gp-flow-map').textContent(), /origin\/release\/v1\.3\.0/, 'the default push draws the release remote branch')
 assert.equal(
   await chainPage.locator('.gp-flow-map__node--remote.gp-flow-map__node--new').textContent(),
   'origin/release/v1.3.0',
   'the new release remote is marked as new',
 )
+await chainReleasePush.uncheck()
+await flush(chainPage)
+assert.doesNotMatch(await chainPage.locator('.gp-flow-map').textContent(), /origin\/release/, 'unchecking drops the release remote from the preview')
+await chainReleasePush.check()
+await flush(chainPage)
 await releaseInput.fill('1.4.0')
 await flush(chainPage)
 assert.match(await chainPage.locator('.gp-flow-map').textContent(), /release\/1\.4\.0/, 'the preview follows the edited name')
@@ -325,16 +338,18 @@ const untaggedInput = untagged.locator('.gp-flow__field input[id$="-release"]')
 assert.equal(await untaggedInput.inputValue(), '', 'without a version tag the name starts empty')
 assert.match(await untagged.locator('.gp-flow-map').textContent(), /release\/…/, 'the placeholder release is previewed')
 const untaggedPush = untagged.locator('.gp-modal__check input').last()
-assert.equal(await untaggedPush.isChecked(), false, 'the release push still starts unchecked')
-assert.doesNotMatch(await untagged.locator('.gp-flow-map').textContent(), /origin\/release/, 'nothing is pushed yet')
-await untaggedPush.check()
-await flush(untagged)
-assert.match(await untagged.locator('.gp-flow-map').textContent(), /origin\/release\/…/, 'checking the push updates the legend without a version')
+assert.equal(await untaggedPush.isChecked(), true, 'the release push defaults on without a version tag too')
+assert.match(await untagged.locator('.gp-flow-map').textContent(), /origin\/release\/…/, 'the default push previews the placeholder remote release')
 assert.equal(
   await untagged.locator('.gp-flow-map__node--remote.gp-flow-map__node--new').textContent(),
   'origin/release/…',
   'the placeholder remote release is marked as new',
 )
+await untaggedPush.uncheck()
+await flush(untagged)
+assert.doesNotMatch(await untagged.locator('.gp-flow-map').textContent(), /origin\/release/, 'unchecking drops the placeholder remote')
+await untaggedPush.check()
+await flush(untagged)
 assert.equal(await untagged.locator('.gp-modal--flow .gp-modal__footer .gp-btn:last-child').isDisabled(), true, 'an empty name still blocks the finish')
 await untagged.close()
 
@@ -410,13 +425,16 @@ assert.equal(
   'origin/develop',
   'the missing remote develop is marked as new',
 )
-// With the remote delete unchecked there is nothing to authorise, so the form
-// submits directly instead of raising the second confirmation.
+// With the remote delete unchecked there is nothing to authorise, but the
+// finish still raises its step confirmation before anything is written.
 await missingDevelop.locator('.gp-modal__check input').nth(1).uncheck()
 await flush(missingDevelop)
 await missingDevelop.locator('.gp-modal--flow .gp-modal__footer .gp-btn:last-child').click()
 await flush(missingDevelop)
-assert.equal(await remoteDeleteConfirm(missingDevelop).count(), 0, 'no remote delete means no second confirmation')
+const plainConfirm = remoteDeleteConfirm(missingDevelop)
+assert.equal(await plainConfirm.count(), 1, 'every finish confirms the steps it will run')
+assert.equal(await plainConfirm.locator('.gp-modal__check input').count(), 0, 'without a remote delete there is nothing to acknowledge')
+await plainConfirm.locator('.gp-modal__footer .gp-btn:last-child').click()
 await missingDevelop.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 sent = await actions(missingDevelop)
 assert.equal(sent[sent.length - 1].pushRemote, 'origin', 'the push creates develop on the remote')
@@ -439,6 +457,7 @@ await busyCard.locator('.gp-btn--danger').evaluate((button) => { button.click();
 await page.waitForFunction(() => window.__gpFixture.releaseRun !== null)
 assert.equal(await busyCard.locator('.gp-btn--danger').isDisabled(), true, 'busy confirm disabled')
 assert.equal(await busyCard.locator('.gp-modal__close').isDisabled(), true, 'busy close disabled')
+assert.match(await busyCard.locator('.gp-modal__overlay-label').textContent(), /正在完成/, 'the confirmation shows the running finish')
 await page.evaluate(() => {
   window.__gpFixture.holdRun = null
   window.__gpFixture.releaseRun()

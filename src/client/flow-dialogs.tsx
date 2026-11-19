@@ -3,7 +3,8 @@
  *  - start: name a feature / hotfix / release and pick its base;
  *  - finish: pick how the current flow branch is integrated (merge commit,
  *    squash, rebase), the message, and whether the branch (and its remote) is
- *    deleted; deleting the remote branch asks again in a second confirmation;
+ *    deleted; pressing 完成 opens a confirmation of the steps, and a remote
+ *    delete additionally needs an acknowledgement there;
  *  - integrate: merge `develop` into the current branch.
  *
  * The forms only decide: they emit a wire action (`flow-start` /
@@ -235,7 +236,7 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
       onClose, onConfirm: submit, confirmLabel: t('flow.start.confirm'),
       confirmDisabled, danger: false, t,
     }),
-    ...(busy ? { busy: true } : {}),
+    ...(busy ? { busy: true, busyLabel: t('flow.start.busy', { kind }) } : {}),
   })
 }
 
@@ -296,16 +297,20 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
   // release name pre-filled with the next version read off the tags.
   const [startRelease, setStartRelease] = useState(false)
   const [releaseName, setReleaseName] = useState(releaseInitialName)
-  // The chained release is published separately, and only when asked: finishing
-  // a feature should not silently create a remote release branch.
-  const [pushRelease, setPushRelease] = useState(false)
-  // Deleting the flow branch on the server is unrecoverable, so the checkbox
-  // only arms the intent: pressing 完成 raises a second confirmation whose
-  // acknowledgement is what unlocks the submit (the branch row's remote delete
-  // has the same contract). The button stays disabled after a refusal until the
-  // confirmation is dismissed and the form is adjusted.
-  const [remoteConfirm, setRemoteConfirm] = useState(false)
-  const [remoteAck, setRemoteAck] = useState(false)
+  // The chained release is published separately, and starts checked like a
+  // standalone release start: using the option is the decision, and an
+  // unpublished release would immediately leave the checkout without a remote
+  // counterpart. Without a remote it is disabled and has no effect.
+  const [pushRelease, setPushRelease] = useState(true)
+  // Finishing runs a multi-step, hard-to-undo sequence (it moves the long-lived
+  // branches, tags, deletes and pushes), so 完成 only opens a confirmation that
+  // lists the steps; the write itself starts from that confirmation. Deleting
+  // the flow branch on the server is unrecoverable, so the confirmation adds an
+  // acknowledgement that is what unlocks its button (the branch row's remote
+  // delete has the same contract). The button stays disabled after a refusal
+  // until the confirmation is dismissed and the form is adjusted.
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [ack, setAck] = useState(false)
   const [confirmAttempted, setConfirmAttempted] = useState(false)
   const confirmGuard = useRef(false)
   // The tags query can land after the dialog opened. Keep filling the proposed
@@ -349,6 +354,9 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
     ...(releasePushPreviewRef ?? []),
   ]
   const remoteLabel = remote.name === null ? branch : `${remote.name}/${branch}`
+  // The remote cleanup is armed by the checkbox; the confirmation it needs is
+  // part of the one finish confirmation, not a second layer.
+  const remoteArmed = hasUpstream && deleteRemote
   const send = (): void => {
     onSubmit({
       kind: 'flow-finish', flow, branch, target, strategy, message: message.trim(), deleteBranch, deleteRemote,
@@ -361,16 +369,12 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
   }
   const submit = (): void => {
     if (busy) return
-    if (hasUpstream && deleteRemote) {
-      confirmGuard.current = false
-      setRemoteAck(false)
-      setConfirmAttempted(false)
-      setRemoteConfirm(true)
-      return
-    }
-    send()
+    confirmGuard.current = false
+    setAck(false)
+    setConfirmAttempted(false)
+    setConfirmOpen(true)
   }
-  const confirmRemoteDelete = (): void => {
+  const confirmFinish = (): void => {
     if (confirmGuard.current || busy) return
     confirmGuard.current = true
     setConfirmAttempted(true)
@@ -401,6 +405,28 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
     forceDelete: strategy === 'squash' && forceDelete,
     startRelease: flow === 'feature' && startRelease ? (releaseBranch ?? 'release/…') : null,
   })
+  // The confirmation is the review the form cannot be: it restates the exact
+  // steps the pressed 完成 will run, and after any refusal its error is the
+  // only copy of the reason, so it stays open over the form.
+  const confirmSteps: string[] = [
+    strategy === 'merge'
+      ? t('flow.finish.confirmMerge', { branch, target })
+      : strategy === 'squash'
+        ? t('flow.finish.confirmSquash', { branch, target })
+        : t('flow.finish.confirmRebase', { branch, target }),
+  ]
+  if (needsTag && tag.trim() !== '') confirmSteps.push(t('flow.finish.confirmTag', { target, tag: tag.trim() }))
+  if (needsTag && targets.backMerge.length > 0) {
+    confirmSteps.push(t('flow.finish.confirmBackMerge', { target, back: targets.backMerge.join(' + ') }))
+  }
+  if (deleteBranch) confirmSteps.push(t('flow.finish.confirmDeleteBranch', { branch }))
+  if (remoteArmed) confirmSteps.push(t('flow.finish.confirmDeleteRemote', { ref: remoteLabel }))
+  if (movedPushRefs !== null && push) confirmSteps.push(t('flow.finish.confirmPush', { refs: movedPushRefs.join(' + ') }))
+  if (flow === 'feature' && startRelease) {
+    confirmSteps.push(t('flow.finish.confirmStartRelease', { develop: DEVELOP_BRANCH, release: releaseBranch ?? 'release/…' }))
+  }
+  if (releasePushRef !== null) confirmSteps.push(t('flow.finish.confirmPushRelease', { ref: releasePushRef[0]! }))
+  const confirmBody = `${t('flow.finish.confirmBody', { branch })}\n\n${confirmSteps.map((step) => `• ${step}`).join('\n')}`
   const form = renderModalShell({
     onClose,
     title: t('flow.finish.title', { kind }),
@@ -529,46 +555,49 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
       confirmDisabled: busy || (needsTag && tag.trim() === '') || releaseInvalid || (strategy === 'squash' && deleteBranch && !forceDelete),
       // A finish that deletes a branch (local or remote) is destructive even
       // while its choices stay reversible: paint 完成 in the danger tone so the
-      // row reads as such before the second confirmation appears.
-      danger: deleteBranch || (hasUpstream && deleteRemote), t,
+      // row reads as such before the confirmation appears.
+      danger: deleteBranch || remoteArmed, t,
     }),
-    ...(busy ? { busy: true } : {}),
+    ...(busy ? { busy: true, busyLabel: t('flow.finish.busy', { kind }) } : {}),
   })
-  // The remote delete confirmation sits above the finish form: the panel's
-  // dialog is contained, so the confirmation must stay inside the same root
-  // (`contained`) and trap focus on its own. Escape / the backdrop close only
-  // this layer; the form behind it keeps its state for another try. While the
-  // write runs it is busy (not dismissible) and a refusal renders here too.
-  const remoteDeleteConfirm = remoteConfirm
+  // The finish confirmation sits above the form: the panel's dialog is
+  // contained, so the confirmation must stay inside the same root (`contained`)
+  // and trap focus on its own. Escape / the backdrop close only this layer; the
+  // form behind it keeps its state for another try. While the write runs it is
+  // busy (not dismissible) and a refusal renders here too.
+  const finishConfirm = confirmOpen
     ? renderConfirmModal({
-      title: t('remoteBranchDelete.title'),
-      body: t('remoteBranchDelete.body', { name: remoteLabel }),
-      extra: h('div', { key: 'x', className: 'gp-bpick__extra' }, [
-        h('div', { key: 'hint', className: 'gp-bpick__note' }, t('flow.finish.remoteConfirmHint', { branch })),
-        h('div', { key: 'warn', className: 'gp-bpick__warn' }, t('remoteBranchDelete.warning')),
-        h('label', { key: 'ack', className: 'gp-modal__check' }, [
-          h('input', {
-            key: 'cb', type: 'checkbox', className: 'gp-check',
-            checked: remoteAck, onChange: () => setRemoteAck((v) => !v),
-          }),
-          t('remoteBranchDelete.ack'),
-        ]),
-      ]),
-      confirmLabel: t('flow.finish.remoteConfirm'),
-      danger: true,
+      title: t('flow.finish.confirmTitle', { kind }),
+      body: confirmBody,
+      // Only the remote deletion is unrecoverable and needs its own
+      // acknowledgement; the rest of the steps are what the form just showed.
+      extra: remoteArmed
+        ? h('div', { key: 'x', className: 'gp-bpick__extra' }, [
+          h('div', { key: 'warn', className: 'gp-bpick__warn' }, t('remoteBranchDelete.warning')),
+          h('label', { key: 'ack', className: 'gp-modal__check' }, [
+            h('input', {
+              key: 'cb', type: 'checkbox', className: 'gp-check',
+              checked: ack, onChange: () => setAck((v) => !v),
+            }),
+            t('remoteBranchDelete.ack'),
+          ]),
+        ])
+        : null,
+      confirmLabel: t('flow.finish.confirmAction'),
+      danger: deleteBranch || remoteArmed,
       error,
       confirmBusy: busy,
-      // After a refusal the form must be adjusted: the confirmation stays open
-      // with its button locked until it is dismissed.
-      confirmDisabled: !remoteAck || (confirmAttempted && error !== null),
-      busyLabel: t('remoteBranchDelete.busy'),
-      onConfirm: confirmRemoteDelete,
-      onClose: () => { setRemoteConfirm(false); setRemoteAck(false); setConfirmAttempted(false) },
+      // The remote delete's acknowledgement is the unlock; after a refusal the
+      // form must be adjusted, so the button stays locked until it is dismissed.
+      confirmDisabled: (remoteArmed && !ack) || (confirmAttempted && error !== null),
+      busyLabel: t('flow.finish.busy', { kind }),
+      onConfirm: confirmFinish,
+      onClose: () => { setConfirmOpen(false); setAck(false); setConfirmAttempted(false) },
       ...(container != null ? { container, contained: true, trapFocus: true } : {}),
       t,
     })
     : null
-  return h(Fragment, null, [form, remoteDeleteConfirm])
+  return h(Fragment, null, [form, finishConfirm])
 }
 
 export interface FlowIntegrateArgs {

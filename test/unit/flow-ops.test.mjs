@@ -166,6 +166,41 @@ test('flow-start publishes the new branch with its upstream and refuses an unkno
   }
 })
 
+test('flow-start publishes release and hotfix branches too, not only features', async () => {
+  const dir = await freshRepo('gp-flow-start-push-kinds-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-start-push-kinds-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+
+    // Every flow shares the same start path, so the remote branch must be
+    // created and tracked for release and hotfix exactly as it is for feature.
+    for (const [flow, branch, base] of [
+      ['release', 'release/1.0.0', 'develop'],
+      ['hotfix', 'hotfix/1.0.1', 'main'],
+    ]) {
+      const started = await run(dir, { kind: 'flow-start', flow, branch, base, pushRemote: 'origin' })
+      assert.equal(started.ok, true, `${flow}: ${JSON.stringify(started)}`)
+      assert.equal(
+        out(remote, ['rev-parse', `refs/heads/${branch}`]),
+        out(dir, ['rev-parse', branch]),
+        `${flow}: the missing remote branch is created by the start`,
+      )
+      assert.equal(
+        out(dir, ['for-each-ref', '--format=%(upstream:short)', `refs/heads/${branch}`]),
+        `origin/${branch}`,
+        `${flow}: the created remote branch becomes the upstream`,
+      )
+      assert.equal(started.snapshot.branch, branch, `${flow}: the start ends on the new branch`)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  }
+})
+
 test('flow-finish (merge) lands the feature on develop, deletes the branch and leaves no merge state', async () => {
   const dir = await freshRepo('gp-flow-finish-merge-')
   try {

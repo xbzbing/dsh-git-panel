@@ -150,6 +150,10 @@ export interface ModalShellProps {
    * all suppressed while it is set, so an in-flight write can't be dismissed
    * out from under its own error line. */
   busy?: boolean
+  /** Label for the busy overlay: set with `busy` to show the loader and state
+   * what is running. A form dialog has no result button to disable, so this is
+   * its only visible sign that the write started. */
+  busyLabel?: string
   /** Optional busy overlay covering the dialog while an op runs. */
   overlay?: JSX.Element | null
   /** Stable React portal key, unique per dialog kind. */
@@ -183,11 +187,12 @@ export function renderModalShell(props: ModalShellProps): JSX.Element | null {
   return h(ModalShell, props)
 }
 
-function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, overlay, portalKey, container, trapFocus, variant, contained = false, t }: ModalShellProps): JSX.Element {
+function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, busyLabel, overlay, portalKey, container, trapFocus, variant, contained = false, t }: ModalShellProps): JSX.Element {
   // Busy is declared, never inferred: an overlay only exists for dialogs that
   // also pass a label, and inferring from it left reset/revert/tag-delete
   // dismissible mid-flight (their error line then had no dialog to render in).
   const busy = busyProp === true
+  const busyOverlay = busy && busyLabel !== undefined ? renderBusyOverlay(busyLabel) : null
   const backdropRef = useRef<HTMLDivElement | null>(null)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
@@ -236,7 +241,7 @@ function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, 
     ]),
     h('div', { key: 'body', className: 'gp-modal__form' }, body),
     footer,
-    overlay ?? null,
+    busyOverlay ?? overlay ?? null,
   ]))
   return createPortal(modal, container ?? document.body, portalKey)
 }
@@ -284,7 +289,6 @@ export interface ConfirmCbs {
  * stash drop, branch delete). A plain text body + the shared AI hint over the
  * shell. */
 export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
-  const showOverlay = cb.confirmBusy === true && cb.busyLabel !== undefined
   return renderModalShell({
     onClose: cb.onClose,
     title: cb.title,
@@ -301,6 +305,6 @@ export function renderConfirmModal(cb: ConfirmCbs): JSX.Element | null {
     ],
     footer: renderModalFooter({ onClose: cb.onClose, onConfirm: cb.onConfirm, confirmLabel: cb.confirmLabel, confirmDisabled: cb.confirmBusy === true || cb.confirmDisabled === true, danger: cb.danger, t: cb.t }),
     ...(cb.confirmBusy === true ? { busy: true } : {}),
-    ...(showOverlay ? { overlay: renderBusyOverlay(cb.busyLabel!) } : {}),
+    ...(cb.confirmBusy === true && cb.busyLabel !== undefined ? { busyLabel: cb.busyLabel } : {}),
   })
 }
