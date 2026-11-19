@@ -51,6 +51,7 @@
 | [ADR-0033](0033-commit-row-column-widths.md) | 提交历史的列宽按 locale 与列表宽度实测决定 | UI |
 | [ADR-0034](0034-java-package-folding.md) | 文件浏览按 Java/Kotlin 约定折叠包路径并投影源码根 | UI |
 | [ADR-0035](0035-code-workspace-discoverability.md) | 工作区文件的可发现性与 cwd 外 worktree 的可选性 | 安全 |
+| [ADR-0036](0036-diverged-merge-sync.md) | 分叉状态的合并式同步（fetch + merge 上游 + 普通 push） | 安全 |
 
 ## 有效期
 
@@ -60,6 +61,7 @@ ADR 记录的是**决策与它的有效期**，不是当前实现的快照。当
 - **ADR-0018** 已生效：`lib/` 不再提交到 main，GitHub 安装走 Release 附件 tgz。
 - **ADR-0001** 的双半边界与端点语义持续有效；其中的命名空间名与端点数量已由 **ADR-0029** 与实现更新（`dbGitPanel`，七个端点）。
 - **ADR-0022** 的「平台包依赖」决策持续有效；其中把 `dsh.client.inject` 括注成「platform seed 包」的说法由 **ADR-0032** 澄清（seed 不在该表声明）。
+- **ADR-0007** 的「分叉时 push 与 pull 都不提供」条款由 **ADR-0036** 取代（2026-11-19）：分叉时提供合并式同步；no-force、`pull-ff` 只快进、远程引用字面量等其余边界继续有效。
 
 ## 新增一份 ADR
 
