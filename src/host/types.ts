@@ -245,6 +245,11 @@ export interface GitSnapshot {
     readonly branchMerge?: true
     /** `cherry-pick` runs here. */
     readonly cherryPick?: true
+    /** `pull-merge` runs here: fetch the upstream and merge it into HEAD (the
+     * merge half of a diverged sync). An older host has no such action, so the
+     * client keeps the diverged state without an upload control instead of
+     * sending an action the host would reject. */
+    readonly syncMerge?: true
   }
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
@@ -355,6 +360,13 @@ export type GitAction =
   // branch to the remote tip (never a merge/rebase) — the safe "catch up to
   // remote" the UI offers when the branch is strictly behind.
   | { readonly kind: 'pull-ff' }
+  // Fetch the current branch's upstream and merge it into HEAD (the merge half
+  // of a diverged sync; the client follows a successful reply with `push`).
+  // A merge is additive: it creates a merge commit and never rewrites either
+  // side. The host resolves `@{upstream}` itself (no ref crosses the wire),
+  // refuses when a merge/rebase/cherry-pick is already in progress, and aborts
+  // a conflict back to the pre-merge state (`merge-conflict` / `merge-stuck`).
+  | { readonly kind: 'pull-merge' }
   // Push the current branch to its upstream (plain `git push`, never --force).
   // The UI offers it only when the branch is strictly ahead (ahead>0, behind=0),
   // so the push can only fast-forward the remote; a diverged branch is refused
@@ -464,6 +476,13 @@ export type GitErrorCode =
   // repository, or gone between the repository listing and the request. The
   // client re-lists repositories and falls back to the default one.
   | 'invalid-repo'
+  // `pull-merge` found no upstream to merge: the branch has no tracking config,
+  // or the resolved upstream is not a local/remote branch ref.
+  | 'no-upstream'
+  // A merge, rebase, cherry-pick or revert is already in progress. Starting a
+  // merge on top would either fail or leave the shared worktree in a state the
+  // panel cannot finish; nothing was changed.
+  | 'operation-in-progress'
   // The target branch is checked out in another worktree of the same repo, so
   // git refuses to switch to it here.
   | 'branch-in-use'
