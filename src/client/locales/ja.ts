@@ -444,8 +444,6 @@ export const ja: Record<GitKey, string> = {
   'status.openRepo': 'ブラウザーでリポジトリのホームを開く',
   'status.openRepoOn': '{host} でリポジトリのホームを開く',
   'status.synced': 'リモートと同期済み',
-  'status.ahead': '{n} 先行',
-  'status.behind': '{n} 遅れ',
   'status.diverged': '分岐（{ahead} 先行 / {behind} 遅れ）',
   'status.noUpstream': 'アップストリームブランチなし',
   'status.detached': 'デタッチ HEAD — ブランチの同期状態はありません',

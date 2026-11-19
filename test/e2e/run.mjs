@@ -532,7 +532,8 @@ const out = await page.evaluate(async (snap) => {
   const sbar = document.querySelector('.gp-col--left .gp-statusbar')
   result.statusBarShown = sbar !== null
   result.statusRepoHref = sbar?.querySelector('a.gp-statusbar__repo')?.getAttribute('href') ?? null
-  result.statusSyncedShown = (sbar?.querySelector('.gp-statusbar__state')?.textContent || '').includes('status.synced')
+  result.statusSyncedShown = sbar?.querySelector('.gp-statusbar__state')?.getAttribute('aria-label') === 'status.synced'
+    && (sbar?.querySelector('.gp-statusbar__state')?.textContent || '') === '✓'
   result.statusNoPullWhenSynced = sbar?.querySelector('.gp-statusbar__pull') == null
   result.statusNoPushWhenSynced = ![...(sbar?.querySelectorAll('.gp-statusbar__pull') || [])].some((b) => (b.textContent || '').includes('status.push'))
   // Flip the served snapshot to strictly-ahead and re-drive through the check
@@ -586,7 +587,7 @@ const out = await page.evaluate(async (snap) => {
   await settle()
   result.statusLateErrorSetup = pushParked && snapshotParked
   result.statusLateErrorSuppressed = document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state--warn') === null
-  result.statusLateErrorNewScope = (document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state')?.textContent || '').includes('status.synced')
+  result.statusLateErrorNewScope = document.querySelector('.gp-col--left .gp-statusbar .gp-statusbar__state')?.getAttribute('aria-label') === 'status.synced'
   // Flip to a no-upstream branch: the publish button replaces push, and its
   // confirm opens (the second reminder before `git push -u`).
   fixture.snapshot = { ...snap, ahead: 0, behind: 0, hasUpstream: false }
@@ -776,7 +777,10 @@ const out = await page.evaluate(async (snap) => {
   result.switchAutoCheckSync = switchActions.some((a) => a.kind === 'fetch')
   result.switchModalClosed = document.querySelector('.gp-modal__path') === null
   result.switchReloadedBranches = fixture.branchQueries > branchQueriesBefore
-  result.switchSyncStateFresh = (document.querySelector('.gp-col--left .gp-statusbar__state')?.textContent || '').includes('status.behind')
+  // The steady state is a glyph; the sentence is its accessible name (issue #131).
+  const switchState = document.querySelector('.gp-col--left .gp-statusbar__state')
+  result.switchSyncStateFresh = switchState?.getAttribute('aria-label') === 'overview.branchBehind'
+    && (switchState?.textContent || '') === '↓5'
   const releaseSwitchFetch = fixture.releaseFetch
   fixture.releaseFetch = null
   fixture.holdFetch = false

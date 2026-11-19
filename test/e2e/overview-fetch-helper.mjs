@@ -38,7 +38,8 @@ window.runOverviewFetchScenarios = async (fixture, { waitFor, flushUI, click, re
       releaseFetch()
       await waitFor(bothEnabled, entry + ' retry success')
       await flushUI()
-      const restoredAfterSuccess = alert() === null && document.querySelector('.gp-statusbar__state')?.textContent === 'status.synced'
+      // The steady state is a glyph; the sentence is its accessible name (#131).
+      const restoredAfterSuccess = alert() === null && document.querySelector('.gp-statusbar__state')?.getAttribute('aria-label') === 'status.synced'
       const retryQueries = fixture.queries.slice(queriesBeforeRetry).sort()
       await releaseAndParkNext()
       results.push({ entry, singleFlight, failureActions, visible, errorText, detailAvailable, clearedOnRetry, restoredAfterSuccess, retryQueries })

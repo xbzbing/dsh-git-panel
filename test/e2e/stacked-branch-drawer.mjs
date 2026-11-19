@@ -205,7 +205,10 @@ assert.equal(out.inline420.backdrop, null, 'at 420 there is no drawer backdrop')
 assert.ok(out.inline420.inline !== null, 'at 420 the left column renders inline')
 assert.equal(out.inline420.inline.position, 'static', 'the inline column sits in the flex flow')
 assert.ok(out.inline420.inline.rows > 0, `the branch list renders inline (${out.inline420.inline.rows} rows)`)
-assert.equal(out.inline420.repoHref, 'https://github.com/example/repo', 'the inline status bar keeps the GitHub repo link')
+// The inline bar here is clamp(120px,38%,180px) — 160px at 420 — and the row
+// needs ~140px of controls, so the link yields to the sync state (issue #131):
+// `data-narrow` marks the measured drop, and the sentence stays in the tooltip.
+assert.equal(out.inline420.repoHref, null, 'at 160px the status bar keeps the sync state instead of the repo link')
 
 // ── 320 (tight): collapsed by default, history takes the whole band. ──
 await setWidth(320)
@@ -338,7 +341,10 @@ assert.equal(out.recovered.toggle, null, 'the toolbar toggle goes with it')
 assert.equal(out.recovered.backdrop, null, 'no backdrop survives the widening')
 assert.ok(out.recovered.inline !== null, 'the column renders inline again')
 assert.equal(out.recovered.inline.position, 'static', 'and back in the flex flow')
-assert.equal(out.recovered.repoHref, 'https://github.com/example/repo', 'the widened status bar keeps the GitHub repo link')
+// Widening back to 420 re-inlines the column, but its bar is still 160px: the
+// measured `data-narrow` drop stays (issue #131), the state glyph is what the
+// row spends that width on.
+assert.equal(out.recovered.repoHref, null, 'a 160px stacked bar keeps the sync state, not the repo link')
 
 // ── Booting straight into the tight tier: collapsed on the FIRST mount — the
 //    default itself, not a reset inherited from a wider frame. ──

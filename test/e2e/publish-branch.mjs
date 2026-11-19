@@ -321,7 +321,7 @@ async function setUpstreamStatusBarScenario() {
   })
   await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
   await page.waitForFunction(() => document.querySelector('.gp-statusbar button[aria-label="设置上游"]') === null)
-  assert.equal(await page.locator('.gp-statusbar__state').textContent(), '已与远程同步', 'the fresh snapshot reads as synced')
+  assert.equal(await page.locator('.gp-statusbar__state').getAttribute('aria-label'), '已与远程同步', 'the fresh snapshot reads as synced')
   assert.deepEqual((await counts(page)).actions, ['set-upstream'], 'the status bar sends exactly one set-upstream')
   await page.close()
 }
