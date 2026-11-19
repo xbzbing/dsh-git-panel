@@ -636,11 +636,10 @@ async function touchHintScenario() {
   await clean.locator('.gp-changes__refresh').hover()
   await clean.waitForFunction(() => document.querySelector('.gp-tip')?.textContent === '刷新当前仓库状态')
   const afterHover = await clean.locator('.gp-tip').textContent()
-  // An empty list must not scroll. The clean-tree note sits under the two `(0)`
-  // headers, so it keeps its content height instead of filling the list; it is
-  // still border-box, or its own 24px padding would push past the list's content
-  // box and a phone-sized panel would show a scrollbar for a pane with nothing
-  // in it.
+  // An empty list must not scroll. The clean-tree note sits under the two (0)
+  // headers and keeps its content height (one line plus 20px vertical padding)
+  // instead of filling the list; the no-scroll assertion below is the guard
+  // against it regrowing past the list's content box.
   await clean.evaluate(() => { document.getElementById('panel').style.width = '364px' })
   await clean.waitForTimeout(300)
   const emptyScroll = await clean.evaluate(() => {
@@ -690,7 +689,10 @@ try {
   assert.equal(touch.emptyScroll?.layout, 'compact', 'the empty-list check runs in the compact layout')
   assert.equal(touch.emptyScroll?.scrollH, touch.emptyScroll?.clientH, `an empty changes list does not scroll (${touch.emptyScroll?.scrollH} vs ${touch.emptyScroll?.clientH})`)
   assert.equal(touch.emptyScroll?.heads, 2, 'the clean list still mounts the staged / unstaged frame')
-  assert.ok((touch.emptyScroll?.paneH ?? 0) > 0 && (touch.emptyScroll?.paneH ?? 0) < (touch.emptyScroll?.clientH ?? 0), 'the clean-tree note keeps its content height inside the list')
+  // Content height, not "whatever is shorter than the list": the bound is one
+  // 12px line + 20px vertical padding with slack, so a fixed or half-pane box
+  // (e.g. the old height:100%) cannot pass on a tall phone panel.
+  assert.ok((touch.emptyScroll?.paneH ?? 0) > 0 && (touch.emptyScroll?.paneH ?? 0) <= 48, `the clean-tree note keeps its content height (measured ${touch.emptyScroll?.paneH}px)`)
   assert.ok(touch.tip !== null, `the press-driven confirmation still reaches a finger (got ${JSON.stringify(touch.tip)})`)
   assert.equal(touch.armedAria, true, 'the first tap arms the two-step discard')
   assert.equal(touch.dismissed, 0, 'a press elsewhere drops the touch-raised confirmation')

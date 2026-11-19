@@ -817,9 +817,7 @@ async function expandAllScenario() {
     result.headCheckboxAfterExpand = [...document.querySelectorAll('.gp-group-head input.gp-check')].length
 
     // Whole-group pick now covers every row (data-level: all mounted rows check).
-    const head = [...document.querySelectorAll('.gp-group-head')]
-      .find((n) => [...n.childNodes].some((c) => c.nodeType === 3 && (c.textContent ?? '').trim().startsWith('更改 (')))
-    head?.querySelector('input.gp-check')?.click()
+    unstagedHead()?.querySelector('input.gp-check')?.click()
     await wait(80)
     const mounted = [...document.querySelectorAll('.gp-file-row')]
     result.checkedAfterGroupPick = mounted.filter((r) => r.querySelector('input.gp-check')?.checked === true).length
