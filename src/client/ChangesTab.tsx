@@ -251,7 +251,13 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // VOVERSCAN rows each side. Before the first layout measurement a fallback
   // height bounds the initial paint.
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
-  const { first, last } = windowRange(tops, viewport.top, effHeight, VOVERSCAN * ROW_H.file)
+  // The stored scrollTop can outlive the content that justified it: a snapshot
+  // that shrinks the list (repo switched to a clean tree) paints once with the
+  // old offset, and an offset past the last row would mount nothing — not even
+  // the fixed-frame headers — until the browser clamps the scroll and fires.
+  // Clamping to the new bottom keeps that first paint whole.
+  const winTop = Math.min(viewport.top, Math.max(0, totalH - effHeight))
+  const { first, last } = windowRange(tops, winTop, effHeight, VOVERSCAN * ROW_H.file)
 
   // A hovered row can vanish without a mouseleave — the virtualized window
   // slides, a snapshot refresh replaces the list, or the tree collapses above
