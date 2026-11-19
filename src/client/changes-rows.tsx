@@ -163,8 +163,9 @@ export function renderChangeRow(row: ChangeListRow, ctx: ChangeRowCtx, top: numb
   if (row.kind === 'head') {
     const labelKey = GROUP_LABEL[row.group]
     const pick = groupPickState(ctx.selected, row.items)
-    // A group kept only for its full count (every row fell past the cap) has
-    // nothing to toggle: the static modifier drops the chevron and the hand.
+    // A header with nothing to fold — an empty (0) frame or one kept only for
+    // its full count — has nothing to toggle: the static modifier drops the
+    // chevron and the hand.
     const modifier = row.collapsible ? '' : ' gp-group-head--static'
     return box(`h:${row.group}`, h('div', {
       className: `gp-group-head${modifier}`,

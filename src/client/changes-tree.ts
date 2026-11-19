@@ -51,6 +51,11 @@ export interface ChangeHeadRow {
    * loaded — a checked box would read as covering rows the list never fetched.
    */
   readonly truncated: boolean
+  /**
+   * Whether there are loaded rows to fold. An empty `(0)` frame and a group
+   * whose rows all fell past the cap both read `false`: nothing to hide, so the
+   * header renders static (no chevron, no hand).
+   */
   readonly collapsible: boolean
   /** Whether the header reads as folded (the stored state; nothing else
    * overrides it — a row the reader folded stays folded). */
@@ -114,18 +119,41 @@ export function normalizeViewMode(raw: string | null | undefined): ChangeViewMod
 const EMPTY_FOLDS: ReadonlySet<string> = new Set()
 
 /**
+ * Groups whose header stays on screen at `(0)`: the list's fixed frame. A group
+ * not listed here only appears once it has rows (or a capped count to show), so
+ * a group kind added later defaults to hidden-until-present.
+ */
+const FRAME_GROUPS: ReadonlySet<ChangeGroupKey> = new Set(['staged', 'unstaged'])
+
+/**
+ * The groups the row list should mount a header for. The frame is always
+ * supplied — an empty header reading `(0)` is the signal that the side is
+ * empty, not that the section is missing. Every other group appears with rows,
+ * or when the host capped its rows away but its honest count is known.
+ */
+export function visibleChangeGroups<G extends { readonly key: ChangeGroupKey; readonly items: readonly GitChange[] }>(
+  groups: readonly G[],
+  counts: Readonly<Record<ChangeGroupKey, number>>,
+  truncated: boolean,
+): G[] {
+  return groups.filter((g) => FRAME_GROUPS.has(g.key) || g.items.length > 0 || (truncated && counts[g.key] > 0))
+}
+
+/**
  * Flatten the groups into the row list the virtualized list mounts. Groups keep
  * their order; tree mode nests each group's changes under their directories,
  * directories before files, a directory with a single directory child collapsed
  * into one row (`src/client`).
+ *
+ * Every passed group keeps its header, including one at `(0)` with no rows: the
+ * tab decides which groups exist, and the staged / unstaged pair is its fixed
+ * frame — a header that vanished at zero forced the reader to re-read the labels
+ * to tell "nothing staged" from "no such section".
  */
 export function buildChangeRows(input: ChangeRowsInput): ChangeListRow[] {
   const rows: ChangeListRow[] = []
   for (const group of input.groups) {
     const items = group.items
-    // A group whose rows all fell past the host's cap keeps its honest count
-    // on screen; one with nothing at all (and no count to show) is noise.
-    if (items.length === 0 && group.count === 0) continue
     const closed = input.closedGroups.has(group.key)
     rows.push({
       kind: 'head',

@@ -372,12 +372,35 @@ async function configViewScenario() {
   assert.equal(await viewState(page), 'tree', 'the glyph follows the configured view')
   await page.close()
 
-  // A clean work tree: the empty state says what it is, and the switch is part
-  // of the toolbar (it does not depend on rows existing).
+  // A clean work tree: the staged / unstaged frame stays on screen at (0) so the
+  // reader can tell "nothing staged" from "no such section" without re-reading
+  // the labels, and the note under the two headers says why they are empty
+  // (issue #135). The switch is still part of the toolbar, no rows required.
   const clean = await openPanel(CLEAN)
+  assert.deepEqual(
+    await clean.locator('.gp-changes__list .gp-group-head').allTextContents(),
+    ['已暂存的更改 (0)', '更改 (0)'],
+    'the empty frame keeps both headers at zero',
+  )
   assert.equal(await clean.locator('.gp-changes__list .gp-empty').textContent(), '没有未提交的变更')
-  assert.equal(await clean.locator('.gp-changes__viewbtn').count(), 1)
+  assert.equal(await clean.locator('.gp-changes__viewbtn').count(), 1, 'the view switch does not depend on rows existing')
   await clean.close()
+
+  // The same frame while the work tree is dirty: an empty staged header is the
+  // signal, not a missing one.
+  const unstagedOnly = await openPanel({
+    ...CLEAN,
+    dirty: true, modified: 1,
+    changes: [change('readme.md')],
+    stats: { ...CLEAN.stats, fileCount: 1, modified: 1, insertions: 1 },
+  })
+  assert.deepEqual(
+    await unstagedOnly.locator('.gp-changes__list .gp-group-head').allTextContents(),
+    ['已暂存的更改 (0)', '更改 (1)'],
+    'only the unstaged rows are listed; the staged frame still reads (0)',
+  )
+  assert.equal(await unstagedOnly.locator('.gp-changes__list .gp-empty').count(), 0, 'a dirty list shows no clean-tree note')
+  await unstagedOnly.close()
 }
 
 /** The bar has to fit the narrowest layout: the switch yields, actions stay. */
