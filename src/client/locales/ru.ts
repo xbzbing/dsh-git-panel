@@ -390,7 +390,7 @@ export const ru: Record<GitKey, string> = {
   'diff.backToDiff': 'Назад к различиям',
   'diff.copyAfter': 'Копировать содержимое после изменения',
   'diff.copyAfterDone': 'Содержимое после изменения скопировано',
-  'diff.versionTooLarge': 'Файл больше 10 MiB; предпросмотр и копирование недоступны',
+  'diff.versionTooLarge': 'Размер файла — {size}, это больше предела 10 MiB; предпросмотр и копирование недоступны',
   'diff.versionBinary': 'Это не текстовый файл; предпросмотр и копирование недоступны',
   'diff.versionAbsent': 'В этой версии файла нет',
   'diff.expandAll': 'Развернуть все',

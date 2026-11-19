@@ -27,7 +27,8 @@ import { useBranchTree, useCommitDetail, useHistory, type HistoryFilter } from '
 import { useMenuActive } from './use-menu-active.js'
 import { searchPublish } from './history-filter.js'
 import { useCopyFeedback } from './copy-feedback.js'
-import { useFileVersion, type FileVersionTarget } from './file-version.js'
+import { fileVersionKey, type FileVersionTarget } from './file-version.js'
+import { useFileVersion } from './use-file-version.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
@@ -888,13 +889,19 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       ? { path: target.path, base: 'commit', commit: target.hash }
       : { path: target.path, base: 'worktree' }
   }, [detail.fileDiff])
-  const fileVersionKey = fileVersionTarget === null
-    ? null
-    : `${fileVersionTarget.base}\u0000${fileVersionTarget.commit ?? ''}\u0000${fileVersionTarget.path}`
+  const versionKey = fileVersionKey(fileVersionTarget)
   // A new file/commit starts on the diff; the view is a per-open choice, not a
   // sticky preference that would hide the change the dialog exists to show.
-  const [fileDiffView, setFileDiffView] = useState<'diff' | 'file'>('diff')
-  useEffect(() => { setFileDiffView('diff') }, [fileVersionKey])
+  // Stored with the key it belongs to and derived on render, so switching the
+  // open file cannot paint the previous body's view for a frame.
+  const [viewSlot, setViewSlot] = useState<{ readonly key: string | null; readonly view: 'diff' | 'file' }>({ key: null, view: 'diff' })
+  const fileDiffView: 'diff' | 'file' = viewSlot.key === versionKey ? viewSlot.view : 'diff'
+  // Closing the dialog forgets the entry, so reopening the same file starts on
+  // the diff again: the view is a choice made inside one open, not a remembered
+  // preference. (Deriving the view above is what keeps a target switch from
+  // painting the previous file's body for a frame; this effect only clears.)
+  useEffect(() => { if (versionKey === null) setViewSlot({ key: null, view: 'diff' }) }, [versionKey])
+  const setFileDiffView = (view: 'diff' | 'file'): void => setViewSlot({ key: versionKey, view })
   const fileVersion = useFileVersion(remote, sessionId, fileVersionTarget, fileDiffView === 'file')
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
     visible: queryVisible,
@@ -919,11 +926,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     version: {
       view: fileDiffView,
       onView: setFileDiffView,
-      state: fileVersion.state,
-      copyBusy: fileVersion.busy,
-      copyFeedback: fileVersion.feedback,
-      copyFailure: fileVersion.failure,
-      onCopy: fileVersion.copy,
+      ...fileVersion,
     },
     t,
   })

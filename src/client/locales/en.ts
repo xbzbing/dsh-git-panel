@@ -389,7 +389,7 @@ export const en: Record<GitKey, string> = {
   'diff.backToDiff': 'Back to diff',
   'diff.copyAfter': 'Copy post-change file content',
   'diff.copyAfterDone': 'Post-change content copied',
-  'diff.versionTooLarge': 'The file is over 10 MiB; preview and copy are unavailable',
+  'diff.versionTooLarge': 'The file is {size}, over the 10 MiB limit; preview and copy are unavailable',
   'diff.versionBinary': 'This file is not text; preview and copy are unavailable',
   'diff.versionAbsent': 'This file does not exist in this version',
   'diff.expandAll': 'Expand all',

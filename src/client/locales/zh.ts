@@ -411,7 +411,7 @@ export const zh = {
   'diff.backToDiff': '返回差异',
   'diff.copyAfter': '复制变更后的文件内容',
   'diff.copyAfterDone': '已复制变更后的内容',
-  'diff.versionTooLarge': '文件超过 10 MiB，无法预览或复制',
+  'diff.versionTooLarge': '文件 {size}，超过 10 MiB 上限，无法预览或复制',
   'diff.versionBinary': '该文件不是文本，无法预览或复制',
   'diff.versionAbsent': '该版本没有此文件',
   'diff.expandAll': '展开全部',

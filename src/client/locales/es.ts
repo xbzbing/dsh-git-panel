@@ -390,7 +390,7 @@ export const es: Record<GitKey, string> = {
   'diff.backToDiff': 'Volver al diff',
   'diff.copyAfter': 'Copiar el contenido posterior al cambio',
   'diff.copyAfterDone': 'Contenido posterior copiado',
-  'diff.versionTooLarge': 'El archivo supera los 10 MiB; la vista previa y la copia no están disponibles',
+  'diff.versionTooLarge': 'El archivo ocupa {size} y supera el límite de 10 MiB; la vista previa y la copia no están disponibles',
   'diff.versionBinary': 'Este archivo no es texto; la vista previa y la copia no están disponibles',
   'diff.versionAbsent': 'Este archivo no existe en esta versión',
   'diff.expandAll': 'Expandir todo',

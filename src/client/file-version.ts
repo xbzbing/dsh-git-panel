@@ -3,15 +3,14 @@
  * diff's base, shared by the read-only file view and the "copy post-change
  * content" action.
  *
- * The read is on demand (opening the file view or pressing copy), one request
- * per open target. A target switch invalidates both the cached body and any
- * in-flight reply, so a late answer for the previous file cannot paint or
- * overwrite the next one.
+ * This half is pure state: the target key, the wire→view mapping, and the
+ * one-target read pipeline (in-flight join, last-answer cache, and a generation
+ * that drops replies the view has moved past). The React hook lives in
+ * `use-file-version.ts`, so the pipeline can be tested without a renderer or
+ * the host's clipboard primitives.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { queryAs, type GitPanelRemote } from './rpc.js'
 import type { GitQuery, GitQueryResult } from './types.js'
-import { useCopyFeedback, type CopyFeedback } from './copy-feedback.js'
+import type { CopyFeedback } from './copy-feedback.js'
 import type { GitKey } from './locales.js'
 
 /** The version a diff's new side compares against. `rev` is the caller's
@@ -25,7 +24,7 @@ export interface FileVersionTarget {
 export type FileVersionState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading' }
-  | { readonly kind: 'ready'; readonly content: string; readonly lines: number; readonly size: number }
+  | { readonly kind: 'ready'; readonly content: string; readonly size: number }
   | { readonly kind: 'tooLarge'; readonly size?: number }
   | { readonly kind: 'binary'; readonly size?: number }
   | { readonly kind: 'absent' }
@@ -44,21 +43,28 @@ export interface FileVersionControl {
   readonly failure: GitKey | null
 }
 
-function targetKey(target: FileVersionTarget | null): string | null {
+/** Every input of one read, as the cache/derivation key. */
+export function fileVersionKey(target: FileVersionTarget | null): string | null {
   if (target === null) return null
   return `${target.base}\u0000${target.commit ?? ''}\u0000${target.path}`
 }
 
-function queryOf(target: FileVersionTarget): GitQuery {
+/** The wire request for one target. */
+export function fileVersionQuery(target: FileVersionTarget): GitQuery {
   return target.base === 'commit'
     ? { kind: 'file-version', path: target.path, base: 'commit', commit: target.commit ?? '' }
     : { kind: 'file-version', path: target.path, base: target.base }
 }
 
-function stateOf(value: Extract<GitQueryResult, { kind: 'file-version' }>): FileVersionState {
+/** Map a reply onto the view state. A text reply with no body is not an empty
+ * file: keep it an error so the view can neither render nor copy a silently
+ * truncated answer. */
+export function fileVersionStateOf(value: Extract<GitQueryResult, { kind: 'file-version' }>): FileVersionState {
   switch (value.variant) {
     case 'text':
-      return { kind: 'ready', content: value.content ?? '', lines: value.lines ?? 0, size: value.size ?? 0 }
+      return value.content === undefined
+        ? { kind: 'error' }
+        : { kind: 'ready', content: value.content, size: value.size ?? 0 }
     case 'tooLarge':
       return { kind: 'tooLarge', ...(value.size !== undefined ? { size: value.size } : {}) }
     case 'binary':
@@ -68,104 +74,55 @@ function stateOf(value: Extract<GitQueryResult, { kind: 'file-version' }>): File
   }
 }
 
-export function useFileVersion(
-  remote: GitPanelRemote,
-  sessionId: string,
-  target: FileVersionTarget | null,
-  active: boolean,
-): FileVersionControl {
-  const key = targetKey(target)
-  const [state, setState] = useState<FileVersionState>({ kind: 'idle' })
-  const [busy, setBusy] = useState(false)
-  const [failure, setFailure] = useState<GitKey | null>(null)
-  const { feedback, copy: writeClipboard } = useCopyFeedback(target?.path ?? null)
+export const FILE_VERSION_IDLE: FileVersionState = { kind: 'idle' }
 
-  // The request/reply pair is keyed by the target, not by the state object:
-  // a re-render while the same file is open must not start a second read.
-  const targetRef = useRef(target)
-  targetRef.current = target
-  const keyRef = useRef(key)
-  keyRef.current = key
-  const cache = useRef<{ key: string; state: FileVersionState } | null>(null)
-  const inflight = useRef<{ key: string; promise: Promise<FileVersionState> } | null>(null)
-  const generation = useRef(0)
+export interface VersionReads {
+  /** The cached answer for this key, if the pipeline still holds one. */
+  peek(key: string): FileVersionState | null
+  /**
+   * Answer for `key`: the cached state, the in-flight request for the same key,
+   * or a fresh `load()`. `publish` runs only for answers that are still current
+   * — a target the caller moved past neither paints nor enters the cache, and
+   * an error is never cached so the next press retries the read.
+   */
+  read(key: string, load: () => Promise<FileVersionState>, publish: (state: FileVersionState) => void): Promise<FileVersionState>
+  /** Drop the cached body and the in-flight entry, and invalidate open replies. */
+  invalidate(): void
+}
 
-  useEffect(() => {
-    generation.current += 1
-    cache.current = null
-    inflight.current = null
-    setState({ kind: 'idle' })
-    setBusy(false)
-    setFailure(null)
-  }, [key])
-
-  const ensure = useCallback(async (): Promise<FileVersionState | null> => {
-    const current = targetRef.current
-    const currentKey = keyRef.current
-    if (current === null || currentKey === null) return null
-    const cached = cache.current
-    if (cached !== null && cached.key === currentKey) return cached.state
-    const running = inflight.current
-    if (running !== null && running.key === currentKey) return running.promise
-    const my = generation.current
-    setState({ kind: 'loading' })
-    const promise = remote.query({ sessionId, query: queryOf(current) }).then((res) => {
-      const version = queryAs(res, 'file-version')
-      const next = version === null ? ({ kind: 'error' } as const) : stateOf(version)
-      // A reply for a target that has since changed is dropped: caching it
-      // would let the next open of that path show a stale body. An error is not
-      // cached, so pressing copy again actually retries the read.
-      if (my === generation.current && currentKey === keyRef.current) {
-        if (version !== null) cache.current = { key: currentKey, state: next }
-        setState(next)
-      }
-      return next
-    }).catch(() => {
-      const next = { kind: 'error' } as const
-      if (my === generation.current && currentKey === keyRef.current) setState(next)
-      return next
-    }).finally(() => {
-      if (inflight.current !== null && inflight.current.key === currentKey) inflight.current = null
-    })
-    inflight.current = { key: currentKey, promise }
-    return promise
-  }, [remote, sessionId])
-
-  const load = useCallback((): void => {
-    if (keyRef.current === null) return
-    if (state.kind === 'error') {
-      cache.current = null
-      inflight.current = null
-    }
-    void ensure()
-  }, [ensure, state.kind])
-
-  useEffect(() => {
-    if (active) load()
-    // `ensure` returns the cached state, so re-entering the file view does not
-    // refetch. `state.kind` only decides whether an error drops that cache;
-    // depending on it here would refire the effect on every state transition.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, key])
-
-  const copy = useCallback((): void => {
-    if (targetRef.current === null || busy) return
-    const myKey = keyRef.current
-    setBusy(true)
-    setFailure(null)
-    void ensure().then((result) => {
-      if (myKey === null || myKey !== keyRef.current) return
-      if (result === null) return
-      if (result.kind === 'ready') {
-        writeClipboard(result.content)
-        return
-      }
-      if (result.kind === 'tooLarge') setFailure('diff.versionTooLarge')
-      else if (result.kind === 'binary') setFailure('diff.versionBinary')
-      else if (result.kind === 'absent') setFailure('diff.versionAbsent')
-      else setFailure('files.loadFailed')
-    }).finally(() => setBusy(false))
-  }, [busy, ensure, writeClipboard])
-
-  return { state, load, copy, busy, feedback, failure }
+/** One-target read pipeline; see `VersionReads`. */
+export function createVersionReads(): VersionReads {
+  let generation = 0
+  let cached: { readonly key: string; readonly state: FileVersionState } | null = null
+  let inflight: { readonly key: string; readonly promise: Promise<FileVersionState> } | null = null
+  return {
+    peek(key) {
+      return cached !== null && cached.key === key ? cached.state : null
+    },
+    read(key, load, publish) {
+      const hit = cached
+      if (hit !== null && hit.key === key) return Promise.resolve(hit.state)
+      const running = inflight
+      if (running !== null && running.key === key) return running.promise
+      const my = generation
+      const promise = load().then((state) => {
+        if (my === generation) {
+          if (state.kind !== 'error') cached = { key, state }
+          publish(state)
+        }
+        return state
+      }).finally(() => {
+        // Identity, not just the key: a close/reopen of the same target can have
+        // installed a newer in-flight entry by the time this one settles.
+        if (inflight !== null && inflight.promise === promise) inflight = null
+      })
+      inflight = { key, promise }
+      return promise
+    },
+    invalidate() {
+      generation += 1
+      cached = null
+      inflight = null
+    },
+  }
 }

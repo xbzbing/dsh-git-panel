@@ -99,6 +99,9 @@ async function boot(page, capabilities, history, snap = SNAP) {
                 newLines: 1,
               } } }
             }
+            if (q.kind === 'file-version') {
+              return { ok: true, value: { ok: true, value: { kind: 'file-version', path: q.path, variant: 'text', content: '# hi from work tree\n', size: 19 } } }
+            }
             if (q.kind === 'last-commit-message') {
               return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: '' } } }
             }
@@ -240,6 +243,15 @@ const revQuery = await page.evaluate(() => window.__queries.filter((q) => q.kind
 assert.ok(revQuery, 'a rev diff is requested')
 assert.equal(revQuery.path, 'README.md')
 assert.equal(revQuery.rev, 'refs/tags/v1', 'the full ref travels, not the short name')
+
+// The file view / copy of a revision comparison reads the working tree — the
+// new side of `git diff <rev>` — never a `rev` variant the host would fake.
+await page.evaluate(() => { document.querySelector('.gp-modal .gp-modal__view')?.click() })
+await page.waitForSelector('.gp-modal__file .gp-files__code', { timeout: 5000 })
+const versionQuery = await page.evaluate(() => window.__queries.filter((q) => q.kind === 'file-version').pop())
+assert.equal(versionQuery?.base, 'worktree', 'a revision comparison reads the work tree')
+assert.equal(versionQuery?.path, 'README.md')
+assert.equal(await page.evaluate(() => document.querySelector('.gp-modal .gp-modal__file')?.textContent?.includes('# hi from work tree') ?? false), true, 'the body is the version read, not the diff')
 
 // ── one Escape closes the overlay, not the picker under it ────────────────
 assert.equal(await page.locator('.gp-compare__row').count() > 0, true, 'the picker stays mounted under the overlay')

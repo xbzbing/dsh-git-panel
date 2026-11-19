@@ -148,9 +148,13 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
   // tip would vanish before the copy it is warning about.
   const [partialSelect, setPartialSelect] = useState(false)
 
-  // Reset the find state when the previewed file changes; a partial-selection
-  // notice belongs to the file it was raised on.
-  useEffect(() => { setFindOpen(false); setQuery(''); setActiveIndex(0); setPartialSelect(false) }, [path])
+  // Reset the find state when the previewed file changes.
+  useEffect(() => { setFindOpen(false); setQuery(''); setActiveIndex(0) }, [path])
+  // A partial-selection notice belongs to the body it was raised on and to the
+  // render tier that produced it: a reloaded body, or one that is fully mounted
+  // again, is no longer described by it. (Find state is separate — a refresh
+  // must not close a search the user is reading.)
+  useEffect(() => { setPartialSelect(false) }, [path, content, wrap])
 
   // Debounce the scan (not the input) so typing does not re-match + re-render
   // the whole grid on every keystroke.
@@ -312,7 +316,10 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
     setPartialSelect(!wrapActive)
   }
   const onPreviewKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
-    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || (e.key !== 'a' && e.key !== 'A')) return
+    // `code` as well as `key`: a non-Latin layout (the panel ships a Russian
+    // dictionary) reports the physical A as a different character.
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
+    if (e.key !== 'a' && e.key !== 'A' && e.code !== 'KeyA') return
     const target = e.target instanceof Element ? e.target : null
     if (target !== null && target.closest('input, textarea, select, button, [contenteditable="true"]') !== null) return
     e.preventDefault()
@@ -321,7 +328,9 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
   const onPreviewMouseDown = (e: ReactMouseEvent<HTMLDivElement>): void => {
     const target = e.target instanceof Element ? e.target : null
     if (target !== null && target.closest('.gp-find, input, textarea, select, button') !== null) return
-    containerRef.current?.focus()
+    // Focus without scrolling: the container is the code area itself, and
+    // revealing it would jump a preview that is already in view.
+    containerRef.current?.focus({ preventScroll: true })
     // A new press starts a new selection; the previous partial-selection notice
     // no longer describes it.
     if (partialSelect) setPartialSelect(false)
@@ -365,7 +374,10 @@ function renderCodeLine(
   active: Match | null,
   activeRef: { current: HTMLElement | null },
 ): JSX.Element {
-  if (line === '') return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, '\u00a0')
+  // The NBSP keeps an empty line's row height; excluding it from selection keeps
+  // Ctrl/⌘+A (and a manual drag) faithful — a copied blank line stays blank
+  // instead of becoming U+00A0.
+  if (line === '') return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, h('span', { className: 'gp-files__blank' }, '\u00a0'))
   const cellSpans = line.length > MAX_LINE_CHARS ? undefined : spans
   if (ranges === undefined || ranges.length === 0) {
     return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, cellSpans !== undefined
