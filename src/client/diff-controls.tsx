@@ -4,12 +4,17 @@
  * commit file-diff dialog use them, so the pressed/disabled contract and the
  * glyphs cannot drift between the two. Each control takes its own callback
  * shape: a surface that renders only one of them passes nothing it cannot use.
+ *
+ * Both carry the shell's own hover tooltip (`PlatformTip`): the icon-only
+ * controls otherwise relied on the browser's native title, whose delay cannot
+ * be shortened.
  */
 import { createElement as h } from 'react'
 import type { CSSProperties, JSX } from 'react'
 import { IconCompareSplitOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitKey } from './locales.js'
 import { AfterIcon, BeforeIcon, ExpandAllIcon } from './icons.js'
+import { PlatformTip } from './platform-tip.js'
 import type { DiffMode } from './DiffView.js'
 
 export interface DiffExpandCbs {
@@ -41,16 +46,19 @@ function expandable(mode: DiffMode): boolean {
 
 export function renderDiffExpand(cb: DiffExpandCbs): JSX.Element {
   const label = cb.t(cb.expanded ? 'diff.collapse' : 'diff.expandAll')
-  return h('button', {
-    key: 'expand', type: 'button',
-    className: 'gp-icon-btn gp-diff__expand',
-    ...(cb.style !== undefined ? { style: cb.style } : {}),
-    disabled: !expandable(cb.mode),
-    'aria-pressed': cb.expanded,
-    title: label,
-    'aria-label': label,
-    onClick: () => cb.onToggleExpand(),
-  }, h(ExpandAllIcon, { size: 14 }))
+  return h(PlatformTip, {
+    key: 'expand',
+    label,
+    children: h('button', {
+      type: 'button',
+      className: 'gp-icon-btn gp-diff__expand',
+      ...(cb.style !== undefined ? { style: cb.style } : {}),
+      disabled: !expandable(cb.mode),
+      'aria-pressed': cb.expanded,
+      'aria-label': label,
+      onClick: () => cb.onToggleExpand(),
+    }, h(ExpandAllIcon, { size: 14 })),
+  })
 }
 
 /**
@@ -62,31 +70,38 @@ export function renderDiffExpand(cb: DiffExpandCbs): JSX.Element {
  */
 export function renderDiffModes(cb: DiffModeCbs): JSX.Element {
   const split = cb.mode === 'split'
+  const compareLabel = cb.t(split ? 'diff.toUnified' : 'diff.toSplit')
   const compare = cb.modes.includes('split')
-    ? h('button', {
-      key: 'split', type: 'button',
-      className: 'gp-icon-btn gp-diff__mode',
-      'data-diff-mode': 'split',
-      'aria-pressed': split,
-      title: cb.t(split ? 'diff.toUnified' : 'diff.toSplit'),
-      'aria-label': cb.t(split ? 'diff.toUnified' : 'diff.toSplit'),
-      onClick: () => cb.onMode(split ? 'unified' : 'split'),
-    }, h(IconCompareSplitOutlineRegular, { key: 'i', size: 15, className: 'gp-diff__compare-icon' }))
+    ? h(PlatformTip, {
+      key: 'split',
+      label: compareLabel,
+      children: h('button', {
+        type: 'button',
+        className: 'gp-icon-btn gp-diff__mode',
+        'data-diff-mode': 'split',
+        'aria-pressed': split,
+        'aria-label': compareLabel,
+        onClick: () => cb.onMode(split ? 'unified' : 'split'),
+      }, h(IconCompareSplitOutlineRegular, { key: 'i', size: 15, className: 'gp-diff__compare-icon' })),
+    })
     : null
   const side = (mode: 'before' | 'after'): JSX.Element | null => {
     if (!cb.modes.includes(mode)) return null
     const pressed = cb.mode === mode
     const label = cb.t(pressed ? 'diff.backToUnified' : `diff.${mode}`)
     const icon = mode === 'before' ? BeforeIcon : AfterIcon
-    return h('button', {
-      key: mode, type: 'button',
-      className: 'gp-icon-btn gp-diff__mode',
-      'data-diff-mode': mode,
-      'aria-pressed': pressed,
-      title: label,
-      'aria-label': label,
-      onClick: () => cb.onMode(pressed ? 'unified' : mode),
-    }, h(icon, { key: 'i', size: 15 }))
+    return h(PlatformTip, {
+      key: mode,
+      label,
+      children: h('button', {
+        type: 'button',
+        className: 'gp-icon-btn gp-diff__mode',
+        'data-diff-mode': mode,
+        'aria-pressed': pressed,
+        'aria-label': label,
+        onClick: () => cb.onMode(pressed ? 'unified' : mode),
+      }, h(icon, { key: 'i', size: 15 })),
+    })
   }
   return h('div', {
     key: 'modes',

@@ -17,6 +17,7 @@ import { pathCopyButton } from './path-copy-button.js'
 import type { CopyFeedback } from './copy-feedback.js'
 import type { GitPanelRemote } from './rpc.js'
 import { renderDiffExpand, renderDiffModes } from './diff-controls.js'
+import { PlatformTip } from './platform-tip.js'
 import { CodePreview } from './files-preview.js'
 import type { FileVersionControl, FileVersionState } from './file-version.js'
 
@@ -98,7 +99,14 @@ export function renderFileDiffModal(
   }
   const expandEl = renderDiffExpand(controls)
   const modesEl = renderDiffModes(controls)
-  const closeEl = h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 }))
+  const closeEl = h(PlatformTip, {
+    key: 'close',
+    label: t('common.close'),
+    children: h('button', {
+      type: 'button', className: 'gp-icon-btn gp-modal__close',
+      'aria-label': t('common.close'), onClick: onClose,
+    }, h(CloseIcon, { size: 15 })),
+  })
   // A text diff has something to read/copy; a binary/image diff does not. A
   // terminal version state (too large / binary / absent) keeps the control
   // visible and disabled with the reason as its label; a read error leaves it
@@ -112,34 +120,41 @@ export function renderFileDiffModal(
     : t('diff.copyAfter'))
   const copyEl = version === undefined || !copyable
     ? null
-    : h('button', {
-      key: 'copy', type: 'button',
-      className: `gp-icon-btn gp-modal__copy${version.feedback === 'copied' ? ' gp-modal__copy--copied' : ''}${version.feedback === 'error' ? ' gp-modal__copy--error' : ''}`,
-      title: copyLabel,
-      'aria-label': copyLabel,
-      'aria-busy': version.busy,
-      disabled: version.busy || issueText !== null,
-      onClick: version.copy,
-    }, [
-      version.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
-      h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
-        issueText
-        ?? (version.feedback === 'copied'
-          ? t('diff.copyAfterDone')
-          : version.feedback === 'error' ? t('files.contentCopyFailed') : failureText ?? '')),
-    ])
+    : h(PlatformTip, {
+      key: 'copy',
+      label: copyLabel,
+      children: h('button', {
+        type: 'button',
+        className: `gp-icon-btn gp-modal__copy${version.feedback === 'copied' ? ' gp-modal__copy--copied' : ''}${version.feedback === 'error' ? ' gp-modal__copy--error' : ''}`,
+        'aria-label': copyLabel,
+        'aria-busy': version.busy,
+        disabled: version.busy || issueText !== null,
+        onClick: version.copy,
+      }, [
+        version.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
+        h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
+          issueText
+          ?? (version.feedback === 'copied'
+            ? t('diff.copyAfterDone')
+            : version.feedback === 'error' ? t('files.contentCopyFailed') : failureText ?? '')),
+      ]),
+    })
   // The label names the view the press switches to, so the button needs no
   // separate pressed state (a changing name plus `aria-pressed` reports the
   // same fact twice and reads as a shifting control).
+  const viewLabel = t(view === 'file' ? 'diff.backToDiff' : 'diff.fileView')
   const viewEl = version === undefined
     ? null
-    : h('button', {
-      key: 'view', type: 'button',
-      className: 'gp-icon-btn gp-modal__view',
-      title: t(view === 'file' ? 'diff.backToDiff' : 'diff.fileView'),
-      'aria-label': t(view === 'file' ? 'diff.backToDiff' : 'diff.fileView'),
-      onClick: () => version.onView(view === 'file' ? 'diff' : 'file'),
-    }, h(FileIcon, { size: 14 }))
+    : h(PlatformTip, {
+      key: 'view',
+      label: viewLabel,
+      children: h('button', {
+        type: 'button',
+        className: 'gp-icon-btn gp-modal__view',
+        'aria-label': viewLabel,
+        onClick: () => version.onView(view === 'file' ? 'diff' : 'file'),
+      }, h(FileIcon, { size: 14 })),
+    })
   // The header path doubles as its copy control, in the same shape as the
   // changes pane's and the files toolbar's (path-copy-button.tsx). `--copy`
   // carries the button affordance because the bare `.gp-modal__path` class is
