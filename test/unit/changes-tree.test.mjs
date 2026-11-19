@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildChangeRows, dirDiscardPaths, dirKey, dirStageAction, normalizeViewMode } from '../../lib/testkit.mjs'
+import { buildChangeRows, dirDiscardPaths, dirKey, dirStageAction, normalizeViewMode, visibleChangeGroups } from '../../lib/testkit.mjs'
 
 const change = (path, { status = 'modified', staged = false, ...rest } = {}) => ({
   path, status, staged, isDirectory: false, ...rest,
@@ -95,6 +95,28 @@ test('an empty group keeps its header at (0)', () => {
   assert.deepEqual(shape(rows), ['head:staged:0', 'head:unstaged:0'])
   assert.equal(rows[0].collapsible, false)
   assert.equal(rows[0].truncated, false, 'a zero count is not a capped prefix')
+})
+
+const visible = (groups, counts = { staged: 0, unstaged: 0, untracked: 0 }, truncated = false) =>
+  visibleChangeGroups(groups, counts, truncated).map((group) => group.key)
+
+test('the staged / unstaged frame is always supplied to the row list', () => {
+  // A clean tree still hands both frame groups over: their (0) headers are what
+  // tells "nothing staged" from "no such section" (issue #135).
+  const clean = [{ key: 'staged', items: [] }, { key: 'unstaged', items: [] }, { key: 'untracked', items: [] }]
+  assert.deepEqual(visible(clean), ['staged', 'unstaged'])
+})
+
+test('an untracked group appears with rows or a capped count, never empty', () => {
+  const withRows = [
+    { key: 'staged', items: [] },
+    { key: 'unstaged', items: [change('a.txt')] },
+    { key: 'untracked', items: [change('b.txt', { status: 'untracked' })] },
+  ]
+  assert.deepEqual(visible(withRows, { staged: 0, unstaged: 1, untracked: 1 }), ['staged', 'unstaged', 'untracked'])
+  // Its rows fell past the cap: the honest count keeps the header visible.
+  assert.deepEqual(visible([{ key: 'untracked', items: [] }], { staged: 0, unstaged: 0, untracked: 9 }, true), ['untracked'])
+  assert.deepEqual(visible([{ key: 'untracked', items: [] }], { staged: 0, unstaged: 0, untracked: 9 }), [])
 })
 
 test('a group that fell past the list cap keeps its honest count', () => {

@@ -18,7 +18,7 @@ import { ChevronIcon, CloseIcon, SparkleIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { renderConfirmModal } from './ops-modals.js'
 import { StashPushModal, renderChangeRow, renderStashRow, type ChangeRowCtx } from './changes-rows.js'
-import { buildChangeRows, dirDiscardPaths, dirKey, normalizeViewMode, ROW_H, type ChangeGroupKey, type ChangeViewMode } from './changes-tree.js'
+import { buildChangeRows, dirDiscardPaths, dirKey, normalizeViewMode, ROW_H, visibleChangeGroups, type ChangeGroupKey, type ChangeViewMode } from './changes-tree.js'
 import { inertAttr } from './inert.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
@@ -213,12 +213,9 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     unstaged: snapshot.stats.modified,
     untracked: snapshot.stats.untracked,
   }
-  // The staged / unstaged pair is the list's fixed frame: its headers stay put at
-  // `(0)` so the reader can tell "nothing staged" from "no such section" without
-  // re-reading the labels (issue #135). Untracked has no such frame — it is a
-  // separate pile, shown only once it holds something (or hides rows past the
-  // cap, which the honest count keeps visible).
-  const groups = allGroups.filter((g) => g.key !== 'untracked' || g.items.length > 0 || (snapshot.truncated && counts[g.key] > 0))
+  // Which groups mount a header is a policy of the row model (the staged /
+  // unstaged frame stays at (0), issue #135), not of this component.
+  const groups = visibleChangeGroups(allGroups, counts, snapshot.truncated)
 
   // The directory dialog's targets, re-derived from the live rows on every
   // render: same group, same directory prefix — so a poll that removes files
