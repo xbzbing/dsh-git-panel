@@ -851,7 +851,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     snapshot.truncated && !dismissedNotices.isDismissed(truncatedNotice)
       ? h(NoticeBar, { key: 'truncated', status: true, text: truncatedNotice, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(truncatedNotice) })
       : null,
-    h('div', { key: 'list', className: 'gp-changes__list', ref: listNode }, [
+    h('div', { key: 'list', className: `gp-changes__list${snapshot.changes.length === 0 ? ' gp-changes__list--empty' : ''}`, ref: listNode }, [
       rowSliderNode,
       // The headers are rows of the same window whether or not anything sits
       // under them, so the clean tree still mounts its two `(0)` heads and only

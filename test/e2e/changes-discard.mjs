@@ -795,7 +795,9 @@ async function expandAllScenario() {
     result.barText = bar()?.querySelector('.gp-changes__expandbar__text')?.textContent ?? null
     result.barBtnLabel = barBtn()?.textContent ?? null
     // O1: while truncated the group-head select-all checkbox is hidden.
-    result.headCheckboxWhileTruncated = [...document.querySelectorAll('.gp-group-head input.gp-check')].length
+    // Count only real group select-alls: the empty frame keeps its box
+    // (enabled, like any header), while a capped group must offer none.
+    result.headCheckboxWhileTruncated = [...document.querySelectorAll('.gp-group-head:not(.gp-group-head--frame) input.gp-check:not(:disabled)')].length
     result.rowsWhileTruncated = document.querySelectorAll('.gp-file-row').length
 
     // The staged head is the empty frame at (0); the count lives on "更改".
@@ -814,7 +816,7 @@ async function expandAllScenario() {
     result.barTextAfter = bar()?.querySelector('.gp-changes__expandbar__text')?.textContent ?? null
     result.barBtnAfter = barBtn()?.textContent ?? null
     // O1 resolved: the checkbox is back now that the group is complete.
-    result.headCheckboxAfterExpand = [...document.querySelectorAll('.gp-group-head input.gp-check')].length
+    result.headCheckboxAfterExpand = [...document.querySelectorAll('.gp-group-head:not(.gp-group-head--frame) input.gp-check:not(:disabled)')].length
 
     // Whole-group pick now covers every row (data-level: all mounted rows check).
     unstagedHead()?.querySelector('input.gp-check')?.click()
@@ -829,7 +831,7 @@ async function expandAllScenario() {
     await wait(100)
     result.collapsedFlag = window.__gpFixture.lastSnapshotFullChanges === false
     result.barTextAfterCollapse = bar()?.querySelector('.gp-changes__expandbar__text')?.textContent ?? null
-    result.headCheckboxAfterCollapse = [...document.querySelectorAll('.gp-group-head input.gp-check')].length
+    result.headCheckboxAfterCollapse = [...document.querySelectorAll('.gp-group-head:not(.gp-group-head--frame) input.gp-check:not(:disabled)')].length
     result.mountedRowsAfterCollapse = document.querySelectorAll('.gp-file-row').length
     return result
   }, full)

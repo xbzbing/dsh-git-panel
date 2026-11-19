@@ -262,17 +262,20 @@ export const CSS = `
  * each mounted row/head is absolutely positioned at its offset and pinned to
  * the fixed height the window math assumes (the ROW_H table). */
 .gp-changes__vlist{position:relative;width:100%}
-/* The clean-work-tree note flows under the always-visible (0) headers, so it
- * must not inherit gp-empty's full-height box — that would overflow the list
- * by the headers' own rows. Its indent lands on the header labels (padding 10 +
- * chevron 12 + gap 6). */
-.gp-changes__emptynote{height:auto;align-items:flex-start;justify-content:flex-start;padding:10px 10px 10px 28px;text-align:left}
+/* The clean-work-tree note fills the space under the always-visible (0)
+ * headers and centers in it: the headers keep their place at the top, the note
+ * reads as the list's empty body rather than a caption. The empty list is a
+ * flex column (the virtual spacer takes its fixed height), so the note's
+ * flex:1 is exactly the leftover box and the list still never scrolls. */
+.gp-changes__list--empty{display:flex;flex-direction:column}
+.gp-changes__list--empty .gp-changes__vlist{flex:none}
+.gp-changes__emptynote{flex:1 1 auto;height:auto;padding:10px}
 .gp-changes__vrow{position:absolute;left:0;right:0;box-sizing:border-box}
 .gp-changes__vrow>.gp-file-row,.gp-changes__vrow>.gp-group-head,.gp-changes__vrow>.gp-dir-row{height:100%;box-sizing:border-box}
 .gp-check{width:14px;height:14px;flex:none;cursor:pointer}
 .gp-group-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
-/* A header with nothing to fold — an empty group's (0) frame or one kept only
- * for the full count — drops the chevron and the hand. */
+/* A header whose rows all fell past the cap has nothing to fold: no chevron,
+ * no hand. The empty (0) frame keeps its controls, so it is never static. */
 .gp-group-head--static{cursor:default}
 .gp-group-head__chev-spacer{display:inline-block;width:12px;flex:none}
 /* Group select-all checkbox (issue #60): sits between the chevron and the

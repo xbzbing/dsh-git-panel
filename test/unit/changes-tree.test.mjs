@@ -87,12 +87,13 @@ test('a closed group keeps its header and drops every row', () => {
   assert.deepEqual(shape(build(groups, { mode: 'flat', closedGroups: new Set(['unstaged']) })), ['head:unstaged:1'])
 })
 
-test('an empty group keeps its header at (0)', () => {
+test('an empty group keeps its header at (0) and its controls', () => {
   // The staged / unstaged frame stays on screen when the work tree is clean
   // (issue #135): the tab passes both groups, so the builder must not swallow a
-  // zero one. Nothing under it means nothing to fold.
+  // zero one. The header keeps the group controls; it just has no rows to fold.
   const rows = build([{ key: 'staged', count: 0, items: [] }, { key: 'unstaged', count: 0, items: [] }])
   assert.deepEqual(shape(rows), ['head:staged:0', 'head:unstaged:0'])
+  assert.equal(rows[0].frame, true)
   assert.equal(rows[0].collapsible, false)
   assert.equal(rows[0].truncated, false, 'a zero count is not a capped prefix')
 })
@@ -124,6 +125,7 @@ test('a group that fell past the list cap keeps its honest count', () => {
   const rows = build([{ key: 'unstaged', count: 9, items: [] }])
   assert.deepEqual(shape(rows), ['head:unstaged:9'])
   assert.equal(rows[0].collapsible, false)
+  assert.equal(rows[0].frame, false, 'a capped prefix is not the empty frame')
   assert.equal(rows[0].truncated, true, 'the header knows it is only a prefix')
   // A partially loaded group is capped too — that is what hides its select-all.
   const partial = build([{ key: 'unstaged', count: 9, items: [change('src/a.ts')] }])

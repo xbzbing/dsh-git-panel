@@ -51,12 +51,14 @@ export interface ChangeHeadRow {
    * loaded — a checked box would read as covering rows the list never fetched.
    */
   readonly truncated: boolean
-  /**
-   * Whether there are loaded rows to fold. An empty `(0)` frame and a group
-   * whose rows all fell past the cap both read `false`: nothing to hide, so the
-   * header renders static (no chevron, no hand).
-   */
+  /** Whether there are loaded rows to fold. */
   readonly collapsible: boolean
+  /**
+   * The empty `(0)` frame of a fixed group: no rows, but the header keeps the
+   * group's controls (chevron, select-all) so it still reads as a header rather
+   * than a bare label.
+   */
+  readonly frame: boolean
   /** Whether the header reads as folded (the stored state; nothing else
    * overrides it — a row the reader folded stays folded). */
   readonly collapsed: boolean
@@ -162,6 +164,7 @@ export function buildChangeRows(input: ChangeRowsInput): ChangeListRow[] {
       items,
       truncated: items.length < group.count,
       collapsible: items.length > 0,
+      frame: items.length === 0 && group.count === 0,
       collapsed: closed,
     })
     if (closed) continue
