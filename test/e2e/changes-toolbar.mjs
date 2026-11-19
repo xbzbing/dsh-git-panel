@@ -636,10 +636,11 @@ async function touchHintScenario() {
   await clean.locator('.gp-changes__refresh').hover()
   await clean.waitForFunction(() => document.querySelector('.gp-tip')?.textContent === '刷新当前仓库状态')
   const afterHover = await clean.locator('.gp-tip').textContent()
-  // An empty list must not scroll. The empty pane is full-height AND border-box,
-  // so its 24px padding sits inside that height; as content-box it added 48px
-  // past the list's content box and a phone-sized panel showed a scrollbar for a
-  // pane with nothing in it.
+  // An empty list must not scroll. The clean-tree note sits under the two `(0)`
+  // headers, so it keeps its content height instead of filling the list; it is
+  // still border-box, or its own 24px padding would push past the list's content
+  // box and a phone-sized panel would show a scrollbar for a pane with nothing
+  // in it.
   await clean.evaluate(() => { document.getElementById('panel').style.width = '364px' })
   await clean.waitForTimeout(300)
   const emptyScroll = await clean.evaluate(() => {
@@ -649,6 +650,7 @@ async function touchHintScenario() {
       layout: document.querySelector('.gp-panel')?.getAttribute('data-layout'),
       clientH: list.clientHeight,
       scrollH: list.scrollHeight,
+      heads: document.querySelectorAll('.gp-changes__list .gp-group-head').length,
       paneH: Math.round(document.querySelector('.gp-changes__list .gp-empty')?.getBoundingClientRect().height ?? -1),
     }
   })
@@ -687,7 +689,8 @@ try {
   // Empty pane, phone width: nothing to scroll, so no scrollbar.
   assert.equal(touch.emptyScroll?.layout, 'compact', 'the empty-list check runs in the compact layout')
   assert.equal(touch.emptyScroll?.scrollH, touch.emptyScroll?.clientH, `an empty changes list does not scroll (${touch.emptyScroll?.scrollH} vs ${touch.emptyScroll?.clientH})`)
-  assert.equal(touch.emptyScroll?.paneH, (touch.emptyScroll?.clientH ?? 0) - 8, 'the empty pane fills the list content box exactly (8px = its vertical padding)')
+  assert.equal(touch.emptyScroll?.heads, 2, 'the clean list still mounts the staged / unstaged frame')
+  assert.ok((touch.emptyScroll?.paneH ?? 0) > 0 && (touch.emptyScroll?.paneH ?? 0) < (touch.emptyScroll?.clientH ?? 0), 'the clean-tree note keeps its content height inside the list')
   assert.ok(touch.tip !== null, `the press-driven confirmation still reaches a finger (got ${JSON.stringify(touch.tip)})`)
   assert.equal(touch.armedAria, true, 'the first tap arms the two-step discard')
   assert.equal(touch.dismissed, 0, 'a press elsewhere drops the touch-raised confirmation')

@@ -798,14 +798,17 @@ async function expandAllScenario() {
     result.headCheckboxWhileTruncated = [...document.querySelectorAll('.gp-group-head input.gp-check')].length
     result.rowsWhileTruncated = document.querySelectorAll('.gp-file-row').length
 
+    // The staged head is the empty frame at (0); the count lives on "更改".
+    const unstagedHead = () => [...document.querySelectorAll('.gp-changes__vrow .gp-group-head')]
+      .find((n) => [...n.childNodes].some((c) => c.nodeType === 3 && (c.textContent ?? '').trim().startsWith('更改 ('))) ?? null
     barBtn()?.click()
     // Wait for the full snapshot to land (the group head reads the full count).
-    for (let i = 0; i < 80 && !(document.querySelector('.gp-group-head')?.textContent ?? '').includes('(50)'); i++) await wait(50)
+    for (let i = 0; i < 80 && !(unstagedHead()?.textContent ?? '').includes('(50)'); i++) await wait(50)
     await wait(100)
     result.fullChangesRequested = window.__gpFixture.lastSnapshotFullChanges === true
     // Virtualized list: only the viewport window mounts rows, so the evidence
     // is the group-head count (50) plus the vlist spacer height, not 50 DOM rows.
-    result.headCountAfterExpand = document.querySelector('.gp-group-head')?.textContent ?? null
+    result.headCountAfterExpand = unstagedHead()?.textContent ?? null
     result.mountedRowsAfterExpand = document.querySelectorAll('.gp-file-row').length
     result.vlistHeightAfterExpand = Math.round(document.querySelector('.gp-changes__vlist')?.getBoundingClientRect().height ?? 0)
     result.barTextAfter = bar()?.querySelector('.gp-changes__expandbar__text')?.textContent ?? null

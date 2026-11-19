@@ -87,6 +87,16 @@ test('a closed group keeps its header and drops every row', () => {
   assert.deepEqual(shape(build(groups, { mode: 'flat', closedGroups: new Set(['unstaged']) })), ['head:unstaged:1'])
 })
 
+test('an empty group keeps its header at (0)', () => {
+  // The staged / unstaged frame stays on screen when the work tree is clean
+  // (issue #135): the tab passes both groups, so the builder must not swallow a
+  // zero one. Nothing under it means nothing to fold.
+  const rows = build([{ key: 'staged', count: 0, items: [] }, { key: 'unstaged', count: 0, items: [] }])
+  assert.deepEqual(shape(rows), ['head:staged:0', 'head:unstaged:0'])
+  assert.equal(rows[0].collapsible, false)
+  assert.equal(rows[0].truncated, false, 'a zero count is not a capped prefix')
+})
+
 test('a group that fell past the list cap keeps its honest count', () => {
   // The host capped the list before this group's rows: header only, full total.
   const rows = build([{ key: 'unstaged', count: 9, items: [] }])
