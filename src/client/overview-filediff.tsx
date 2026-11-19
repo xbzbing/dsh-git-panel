@@ -99,12 +99,13 @@ export function renderFileDiffModal(
   }
   const expandEl = renderDiffExpand(controls)
   const modesEl = renderDiffModes(controls)
+  const closeLabel = t('common.close')
   const closeEl = h(PlatformTip, {
     key: 'close',
-    label: t('common.close'),
+    label: closeLabel,
     children: h('button', {
       type: 'button', className: 'gp-icon-btn gp-modal__close',
-      'aria-label': t('common.close'), onClick: onClose,
+      'aria-label': closeLabel, onClick: onClose,
     }, h(CloseIcon, { size: 15 })),
   })
   // A text diff has something to read/copy; a binary/image diff does not. A

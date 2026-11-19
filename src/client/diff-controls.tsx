@@ -5,9 +5,8 @@
  * glyphs cannot drift between the two. Each control takes its own callback
  * shape: a surface that renders only one of them passes nothing it cannot use.
  *
- * Both carry the shell's own hover tooltip (`PlatformTip`): the icon-only
- * controls otherwise relied on the browser's native title, whose delay cannot
- * be shortened.
+ * Both carry the shell's own hover bubble (`PlatformTip`): the dark pill the
+ * rest of the shell uses, with no built-in delay, so hovering answers at once.
  */
 import { createElement as h } from 'react'
 import type { CSSProperties, JSX } from 'react'
@@ -66,7 +65,7 @@ export function renderDiffExpand(cb: DiffExpandCbs): JSX.Element {
  * compare glyph, rotated once the split view is on) and one per single-side
  * view. A pressed switch means "this is what you are looking at"; pressing it
  * again returns to the unified diff, so the reader never needs a separate
- * "back" control. `data-diff-mode` gives tests and tooltips a stable handle.
+ * "back" control. `data-diff-mode` gives tests a stable handle.
  */
 export function renderDiffModes(cb: DiffModeCbs): JSX.Element {
   const split = cb.mode === 'split'

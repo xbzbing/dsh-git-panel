@@ -90,7 +90,7 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
           h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${summary.del}`),
         ]) : null
         // Icon-only: the text label costs the path the room, and the toggle
-        // state rides the pressed tint (aria-pressed) plus the title swap.
+        // state rides the pressed tint (aria-pressed) plus the label swap.
         // Shared with the commit file-diff dialog: same glyph, same pressed
         // contract, so the two toolbars cannot drift.
         const expand = renderDiffExpand({
