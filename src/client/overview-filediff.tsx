@@ -83,9 +83,18 @@ export function renderFileDiffModal(
   const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
   const effMode: DiffMode = compact && mode === 'split' ? 'unified' : mode
   const sumEl = data !== null && data.text !== '' ? (() => { const s = diffSummary(data.text); return h('span', { key: 'sum', className: 'gp-modal__sum' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null
-  // Icon-only, matching the changes pane's toolbar (shared controls).
+  // Icon-only, matching the changes pane's toolbar (shared controls). These act
+  // on the diff, so in the file view they stay enabled and return there: the
+  // alternative — removing them — collapsed the same six-button row to three and
+  // read as a malfunction rather than as "not applicable here".
+  const leaveFileView = (): void => { if (view === 'file') version?.onView('diff') }
   const controls = {
-    mode: effMode, modes, onMode, expanded, onToggleExpand: () => onExpand(!expanded), t,
+    mode: effMode,
+    modes,
+    onMode: (next: DiffMode) => { leaveFileView(); onMode(next) },
+    expanded,
+    onToggleExpand: () => { leaveFileView(); onExpand(!expanded) },
+    t,
   }
   const expandEl = renderDiffExpand(controls)
   const modesEl = renderDiffModes(controls)
@@ -157,13 +166,7 @@ export function renderFileDiffModal(
   // Compact mirrors the changes-pane toolbar: one row cannot fit header +
   // controls + close at phone widths, so the controls and a bordered close
   // button move to a dedicated second row (close at its far right).
-  const barControls = [
-    viewEl,
-    copyEl,
-    view === 'diff' ? expandEl : null,
-    view === 'diff' ? modesEl : null,
-    closeEl,
-  ]
+  const barControls = [viewEl, copyEl, expandEl, modesEl, closeEl]
   const barChildren = compact
     ? [
       h('div', { key: 'brow1', className: 'gp-modal__bar-row' }, barHead),

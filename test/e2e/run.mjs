@@ -909,7 +909,11 @@ const out = await page.evaluate(async (snap) => {
   result.modalFileView = document.querySelector('.gp-modal .gp-modal__file .gp-files__code') !== null
   result.modalFileLines = [...document.querySelectorAll('.gp-modal .gp-modal__file .gp-files__row .gp-diff-cell')].map((n) => n.textContent)
   result.modalVersionQuery = fixture.versionQueries[0] ?? null
-  result.modalDiffModeHidden = document.querySelector('.gp-modal .gp-diff__modes') === null
+  // The diff controls stay in the file view; the mode switches are usable there.
+  result.modalFileViewControls = {
+    modes: document.querySelectorAll('.gp-modal .gp-diff__modes [data-diff-mode]').length,
+    expand: document.querySelector('.gp-modal .gp-diff__expand') !== null,
+  }
   const modalCopy = document.querySelector('.gp-modal .gp-modal__copy')
   result.modalCopyLabel = modalCopy?.getAttribute('aria-label') ?? null
   const modalClipboard = []
@@ -1044,6 +1048,33 @@ const out = await page.evaluate(async (snap) => {
   diffFindInput?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   await new Promise((r) => setTimeout(r, 60))
   result.diffFindClosedModalKept = document.querySelector('.gp-modal .gp-find__input') === null && document.querySelector('.gp-modal') !== null
+  // From the file view, a diff control stays usable: it acts on the diff and
+  // returns there (no dead button, and no toolbar that changes shape). The
+  // dialog is reopened first so the version read is fresh — this runner injected
+  // degraded answers into the read the open instance has already cached.
+  document.querySelector('.gp-modal .gp-modal__close')?.click()
+  await settle()
+  const ctrlRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
+  ctrlRow?.click()
+  await settle()
+  document.querySelector('.gp-modal .gp-modal__view')?.click()
+  await settle()
+  result.modalFileViewReopened = document.querySelector('.gp-modal .gp-modal__file') !== null
+  document.querySelector('.gp-modal .gp-diff__modes [data-diff-mode="before"]')?.click()
+  await settle()
+  // The mode is "before", so the diff body is the before projection, not the
+  // unified one: the file view is gone and a diff body is back.
+  result.modalFileViewModeReturned = document.querySelector('.gp-modal .gp-modal__file') === null
+    && document.querySelector('.gp-modal .gp-diff__wrap') !== null
+  result.modalFileViewModeApplied = document.querySelector('.gp-modal .gp-modal__view')?.getAttribute('aria-label') === 'diff.fileView'
+    && document.querySelector('.gp-modal .gp-diff__modes [data-diff-mode="before"]')?.getAttribute('aria-pressed') === 'true'
+  // The expand control is the other diff-only one: it stays mounted too.
+  document.querySelector('.gp-modal .gp-modal__view')?.click()
+  await settle()
+  result.modalFileViewExpandPresent = document.querySelector('.gp-modal .gp-diff__expand') !== null
+  // Back to the unified diff for the close assertions.
+  document.querySelector('.gp-modal .gp-diff__modes [data-diff-mode="unified"]')?.click()
+  await settle()
   // Esc closes it.
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 200))
