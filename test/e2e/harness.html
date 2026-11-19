@@ -65,6 +65,13 @@
           style: { width: edge, height: edge, display: 'inline-block' },
         });
       },
+      // Official Tooltip: a hover bubble promised on one child. The stub keeps
+      // the child as-is (no wrapper, so layout/selectors do not move) and tags
+      // it with the label it would show; the real shell renders the dark pill.
+      Tooltip: function (props) {
+        if (!window.React.isValidElement(props.children)) return props.children;
+        return window.React.cloneElement(props.children, { 'data-tip': props.label });
+      },
       useCodeHighlighter: function (language) {
         return window.React.useCallback(function (code) {
           return language ? code.split('\n').map(function (line) {

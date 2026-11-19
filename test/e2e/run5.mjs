@@ -458,6 +458,7 @@ async function virtScenario() {
       return {
         pressed: btn.getAttribute('aria-pressed'),
         title: btn.getAttribute('title'),
+        tip: btn.getAttribute('data-tip'),
         icon: btn.querySelector('svg') !== null,
         transform: getComputedStyle(btn.querySelector('svg')).transform,
       }
@@ -586,16 +587,16 @@ try {
   }
   // The switches are icon-only and pressed-state driven: the pressed one names
   // the way back to unified, and the compare glyph turns 90° for split.
-  assert.deepEqual(virt.out.beforeSwitch, { pressed: 'true', title: 'diff.backToUnified', icon: true, transform: 'none' }, 'the before switch is pressed and offers the way back')
+  assert.deepEqual(virt.out.beforeSwitch, { pressed: 'true', title: null, tip: 'diff.backToUnified', icon: true, transform: 'none' }, 'the before switch is pressed and offers the way back through the platform tooltip')
   assert.equal(virt.out.pressedWhileBefore?.pressed, 'false', 'only the active single-side switch is pressed')
   assert.deepEqual(
-    { pressed: virt.out.afterSwitch?.pressed, title: virt.out.afterSwitch?.title },
-    { pressed: 'true', title: 'diff.backToUnified' },
+    { pressed: virt.out.afterSwitch?.pressed, title: virt.out.afterSwitch?.title, tip: virt.out.afterSwitch?.tip },
+    { pressed: 'true', title: null, tip: 'diff.backToUnified' },
     'clicking after moves the pressed state',
   )
   assert.deepEqual(
-    { pressed: virt.out.splitSwitch?.pressed, title: virt.out.splitSwitch?.title },
-    { pressed: 'true', title: 'diff.toUnified' },
+    { pressed: virt.out.splitSwitch?.pressed, title: virt.out.splitSwitch?.title, tip: virt.out.splitSwitch?.tip },
+    { pressed: 'true', title: null, tip: 'diff.toUnified' },
     'the split switch reports its pressed state and names the next action',
   )
   assert.notEqual(virt.out.splitSwitch?.transform, 'none', 'the compare glyph rotates once split is on')

@@ -914,6 +914,26 @@ const out = await page.evaluate(async (snap) => {
     modes: document.querySelectorAll('.gp-modal .gp-diff__modes [data-diff-mode]').length,
     expand: document.querySelector('.gp-modal .gp-diff__expand') !== null,
   }
+  // The modal's icon controls explain themselves through the platform Tooltip
+  // (instant, dark pill), not the browser's native title. The harness stub
+  // stamps the label it would show as `data-tip`.
+  result.modalTooltips = (() => {
+    const read = (selector) => {
+      const el = document.querySelector(selector)
+      return el === null ? null : {
+        label: el.getAttribute('aria-label'),
+        title: el.getAttribute('title'),
+        tip: el.getAttribute('data-tip'),
+      }
+    }
+    return {
+      view: read('.gp-modal .gp-modal__view'),
+      copy: read('.gp-modal .gp-modal__copy'),
+      expand: read('.gp-modal .gp-diff__expand'),
+      before: read('.gp-modal .gp-diff__modes [data-diff-mode="before"]'),
+      close: read('.gp-modal__bar .gp-modal__close'),
+    }
+  })()
   const modalCopy = document.querySelector('.gp-modal .gp-modal__copy')
   result.modalCopyLabel = modalCopy?.getAttribute('aria-label') ?? null
   const modalClipboard = []

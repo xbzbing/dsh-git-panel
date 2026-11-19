@@ -211,6 +211,14 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.modalVersionQuery?.base, 'commit', 'a commit overlay reads the commit blob')
   assert.equal(typeof out.modalVersionQuery?.commit, 'string', 'the read carries the commit it belongs to')
   assert.deepEqual(out.modalFileViewControls, { modes: 3, expand: true }, 'the file view keeps the whole toolbar, not a stub of it')
+  // Every icon in that row uses the platform's instant Tooltip: native title
+  // is gone (its browser delay cannot be shortened) and the label it shows is
+  // the control's own accessible name.
+  for (const [name, tip] of Object.entries(out.modalTooltips)) {
+    assert.ok(tip !== null, `the ${name} control is mounted`)
+    assert.equal(tip.title, null, `${name}: no native title (the slow browser tooltip)`)
+    assert.equal(tip.tip, tip.label, `${name}: the platform tooltip carries the same label`)
+  }
   assert.equal(out.modalFileViewReopened, true, 'the file view can be reopened for the control round')
   assert.equal(out.modalFileViewModeReturned, true, 'a diff-mode switch in the file view returns to the diff')
   assert.equal(out.modalFileViewModeApplied, true, 'and applies the mode it names')

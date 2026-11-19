@@ -389,11 +389,14 @@ const out = await page.evaluate(async (snap) => {
     result.chModesOneLine = modeBtns.length === 2 && new Set(tops).size === 1
     const widths = modeBtns.map((b) => Math.round(b.getBoundingClientRect().width))
     result.chModesEvenWidth = widths.length === 2 && Math.max(...widths) - Math.min(...widths) <= 2
-    // Icon-only: every switch carries its label on title/aria-label, never text.
+    // Icon-only: every switch carries its label on aria-label plus the
+    // platform tooltip (the harness stub stamps the label as data-tip), never
+    // text and never the browser's slow native title.
     result.chModesIconOnly = modeBtns.length === 2
       && modeBtns.every((b) => (b.textContent || '') === ''
-        && (b.getAttribute('title') || '') !== ''
-        && (b.getAttribute('aria-label') || '') !== '')
+        && (b.getAttribute('title') || '') === ''
+        && (b.getAttribute('aria-label') || '') !== ''
+        && b.getAttribute('data-tip') === b.getAttribute('aria-label'))
     result.chModesFit = (() => {
       const modes = ctrlRow.querySelector('.gp-diff__modes')
       const row = ctrlRow.getBoundingClientRect()
@@ -663,7 +666,7 @@ try {
   assert.equal(out.chBackOnFirstRow, true, 'the back button stays on the first row')
   assert.equal(out.chModesOneLine, true, 'the mode switches sit side by side on one line')
   assert.equal(out.chModesEvenWidth, true, 'the mode switches are evenly sized')
-  assert.equal(out.chModesIconOnly, true, 'each switch is icon-only and carries its label on title/aria-label')
+  assert.equal(out.chModesIconOnly, true, 'each switch is icon-only and carries its label on the platform tooltip and aria-label')
   assert.equal(out.chModesFit, true, 'the mode switch group fits inside its row')
   assert.equal(out.ovfChangesDrill, true, 'the compact diff pane fits without horizontal overflow')
   assert.equal(out.chBackToList, true, 'back returns to the change list')
