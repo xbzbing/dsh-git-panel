@@ -61,14 +61,14 @@ async function flush(page) {
 }
 
 /** Mount the panel on the Overview tab with a flow-shaped mock connection. */
-async function openPanel(snapshot) {
+async function openPanel(snapshot, remoteRefs = REMOTE_BRANCHES, tagNames = ['v1.2.3']) {
   const page = await browser.newPage({ viewport: { width: 1000, height: 760 } })
   page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
   page.on('pageerror', (error) => consoleErrors.push('PAGEERROR ' + error.message))
   await page.goto(harness)
   await page.addScriptTag({ path: resolve(DIR, 'client.js') })
   await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
-  await page.evaluate(({ snapshot, local, remoteBranches }) => {
+  await page.evaluate(({ snapshot, local, remoteBranches, tags }) => {
     const panel = document.getElementById('panel')
     panel.style.width = '900px'
     panel.style.height = '740px'
@@ -83,7 +83,7 @@ async function openPanel(snapshot) {
         return { ok: true, value: { ok: true, value: { kind: 'branches', current: snapshot.branch ?? 'feature/login', defaultBranch: 'main', local, remote: remoteBranches } } }
       }
       if (endpoint === 'dbGitPanel/query' && request?.query?.kind === 'tags') {
-        return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [{ name: 'v1.2.3', shortHash: 'de54fc0' }] } } }
+        return { ok: true, value: { ok: true, value: { kind: 'tags', tags: tags.map((name) => ({ name, shortHash: 'de54fc0' })) } } }
       }
       return call(channel, endpoint, payload)
     }
@@ -108,7 +108,7 @@ async function openPanel(snapshot) {
     }
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(panel).render(registered['conversation.view']({ sessionId: 'flow-session' }))
-  }, { snapshot, local: LOCAL, remoteBranches: REMOTE_BRANCHES })
+  }, { snapshot, local: LOCAL, remoteBranches: remoteRefs, tags: tagNames })
   await page.locator('[role="tab"]').first().waitFor()
   await page.waitForFunction(() => window.__gpFixture.snapshotReplies > 0)
   await flush(page)
@@ -140,6 +140,8 @@ assert.equal((await page.locator('.gp-flow-btn').textContent()).trim(), 'Git Flo
 
 await pickEntry(page, '开始 Feature')
 assert.equal(await page.locator('.gp-modal--flow .gp-flow__field select').inputValue(), 'develop', 'a feature starts on develop when it exists')
+assert.equal(await page.locator('.gp-modal__check').count(), 1, 'the start dialog offers only the push choice')
+assert.equal(await page.locator('.gp-modal__check input').isChecked(), true, 'pushing the new branch defaults on')
 assert.deepEqual(
   await page.locator('.gp-flow-chain__col > .gp-flow-map__node:first-child .gp-flow-map__name').allTextContents(),
   ['develop', 'feature/…'],
@@ -148,12 +150,20 @@ assert.deepEqual(
 await page.locator('.gp-modal--flow .gp-flow__field input').fill('login2')
 await flush(page)
 assert.match(await page.locator('.gp-flow-map').textContent(), /feature\/login2/, 'the legend previews the full branch name')
-assert.equal(await page.locator('.gp-flow-map__node--new').count(), 1, 'the new branch reads as created')
+assert.match(await page.locator('.gp-flow-map').textContent(), /origin\/feature\/login2/, 'the default push is part of the preview')
+assert.equal(await page.locator('.gp-flow-map__node--new').count(), 2, 'the local branch and its new remote both read as created')
+assert.equal(
+  await page.locator('.gp-flow-map__node--remote.gp-flow-map__node--new').textContent(),
+  'origin/feature/login2',
+  'a remote branch the push creates is marked as new',
+)
 assert.equal(await page.locator('.gp-flow-map__node--gone').count(), 0, 'a start deletes nothing')
 await submit(page)
 await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 let sent = await actions(page)
-assert.deepEqual(sent[sent.length - 1], { kind: 'flow-start', flow: 'feature', branch: 'feature/login2', base: 'develop' }, 'the start action carries the resolved base')
+assert.deepEqual(sent[sent.length - 1], {
+  kind: 'flow-start', flow: 'feature', branch: 'feature/login2', base: 'develop', pushRemote: 'origin',
+}, 'the start action carries the resolved base and the default publish')
 
 // ── 1b. the legend reflows inside a phone-width dialog ─────────────────────
 
@@ -188,8 +198,10 @@ await phone.close()
 await pickEntry(page, '完成 Feature')
 const confirm = page.locator('.gp-modal__footer .gp-btn--primary')
 assert.equal(await confirm.isDisabled(), false, 'merge + delete is the default and needs no extra step')
-assert.equal(await page.locator('.gp-modal__check').count(), 3, 'delete branch / delete remote / push (no force box yet)')
-assert.equal(await page.locator('.gp-modal__check input').last().isChecked(), true, 'push-to-remote defaults on when the remote has the branches')
+assert.equal(await page.locator('.gp-modal__check').count(), 4, 'delete branch / delete remote / push / start release (no force box yet)')
+assert.equal(await page.locator('.gp-modal__check input').last().isChecked(), false, 'starting the next release is off by default and sits last')
+assert.equal(await page.locator('.gp-flow__field input[id$="-release"]').count(), 0, 'the release name field stays hidden until checked')
+assert.equal(await page.locator('.gp-modal__check input').nth(2).isChecked(), true, 'push-to-remote defaults on when the remote has the branches')
 assert.equal(await page.locator('.gp-modal__check input').nth(1).isChecked(), true, 'the remote delete starts checked when the branch has an upstream')
 assert.equal(await page.locator('.gp-flow-map__node--gone').count(), 2, 'source branch and its remote read as deleted in the preview')
 assert.equal(await page.locator('.gp-flow-chain--2').count(), 1, 'a feature is a two-branch chain')
@@ -210,7 +222,7 @@ assert.equal(await confirm.isDisabled(), false, 'the acknowledgement unlocks the
 const finishLabels = await page.locator('.gp-modal__check').allTextContents()
 assert.equal(await page.locator('.gp-modal__check input').nth(3).isChecked(), true, 'the push choice survived the force acknowledgement')
 await flush(page)
-assert.ok(finishLabels.length === 4)
+assert.ok(finishLabels.length === 5)
 await submit(page)
 await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 sent = await actions(page)
@@ -219,6 +231,69 @@ assert.deepEqual(sent[sent.length - 1], {
   strategy: 'squash', message: '完成 feature/login', deleteBranch: true, deleteRemote: true,
   pushRemote: 'origin', forceDelete: true,
 }, 'the finish action carries exactly the choices the form showed')
+
+// ── 2a. finish feature can chain the next release start ───────────────────
+
+const chainPage = await openPanel(SNAP)
+await pickEntry(chainPage, '完成 Feature')
+const releaseToggle = chainPage.locator('.gp-modal__check input').last()
+assert.equal(await releaseToggle.isChecked(), false, 'the chained release starts unchecked and sits last')
+await releaseToggle.check()
+await flush(chainPage)
+const releaseInput = chainPage.locator('.gp-flow__field input[id$="-release"]')
+assert.equal(await releaseInput.count(), 1, 'checking the option reveals the release name field')
+assert.equal(await releaseInput.inputValue(), 'v1.3.0', 'the next release version is read off the tag')
+assert.match(await chainPage.locator('.gp-flow-map').textContent(), /release\/v1\.3\.0/, 'the preview draws the new release branch')
+assert.equal(await chainPage.locator('.gp-flow-chain--3').count(), 1, 'the preview grows from a two- to a three-branch chain')
+assert.equal(await chainPage.locator('.gp-flow-chain__col').count(), 3, 'the chained release adds a visible graph column')
+assert.equal(await chainPage.locator('.gp-flow-map__node--new').count(), 1, 'only the release is new in the chained finish')
+assert.ok((await chainPage.locator('.gp-modal__check').allTextContents()).some((text) => /开始 Release/.test(text)))
+assert.equal(await chainPage.locator('.gp-modal__check').count(), 5, 'the chained release adds its own push choice')
+const chainReleasePush = chainPage.locator('.gp-modal__check input').last()
+assert.equal(await chainReleasePush.isChecked(), false, 'pushing the new release defaults off')
+assert.doesNotMatch(await chainPage.locator('.gp-flow-map').textContent(), /origin\/release/, 'the preview adds no remote release yet')
+await chainReleasePush.check()
+await flush(chainPage)
+assert.match(await chainPage.locator('.gp-flow-map').textContent(), /origin\/release\/v1\.3\.0/, 'checking it draws the release remote branch')
+assert.equal(
+  await chainPage.locator('.gp-flow-map__node--remote.gp-flow-map__node--new').textContent(),
+  'origin/release/v1.3.0',
+  'the new release remote is marked as new',
+)
+await releaseInput.fill('1.4.0')
+await flush(chainPage)
+assert.match(await chainPage.locator('.gp-flow-map').textContent(), /release\/1\.4\.0/, 'the preview follows the edited name')
+assert.match(await chainPage.locator('.gp-flow-map').textContent(), /origin\/release\/1\.4\.0/, 'the release remote follows the edited name too')
+await submit(chainPage)
+await chainPage.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
+const chained = await actions(chainPage)
+assert.equal(chained[chained.length - 1].startRelease, 'release/1.4.0', 'the finish carries the full release branch')
+assert.equal(chained[chained.length - 1].pushRemote, 'origin', 'the default publish still covers the moved branches')
+assert.equal(chained[chained.length - 1].releasePushRemote, 'origin', 'the release push is a separate wire field')
+await chainPage.close()
+
+// ── 2a2. no version tag: the release push still updates the legend ────────
+
+const untagged = await openPanel(SNAP, REMOTE_BRANCHES, [])
+await pickEntry(untagged, '完成 Feature')
+await untagged.locator('.gp-modal__check input').last().check()
+await flush(untagged)
+const untaggedInput = untagged.locator('.gp-flow__field input[id$="-release"]')
+assert.equal(await untaggedInput.inputValue(), '', 'without a version tag the name starts empty')
+assert.match(await untagged.locator('.gp-flow-map').textContent(), /release\/…/, 'the placeholder release is previewed')
+const untaggedPush = untagged.locator('.gp-modal__check input').last()
+assert.equal(await untaggedPush.isChecked(), false, 'the release push still starts unchecked')
+assert.doesNotMatch(await untagged.locator('.gp-flow-map').textContent(), /origin\/release/, 'nothing is pushed yet')
+await untaggedPush.check()
+await flush(untagged)
+assert.match(await untagged.locator('.gp-flow-map').textContent(), /origin\/release\/…/, 'checking the push updates the legend without a version')
+assert.equal(
+  await untagged.locator('.gp-flow-map__node--remote.gp-flow-map__node--new').textContent(),
+  'origin/release/…',
+  'the placeholder remote release is marked as new',
+)
+assert.equal(await untagged.locator('.gp-modal__footer .gp-btn--primary').isDisabled(), true, 'an empty name still blocks the finish')
+await untagged.close()
 
 // ── 2b. a release finish names both landing branches ──────────────────────
 
@@ -273,6 +348,25 @@ const remoteChoice = noUpstream.locator('.gp-modal__check input').nth(1)
 assert.equal(await remoteChoice.isChecked(), false, 'nothing to delete on the remote leaves the choice off')
 assert.equal(await remoteChoice.isDisabled(), true, 'the remote delete is disabled without an upstream')
 await noUpstream.close()
+
+// ── 2d. a remote without develop still accepts the default push ────────────
+
+const missingDevelop = await openPanel(SNAP, [{ name: 'origin/main', shortHash: 'de54fc0' }])
+await pickEntry(missingDevelop, '完成 Feature')
+const pushChoice = missingDevelop.locator('.gp-modal__check input').nth(2)
+assert.equal(await pushChoice.isChecked(), true, 'the finish push still defaults on')
+assert.equal(await pushChoice.isDisabled(), false, 'a missing remote branch does not disable the push')
+assert.match(await missingDevelop.locator('.gp-flow-map').textContent(), /origin\/develop/, 'the preview still names the pushed develop')
+assert.equal(
+  await missingDevelop.locator('.gp-flow-map__node--remote.gp-flow-map__node--new').textContent(),
+  'origin/develop',
+  'the missing remote develop is marked as new',
+)
+await submit(missingDevelop)
+await missingDevelop.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
+sent = await actions(missingDevelop)
+assert.equal(sent[sent.length - 1].pushRemote, 'origin', 'the push creates develop on the remote')
+await missingDevelop.close()
 
 // ── 3. busy lock + a refusal stays inside the dialog ───────────────────────
 

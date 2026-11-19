@@ -176,6 +176,42 @@ async function checkout(deps: SnapshotDeps, root: string, branch: string): Promi
   return outcome.ok ? null : outcome
 }
 
+/** The configured remote names, for validating a push target. */
+async function configuredRemotes(deps: SnapshotDeps, root: string): Promise<{ readonly ok: true; readonly names: readonly string[] } | Failure> {
+  const outcome = await raw(deps, root, ['git', 'remote'], 'flow-remotes')
+  if (!outcome.ok) return outcome
+  return { ok: true, names: outcome.stdout.split('\n').map((line) => line.trim()).filter((line) => line !== '') }
+}
+
+/** Undo a start whose publish failed: check the pre-op HEAD back out and remove
+ * the branch this action created (and `develop`, when it created that too).
+ * `-D` is safe here because the branch is brand new and no user commit can be on
+ * it; the point is to restore the exact pre-op state so the dialog can retry. */
+async function rollbackStartedBranch(
+  deps: SnapshotDeps,
+  root: string,
+  branch: string,
+  start: { readonly name: string | null; readonly oid: string | null },
+  createdDevelop: boolean,
+): Promise<boolean> {
+  if (start.name !== null) {
+    const back = await checkout(deps, root, start.name)
+    if (back !== null) return false
+  } else if (start.oid !== null) {
+    const detached = await git(deps, root, ['git', 'checkout', '--detach', start.oid, '--'], 'flow-start-rollback')
+    if (!detached.ok) return false
+  } else {
+    return false
+  }
+  const removed = await git(deps, root, ['git', 'branch', '-D', '--end-of-options', branch], 'flow-start-rollback')
+  if (!removed.ok) return false
+  if (createdDevelop) {
+    const removedDevelop = await git(deps, root, ['git', 'branch', '-D', '--end-of-options', DEVELOP], 'flow-start-rollback')
+    if (!removedDevelop.ok) return false
+  }
+  return true
+}
+
 /**
  * Roll the first integration back to the checkout the finish started in. Every
  * finish requires a clean work tree, so `reset --hard` to the captured tips is
@@ -276,6 +312,9 @@ async function startFlow(
 ): Promise<GitActionResult> {
   if (!branchBelongsTo(action)) return fail('invalid-name', 'the branch does not belong to this flow')
   if (!isSafeBranchName(action.base)) return fail('invalid-name', `unsafe base branch: ${action.base}`)
+  if (action.pushRemote !== undefined && !isSafeRemoteName(action.pushRemote)) {
+    return fail('invalid-name', `unsafe remote name: ${action.pushRemote}`)
+  }
 
   const baseExists = await hasRef(deps, root, `refs/heads/${action.base}`)
   if (!baseExists.ok) return baseExists
@@ -286,6 +325,18 @@ async function startFlow(
 
   const develop = await hasRef(deps, root, `refs/heads/${DEVELOP}`)
   if (!develop.ok) return develop
+
+  // The publish target is checked before anything is written, and the pre-op
+  // HEAD is captured so a later push failure can restore it exactly.
+  if (action.pushRemote !== undefined) {
+    const remotes = await configuredRemotes(deps, root)
+    if (!remotes.ok) return remotes
+    if (!remotes.names.includes(action.pushRemote)) return fail('invalid-name', `remote not configured: ${action.pushRemote}`)
+  }
+  const start = await currentBranch(deps, root)
+  if (!start.ok) return start
+  const startOid = await headOid(deps, root)
+  if (!startOid.ok) return startOid
 
   // A first feature start creates `develop` from the chosen base (the dialog
   // says so). The new branch is then cut from `develop`, so every later flow
@@ -305,6 +356,21 @@ async function startFlow(
     // `develop` branch this action created is the only thing to undo.
     if (createdDevelop) await git(deps, root, ['git', 'branch', '-d', '--end-of-options', DEVELOP], 'flow-develop-rollback')
     return checkedOut
+  }
+  if (action.pushRemote !== undefined) {
+    // `-u` is the same publish contract as the Publish button: the remote
+    // branch is created and becomes the new branch's upstream, so a later
+    // finish can find and delete it.
+    const pushed = await git(
+      deps, root,
+      ['git', 'push', '-u', action.pushRemote, `refs/heads/${action.branch}:refs/heads/${action.branch}`],
+      'flow-start-push',
+    )
+    if (!pushed.ok) {
+      const rolledBack = await rollbackStartedBranch(deps, root, action.branch, { name: start.name, oid: startOid.oid }, createdDevelop)
+      return rolledBack ? pushed : partial(pushed)
+    }
+    return snapshotResult(deps, config, request, pushed.stdout)
   }
   return snapshotResult(deps, config, request, checkedOut.stdout)
 }
@@ -334,6 +400,21 @@ async function finishFlow(
   }
   if (action.pushRemote !== undefined && !isSafeRemoteName(action.pushRemote)) {
     return fail('invalid-name', `unsafe remote name: ${action.pushRemote}`)
+  }
+  if (action.releasePushRemote !== undefined && !isSafeRemoteName(action.releasePushRemote)) {
+    return fail('invalid-name', `unsafe remote name: ${action.releasePushRemote}`)
+  }
+  // The chained release start only belongs to a feature finish, and its branch
+  // follows the same convention as a standalone release start.
+  const startRelease = action.startRelease?.trim() ?? ''
+  if (startRelease !== '') {
+    if (action.flow !== 'feature') return fail('invalid-name', 'only a feature can start a release when finished')
+    if (!startRelease.startsWith(FLOW_PREFIX.release) || startRelease.length === FLOW_PREFIX.release.length || !isSafeBranchName(startRelease)) {
+      return fail('invalid-name', `invalid release branch: ${startRelease}`)
+    }
+  }
+  if (action.releasePushRemote !== undefined && startRelease === '') {
+    return fail('invalid-name', 'a release push needs a chained release start')
   }
 
   const branchExists = await hasRef(deps, root, `refs/heads/${action.branch}`)
@@ -367,6 +448,11 @@ async function finishFlow(
   const tagTaken = tag === '' ? null : await hasRef(deps, root, `refs/tags/${tag}`)
   if (tagTaken !== null && !tagTaken.ok) return tagTaken
   if (tagTaken !== null && tagTaken.exists) return fail('tag-exists', `tag already exists: ${tag}`)
+  if (startRelease !== '') {
+    const releaseTaken = await hasRef(deps, root, `refs/heads/${startRelease}`)
+    if (!releaseTaken.ok) return releaseTaken
+    if (releaseTaken.exists) return fail('branch-exists', `branch already exists: ${startRelease}`)
+  }
 
   // The cleanup targets are resolved before anything moves, so a missing
   // upstream or an unknown remote refuses before the integration.
@@ -375,11 +461,13 @@ async function finishFlow(
   if (upstream !== null && upstream.upstream === null) {
     return fail('git-error', `the flow branch has no upstream to delete: ${action.branch}`)
   }
-  if (action.pushRemote !== undefined) {
-    const remotes = await raw(deps, root, ['git', 'remote'], 'flow-remotes')
+  const pushRemotes = [action.pushRemote, action.releasePushRemote].filter((name): name is string => name !== undefined)
+  if (pushRemotes.length > 0) {
+    const remotes = await configuredRemotes(deps, root)
     if (!remotes.ok) return remotes
-    const names = remotes.stdout.split('\n').map((line) => line.trim()).filter((line) => line !== '')
-    if (!names.includes(action.pushRemote)) return fail('invalid-name', `remote not configured: ${action.pushRemote}`)
+    for (const remote of pushRemotes) {
+      if (!remotes.names.includes(remote)) return fail('invalid-name', `remote not configured: ${remote}`)
+    }
   }
 
   const clean = await worktreeClean(deps, root)
@@ -446,6 +534,13 @@ async function finishFlow(
     if (!removed.ok) return partial(removed)
     output = removed.stdout
   }
+  if (startRelease !== '') {
+    // The chained release is cut from the develop the feature just landed on,
+    // and the finish ends on it so the user can keep working there.
+    const started = await git(deps, root, ['git', 'checkout', '-b', startRelease, DEVELOP, '--'], 'flow-release-start')
+    if (!started.ok) return partial(started)
+    output = started.stdout
+  }
   if (action.pushRemote !== undefined) {
     // Publish every long-lived branch the finish moved: a feature only
     // `develop`, a release / hotfix the main line and `develop`.
@@ -454,6 +549,17 @@ async function finishFlow(
       deps, root,
       ['git', 'push', action.pushRemote, ...branches.map((name) => `refs/heads/${name}:refs/heads/${name}`)],
       'flow-push',
+    )
+    if (!pushed.ok) return partial(pushed)
+    output = pushed.stdout
+  }
+  if (action.releasePushRemote !== undefined && startRelease !== '') {
+    // The chained release push is its own choice: `-u` also makes the new
+    // branch track the remote, so a later finish can clean up its counterpart.
+    const pushed = await git(
+      deps, root,
+      ['git', 'push', '-u', action.releasePushRemote, `refs/heads/${startRelease}:refs/heads/${startRelease}`],
+      'flow-release-push',
     )
     if (!pushed.ok) return partial(pushed)
     output = pushed.stdout

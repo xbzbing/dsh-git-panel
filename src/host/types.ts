@@ -447,7 +447,16 @@ export type GitAction =
   // The first feature start creates `develop` from `base` when the checkout has
   // none. The host re-checks the prefix against `flow`, refuses a taken name,
   // and resolves `base` as a local branch (never a tag of the same name).
-  | { readonly kind: 'flow-start'; readonly flow: FlowKind; readonly branch: string; readonly base: string }
+  | {
+    readonly kind: 'flow-start'
+    readonly flow: FlowKind
+    readonly branch: string
+    readonly base: string
+    /** Publish the newly created branch to this configured remote and set it as
+     * its upstream. A failed publish rolls the new branch (and a `develop` this
+     * start created) back, so the dialog can retry. */
+    readonly pushRemote?: string
+  }
   // Finish a flow branch: integrate it into `target` with `strategy`, then run
   // the flow's extra steps (release / hotfix tag the main line, then merge it
   // back into develop), and finally the requested cleanup (remote delete, local
@@ -469,6 +478,14 @@ export type GitAction =
     readonly pushRemote?: string
     /** Release / hotfix only: annotated tag created on the main line. */
     readonly tag?: string
+    /** A feature finish can chain a release start: create this `release/…`
+     * branch from the updated `develop` after the integration and check it out.
+     * The name is the full branch, revalidated by the host. */
+    readonly startRelease?: string
+    /** Publish the chained release branch to this configured remote and set it
+     * as its upstream. Only valid together with `startRelease`; the release
+     * push is a separate choice from `pushRemote`. */
+    readonly releasePushRemote?: string
     /** Squash integration rewrites the branch out of the target's ancestry, so
      * deleting it needs git's forced `-D`; only sent after the dialog's own
      * acknowledgement. */

@@ -207,6 +207,17 @@ test('a start preview branches off the base and checks the new branch out', () =
   })
 })
 
+test('a start preview draws the pushed branch under the new local branch', () => {
+  const preview = startFlowPreview({
+    flow: 'release', branch: 'release/1.3.0', base: 'develop', hasDevelop: true,
+    pushRefs: ['origin/release/1.3.0'],
+  })
+  assert.deepEqual(preview.ops, [{ kind: 'push', refs: ['origin/release/1.3.0'] }])
+  assert.deepEqual(flowPreviewRemotes(preview.ops, 'origin'), [
+    { ref: 'origin/release/1.3.0', branch: 'release/1.3.0', deleted: false },
+  ])
+})
+
 test('the first feature preview creates develop before the branch', () => {
   assert.deepEqual(startFlowPreview({ flow: 'feature', branch: 'feature/login', base: 'main', hasDevelop: false }), {
     createsDevelop: true,
@@ -259,6 +270,20 @@ test('a kept branch stays solid and drops the delete op', () => {
   assert.equal(preview.routes[0].action, 'squash')
   assert.equal(preview.routes[0].tag, undefined)
   assert.deepEqual(preview.ops, [])
+})
+
+test('a feature finish chains the release start after develop', () => {
+  const preview = finishFlowPreview({
+    flow: 'feature', branch: 'feature/login', target: 'develop', backMerge: [],
+    strategy: 'merge', tag: '', deleteBranch: true, deleteRemote: false,
+    pushRefs: ['origin/develop', 'origin/release/1.4.0'], startRelease: 'release/1.4.0',
+  })
+  assert.deepEqual(preview.routes.map((route) => route.to), [
+    { name: 'develop', lane: 'develop', state: 'existing' },
+    { name: 'release/1.4.0', lane: 'release', state: 'created' },
+  ])
+  assert.equal(preview.routes[1].action, 'checkout')
+  assert.deepEqual(flowPreviewChain(preview.routes).map((node) => node.name), ['feature/login', 'develop', 'release/1.4.0'])
 })
 
 test('a squashed delete is previewed as forced', () => {

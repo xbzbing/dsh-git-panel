@@ -129,6 +129,43 @@ test('flow-start branches a hotfix off the main line', async () => {
   }
 })
 
+test('flow-start publishes the new branch with its upstream and refuses an unknown remote first', async () => {
+  const dir = await freshRepo('gp-flow-start-push-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-start-push-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+
+    const started = await run(dir, {
+      kind: 'flow-start', flow: 'feature', branch: 'feature/remote', base: 'develop', pushRemote: 'origin',
+    })
+    assert.equal(started.ok, true, JSON.stringify(started))
+    assert.equal(
+      out(remote, ['rev-parse', 'refs/heads/feature/remote']),
+      out(dir, ['rev-parse', 'feature/remote']),
+      'the new branch is published',
+    )
+    assert.equal(
+      out(dir, ['for-each-ref', '--format=%(upstream:short)', 'refs/heads/feature/remote']),
+      'origin/feature/remote',
+      'the publish sets the branch upstream',
+    )
+
+    const refused = await run(dir, {
+      kind: 'flow-start', flow: 'feature', branch: 'feature/nope', base: 'develop', pushRemote: 'missing',
+    })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.error.code, 'invalid-name', 'an unconfigured remote is refused before the checkout')
+    assert.equal(branchExists(dir, 'feature/nope'), false)
+    assert.equal(out(dir, ['rev-parse', '--abbrev-ref', 'HEAD']), 'feature/remote', 'the checkout did not move')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  }
+})
+
 test('flow-finish (merge) lands the feature on develop, deletes the branch and leaves no merge state', async () => {
   const dir = await freshRepo('gp-flow-finish-merge-')
   try {
@@ -432,6 +469,102 @@ test('flow-integrate merges develop into the feature branch and aborts a conflic
     assert.equal(onMain.error.code, 'invalid-name', 'integration only applies on a feature branch')
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('flow-finish can chain a release start from the updated develop', async () => {
+  const dir = await freshRepo('gp-flow-finish-release-start-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-finish-release-start-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/next', base: 'develop' })
+    writeFileSync(join(dir, 'next.txt'), 'next\n')
+    await runGit(dir, ['add', 'next.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: next'])
+    const featureHead = out(dir, ['rev-parse', 'HEAD'])
+
+    // A taken release name is refused before the integration moves develop.
+    await runGit(dir, ['branch', 'release/9.9.9'])
+    const developBefore = out(dir, ['rev-parse', 'develop'])
+    const refused = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/next', target: 'develop',
+      strategy: 'merge', message: 'finish next', deleteBranch: true, startRelease: 'release/9.9.9',
+    })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.error.code, 'branch-exists')
+    assert.equal(out(dir, ['rev-parse', 'develop']), developBefore, 'nothing was integrated')
+    assert.equal(out(dir, ['rev-parse', '--abbrev-ref', 'HEAD']), 'feature/next', 'the checkout did not move')
+
+    const finished = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/next', target: 'develop',
+      strategy: 'merge', message: 'finish next', deleteBranch: true,
+      startRelease: 'release/1.4.0', pushRemote: 'origin', releasePushRemote: 'origin',
+    })
+    assert.equal(finished.ok, true, JSON.stringify(finished))
+    assert.equal(finished.snapshot.branch, 'release/1.4.0', 'the finish ends on the chained release branch')
+    assert.ok(branchExists(dir, 'release/1.4.0'))
+    assert.equal(out(dir, ['rev-parse', 'release/1.4.0']), out(dir, ['rev-parse', 'develop']), 'the release starts at the updated develop')
+    assert.ok(out(dir, ['merge-base', '--is-ancestor', featureHead, 'release/1.4.0']) === '', 'the feature is in the release')
+    assert.equal(
+      out(remote, ['rev-parse', 'refs/heads/release/1.4.0']),
+      out(dir, ['rev-parse', 'release/1.4.0']),
+      'the new release branch is published by the same push',
+    )
+    assert.equal(
+      out(dir, ['for-each-ref', '--format=%(upstream:short)', 'refs/heads/release/1.4.0']),
+      'origin/release/1.4.0',
+      'the chained release tracks the branch it just published',
+    )
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/develop']), out(dir, ['rev-parse', 'develop']), 'develop was pushed')
+    // The chained start is a feature-only decision.
+    const wrongFlow = await run(dir, {
+      kind: 'flow-finish', flow: 'release', branch: 'release/1.4.0', target: 'main',
+      strategy: 'merge', message: 'nope', tag: '1.4.0', startRelease: 'release/1.5.0',
+    })
+    assert.equal(wrongFlow.ok, false)
+    assert.equal(wrongFlow.error.code, 'invalid-name')
+    const orphanPush = await run(dir, {
+      kind: 'flow-finish', flow: 'release', branch: 'release/1.4.0', target: 'main',
+      strategy: 'merge', message: 'nope', releasePushRemote: 'origin',
+    })
+    assert.equal(orphanPush.ok, false)
+    assert.equal(orphanPush.error.code, 'invalid-name', 'a release push without a chained release start is refused')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  }
+})
+
+test('flow-finish creates a remote branch that did not exist yet', async () => {
+  const dir = await freshRepo('gp-flow-finish-missing-remote-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-finish-missing-remote-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    // Only the main line exists on the remote; develop is local-only for now.
+    await runGit(dir, ['push', '-q', 'origin', 'main'])
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/new-remote', base: 'develop' })
+    writeFileSync(join(dir, 'new-remote.txt'), 'x\n')
+    await runGit(dir, ['add', 'new-remote.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: new remote'])
+
+    const finished = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/new-remote', target: 'develop',
+      strategy: 'merge', message: 'finish new remote', deleteBranch: true, pushRemote: 'origin',
+    })
+    assert.equal(finished.ok, true, JSON.stringify(finished))
+    assert.equal(
+      out(remote, ['rev-parse', 'refs/heads/develop']),
+      out(dir, ['rev-parse', 'develop']),
+      'the push created the missing remote develop branch',
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
   }
 })
 

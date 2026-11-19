@@ -214,10 +214,13 @@ export interface FlowStartPreviewInput {
   readonly branch: string
   readonly base: string
   readonly hasDevelop: boolean
+  /** Refs the start publishes; null when the push option is off or unavailable. */
+  readonly pushRefs?: readonly string[] | null
 }
 
 /** The start legend: one edge from the base to the new branch, or two when the
- * first feature creates `develop` first (the host does the same). */
+ * first feature creates `develop` first (the host does the same), plus the
+ * publish op when the new branch is pushed. */
 export function startFlowPreview(input: FlowStartPreviewInput): FlowPreview {
   const { flow, branch, base, hasDevelop } = input
   const createsDevelop = flow === 'feature' && !hasDevelop
@@ -231,7 +234,9 @@ export function startFlowPreview(input: FlowStartPreviewInput): FlowPreview {
     routes: createsDevelop
       ? [route(base, DEVELOP_BRANCH, null), route(DEVELOP_BRANCH, branch, 'checkout')]
       : [route(base, branch, 'checkout')],
-    ops: [],
+    ops: input.pushRefs !== undefined && input.pushRefs !== null && input.pushRefs.length > 0
+      ? [{ kind: 'push', refs: input.pushRefs }]
+      : [],
   }
 }
 
@@ -251,6 +256,8 @@ export interface FlowFinishPreviewInput {
   /** The checkout's remote, for the deleted upstream's ref. */
   readonly remoteName?: string | null
   readonly forceDelete?: boolean
+  /** Full `release/…` branch a feature finish also starts from `develop`. */
+  readonly startRelease?: string | null
 }
 
 /** The finish legend: the integration edge (with its tag), the back-merge, and
@@ -270,6 +277,15 @@ export function finishFlowPreview(input: FlowFinishPreviewInput): FlowPreview {
       from: { name: input.target, lane: flowLane(input.target), state: 'existing' },
       to: { name: back, lane: flowLane(back), state: 'existing' },
       action: 'backMerge',
+    })
+  }
+  const startRelease = input.startRelease?.trim() ?? ''
+  if (startRelease !== '') {
+    // The chained release starts from the branch the feature just landed on.
+    routes.push({
+      from: { name: input.target, lane: flowLane(input.target), state: 'existing' },
+      to: { name: startRelease, lane: flowLane(startRelease), state: 'created' },
+      action: 'checkout',
     })
   }
   const ops: FlowPreviewOp[] = []

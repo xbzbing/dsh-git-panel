@@ -1152,6 +1152,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       defaultBase: base,
       existing: flowLocalNames,
       initialName,
+      remoteName,
+      remoteBranches: flowRemoteNames,
       busy: flowBusy,
       error: opError,
       onSubmit: (request) => runFlow(request),
@@ -1169,6 +1171,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       // stays off instead of claiming there is none.
       hasUpstream: flowDialog.branch === snapshot.branch && snapshot.hasUpstream,
       remote: { name: remoteName, branches: flowRemoteNames },
+      existing: flowLocalNames,
+      releaseInitialName: nextFlowVersion('release', (tree?.tags ?? []).map((tag) => tag.name)) ?? '',
       busy: flowBusy,
       error: opError,
       onSubmit: (request) => runFlow(request),

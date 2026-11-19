@@ -1,6 +1,6 @@
 # ADR-0037：Git Flow 按分支名约定执行，写操作复用 run 端点
 
-- 状态：Accepted（2026-11-17；2026-11-18 修订：release 与 hotfix 一样先合入主分支、打标签，再合并回 `develop`）
+- 状态：Accepted（2026-11-17；2026-11-18 修订：release 与 hotfix 一样先合入主分支、打标签，再合并回 `develop`；2026-11-19 修订：start 默认推送新分支，finish feature 可链式开始 release 并单独推送它）
 - 相关：`src/host/flow-ops.ts`、`src/host/types.ts`（`flow-*` action、`capabilities.flow`、`flow-partial`）、`src/host/index.ts`（run 端点分流）、`src/client/flow.ts`、`src/client/flow-dialogs.tsx`、`src/client/OverviewTab.tsx`、ADR-0005、ADR-0006、ADR-0007
 
 ## Context
@@ -29,6 +29,8 @@ Git Flow 是分支名约定，不是一段可移植的 git 配置：`develop` �
 
 `flow-start` 校验 `flow` 与 `branch` 前缀一致（host 不信任这两个字段中的任何一个）、base 是已有本地分支、目标分支尚不存在。feature 且仓库没有 `develop` 时，先 `git branch develop <base>`，再从 `develop` 切出 `feature/*`；checkout 失败则删掉刚创建的 `develop`，不让失败的请求在仓库里留下改动。其余 flow 直接从 base 切出。最后 `git checkout -b <branch> <base> --` 切换到新分支。
 
+`flow-start` 还带一个可选的 `pushRemote`：对话框默认勾选（仓库没有配置远端时禁用），host 在写之前确认该 remote 存在，checkout 后用 `git push -u <remote> refs/heads/<branch>:refs/heads/<branch>` 发布新分支并设置上游。push 失败时把新分支（以及本次创建的 `develop`）删掉并回到发起前的 HEAD，再报告原始 push 错误；只有回滚本身失败才报 `flow-partial`，避免重试时撞上 `branch-exists`。
+
 ### 3. finish：先要求干净工作区，冲突只回滚第一次集成
 
 finish 的前置条件全部在第一次写之前判定：flow / 分支前缀一致、target 存在且符合约定（feature 落到 `develop`，release 与 hotfix 落到解析出的主分支 `main` / `master` / 远端 HEAD）、`develop` 存在（release / hotfix 要合并回来）、标签未占用、上游（如需删远端）已解析、push 目标 remote 在 `git remote` 里、工作区干净（`status --porcelain` 为空，含未跟踪）。不满足就整体拒绝，什么都不写。
@@ -37,13 +39,14 @@ finish 的前置条件全部在第一次写之前判定：flow / 分支前缀一
 - 集成方式：`merge` = `git merge --no-ff -m <message>`；`squash` = `git merge --squash` + `git commit -m <message>`；`rebase` = 在 flow 分支 `git rebase <target>`，再切到 target `git merge --ff-only`。
 - 第一次集成失败（冲突 / 空提交 / checkout 被拒）：`merge --abort` 或 `rebase --abort`，必要时把 target `reset --hard` 回捕获的 tip，再切回发起时的分支并核对 HEAD 仍是捕获的 SHA；核不上就报 `merge-stuck`。冲突报 `merge-conflict`。
 - 第一次集成之后仍有步骤：release / hotfix 在主分支的合并提交上打标签，再把主分支 `--no-ff` 合并回 `develop`（release 因此 `develop` 也包含标签提交），结束时检出 `develop`；然后删远端、删本地、推送。这些步骤失败返回 `flow-partial`，因为此时 target 分支已经前进，“什么都没发生”是假话。客户端把失败步骤（git 原文）放进本地化提示里。
-- 标签为 annotated tag（`git tag -a -m "<flow> <tag>"`），指向主分支上的合并提交；打标签在 tag 未占用时才会进入序列（前置检查）。完成对话框同时显示 `目标分支`（主分支）与 `合并回`（`develop`），推送选项覆盖两者且默认勾选（远端缺少任一分支时禁用），取消勾选则只做本地完成。
+- 标签为 annotated tag（`git tag -a -m "<flow> <tag>"`），指向主分支上的合并提交；打标签在 tag 未占用时才会进入序列（前置检查）。完成对话框同时显示 `目标分支`（主分支）与 `合并回`（`develop`），推送选项覆盖两者且默认勾选；远端缺少某个长期分支并不禁用该选项，推送会创建它，预览把该远端分支标为新增。取消勾选则只做本地完成。
+- 完成 feature 时可以链式开始 release：对话框新增一个默认不勾选的选项，勾选后显示 release 名称，默认值由 `nextFlowVersion('release', tags)` 从标签推出（与单独开始 release 同一规则），并同样做前缀 / 安全名 / 本地占用校验。host 在第一次写之前确认该 `release/…` 分支不存在；feature 合入 `develop`、清理旧分支后，用 `git checkout -b <release> develop --` 从更新后的 `develop` 切出新 release 并检出。链式 release 分支有自己独立的推送选项：默认不勾选，勾选后用 `git push -u <releasePushRemote> refs/heads/<release>:refs/heads/<release>` 发布并设置上游；finish 的 `pushRemote` 仍只推送本次移动的长期分支，不包含新 release，`releasePushRemote` 也只允许与 `startRelease` 同时出现。失败与其余 finish 后置步骤一样报 `flow-partial`。该选项只对 feature 生效，release / hotfix 携带时在写之前以 `invalid-name` 拒绝。
 
 ### 4. 清理动作沿用既有安全策略
 
 - 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`；没有上游时 host 拒绝（`upstream-missing`）。完成对话框在有上游时默认勾选（预览同时画出远端删除，取消勾选即保留），没有上游时该项禁用并说明原因。
 - 删本地分支：默认 `git branch -d`。squash 集成后分支不在 target 的祖先链上，`-d` 必然失败，因此 `-D` 只在该策略被选中**且**对话框里额外勾选强制删除后才会发送；没有这个勾选，host 在写之前就拒绝。
-- 推送：`git push <remote> refs/heads/<branch>:refs/heads/<branch> …`，一次推送本次移动的长期分支（feature 只有 `develop`，release / hotfix 是主分支与 `develop`），从不 force；remote 名必须出现在 `git remote` 里。
+- 推送：`git push <remote> refs/heads/<branch>:refs/heads/<branch> …`，一次推送本次移动的长期分支（feature 只有 `develop`，release / hotfix 是主分支与 `develop`），从不 force；远端缺少的分支由这次推送创建，预览将其标为新增。remote 名必须出现在 `git remote` 里。链式 release 的推送是另一条命令（`git push -u`），只有对话框里单独勾选时才执行。
 - `flow-integrate`（整合开发）只允许在 `feature/*` 上，`git merge develop` 冲突时 `merge --abort`，与 `branch-merge` 同一契约。
 
 ### 5. 主分支解析

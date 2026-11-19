@@ -10,7 +10,7 @@
  * `flow-finish`) that the panel runs through `onAction`, and render the host's
  * error inside the dialog while it runs. Nothing here touches git.
  */
-import { createElement as h, useId, useState } from 'react'
+import { createElement as h, useEffect, useId, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { BranchIcon, MergeIcon } from './icons.js'
 import { renderConfirmModal, renderModalFooter, renderModalShell, type OpT } from './ops-modals.js'
@@ -52,8 +52,9 @@ function previewNode(node: FlowPreviewNode, key: string, extra = '', tag?: strin
 
 /** The local branches as one left-to-right chain, with pushed / deleted remote
  * branches hanging under their own branch. Every edge is the same animated
- * connector; the form below owns the strategy wording. */
-function flowChain(preview: FlowPreview, remoteName: string | null, t: OpT): JSX.Element {
+ * connector; the form below owns the strategy wording. A pushed ref the remote
+ * does not have yet is drawn as a new (dashed) node. */
+function flowChain(preview: FlowPreview, remoteName: string | null, remoteBranches: ReadonlySet<string>, t: OpT): JSX.Element {
   const nodes = flowPreviewChain(preview.routes)
   const remotes = new Map(flowPreviewRemotes(preview.ops, remoteName).map((remote) => [remote.branch, remote]))
   const hasRemote = nodes.some((node) => remotes.has(node.name))
@@ -76,7 +77,12 @@ function flowChain(preview: FlowPreview, remoteName: string | null, t: OpT): JSX
       hasRemote
         ? (remote === undefined
           ? h('span', { key: 'empty', className: 'gp-flow-chain__empty' })
-          : previewNode({ name: remote.ref, lane: 'other', state: remote.deleted ? 'deleted' : 'existing' }, 'remote', 'gp-flow-map__node--remote'))
+          : previewNode({
+            name: remote.ref,
+            lane: 'other',
+            // A push of a branch the remote does not have yet creates it.
+            state: remote.deleted ? 'deleted' : remoteBranches.has(remote.ref) ? 'existing' : 'created',
+          }, 'remote', 'gp-flow-map__node--remote'))
         : null,
     ]))
     if (index < nodes.length - 1) {
@@ -95,6 +101,9 @@ function renderFlowPreview(card: {
   readonly errorText?: string | null
   /** The checkout's remote name, for splitting `origin/<branch>` refs. */
   readonly remoteName?: string | null
+  /** Existing remote-tracking refs, so a pushed ref that does not exist yet is
+   * drawn as new. */
+  readonly remoteBranches?: readonly string[]
   readonly t: OpT
 }): JSX.Element {
   return h('div', {
@@ -103,7 +112,7 @@ function renderFlowPreview(card: {
     h('div', { key: 'head', className: 'gp-flow-map__head' }, [
       h('span', { key: 'title', className: 'gp-flow-map__title' }, card.t('flow.preview.title')),
     ]),
-    flowChain(card.preview, card.remoteName ?? null, card.t),
+    flowChain(card.preview, card.remoteName ?? null, new Set(card.remoteBranches ?? []), card.t),
     card.errorText === undefined || card.errorText === null || card.errorText === ''
       ? null
       : h('div', { key: 'error', className: 'gp-flow-map__note gp-flow-map__note--error', role: 'alert' }, [
@@ -123,6 +132,11 @@ export interface FlowStartArgs {
   readonly existing: readonly string[]
   /** Pre-filled name (a release / hotfix version derived from the tags). */
   readonly initialName?: string
+  /** The checkout's remote: the new branch is published there by default. */
+  readonly remoteName?: string | null
+  /** Existing remote-tracking refs, so a push that creates the branch is marked
+   * as new in the legend. */
+  readonly remoteBranches?: readonly string[]
   /** Submit is disabled while a write runs. */
   readonly busy?: boolean
   /** The host's refusal, rendered in the form (the dialog stays open). */
@@ -139,9 +153,12 @@ export function renderFlowStartModal(args: FlowStartArgs): JSX.Element | null {
   return h(FlowStartModal, args)
 }
 
-function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '', busy = false, error = null, onSubmit, onClose, container, t }: FlowStartArgs): JSX.Element | null {
+function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '', remoteName = null, remoteBranches = [], busy = false, error = null, onSubmit, onClose, container, t }: FlowStartArgs): JSX.Element | null {
   const [name, setName] = useState(initialName)
   const [base, setBase] = useState(defaultBase)
+  // Publishing the new branch is the expected end of a start, so the option is
+  // on whenever a remote exists. Without one it is disabled and has no effect.
+  const [push, setPush] = useState(remoteName !== null)
   // Two panels of one session can be mounted at once (conversation + sidebar),
   // so the label/field ids are per instance rather than fixed strings.
   const uid = useId()
@@ -155,7 +172,8 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
   // The dialog's own placeholder keeps the picture readable while the name is
   // still empty; the host still receives a real branch or nothing.
   const shownBranch = branch ?? `${FLOW_PREFIX[flow]}…`
-  const preview = startFlowPreview({ flow, branch: shownBranch, base, hasDevelop })
+  const pushRefs = remoteName !== null && push ? [`${remoteName}/${shownBranch}`] : null
+  const preview = startFlowPreview({ flow, branch: shownBranch, base, hasDevelop, pushRefs })
   const errorText = taken
     ? t('flow.start.exists')
     : invalid ? t('flow.start.invalid') : null
@@ -165,7 +183,10 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
   const confirmDisabled = busy || branch === null || taken || base === ''
   const submit = (): void => {
     if (confirmDisabled || branch === null) return
-    onSubmit({ kind: 'flow-start', flow, branch, base })
+    onSubmit({
+      kind: 'flow-start', flow, branch, base,
+      ...(remoteName !== null && push ? { pushRemote: remoteName } : {}),
+    })
   }
   return renderModalShell({
     onClose,
@@ -178,7 +199,7 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
     body: [
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.start.heading', { kind: KIND_SLUG[flow] })),
       h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, intro),
-      h(renderFlowPreview, { key: 'preview', preview, errorText, t }),
+      h(renderFlowPreview, { key: 'preview', preview, errorText, remoteName, remoteBranches, t }),
       h('div', { key: 'name', className: 'gp-flow__field' }, [
         h('label', { key: 'l', className: 'gp-flow__label', htmlFor: nameId }, t('flow.start.nameLabel', { kind })),
         h('input', {
@@ -195,6 +216,18 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
           key: 's', id: baseId, className: 'gp-input gp-flow__select', value: base,
           onChange: (e: { target: { value: string } }) => setBase(e.target.value),
         }, branches.map((b) => h('option', { key: b, value: b }, b))),
+      ]),
+      h('label', {
+        key: 'push',
+        className: `gp-modal__check${remoteName === null ? ' gp-flow__check--off' : ''}`,
+        title: remoteName === null ? t('flow.start.pushDisabled') : t('flow.start.pushTitle', { ref: `${remoteName}/${shownBranch}` }),
+      }, [
+        h('input', {
+          key: 'cb', type: 'checkbox', className: 'gp-check',
+          checked: remoteName !== null && push, disabled: remoteName === null,
+          onChange: () => setPush((v) => !v),
+        }),
+        t('flow.start.push'),
       ]),
       error !== null ? h('div', { key: 'error', className: 'gp-feedback' }, error) : null,
     ],
@@ -219,6 +252,10 @@ export interface FlowFinishArgs {
   /** The checkout's remote and its tracking branch names, so the push option
    * can say which ref it would publish (and follow the chosen target). */
   readonly remote: { readonly name: string | null; readonly branches: readonly string[] }
+  /** Every local branch, so a chained release name is refused before it is sent. */
+  readonly existing?: readonly string[]
+  /** The next release version read off the tags (the chained release start). */
+  readonly releaseInitialName?: string
   readonly busy?: boolean
   /** The host's refusal, rendered in the form (the dialog stays open). */
   readonly error?: string | null
@@ -233,7 +270,7 @@ export function renderFlowFinishModal(args: FlowFinishArgs): JSX.Element | null 
   return h(FlowFinishModal, args)
 }
 
-function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = false, error = null, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
+function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing = [], releaseInitialName = '', busy = false, error = null, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
   const [strategy, setStrategy] = useState<FlowStrategy>('merge')
   // The default message is a commit subject, so it follows the UI language and
   // names the branch being finished: `完成 feature/login`, not a fixed
@@ -254,28 +291,63 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
   // the branches (then the option is disabled anyway).
   const [push, setPush] = useState(true)
   const [tag, setTag] = useState(flow === 'feature' ? '' : defaultTagName(branch))
+  // Finishing a feature can immediately start the next release from develop.
+  // It is a separate decision, so it starts unchecked; checking it reveals the
+  // release name pre-filled with the next version read off the tags.
+  const [startRelease, setStartRelease] = useState(false)
+  const [releaseName, setReleaseName] = useState(releaseInitialName)
+  // The chained release is published separately, and only when asked: finishing
+  // a feature should not silently create a remote release branch.
+  const [pushRelease, setPushRelease] = useState(false)
+  // The tags query can land after the dialog opened. Keep filling the proposed
+  // version until the user edits the name, so opening early does not leave the
+  // field empty (and the preview can draw the real branch).
+  const releaseEdited = useRef(false)
+  useEffect(() => {
+    if (!releaseEdited.current && releaseInitialName !== '') setReleaseName(releaseInitialName)
+  }, [releaseInitialName])
   const uid = useId()
   const messageId = `${uid}-message`
   const tagId = `${uid}-tag`
   const targetId = `${uid}-target`
+  const releaseId = `${uid}-release`
   const kind = KIND_LABEL[flow]
   const slug = KIND_SLUG[flow]
   const needsTag = flow !== 'feature'
-  // The branches this finish actually publishes: the landing branch plus the
-  // long-lived branch it is merged back into (a release / hotfix also moves
-  // `develop`). One missing remote branch keeps the option off, because the
-  // push must publish the same set the local finish moved.
+  const releaseBranch = flowBranchName('release', releaseName)
+  const releaseTaken = releaseBranch !== null && existing.includes(releaseBranch)
+  const releaseInvalid = startRelease && (releaseBranch === null || releaseTaken)
+  // The branches this finish publishes: the landing branch plus the long-lived
+  // branch it is merged back into (a release / hotfix also moves `develop`).
+  // A missing remote branch is no reason to disable the push — the same push
+  // creates it — so only a checkout without a remote disables the choice.
   const pushBranches = [target, ...targets.backMerge]
-  const pushRefs = remote.name !== null && pushBranches.every((name) => remote.branches.includes(`${remote.name}/${name}`))
+  const movedPushRefs = remote.name !== null
     ? pushBranches.map((name) => `${remote.name}/${name}`)
     : null
+  // The chained release branch is new, so its push only needs a configured
+  // remote; it is its own checkbox and starts unchecked. The preview uses the
+  // placeholder too, so checking the push shows a change before a version is
+  // typed (the wire still only carries a real branch).
+  const releasePushPreviewRef = flow === 'feature' && startRelease && remote.name !== null && pushRelease
+    ? [`${remote.name}/${releaseBranch ?? 'release/…'}`]
+    : null
+  const releasePushRef = flow === 'feature' && startRelease && releaseBranch !== null && remote.name !== null && pushRelease
+    ? [`${remote.name}/${releaseBranch}`]
+    : null
+  const previewPushRefs = [
+    ...(movedPushRefs !== null && push ? movedPushRefs : []),
+    ...(releasePushPreviewRef ?? []),
+  ]
   const submit = (): void => {
     if (busy) return
     onSubmit({
       kind: 'flow-finish', flow, branch, target, strategy, message: message.trim(), deleteBranch, deleteRemote,
-      ...(pushRefs !== null && push ? { pushRemote: remote.name! } : {}),
+      ...(movedPushRefs !== null && push ? { pushRemote: remote.name! } : {}),
       forceDelete: strategy === 'squash' && forceDelete,
       ...(needsTag ? { tag: tag.trim() } : {}),
+      ...(flow === 'feature' && startRelease && releaseBranch !== null ? { startRelease: releaseBranch } : {}),
+      ...(releasePushRef !== null ? { releasePushRemote: remote.name! } : {}),
     })
   }
   const strategyLabel: Record<FlowStrategy, string> = {
@@ -285,7 +357,10 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
   }
   // The card only carries the graph; the strategy wording lives in the radio
   // list and its existing labels, not in a second sentence under the branches.
-  const errorText = needsTag && tag.trim() === '' ? t('flow.preview.tagRequired') : null
+  const releaseError = !startRelease
+    ? null
+    : releaseTaken ? t('flow.start.exists') : releaseName.trim() !== '' && releaseBranch === null ? t('flow.start.invalid') : null
+  const errorText = needsTag && tag.trim() === '' ? t('flow.preview.tagRequired') : releaseError
   const preview = finishFlowPreview({
     flow,
     branch,
@@ -295,9 +370,10 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
     tag: needsTag ? tag : '',
     deleteBranch,
     deleteRemote: hasUpstream && deleteRemote,
-    pushRefs: pushRefs !== null && push ? pushRefs : null,
+    pushRefs: previewPushRefs.length > 0 ? previewPushRefs : null,
     remoteName: remote.name,
     forceDelete: strategy === 'squash' && forceDelete,
+    startRelease: flow === 'feature' && startRelease ? (releaseBranch ?? 'release/…') : null,
   })
   return renderModalShell({
     onClose,
@@ -309,7 +385,7 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
     t,
     body: [
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.finish.heading', { branch })),
-      h(renderFlowPreview, { key: 'preview', preview, errorText, remoteName: remote.name, t }),
+      h(renderFlowPreview, { key: 'preview', preview, errorText, remoteName: remote.name, remoteBranches: remote.branches, t }),
       h('div', { key: 'modes', className: 'gp-flow__modes', role: 'radiogroup', 'aria-label': t('flow.finish.strategy') }, STRATEGIES.map((value) =>
         h('label', { key: value, className: 'gp-flow__mode' }, [
           h('input', {
@@ -369,19 +445,62 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, busy = fa
       // Push the branches the finish moved to their remote. On by default:
       // finishing the flow is expected to publish the long-lived branches it
       // moved; unchecking keeps the finish local.
-      h('label', { key: 'push', className: `gp-modal__check${pushRefs === null ? ' gp-flow__check--off' : ''}`, title: pushRefs === null ? t('flow.finish.pushDisabled') : undefined }, [
+      h('label', { key: 'push', className: `gp-modal__check${movedPushRefs === null ? ' gp-flow__check--off' : ''}`, title: movedPushRefs === null ? t('flow.finish.pushDisabled') : undefined }, [
         h('input', {
           key: 'cb', type: 'checkbox', className: 'gp-check',
-          checked: pushRefs !== null && push, disabled: pushRefs === null,
+          checked: movedPushRefs !== null && push, disabled: movedPushRefs === null,
           onChange: () => setPush((v) => !v),
         }),
-        t('flow.finish.push', { ref: pushRefs?.join(' + ') ?? target }),
+        t('flow.finish.push', { ref: movedPushRefs?.join(' + ') ?? target }),
       ]),
+      // Starting the next release is an extra follow-up, so it sits last among
+      // the finish choices. Only a feature has one: it lands on develop, which
+      // is exactly where `release/…` branches from.
+      flow === 'feature'
+        ? h('label', { key: 'start-release', className: 'gp-modal__check' }, [
+          h('input', {
+            key: 'cb', type: 'checkbox', className: 'gp-check',
+            checked: startRelease, onChange: () => setStartRelease((v) => !v),
+          }),
+          t('flow.finish.startRelease'),
+        ])
+        : null,
+      flow === 'feature' && startRelease
+        ? h('div', { key: 'release', className: 'gp-flow__field' }, [
+          h('label', { key: 'l', className: 'gp-flow__label', htmlFor: releaseId }, t('flow.finish.releaseName')),
+          h('input', {
+            key: 'i', id: releaseId, className: 'gp-input',
+            placeholder: t('flow.finish.releaseNamePlaceholder'),
+            value: releaseName,
+            onChange: (e: { target: { value: string } }) => {
+              releaseEdited.current = true
+              setReleaseName(e.target.value)
+            },
+          }),
+        ])
+        : null,
+      flow === 'feature' && startRelease
+        ? h('label', {
+          key: 'push-release',
+          className: `gp-modal__check${remote.name === null ? ' gp-flow__check--off' : ''}`,
+          title: remote.name === null
+            ? t('flow.start.pushDisabled')
+            : t('flow.start.pushTitle', { ref: `${remote.name}/${releaseBranch ?? 'release/…'}` }),
+        }, [
+          h('input', {
+            key: 'cb', type: 'checkbox', className: 'gp-check',
+            checked: remote.name !== null && pushRelease,
+            disabled: remote.name === null,
+            onChange: () => setPushRelease((v) => !v),
+          }),
+          t('flow.finish.pushRelease'),
+        ])
+        : null,
       error !== null ? h('div', { key: 'error', className: 'gp-feedback' }, error) : null,
     ],
     footer: renderModalFooter({
       onClose, onConfirm: submit, confirmLabel: t('flow.finish.confirm'),
-      confirmDisabled: busy || (needsTag && tag.trim() === '') || (strategy === 'squash' && deleteBranch && !forceDelete), danger: false, t,
+      confirmDisabled: busy || (needsTag && tag.trim() === '') || releaseInvalid || (strategy === 'squash' && deleteBranch && !forceDelete), danger: false, t,
     }),
     ...(busy ? { busy: true } : {}),
   })
