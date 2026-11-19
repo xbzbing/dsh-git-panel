@@ -636,10 +636,9 @@ async function touchHintScenario() {
   await clean.locator('.gp-changes__refresh').hover()
   await clean.waitForFunction(() => document.querySelector('.gp-tip')?.textContent === '刷新当前仓库状态')
   const afterHover = await clean.locator('.gp-tip').textContent()
-  // An empty list must not scroll. The clean-tree note sits under the two (0)
-  // headers and keeps its content height (one line plus 20px vertical padding)
-  // instead of filling the list; the no-scroll assertion below is the guard
-  // against it regrowing past the list's content box.
+  // An empty list must not scroll. The clean-tree note fills the space under
+  // the two (0) headers and centers in it, so the list stays one box high; the
+  // no-scroll assertion is the guard against the flex fill overflowing.
   await clean.evaluate(() => { document.getElementById('panel').style.width = '364px' })
   await clean.waitForTimeout(300)
   const emptyScroll = await clean.evaluate(() => {
@@ -649,6 +648,7 @@ async function touchHintScenario() {
       layout: document.querySelector('.gp-panel')?.getAttribute('data-layout'),
       clientH: list.clientHeight,
       scrollH: list.scrollHeight,
+      emptyClass: list.classList.contains('gp-changes__list--empty'),
       heads: document.querySelectorAll('.gp-changes__list .gp-group-head').length,
       paneH: Math.round(document.querySelector('.gp-changes__list .gp-empty')?.getBoundingClientRect().height ?? -1),
     }
@@ -689,10 +689,11 @@ try {
   assert.equal(touch.emptyScroll?.layout, 'compact', 'the empty-list check runs in the compact layout')
   assert.equal(touch.emptyScroll?.scrollH, touch.emptyScroll?.clientH, `an empty changes list does not scroll (${touch.emptyScroll?.scrollH} vs ${touch.emptyScroll?.clientH})`)
   assert.equal(touch.emptyScroll?.heads, 2, 'the clean list still mounts the staged / unstaged frame')
-  // Content height, not "whatever is shorter than the list": the bound is one
-  // 12px line + 20px vertical padding with slack, so a fixed or half-pane box
-  // (e.g. the old height:100%) cannot pass on a tall phone panel.
-  assert.ok((touch.emptyScroll?.paneH ?? 0) > 0 && (touch.emptyScroll?.paneH ?? 0) <= 48, `the clean-tree note keeps its content height (measured ${touch.emptyScroll?.paneH}px)`)
+  assert.equal(touch.emptyScroll?.emptyClass, true, 'the clean list lays out as the flex column')
+  // The note owns exactly the leftover box: list content height minus the two
+  // fixed 26px headers (4px vertical padding each side).
+  const leftover = (touch.emptyScroll?.clientH ?? 0) - 8 - 2 * 26
+  assert.ok(Math.abs((touch.emptyScroll?.paneH ?? 0) - leftover) <= 1, `the clean-tree note fills the leftover box (${touch.emptyScroll?.paneH}px vs ${leftover}px)`)
   assert.ok(touch.tip !== null, `the press-driven confirmation still reaches a finger (got ${JSON.stringify(touch.tip)})`)
   assert.equal(touch.armedAria, true, 'the first tap arms the two-step discard')
   assert.equal(touch.dismissed, 0, 'a press elsewhere drops the touch-raised confirmation')

@@ -375,30 +375,41 @@ async function configViewScenario() {
   // A clean work tree: the staged / unstaged frame stays on screen at (0) so the
   // reader can tell "nothing staged" from "no such section" without re-reading
   // the labels, and the note under the two headers says why they are empty
-  // (issue #135). The switch is still part of the toolbar, no rows required.
+  // (issue #135). The frame keeps the group controls — chevron and select-all —
+  // so an empty group still reads as a header, not a bare label.
+  const headsOf = (page) => page.locator('.gp-changes__list .gp-group-head').evaluateAll((nodes) => nodes.map((node) => {
+    const check = node.querySelector('input.gp-check')
+    return {
+      text: node.textContent,
+      chevron: node.querySelector('svg') !== null,
+      checkbox: check !== null,
+      checkboxDisabled: check?.disabled ?? null,
+      static: node.classList.contains('gp-group-head--static'),
+      frame: node.classList.contains('gp-group-head--frame'),
+    }
+  }))
   const clean = await openPanel(CLEAN)
-  assert.deepEqual(
-    await clean.locator('.gp-changes__list .gp-group-head').allTextContents(),
-    ['已暂存的更改 (0)', '更改 (0)'],
-    'the empty frame keeps both headers at zero',
-  )
+  assert.deepEqual(await headsOf(clean), [
+    { text: '已暂存的更改 (0)', chevron: true, checkbox: true, checkboxDisabled: false, static: false, frame: true },
+    { text: '更改 (0)', chevron: true, checkbox: true, checkboxDisabled: false, static: false, frame: true },
+  ], 'the empty frame keeps both headers at zero with their controls enabled')
   assert.equal(await clean.locator('.gp-changes__list .gp-empty').textContent(), '没有未提交的变更')
   assert.equal(await clean.locator('.gp-changes__viewbtn').count(), 1, 'the view switch does not depend on rows existing')
   await clean.close()
 
   // The same frame while the work tree is dirty: an empty staged header is the
-  // signal, not a missing one.
+  // signal, not a missing one; its select-all has nothing to cover, the bench
+  // below it does.
   const unstagedOnly = await openPanel({
     ...CLEAN,
     dirty: true, modified: 1,
     changes: [change('readme.md')],
     stats: { ...CLEAN.stats, fileCount: 1, modified: 1, insertions: 1 },
   })
-  assert.deepEqual(
-    await unstagedOnly.locator('.gp-changes__list .gp-group-head').allTextContents(),
-    ['已暂存的更改 (0)', '更改 (1)'],
-    'only the unstaged rows are listed; the staged frame still reads (0)',
-  )
+  assert.deepEqual(await headsOf(unstagedOnly), [
+    { text: '已暂存的更改 (0)', chevron: true, checkbox: true, checkboxDisabled: false, static: false, frame: true },
+    { text: '更改 (1)', chevron: true, checkbox: true, checkboxDisabled: false, static: false, frame: false },
+  ], 'only the unstaged rows are listed; the staged frame keeps its controls')
   assert.equal(await unstagedOnly.locator('.gp-changes__list .gp-empty').count(), 0, 'a dirty list shows no clean-tree note')
   await unstagedOnly.close()
 }
