@@ -705,6 +705,13 @@ export type GitQuery =
   // the revealed lines come from the exact version the diff compared against.
   | { readonly kind: 'file-lines'; readonly path: string; readonly base: 'worktree' | 'staged'; readonly start: number; readonly end: number }
   | { readonly kind: 'file-lines'; readonly path: string; readonly base: 'commit'; readonly commit: string; readonly start: number; readonly end: number }
+  // The complete post-change text of a diff, read from the same version the
+  // diff's new side compares against. The file browser's `file-content` only
+  // reads the working tree, so a commit view/copy cannot reuse it; this
+  // query is the one source for "show/copy the full new side". `rev` never
+  // reaches the host: a revision comparison's new side is the work tree.
+  | { readonly kind: 'file-version'; readonly path: string; readonly base: 'worktree' | 'staged' }
+  | { readonly kind: 'file-version'; readonly path: string; readonly base: 'commit'; readonly commit: string }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'worktree' | 'staged' }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'commit'; readonly commit: string }
   | { readonly kind: 'image-diff'; readonly path: string; readonly base: 'rev'; readonly rev: string }
@@ -891,6 +898,23 @@ export type GitQueryResult =
   // `lines` are 1-based new-side numbers `start..end` (clamped to the file);
   // `eof` marks that `end` reached the last line (no more to reveal below).
   | { readonly kind: 'file-lines'; readonly path: string; readonly start: number; readonly lines: readonly string[]; readonly eof: boolean }
+  // The post-change file as one text body, for the commit dialog's read-only
+  // file view and its "copy post-change content" action. This is deliberately
+  // separate from `file-content`: the browser preview reads the working tree,
+  // while this query reads whichever version the diff's new side compares
+  // against. Exactly one variant applies; the size is carried on every
+  // non-absent shape so the UI can name the limit it hit.
+  | {
+    readonly kind: 'file-version'
+    readonly path: string
+    readonly variant: 'text' | 'tooLarge' | 'binary' | 'absent'
+    /** text: the complete body, read from the requested base. */
+    readonly content?: string
+    /** text: total line count (same convention as `file-content`). */
+    readonly lines?: number
+    /** Byte size of the version, when it is known without reading the body. */
+    readonly size?: number
+  }
   | {
     /**
      * Old/new images for a binary image diff, as data URLs. The sides mirror
@@ -1043,12 +1067,14 @@ export function isEditablePath(path: string): boolean {
 }
 
 /**
- * Byte envelope of the file browser's "copy file content" action: a text
- * document is copyable strictly below this size. Shared by both halves —
- * the host floors its text read here (so every copyable document can
- * actually load) and the client hides the copy button at/above it, keeping
- * one boundary for load and copy. An SVG is a copyable document too: the host
- * floors its read here and serves it as source once it passes the image cap.
+ * Byte envelope of a complete text body: the file browser's "copy file
+ * content" action, and the commit dialog's read-only file view / "copy
+ * post-change content" action. A text document is copyable strictly below
+ * this size. Shared by both halves — the host floors its text read here (so
+ * every copyable document can actually load) and the client hides the copy
+ * button at/above it, keeping one boundary for load and copy. An SVG is a
+ * copyable document too: the host floors its read here and serves it as
+ * source once it passes the image cap.
  */
 export const FILE_COPY_MAX_BYTES = 10 * 1024 * 1024
 

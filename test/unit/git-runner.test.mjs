@@ -8,6 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createGitRunner } from '../../lib/host/index.js'
+import { FILE_COPY_MAX_BYTES } from '../../lib/host/types.js'
 
 /** Recording fake subprocess: captures each spawn spec, answers empty output. */
 function recordingSubprocess() {
@@ -89,4 +90,24 @@ test('caller-supplied env overrides the pinned pathspec mode', async () => {
   // opts.env spreads last, so a caller can still force a mode the runner pins.
   const env = await envFor(['git', 'log', '--format=%H'], { env: { GIT_LITERAL_PATHSPECS: '1' } })
   assert.equal(env.GIT_LITERAL_PATHSPECS, '1')
+})
+
+test('a per-run collect ceiling can be raised for one read and is clamped', async () => {
+  // The commit file view promises the shared copy envelope even when the
+  // profile's maxBytes is lower; only that read may opt into the wider collect.
+  const subprocess = recordingSubprocess()
+  await runner(subprocess).run(['git', 'cat-file', 'blob', 'HEAD:a.txt'], {
+    cwd: '/repo',
+    collectMaxBytes: 4096,
+  })
+  assert.equal(subprocess.specs[0].stdio.stdout.collect.maxBytes, 4096, 'stdout uses the per-run ceiling')
+  assert.equal(subprocess.specs[0].stdio.stderr.collect.maxBytes, 1024, 'stderr keeps the configured ceiling')
+
+  const huge = recordingSubprocess()
+  await runner(huge).run(['git', 'cat-file', 'blob', 'HEAD:a.txt'], {
+    cwd: '/repo',
+    collectMaxBytes: 64 * 1024 * 1024,
+  })
+  const cap = huge.specs[0].stdio.stdout.collect.maxBytes
+  assert.ok(cap <= FILE_COPY_MAX_BYTES + 64 * 1024, `an arbitrary request is clamped (${cap})`)
 })

@@ -915,6 +915,7 @@ export async function runCommand(
   _label: string,
   signal?: AbortSignal,
   stdin?: string | { readonly data?: string; readonly env?: Readonly<Record<string, string | undefined>> },
+  extra?: { readonly collectMaxBytes?: number },
 ): Promise<{ run: Awaited<ReturnType<GitRunner['run']>> } | { failure: unknown }> {
   const data = typeof stdin === 'string' ? stdin : stdin?.data
   const env = typeof stdin === 'string' ? undefined : stdin?.env
@@ -924,6 +925,7 @@ export async function runCommand(
       ...(signal ? { signal } : {}),
       ...(data !== undefined ? { stdinData: data } : {}),
       ...(env !== undefined ? { env } : {}),
+      ...(extra?.collectMaxBytes !== undefined ? { collectMaxBytes: extra.collectMaxBytes } : {}),
     })
     return { run }
   } catch (error) {

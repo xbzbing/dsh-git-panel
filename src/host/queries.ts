@@ -92,6 +92,7 @@ export async function runQuery(
       case 'history': return await queryHistory(deps, root, q)
       case 'diff': return await queryDiff(deps, root, q)
       case 'file-lines': return await queryFileLines(deps, config, root, q)
+      case 'file-version': return await queryFileVersion(deps, root, q)
       case 'image-diff': return await queryImageDiff(deps, config, root, q)
       case 'show': return await queryShow(deps, root, q.ref)
       case 'branches': return await queryBranches(deps, root)
@@ -542,6 +543,104 @@ async function queryFileLines(
   return sliceLines(q.path, side.text ?? '', start, end, config.maxBytes)
 }
 
+/**
+ * The complete post-change body of one file, for the commit dialog's read-only
+ * file view and its copy action. Unlike `file-lines` this returns the whole
+ * text in one reply, and unlike `file-content` it reads the version the diff
+ * compared against rather than the working tree.
+ *
+ * The read is bounded by the shared `FILE_COPY_MAX_BYTES` envelope (strictly
+ * below it). Git-backed sides are sized before they are read, so a huge blob
+ * is reported as too large instead of being collected. A body with a NUL byte
+ * is `binary`; a submodule gitlink is not a blob and is never stringified into
+ * a commit hash.
+ */
+async function queryFileVersion(
+  deps: SnapshotDeps,
+  root: string,
+  q: Extract<GitQueryRequest['query'], { kind: 'file-version' }>,
+): Promise<GitQueryResponse> {
+  if (!isSafePath(q.path) || hasGitSegment(q.path) || isGitInternalPath(q.path)) {
+    return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  }
+  const text = (content: string, size: number): GitQueryResponse => ({
+    ok: true,
+    value: { kind: 'file-version', path: q.path, variant: 'text', content, lines: countLines(content), size },
+  })
+  const flagged = (variant: 'tooLarge' | 'binary' | 'absent', size?: number): GitQueryResponse => ({
+    ok: true,
+    value: { kind: 'file-version', path: q.path, variant, ...(size !== undefined ? { size } : {}) },
+  })
+
+  if (q.base === 'worktree') {
+    // `readWorktreeSide` treats `maxBytes` inclusively; the envelope is strict,
+    // so ask for one byte less and let an exact-cap file report too large.
+    const read = await readWorktreeSide(deps, root, q.path, FILE_COPY_MAX_BYTES - 1)
+    if ('tooLarge' in read) {
+      // Only a regular over-cap file reaches this branch (a symlink reads as
+      // its link text), so following the stat cannot escape the root.
+      const info = await deps.fs.stat(join(root, q.path)).catch(() => null)
+      return flagged('tooLarge', info?.size)
+    }
+    if ('absent' in read) return flagged('absent')
+    // The new-side read normalizes CRLF the way the blob git compares does;
+    // the copy/view must show the same text, not the disk spelling. Its byte
+    // length is therefore the returned body's size, not the disk file's.
+    if (read.text.includes('\u0000')) return flagged('binary')
+    return text(read.text, Buffer.byteLength(read.text, 'utf8'))
+  }
+
+  if (q.base === 'commit' && !isSafeRev(q.commit)) {
+    return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
+  }
+  const spec = q.base === 'commit' ? `${q.commit}:${q.path}` : `:${q.path}`
+  const typeRes = await runCommand(deps.run, ['git', 'cat-file', '-t', '--end-of-options', spec], root, 'file-version-type', deps.signal)
+  if (!('run' in typeRes)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (typeRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+  if (typeRes.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  if (typeRes.run.exitCode !== 0) {
+    return ABSENT_SIDE_RE.test(typeRes.run.stderr)
+      ? flagged('absent')
+      : { ok: false, error: { code: 'git-error', message: typeRes.run.stderr.trim() || 'git cat-file failed' } }
+  }
+  // A tree, a commit (submodule gitlink) or any other object is not a file
+  // body. Reporting it binary keeps the caller from copying an object id.
+  if (typeRes.run.stdout.trim() !== 'blob') return flagged('binary')
+
+  const sizeRes = await runCommand(deps.run, ['git', 'cat-file', '-s', '--end-of-options', spec], root, 'file-version-size', deps.signal)
+  if (!('run' in sizeRes)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (sizeRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+  if (sizeRes.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  const size = Number.parseInt(sizeRes.run.stdout.trim(), 10)
+  if (sizeRes.run.exitCode !== 0 || !Number.isFinite(size) || size < 0) {
+    return { ok: false, error: { code: 'git-error', message: sizeRes.run.stderr.trim() || 'git cat-file -s failed' } }
+  }
+  if (size >= FILE_COPY_MAX_BYTES) return flagged('tooLarge', size)
+
+  // Size is known here, so the collect ceiling is exact: never allocate the
+  // profile cap and never let the runner spill a body this read promised.
+  const readRes = await runCommand(
+    deps.run,
+    ['git', 'cat-file', 'blob', '--end-of-options', spec],
+    root,
+    'file-version',
+    deps.signal,
+    undefined,
+    { collectMaxBytes: size + 64 },
+  )
+  if (!('run' in readRes)) return { ok: false, error: { code: 'git-unavailable' } }
+  if (readRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+  if (readRes.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  if (readRes.run.exitCode !== 0) {
+    return { ok: false, error: { code: 'git-error', message: readRes.run.stderr.trim() || 'git cat-file blob failed' } }
+  }
+  if (readRes.run.stdoutLossy) {
+    return { ok: false, error: { code: 'git-error', message: 'file-version output exceeded the output cap' } }
+  }
+  if (readRes.run.stdout.includes('\u0000')) return flagged('binary', size)
+  return text(readRes.run.stdout, size)
+}
+
 /** New-side text of a diff, or null when that side has no content. */
 type NewSideRead =
   | { readonly ok: true; readonly text: string | null }
@@ -549,7 +648,7 @@ type NewSideRead =
 
 /** git says "this version has no such path" in exactly these shapes; every
  * other non-zero exit (bad rev, corrupt object) is a real failure. */
-const ABSENT_SIDE_RE = /does not exist in|exists on disk, but not in the index|no such path/i
+const ABSENT_SIDE_RE = /does not exist|exists on disk, but not in the index|no such path/i
 
 /**
  * Read the version a diff's RIGHT side compares against — the single source of
