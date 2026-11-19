@@ -18,7 +18,7 @@ import { ChevronIcon, CloseIcon, SparkleIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { renderConfirmModal } from './ops-modals.js'
 import { StashPushModal, renderChangeRow, renderStashRow, type ChangeRowCtx } from './changes-rows.js'
-import { buildChangeRows, dirDiscardPaths, dirKey, normalizeViewMode, ROW_H, type ChangeGroupKey, type ChangeViewMode } from './changes-tree.js'
+import { buildChangeRows, dirDiscardPaths, dirKey, normalizeViewMode, ROW_H, visibleChangeGroups, type ChangeGroupKey, type ChangeViewMode } from './changes-tree.js'
 import { inertAttr } from './inert.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
@@ -213,7 +213,9 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     unstaged: snapshot.stats.modified,
     untracked: snapshot.stats.untracked,
   }
-  const groups = allGroups.filter((g) => g.items.length > 0 || (snapshot.truncated && counts[g.key] > 0))
+  // Which groups mount a header is a policy of the row model (the staged /
+  // unstaged frame stays at (0), issue #135), not of this component.
+  const groups = visibleChangeGroups(allGroups, counts, snapshot.truncated)
 
   // The directory dialog's targets, re-derived from the live rows on every
   // render: same group, same directory prefix — so a poll that removes files
@@ -249,7 +251,13 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // VOVERSCAN rows each side. Before the first layout measurement a fallback
   // height bounds the initial paint.
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
-  const { first, last } = windowRange(tops, viewport.top, effHeight, VOVERSCAN * ROW_H.file)
+  // The stored scrollTop can outlive the content that justified it: a snapshot
+  // that shrinks the list (repo switched to a clean tree) paints once with the
+  // old offset, and an offset past the last row would mount nothing — not even
+  // the fixed-frame headers — until the browser clamps the scroll and fires.
+  // Clamping to the new bottom keeps that first paint whole.
+  const winTop = Math.min(viewport.top, Math.max(0, totalH - effHeight))
+  const { first, last } = windowRange(tops, winTop, effHeight, VOVERSCAN * ROW_H.file)
 
   // A hovered row can vanish without a mouseleave — the virtualized window
   // slides, a snapshot refresh replaces the list, or the tree collapses above
@@ -845,10 +853,14 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
       : null,
     h('div', { key: 'list', className: 'gp-changes__list', ref: listNode }, [
       rowSliderNode,
+      // The headers are rows of the same window whether or not anything sits
+      // under them, so the clean tree still mounts its two `(0)` heads and only
+      // the note below the list is extra.
+      h('div', { key: 'vlist', className: 'gp-changes__vlist', style: { height: totalH } },
+        items.slice(first, last).map((it, k) => renderChangeRow(it, rowCtx, tops[first + k]))),
       snapshot.changes.length === 0
-        ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
-        : h('div', { className: 'gp-changes__vlist', style: { height: totalH } },
-            items.slice(first, last).map((it, k) => renderChangeRow(it, rowCtx, tops[first + k]))),
+        ? h('div', { key: 'empty', className: 'gp-empty gp-changes__emptynote' }, t('changes.noChanges'))
+        : null,
     ]),
     // Truncation control: expand lifts the host list cap (fullChanges mode,
     // kept for the controller's lifetime so the next poll does not re-truncate
