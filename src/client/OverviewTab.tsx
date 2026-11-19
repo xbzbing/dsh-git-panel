@@ -32,7 +32,7 @@ import { useFileVersion } from './use-file-version.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
-import { runRemoteAction, runSnapshotAction } from './op-runner.js'
+import { runRemoteAction, runSnapshotAction, type ActionReply } from './op-runner.js'
 import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
 import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { renderBranchDeleteConfirm, renderRemoteBranchDeleteConfirm } from './branch-delete.js'
@@ -49,7 +49,8 @@ import { useElementWidth } from './use-element-width.js'
 import { commitColumns } from './commit-columns.js'
 import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
-import { canPush, canSetUpstream } from './push-policy.js'
+import { canPush, canSetUpstream, canSync } from './push-policy.js'
+import { SyncConfirmModal } from './SyncConfirmModal.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
 import { BranchScroll, renderBranchSheet, type BranchTrees } from './overview-branches.js'
@@ -81,7 +82,7 @@ interface OverviewProps {
   readonly snapshot: GitSnapshot
   /** HEAD-moving write path (revert/reset) routed through the controller so the
    * fresh snapshot refreshes the panel; tag ops bypass it (work tree untouched). */
-  readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
+  readonly onAction: (action: GitAction) => Promise<ActionReply>
   /** Force an immediate snapshot refresh (used to re-pull the reset lost-file
    * list on dialog open, cutting the TOCTOU window against the shared AI). */
   readonly onResync: () => void
@@ -298,6 +299,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const [setUpstreamOpen, setSetUpstreamOpen] = useState(false)
   const [publishBusy, setPublishBusy] = useState(false)
   const [publishConfirm, setPublishConfirm] = useState(false)
+  // Diverged sync (ADR-0036): merge the upstream, then push. `mergeSyncBusy`
+  // spans both halves so the bar keeps one label while `pushBusy` would
+  // otherwise take over mid-flight; the confirm owns the two-step chain.
+  const [mergeSyncBusy, setMergeSyncBusy] = useState(false)
+  const [syncConfirmOpen, setSyncConfirmOpen] = useState(false)
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
   // Ignored by the wide layout, which renders both columns at once.
   const [pane, setPane] = useState<'list' | 'detail'>('list')
@@ -444,7 +450,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   }
   const opScopeRef = useRef<string | null>(null)
   const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null || branchToDelete !== null || remoteBranchToDelete !== null || branchMergeTarget !== null || pickTarget !== null
-  const opInFlight = opBusy || switchBusy
+  const opInFlight = opBusy || switchBusy || mergeSyncBusy
   // The runs the menu offers, closing over this render's state (the owner reads
   // the published object at resolve time, so a fresh one each render is enough).
   const overviewMenuCommands: OverviewMenuCommands = {
@@ -854,6 +860,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       t('error.generic'),
     )
   }
+  // Diverged sync: one click on the shared confirmation, which owns the
+  // two-step chain and its own checkout scope. This wrapper only opens it and
+  // gives the chain the status-bar slots (busy label / error).
+  const openSync = (): void => {
+    if (!canSync(snapshot)) return
+    setSyncError(null)
+    setSyncConfirmOpen(true)
+  }
   // Set-upstream is config-only but always asks which remote to attach, even
   // with one candidate. The modal re-checks the snapshot and owns the busy lock.
   const openSetUpstream = (): void => {
@@ -861,9 +875,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   }
   // One status-bar callback set, shared by the wide and compact placements.
   const statusCbs = {
-    syncBusy, syncError, pullBusy, pushBusy, publishBusy, setUpstreamBusy, switchBusy,
+    syncBusy, syncError, pullBusy, mergeSyncBusy, pushBusy, publishBusy, setUpstreamBusy, switchBusy,
     onCheck: () => void runCheckSync(),
     onPull: () => void runPullFf(),
+    onSync: openSync,
     onPush: () => void runPushDirect(),
     onSetUpstream: openSetUpstream,
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
@@ -973,6 +988,17 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       error: opError,
       onCreate: runBranchCreate,
       onClose: () => setBranchCreateTarget(null),
+      t,
+    }) : null,
+    syncConfirmOpen ? h(SyncConfirmModal, {
+      key: 'sync-confirm',
+      snapshot,
+      onAction,
+      onClose: () => setSyncConfirmOpen(false),
+      onBusyChange: setMergeSyncBusy,
+      // The chain's push half cannot be retried from the dialog; report it in
+      // the status-bar slot, scoped to the checkout the write started in.
+      onError: (message) => statusReporter()(message),
       t,
     }) : null,
     branchMergeTarget !== null ? renderConfirmModal({

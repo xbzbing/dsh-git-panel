@@ -3,7 +3,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitKey } from './locales.js'
 import type { ChangesViewMode, GitSnapshot } from './types.js'
-import { LinkIcon, ListIcon, RefreshIcon, StageAllIcon, StagePickedIcon, StashIcon, TrashAllIcon, TrashIcon, TreeIcon, UnstageAllIcon, UploadIcon } from './icons.js'
+import { LinkIcon, ListIcon, RefreshIcon, StageAllIcon, StagePickedIcon, StashIcon, SyncIcon, TrashAllIcon, TrashIcon, TreeIcon, UnstageAllIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { pushIntent } from './push-policy.js'
 
@@ -22,6 +22,8 @@ interface ChangesToolbarProps {
   readonly onDiscard: () => void
   readonly onDiscardAll: () => void
   readonly onStash: () => void
+  /** Merge the upstream and push (the diverged branch, ADR-0036). */
+  readonly onSync: () => void
   /** Ordinary push (`git push`) to the upstream. */
   readonly onPush: () => void
   /** Attach the branch to a same-named remote branch already at HEAD. */
@@ -52,19 +54,24 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
   // All intents are unavailable otherwise, so the button never reads as a dead
   // control on a freshly committed local-only branch (issue #63).
   const intent = pushIntent(snapshot)
-  const remoteLabel: GitKey = intent === 'set-upstream'
-    ? 'status.setUpstream'
-    : intent === 'publish' ? 'status.publishTitle' : 'status.pushTitle'
+  const remoteLabel: GitKey = intent === 'sync'
+    ? 'status.syncTitle'
+    : intent === 'set-upstream'
+      ? 'status.setUpstream'
+      : intent === 'publish' ? 'status.publishTitle' : 'status.pushTitle'
   // An unavailable control keeps its action name (aria-label) and explains
   // itself on hover instead — the accessible name states what the control is,
   // the tip states why it is off (issue #61).
   const remoteTip = intent === null
     ? t('changes.noRemoteTarget')
-    : intent === 'set-upstream'
-      ? t('status.setUpstreamTitle')
-      : t(remoteLabel)
+    : intent === 'sync'
+      ? t('status.syncTitle')
+      : intent === 'set-upstream'
+        ? t('status.setUpstreamTitle')
+        : t(remoteLabel)
   const remoteAction = (): void => {
-    if (intent === 'set-upstream') props.onSetUpstream()
+    if (intent === 'sync') props.onSync()
+    else if (intent === 'set-upstream') props.onSetUpstream()
     else if (intent === 'publish') props.onPublish()
     else if (intent === 'push') props.onPush()
   }
@@ -107,7 +114,7 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     // list is truncated (the host re-resolves the full change set itself).
     button('discard-all', 'changes.discardAll', h(TrashAllIcon, { size: 16 }), snapshot.modified === 0 && snapshot.untracked === 0, props.onDiscardAll),
     button('stash', 'changes.stash', h(StashIcon, { size: 16 }), snapshot.staged === 0 && snapshot.modified === 0, props.onStash),
-    button('push', remoteLabel, h(intent === 'set-upstream' ? LinkIcon : UploadIcon, { size: 16 }), intent === null, remoteAction, '', remoteTip),
+    button('push', remoteLabel, h(intent === 'sync' ? SyncIcon : intent === 'set-upstream' ? LinkIcon : UploadIcon, { size: 16 }), intent === null, remoteAction, '', remoteTip),
     button('refresh', 'changes.refresh', h(RefreshIcon, { size: 16 }), false, () => void refresh(), refreshing ? ' gp-changes__refresh--busy' : ''),
     viewToggle,
     tipNode,

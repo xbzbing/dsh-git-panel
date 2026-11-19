@@ -27,6 +27,7 @@ import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
 import type { FontDelta, GitAction, GitRepoEntry, GitRepoList } from './types.js'
+import type { ActionReply } from './op-runner.js'
 import { REPO_LIMITS } from './types.js'
 import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
@@ -517,7 +518,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoRejected, repo, sessionId])
 
-  const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
+  const onAction = async (action: GitAction): Promise<ActionReply> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
     // The selection can move while the write is in flight; the reply carries a
     // snapshot of the work tree it started in. Handing that to a controller
@@ -532,10 +533,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
         return { ok: true }
       }
       // The run already returned a fresh snapshot; feed it to the controller
-      // instead of triggering another git round-trip.
+      // instead of triggering another git round-trip. It also rides back to the
+      // caller: the diverged sync chains its push on the post-merge counts, and
+      // a failure after the merge must not leave the bar showing the old ones.
       controller.accept(result.snapshot)
       if (action.kind === 'branch-checkout') setWorktreeGen((n) => n + 1)
-      return { ok: true }
+      return { ok: true, snapshot: result.snapshot }
     }
     // A failed write may still have changed the work tree (e.g. a stash pop that
     // hit a conflict applies the diff but keeps the stash); resync so the panel

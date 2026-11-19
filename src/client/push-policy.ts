@@ -6,6 +6,20 @@ export function canPush(snapshot: GitSnapshot): boolean {
 }
 
 /**
+ * Offer the merge-based sync when the branch is diverged: fetch the upstream,
+ * merge it into HEAD, then push the ordinary way. The merge is additive (a
+ * merge commit, never a rewrite), and the push it enables is a fast-forward
+ * because the upstream tip is now an ancestor. Gated on the host capability:
+ * a host that predates the action must not be sent one it would reject.
+ */
+export function canSync(snapshot: GitSnapshot): boolean {
+  return snapshot.capabilities?.syncMerge === true
+    && snapshot.hasUpstream === true
+    && snapshot.branch !== null
+    && snapshot.ahead > 0 && snapshot.behind > 0
+}
+
+/**
  * The remotes that can be attached as upstream: every remote whose same-named
  * branch points at HEAD. A host that predates the list sends nothing, which
  * reads as "no candidate" — the panel then keeps offering `publish`.
@@ -48,11 +62,12 @@ export function canPublish(snapshot: GitSnapshot): boolean {
 }
 
 /** The remote write the sync controls offer for this snapshot; null = none. */
-export type PushIntent = 'push' | 'set-upstream' | 'publish'
+export type PushIntent = 'sync' | 'push' | 'set-upstream' | 'publish'
 
 /** One source for every push-shaped control, so a branch that cannot be pushed
  * can still be attached or published (and no two states can ever both show). */
 export function pushIntent(snapshot: GitSnapshot): PushIntent | null {
+  if (canSync(snapshot)) return 'sync'
   if (canPush(snapshot)) return 'push'
   if (canSetUpstream(snapshot)) return 'set-upstream'
   if (canPublish(snapshot)) return 'publish'
