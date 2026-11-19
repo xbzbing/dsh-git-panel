@@ -914,6 +914,30 @@ const out = await page.evaluate(async (snap) => {
     modes: document.querySelectorAll('.gp-modal .gp-diff__modes [data-diff-mode]').length,
     expand: document.querySelector('.gp-modal .gp-diff__expand') !== null,
   }
+  // The modal's icon controls explain themselves through the platform Tooltip
+  // (instant, dark pill), not the browser's native title. The harness stub
+  // stamps the label it would show as `data-tip`, and whether the bubble is
+  // portalled as `data-tip-portal`.
+  result.modalTooltips = (() => {
+    const read = (selector) => {
+      const el = document.querySelector(selector)
+      return el === null ? null : {
+        label: el.getAttribute('aria-label'),
+        title: el.getAttribute('title'),
+        tip: el.getAttribute('data-tip'),
+        portal: el.getAttribute('data-tip-portal'),
+      }
+    }
+    return {
+      view: read('.gp-modal .gp-modal__view'),
+      copy: read('.gp-modal .gp-modal__copy'),
+      expand: read('.gp-modal .gp-diff__expand'),
+      split: read('.gp-modal .gp-diff__modes [data-diff-mode="split"]'),
+      before: read('.gp-modal .gp-diff__modes [data-diff-mode="before"]'),
+      after: read('.gp-modal .gp-diff__modes [data-diff-mode="after"]'),
+      close: read('.gp-modal__bar .gp-modal__close'),
+    }
+  })()
   const modalCopy = document.querySelector('.gp-modal .gp-modal__copy')
   result.modalCopyLabel = modalCopy?.getAttribute('aria-label') ?? null
   const modalClipboard = []
@@ -963,6 +987,7 @@ const out = await page.evaluate(async (snap) => {
       text: document.querySelector('.gp-modal .gp-empty')?.textContent ?? null,
       disabled: copy?.disabled === true,
       label: copy?.getAttribute('aria-label') ?? null,
+      tip: copy?.getAttribute('data-tip') ?? null,
       fileView: document.querySelector('.gp-modal .gp-modal__file') !== null,
       beforeLabel,
     }
@@ -1086,6 +1111,30 @@ const out = await page.evaluate(async (snap) => {
   const closeBtn = document.querySelector('.gp-modal__bar .gp-modal__close')
   if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
   result.modalClosedByBtn = document.querySelector('.gp-modal') === null
+  // Shells older than the platform Tooltip export: the wrapper must fall back to
+  // the control's native title instead of dropping the hint. Drop the stub
+  // export, reopen the dialog, and read the bar again.
+  const primitivesModule = window.MOD['@deepseek-ai/dsh-client-ui-primitives']
+  const stubbedTooltip = primitivesModule.Tooltip
+  delete primitivesModule.Tooltip
+  if (reopenRow) { reopenRow.click(); await settle() }
+  result.modalFallbackTooltips = (() => {
+    const read = (selector) => {
+      const el = document.querySelector(selector)
+      return el === null ? null : {
+        label: el.getAttribute('aria-label'),
+        title: el.getAttribute('title'),
+        tip: el.getAttribute('data-tip'),
+      }
+    }
+    return {
+      view: read('.gp-modal .gp-modal__view'),
+      close: read('.gp-modal__bar .gp-modal__close'),
+    }
+  })()
+  primitivesModule.Tooltip = stubbedTooltip
+  document.querySelector('.gp-modal__bar .gp-modal__close')?.click()
+  await new Promise((r) => setTimeout(r, 200))
   document.querySelector('#pill .gp-pill')?.click()
   await new Promise((r) => setTimeout(r, 100))
   result.livePillJump = document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.changes') ?? false

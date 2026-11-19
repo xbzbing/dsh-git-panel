@@ -211,6 +211,38 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.modalVersionQuery?.base, 'commit', 'a commit overlay reads the commit blob')
   assert.equal(typeof out.modalVersionQuery?.commit, 'string', 'the read carries the commit it belongs to')
   assert.deepEqual(out.modalFileViewControls, { modes: 3, expand: true }, 'the file view keeps the whole toolbar, not a stub of it')
+  // Every icon in that row uses the platform's instant bubble: no native title
+  // (its browser delay cannot be shortened), the control's own label as the
+  // bubble text, and the bubble portalled out of the modal's clipped box. The
+  // expected labels are spelled out so a control that loses its label cannot
+  // pass by comparing two nulls.
+  const MODAL_TIP_LABELS = {
+    view: 'diff.backToDiff',
+    copy: 'diff.copyAfter',
+    expand: 'diff.expandAll',
+    split: 'diff.toSplit',
+    before: 'diff.before',
+    after: 'diff.after',
+    close: 'common.close',
+  }
+  assert.deepEqual(Object.keys(out.modalTooltips).sort(), Object.keys(MODAL_TIP_LABELS).sort(), 'the modal bar is covered control by control')
+  for (const [name, expected] of Object.entries(MODAL_TIP_LABELS)) {
+    const tip = out.modalTooltips[name]
+    assert.ok(tip !== null, `the ${name} control is found by its selector`)
+    assert.equal(tip.label, expected, `${name}: the accessible name is the control's own label`)
+    assert.equal(tip.title, null, `${name}: no native title (the slow browser tooltip)`)
+    assert.equal(tip.tip, expected, `${name}: the platform tooltip carries that label`)
+    assert.equal(tip.portal, 'true', `${name}: the bubble is portalled out of the clipped modal`)
+  }
+  // Without that export the hint must survive as the native title, never vanish.
+  assert.deepEqual(
+    out.modalFallbackTooltips,
+    {
+      view: { label: 'diff.fileView', title: 'diff.fileView', tip: null },
+      close: { label: 'common.close', title: 'common.close', tip: null },
+    },
+    'a shell without the platform Tooltip falls back to the native title',
+  )
   assert.equal(out.modalFileViewReopened, true, 'the file view can be reopened for the control round')
   assert.equal(out.modalFileViewModeReturned, true, 'a diff-mode switch in the file view returns to the diff')
   assert.equal(out.modalFileViewModeApplied, true, 'and applies the mode it names')
@@ -227,18 +259,18 @@ export function assertPanelResults(out, realInput, errors) {
   // Degraded versions: visible reason, copy disabled with that reason as its
   // label, and never an empty file view standing in for the real content.
   assert.deepEqual(
-    { text: out.modalTooLarge?.text, disabled: out.modalTooLarge?.disabled, label: out.modalTooLarge?.label, file: out.modalTooLarge?.fileView, openedOn: out.modalTooLarge?.beforeLabel },
-    { text: 'diff.versionTooLarge', disabled: true, label: 'diff.versionTooLarge', file: false, openedOn: 'diff.fileView' },
+    { text: out.modalTooLarge?.text, disabled: out.modalTooLarge?.disabled, label: out.modalTooLarge?.label, tip: out.modalTooLarge?.tip, file: out.modalTooLarge?.fileView, openedOn: out.modalTooLarge?.beforeLabel },
+    { text: 'diff.versionTooLarge', disabled: true, label: 'diff.versionTooLarge', tip: 'diff.versionTooLarge', file: false, openedOn: 'diff.fileView' },
     'an over-limit version explains itself and cannot be copied',
   )
   assert.deepEqual(
-    { text: out.modalAbsent?.text, disabled: out.modalAbsent?.disabled, label: out.modalAbsent?.label, file: out.modalAbsent?.fileView, openedOn: out.modalAbsent?.beforeLabel },
-    { text: 'diff.versionAbsent', disabled: true, label: 'diff.versionAbsent', file: false, openedOn: 'diff.fileView' },
+    { text: out.modalAbsent?.text, disabled: out.modalAbsent?.disabled, label: out.modalAbsent?.label, tip: out.modalAbsent?.tip, file: out.modalAbsent?.fileView, openedOn: out.modalAbsent?.beforeLabel },
+    { text: 'diff.versionAbsent', disabled: true, label: 'diff.versionAbsent', tip: 'diff.versionAbsent', file: false, openedOn: 'diff.fileView' },
     'a version without this file says so instead of showing an empty body',
   )
   assert.deepEqual(
-    { text: out.modalBinary?.text, disabled: out.modalBinary?.disabled, label: out.modalBinary?.label, file: out.modalBinary?.fileView, openedOn: out.modalBinary?.beforeLabel },
-    { text: 'diff.versionBinary', disabled: true, label: 'diff.versionBinary', file: false, openedOn: 'diff.fileView' },
+    { text: out.modalBinary?.text, disabled: out.modalBinary?.disabled, label: out.modalBinary?.label, tip: out.modalBinary?.tip, file: out.modalBinary?.fileView, openedOn: out.modalBinary?.beforeLabel },
+    { text: 'diff.versionBinary', disabled: true, label: 'diff.versionBinary', tip: 'diff.versionBinary', file: false, openedOn: 'diff.fileView' },
     'a non-text version explains itself and cannot be copied',
   )
   // 展开全部: the same icon-only control the changes pane uses, in the same box.

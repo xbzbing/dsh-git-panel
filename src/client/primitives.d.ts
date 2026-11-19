@@ -144,6 +144,20 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     readonly className?: string
   }) => JSX.Element
 
+  /** Official hover bubble: a dark pill cloned onto its single child, with no
+   * delay unless `delayMs` says otherwise. The bubble sits at z-index 100, so
+   * `portal` is what keeps a modal's `overflow: hidden` from clipping it; it
+   * stays visible over the panel's own 1000 layer because the panel lives in
+   * the host dock cell's stacking context. Shells that do not export this
+   * member are handled in `platform-tip.tsx`. */
+  export function Tooltip(props: {
+    label: ReactNode
+    side?: 'top' | 'bottom' | 'left' | 'right'
+    delayMs?: number
+    portal?: boolean
+    children: JSX.Element
+  }): JSX.Element
+
   /** One equal-width tab: its label plus the caller-owned tab/panel DOM ids. */
   export interface SegmentedTab {
     value: string
