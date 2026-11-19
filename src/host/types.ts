@@ -902,17 +902,20 @@ export type GitQueryResult =
   // file view and its "copy post-change content" action. This is deliberately
   // separate from `file-content`: the browser preview reads the working tree,
   // while this query reads whichever version the diff's new side compares
-  // against. Exactly one variant applies; the size is carried on every
-  // non-absent shape so the UI can name the limit it hit.
+  // against. Exactly one variant applies; `content` is the only source of the
+  // body (callers never rebuild it from the diff or the file browser).
   | {
     readonly kind: 'file-version'
     readonly path: string
     readonly variant: 'text' | 'tooLarge' | 'binary' | 'absent'
     /** text: the complete body, read from the requested base. */
     readonly content?: string
-    /** text: total line count (same convention as `file-content`). */
-    readonly lines?: number
-    /** Byte size of the version, when it is known without reading the body. */
+    /**
+     * Bytes of the version, carried when it is known: the body length for
+     * text (the CRLF-normalized length on the working-tree side), the blob
+     * size for a git-backed `binary`, and the size that tripped the envelope
+     * for `tooLarge`.
+     */
     readonly size?: number
   }
   | {

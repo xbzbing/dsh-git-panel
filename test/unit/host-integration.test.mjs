@@ -4192,3 +4192,47 @@ test('file-version refuses binary bodies and submodule gitlinks instead of strin
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('file-version refuses unsafe paths and real git errors instead of reporting an absent side', async () => {
+  const { writeFileSync } = await import('node:fs')
+  const dir = await repoWith({ 'a.txt': 'committed\n' })
+  try {
+    const d = depsAt(dir)
+    const read = (query) => runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query })
+
+    for (const path of ['../escape.txt', '/etc/hosts', '.git/config', 'src/.git/HEAD']) {
+      const res = await read({ kind: 'file-version', path, base: 'worktree' })
+      assert.equal(res.ok, false, `${path} is refused`)
+      assert.equal(res.error.code, 'invalid-path', `${path} reports invalid-path`)
+    }
+
+    // A rev git cannot resolve is a failure, not "this version has no such
+    // file": the absent classifier must stay narrow enough to tell them apart.
+    const badRev = await read({ kind: 'file-version', path: 'a.txt', base: 'commit', commit: 'nope-rev' })
+    assert.equal(badRev.ok, false, 'an unresolvable rev is an error')
+    assert.equal(badRev.error.code, 'git-error')
+
+    // Present on disk, absent from the index: the staged side has no such path.
+    writeFileSync(join(dir, 'loose.txt'), 'loose\n')
+    const loose = await read({ kind: 'file-version', path: 'loose.txt', base: 'staged' })
+    assert.equal(loose.ok, true)
+    assert.equal(loose.value.variant, 'absent', 'a never-staged path has no index side')
+
+    // One byte inside the envelope still reads (the worktree read asks for
+    // FILE_COPY_MAX_BYTES - 1, because its bound is inclusive).
+    const edge = 'a'.repeat(FILE_COPY_MAX_BYTES - 1)
+    writeFileSync(join(dir, 'edge.txt'), edge)
+    const edgeRead = await read({ kind: 'file-version', path: 'edge.txt', base: 'worktree' })
+    assert.equal(edgeRead.value.variant, 'text')
+    assert.equal(edgeRead.value.size, FILE_COPY_MAX_BYTES - 1)
+    assert.equal(edgeRead.value.content.length, FILE_COPY_MAX_BYTES - 1)
+
+    // A NUL past the head sniff window stays text, the way the diff and the
+    // file browser classify the same bytes.
+    writeFileSync(join(dir, 'late-nul.txt'), 'a'.repeat(9000) + '\u0000' + 'tail')
+    const late = await read({ kind: 'file-version', path: 'late-nul.txt', base: 'worktree' })
+    assert.equal(late.value.variant, 'text', 'the sniff window is the head, not the whole body')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

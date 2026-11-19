@@ -544,6 +544,20 @@ async function queryFileLines(
 }
 
 /**
+ * Git's own text/binary heuristic sniffs the head of a body, and the file
+ * browser's preview uses the same 8 KiB window (`isBinaryBuffer`). Sniffing the
+ * whole body here would make one file text in the browser and `binary` in the
+ * commit dialog, and would disagree with the diff, which was classified by the
+ * same head heuristic. Characters are a superset of bytes, so a NUL inside the
+ * first 8 KiB of bytes always falls inside this window.
+ */
+const BINARY_SNIFF_CHARS = 8192
+
+function looksBinary(text: string): boolean {
+  return text.slice(0, BINARY_SNIFF_CHARS).includes('\u0000')
+}
+
+/**
  * The complete post-change body of one file, for the commit dialog's read-only
  * file view and its copy action. Unlike `file-lines` this returns the whole
  * text in one reply, and unlike `file-content` it reads the version the diff
@@ -551,21 +565,23 @@ async function queryFileLines(
  *
  * The read is bounded by the shared `FILE_COPY_MAX_BYTES` envelope (strictly
  * below it). Git-backed sides are sized before they are read, so a huge blob
- * is reported as too large instead of being collected. A body with a NUL byte
- * is `binary`; a submodule gitlink is not a blob and is never stringified into
- * a commit hash.
+ * is reported as too large instead of being collected; the working file is
+ * re-checked after the read, because it can grow while it is being read. A
+ * body whose head sniffs as binary is `binary`; a submodule gitlink is not a
+ * blob and is never stringified into a commit hash.
  */
 async function queryFileVersion(
   deps: SnapshotDeps,
   root: string,
   q: Extract<GitQueryRequest['query'], { kind: 'file-version' }>,
 ): Promise<GitQueryResponse> {
-  if (!isSafePath(q.path) || hasGitSegment(q.path) || isGitInternalPath(q.path)) {
+  // `isGitInternalPath` is the same `.git`-segment test as `hasGitSegment`;
+  // this file's other read exits call it, so call it once here too.
+  if (!isSafePath(q.path) || isGitInternalPath(q.path)) {
     return { ok: false, error: { code: 'invalid-path', message: q.path } }
-  }
-  const text = (content: string, size: number): GitQueryResponse => ({
+  }  const text = (content: string, size: number): GitQueryResponse => ({
     ok: true,
-    value: { kind: 'file-version', path: q.path, variant: 'text', content, lines: countLines(content), size },
+    value: { kind: 'file-version', path: q.path, variant: 'text', content, size },
   })
   const flagged = (variant: 'tooLarge' | 'binary' | 'absent', size?: number): GitQueryResponse => ({
     ok: true,
@@ -586,12 +602,19 @@ async function queryFileVersion(
     // The new-side read normalizes CRLF the way the blob git compares does;
     // the copy/view must show the same text, not the disk spelling. Its byte
     // length is therefore the returned body's size, not the disk file's.
-    if (read.text.includes('\u0000')) return flagged('binary')
+    if (looksBinary(read.text)) return flagged('binary')
     return text(read.text, Buffer.byteLength(read.text, 'utf8'))
   }
 
-  if (q.base === 'commit' && !isSafeRev(q.commit)) {
-    return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
+  if (q.base === 'commit') {
+    if (!isSafeRev(q.commit)) {
+      return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
+    }
+  } else if (q.base !== 'staged') {
+    // A base this build does not know (a newer client) must not fall through
+    // to the `:path` index form: that would show the staged body while the
+    // diff on screen is a different version, silently.
+    return { ok: false, error: { code: 'invalid-name', message: 'unsupported base' } }
   }
   const spec = q.base === 'commit' ? `${q.commit}:${q.path}` : `:${q.path}`
   const typeRes = await runCommand(deps.run, ['git', 'cat-file', '-t', '--end-of-options', spec], root, 'file-version-type', deps.signal)
@@ -637,7 +660,7 @@ async function queryFileVersion(
   if (readRes.run.stdoutLossy) {
     return { ok: false, error: { code: 'git-error', message: 'file-version output exceeded the output cap' } }
   }
-  if (readRes.run.stdout.includes('\u0000')) return flagged('binary', size)
+  if (looksBinary(readRes.run.stdout)) return flagged('binary', size)
   return text(readRes.run.stdout, size)
 }
 
@@ -647,8 +670,12 @@ type NewSideRead =
   | { readonly ok: false; readonly code: 'invalid-name' | 'git-unavailable' | 'cancelled' | 'timeout' | 'git-error'; readonly message: string }
 
 /** git says "this version has no such path" in exactly these shapes; every
- * other non-zero exit (bad rev, corrupt object) is a real failure. */
-const ABSENT_SIDE_RE = /does not exist|exists on disk, but not in the index|no such path/i
+ * other non-zero exit (bad rev, corrupt object, broken alternates) is a real
+ * failure. Keep it this narrow: `does not exist` alone also matches the object
+ * store's own errors (`the object … does not exist`, `repository … does not
+ * exist`), which would report a broken repository as "this version has no such
+ * file". */
+const ABSENT_SIDE_RE = /does not exist in|does not exist \(neither on disk nor in the index\)|exists on disk, but not in the index|no such path/i
 
 /**
  * Read the version a diff's RIGHT side compares against — the single source of
@@ -746,6 +773,9 @@ async function readWorktreeText(
     if (!info.isFile()) return { absent: true }
     if (maxBytes !== undefined && info.size > maxBytes) return { tooLarge: true }
     const buf = await deps.fs.readFile(file)
+    // The file can grow between the stat and the read (a build writing its
+    // log); re-check the bound after the read so a caller's envelope holds.
+    if (maxBytes !== undefined && buf.length > maxBytes) return { tooLarge: true }
     return { text: buf.toString('utf8') }
   } catch {
     return { absent: true }
