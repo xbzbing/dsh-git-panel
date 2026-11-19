@@ -39,6 +39,7 @@ const CLEAN = {
   lastCommit: null, changes: [],
   stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true,
+  capabilities: { syncMerge: true },
   defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 const DIRTY = {
@@ -77,10 +78,23 @@ async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewpor
     fixture.holdPush = false
     fixture.releasePush = null
     fixture.pushFailure = null
+    fixture.pullMergeCalls = 0
+    fixture.holdSync = false
+    fixture.releaseSync = null
     window.__gpFixture = fixture
     const call = connection.rpc.call
     connection.rpc.call = async (channel, endpoint, payload) => {
       const request = payload?.args?.request
+      if (endpoint === 'dbGitPanel/run' && request?.action?.kind === 'pull-merge') {
+        fixture.actions.push(request.action)
+        fixture.pullMergeCalls++
+        if (fixture.holdSync) await new Promise((done) => { fixture.releaseSync = done })
+        fixture.releaseSync = null
+        // The merge landed: the branch is now strictly ahead, so the chain's
+        // push half is a fast-forward.
+        fixture.snapshot = { ...fixture.snapshot, ahead: 3, behind: 0 }
+        return { ok: true, value: { ok: true, snapshot: fixture.snapshot } }
+      }
       if (endpoint === 'dbGitPanel/run' && request?.action?.kind === 'push') {
         fixture.actions.push(request.action)
         fixture.pushCalls++
@@ -446,18 +460,37 @@ async function pushScenario() {
     ['unborn', { hasUpstream: false, ahead: 0, behind: 0, unborn: true, head: null }],
     ['no remote/upstream', { ahead: 0, behind: 0, hasUpstream: false, remote: null }],
   ]) {
-    const publishable = state === 'no upstream'
+    // A local-only branch is publishable and a diverged one is syncable; every
+    // other row keeps the upload control disabled.
+    const actionable = state === 'no upstream' || state === 'diverged'
     await page.evaluate(({ baseline, patch }) => {
       window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, ...baseline, ...patch }
     }, { baseline: BASELINE, patch })
     await refresh(page)
-    assert.equal(await page.locator('.gp-changes__push').isDisabled(), !publishable, state + (publishable ? ': publish is offered' : ': upload is disabled'))
-    if (!publishable) {
+    assert.equal(await page.locator('.gp-changes__push').isDisabled(), !actionable, state + (actionable ? ': an entry is offered' : ': upload is disabled'))
+    if (!actionable) {
       await page.locator('.gp-changes__push').evaluate((button) => button.click())
       assert.equal(await page.locator('.gp-modal--sm').count(), 0, state + ': native disabled blocks the write')
       assert.equal(await page.evaluate(() => window.__gpFixture.pushCalls), 0, state + ': no push RPC fires')
     }
   }
+
+  // Diverged: the control opens the merge-sync confirmation (ADR-0036) instead
+  // of a dead button. Opening it sends no write; cancelling leaves the branch
+  // untouched for the plain-push section below.
+  await page.evaluate((remote) => {
+    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'abc1234', ahead: 2, behind: 3, hasUpstream: true, remote, unborn: false, branch: 'main' }
+  }, CLEAN.remote)
+  await refresh(page)
+  assert.equal(await page.locator('.gp-changes__push').isEnabled(), true, 'diverged enables the sync entry')
+  await page.locator('.gp-changes__push').click()
+  await flush(page)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 1, 'sync asks for one confirmation')
+  assert.equal(await page.evaluate(() => window.__gpFixture.actions.filter((a) => a.kind !== 'fetch').length), 0, 'opening the confirm sends no write')
+  await page.locator('.gp-modal--sm .gp-modal__footer .gp-btn').first().click()
+  await flush(page)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 0, 'cancel closes it without a write')
+  assert.equal(await page.evaluate(() => window.__gpFixture.pushCalls), 0, 'and still no push')
   // Back to a plain push: a strictly-ahead branch with an upstream.
   await page.evaluate((remote) => {
     window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'abc1234', ahead: 5, behind: 0, hasUpstream: true, remote, unborn: false, branch: 'main' }
@@ -518,11 +551,80 @@ async function pushBusyAndFailureScenario() {
   await refused.close()
 }
 
+async function syncScenario() {
+  const page = await openPanel(CLEAN)
+  await page.evaluate((remote) => {
+    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'abc1234', ahead: 2, behind: 3, hasUpstream: true, remote, unborn: false, branch: 'main' }
+    window.__gpFixture.actions.length = 0
+    window.__gpFixture.pushCalls = 0
+    window.__gpFixture.pullMergeCalls = 0
+    window.__gpFixture.holdSync = true
+  }, CLEAN.remote)
+  await refresh(page)
+
+  // One click opens the confirmation; confirming holds the chain at merge.
+  await page.locator('.gp-changes__push').click()
+  await flush(page)
+  await page.locator('.gp-modal--sm .gp-modal__footer .gp-btn--primary').click()
+  await page.waitForFunction(() => window.__gpFixture.releaseSync !== null)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 1, 'the dialog stays while the merge runs')
+  assert.equal(await page.locator('.gp-modal--sm .gp-modal__footer .gp-btn--primary').isDisabled(), true, 'confirm is disabled while busy')
+
+  await page.evaluate(() => {
+    window.__gpFixture.holdSync = false
+    window.__gpFixture.releaseSync()
+  })
+  await page.waitForFunction(() => window.__gpFixture.pushCalls === 1)
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  assert.deepEqual(
+    await page.evaluate(() => window.__gpFixture.actions.map((a) => a.kind)),
+    ['pull-merge', 'push'],
+    'sync merges first and then sends the ordinary push',
+  )
+  assert.equal(await page.evaluate(() => window.__gpFixture.pullMergeCalls), 1, 'exactly one merge RPC')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'the synced branch retires the control')
+
+  // Push half fails: the merge is already on disk, so the dialog must close and
+  // the caller must show the sync-specific text instead of "pull first".
+  await page.evaluate((remote) => {
+    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'def5678', ahead: 2, behind: 3, hasUpstream: true, remote, unborn: false, branch: 'main' }
+    window.__gpFixture.pushFailure = 'push-rejected'
+  }, CLEAN.remote)
+  await refresh(page)
+  await page.locator('.gp-changes__push').click()
+  await flush(page)
+  await page.locator('.gp-modal--sm .gp-modal__footer .gp-btn--primary').click()
+  await page.locator('.gp-changes__left .gp-feedback--dismissible').waitFor()
+  assert.equal(await page.locator('.gp-modal--sm').count(), 0, 'a push-half failure closes the useless confirmation')
+  const text = await page.locator('.gp-changes__left .gp-feedback--dismissible .gp-feedback__text').textContent()
+  assert.match(text, /合并已完成/, 'the banner says the merge landed and pushes the terminal-rebase path')
+  await page.close()
+}
+
 /**
  * An inline failure is dismissible. Provider errors (e.g. an AI suggest that the
  * model gateway refuses) arrive as long, wrapping text; the banner carries its
  * own close control instead of occupying the list until the next action.
  */
+async function syncScopeScenario() {
+  // Polling gives the test a real snapshot update to drive the scope guard:
+  // the confirmation must close when another actor moves HEAD, not retarget.
+  const page = await openPanel({ ...CLEAN, refreshIntervalMs: 100 })
+  await page.evaluate((remote) => {
+    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'abc1234', ahead: 2, behind: 3, hasUpstream: true, remote, unborn: false, branch: 'main' }
+  }, CLEAN.remote)
+  await page.waitForTimeout(250)
+  await page.locator('.gp-changes__push').click()
+  await flush(page)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 1, 'the confirm opens on the current checkout')
+  await page.evaluate(() => {
+    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'ffff9999' }
+  })
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null, null, { timeout: 3000 })
+  assert.equal(await page.evaluate(() => window.__gpFixture.pullMergeCalls), 0, 'a moved checkout sends no merge')
+  await page.close()
+}
+
 async function errorDismissScenario() {
   const page = await openPanel(DIRTY)
   await page.evaluate(() => {
@@ -681,6 +783,8 @@ try {
   await refreshScenario()
   await pushScenario()
   await pushBusyAndFailureScenario()
+  await syncScenario()
+  await syncScopeScenario()
   const touch = await touchHintScenario()
   assert.equal(touch.focused, true, 'the finger press leaves focus on the control, so the focus half is exercised')
   assert.equal(touch.afterFocus, 0, 'a touch press never raises a hover hint')

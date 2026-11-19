@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isSafePath, isSafeRev, isSafeBranchName, isSafeRemoteName, planAction, planRemoteBranchDelete, splitRemoteTrackingRef, classifyActionFailure } from '../../lib/testkit.mjs'
+import { isSafePath, isSafeRev, isSafeBranchName, isSafeRemoteName, planAction, planRemoteBranchDelete, splitRemoteTrackingRef, classifyActionFailure, mergeIsOurs } from '../../lib/testkit.mjs'
 
 test('isSafePath rejects absolute paths and .. traversal', () => {
   // POSIX assumptions: dsh runs on POSIX, so `C:\x` is a relative name here
@@ -302,6 +302,23 @@ test('branch-create plans a plain branch write at the validated start point (#11
   assert.equal(planAction({ kind: 'branch-create', name: '-f', start: 'refs/heads/main' }, false).error, 'invalid-name')
   assert.equal(planAction({ kind: 'branch-create', name: 'x', start: '--force' }, false).error, 'invalid-name')
   assert.equal(planAction({ kind: 'branch-create', name: 'x', start: 'a b' }, false).error, 'invalid-name')
+})
+
+test('pull-merge is resolved before planning, never planned as a bare command (ADR-0036)', () => {
+  // The upstream ref must come from HEAD, the fetch needs the configured
+  // remote, and the merge needs its own abort path; a plan that reached the
+  // generic runner would be missing all three.
+  assert.equal(planAction({ kind: 'pull-merge' }, false).error, 'invalid-name')
+})
+
+test('mergeIsOurs only accepts the merge this action started (ADR-0036)', () => {
+  const before = 'a'.repeat(40)
+  const tip = 'b'.repeat(40)
+  assert.equal(mergeIsOurs(before, tip, before, tip), true, 'HEAD unchanged and MERGE_HEAD is our upstream tip')
+  assert.equal(mergeIsOurs(before, tip, 'c'.repeat(40), tip), false, 'HEAD moved: the merge belongs to another actor')
+  assert.equal(mergeIsOurs(before, tip, before, 'c'.repeat(40)), false, 'MERGE_HEAD is another commit')
+  assert.equal(mergeIsOurs('', tip, '', tip), false, 'no pre-merge HEAD establishes nothing')
+  assert.equal(mergeIsOurs(before, '', before, ''), false, 'no resolved upstream tip establishes nothing')
 })
 
 test('branch-merge and cherry-pick pass a validated ref after --end-of-options (#118)', () => {

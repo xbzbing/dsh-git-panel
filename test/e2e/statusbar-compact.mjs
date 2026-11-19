@@ -35,6 +35,7 @@ const BASE = {
   lastCommit: null, changes: [],
   stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, suggestEnabled: true,
+  capabilities: { syncMerge: true },
   defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 const snap = (patch) => ({ ...BASE, ...patch })
@@ -116,6 +117,9 @@ await page.evaluate((initial) => {
       layout: host.querySelector('.gp-panel')?.getAttribute('data-layout'),
       colW: rect(col),
       barW: rect(bar),
+      barClient: bar?.clientWidth ?? null,
+      barScroll: bar?.scrollWidth ?? null,
+      barOverflow: bar === null || bar === undefined ? null : bar.scrollWidth - bar.clientWidth,
       narrow: bar?.getAttribute('data-narrow') ?? null,
       dense: bar?.getAttribute('data-dense') ?? null,
       repo: bar?.querySelector('a.gp-statusbar__repo') !== null && bar?.querySelector('a.gp-statusbar__repo') !== undefined,
@@ -132,6 +136,8 @@ await page.evaluate((initial) => {
       hasSetUpstream: bar?.querySelector('button[aria-label="设置上游"]') !== null && bar?.querySelector('button[aria-label="设置上游"]') !== undefined,
       hasPull: bar?.querySelector('button[aria-label="快进拉取远程更新"]') !== null && bar?.querySelector('button[aria-label="快进拉取远程更新"]') !== undefined,
       hasPush: bar?.querySelector('button[aria-label="推送本地提交到远程"]') !== null && bar?.querySelector('button[aria-label="推送本地提交到远程"]') !== undefined,
+      hasSync: bar?.querySelector('button.gp-statusbar__merge') !== null && bar?.querySelector('button.gp-statusbar__merge') !== undefined,
+      syncW: rect(bar?.querySelector('button.gp-statusbar__merge')),
     }
   }
 }, snap({}))
@@ -189,7 +195,8 @@ assert.equal(ahead.stateLabel, '比上游领先 7 个提交', 'the ahead sentenc
 assert.equal(ahead.stateOverflow, 0, 'the ahead glyph fits the 200px bar')
 assert.equal(ahead.hasPush, true, 'a strictly-ahead branch offers the push')
 
-// Diverged: both counts, behind first, and no one-click action.
+// Diverged: both counts, behind first, and exactly one action — the merge-based
+// sync (ADR-0036). The ordinary pull/push stay absent: neither can succeed.
 const diverged = await page.evaluate(async () => {
   const host = await window.__stage({ ahead: 3, behind: 5, hasUpstream: true }, 1000)
   return window.__probe(host)
@@ -199,6 +206,31 @@ assert.equal(diverged.stateLabel, '已分叉（领先 3 / 落后 5）', 'the div
 assert.equal(diverged.stateOverflow, 0, 'both counts fit the 200px bar')
 assert.equal(diverged.hasPull, false, 'a diverged branch is not fast-forwardable')
 assert.equal(diverged.hasPush, false, 'a diverged branch must not be pushed')
+assert.equal(diverged.hasSync, true, 'it offers the merge-then-push sync instead')
+assert.ok(diverged.syncW > 0, 'the sync control is laid out')
+assert.equal(diverged.barOverflow, 0, 'the whole bar fits at 200px with the new control')
+
+// The same diverged state at the 130px floor: the label collapses with the
+// other actions, and the bar itself (not just the state cell) must not overflow.
+await page.evaluate(async () => {
+  window.__syncHost = await window.__stage({ ahead: 3, behind: 5, hasUpstream: true }, 1000)
+})
+const sync200 = await page.evaluate(() => window.__probe(window.__syncHost))
+assert.equal(sync200.hasSync, true, 'the 200px sync control is present')
+assert.equal(sync200.labelShown, true, 'and keeps its word at 200px')
+assert.equal(sync200.barOverflow, 0, '200px bar fits')
+await page.evaluate(async () => {
+  window.__syncHost.querySelector('.gp-col--left').style.flex = '0 0 130px'
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+  await new Promise((r) => setTimeout(r, 90))
+})
+const sync130 = await page.evaluate(() => window.__probe(window.__syncHost))
+assert.equal(sync130.dense, 'true', 'the floor is the dense tier')
+assert.equal(sync130.hasSync, true, 'the sync control survives the floor')
+assert.equal(sync130.labelShown, false, 'its label is dropped like the other actions')
+assert.equal(sync130.barOverflow, 0, 'the 130px bar itself does not overflow')
+assert.equal(sync130.stateOverflow, 0, 'and the state glyph is not ellipsised')
+
 
 // No upstream (the issue's own screenshot): a bare `↑` — no count, since there
 // is no upstream to count against — plus the publish control that names the

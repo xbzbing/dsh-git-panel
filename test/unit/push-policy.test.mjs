@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { canPush, canSetUpstream, canPublish, pushIntent, upstreamCandidates } from '../../lib/testkit.mjs'
+import { canPush, canSync, canSetUpstream, canPublish, pushIntent, upstreamCandidates } from '../../lib/testkit.mjs'
 
 const REMOTE = { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' }
 
@@ -114,20 +114,39 @@ test('an existing upstream is never attached or published, only pushed when stri
   assert.equal(canPublish(snap({ ...upstream, ahead: 3, behind: 0 })), false, 'a branch with an upstream is never published')
   // Nothing to send: neither intent applies.
   assert.equal(pushIntent(snap({ ...upstream, ahead: 0, behind: 0 })), null)
-  // Diverged: deliberately offered neither (the user must reconcile first).
-  assert.equal(pushIntent(snap({ ...upstream, ahead: 2, behind: 3 })), null)
+  // Diverged: no ordinary push/pull. A host that predates `syncMerge` keeps
+  // the old no-entry state (the client must not send an action it lacks);
+  // a host that declares it offers the merge-based sync instead.
+  assert.equal(pushIntent(snap({ ...upstream, ahead: 2, behind: 3 })), null, 'an old host keeps the safe no-entry')
+  assert.equal(
+    pushIntent(snap({ ...upstream, ahead: 2, behind: 3, capabilities: { syncMerge: true } })),
+    'sync',
+    'a diverged branch with host support offers the merge-based sync',
+  )
   // Strictly behind: pull territory, never an upload.
   assert.equal(pushIntent(snap({ ...upstream, ahead: 0, behind: 4 })), null)
 })
 
-test('push, set-upstream and publish can never overlap', () => {
+test('push, sync, set-upstream and publish can never overlap', () => {
   const cases = [
     snap(), snap({ remoteCandidates: [REMOTE] }), snap({ branch: null }), snap({ unborn: true }),
     snap({ remote: null }), snap({ hasUpstream: true, ahead: 5, behind: 0 }),
     snap({ hasUpstream: true, ahead: 0, behind: 0 }),
+    snap({ hasUpstream: true, ahead: 2, behind: 3, capabilities: { syncMerge: true } }),
+    snap({ hasUpstream: true, ahead: 2, behind: 0, capabilities: { syncMerge: true } }),
   ]
   for (const snapshot of cases) {
-    const flags = [canPush(snapshot), canSetUpstream(snapshot), canPublish(snapshot)]
+    const flags = [canPush(snapshot), canSync(snapshot), canSetUpstream(snapshot), canPublish(snapshot)]
     assert.ok(flags.filter(Boolean).length <= 1, `more than one intent on ${JSON.stringify(snapshot)}`)
   }
+})
+
+test('sync needs host support, an upstream, a branch and both counts', () => {
+  const upstream = { hasUpstream: true, ahead: 2, behind: 3 }
+  assert.equal(canSync(snap({ ...upstream, capabilities: { syncMerge: true } })), true)
+  assert.equal(canSync(snap({ ...upstream })), false, 'no capability: an old host has no action')
+  assert.equal(canSync(snap({ ...upstream, capabilities: { syncMerge: true }, branch: null })), false)
+  assert.equal(canSync(snap({ ...upstream, capabilities: { syncMerge: true }, hasUpstream: false })), false)
+  assert.equal(canSync(snap({ ...upstream, capabilities: { syncMerge: true }, ahead: 0 })), false, 'a behind-only branch uses pull-ff')
+  assert.equal(canSync(snap({ ...upstream, capabilities: { syncMerge: true }, behind: 0 })), false, 'an ahead-only branch uses push')
 })
