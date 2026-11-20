@@ -1170,10 +1170,16 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       flow: flowDialog.flow,
       branch: flowDialog.branch,
       targets,
-      // A row that is not HEAD has no sampled upstream: the remote cleanup
-      // stays off instead of claiming there is none.
-      hasUpstream: flowDialog.branch === snapshot.branch && snapshot.hasUpstream,
-      upstreamRef: flowDialog.branch === snapshot.branch ? (tree?.local ?? []).find((item) => item.name === flowDialog.branch)?.upstream ?? null : null,
+      // Branch query data carries the configured upstream for every local row.
+      // Only remote-tracking upstreams are eligible for deletion.
+      hasUpstream: (() => {
+        const ref = (tree?.local ?? []).find((item) => item.name === flowDialog.branch)?.upstream ?? null
+        return ref?.startsWith('refs/remotes/') === true
+      })(),
+      upstreamRef: (() => {
+        const ref = (tree?.local ?? []).find((item) => item.name === flowDialog.branch)?.upstream ?? null
+        return ref?.startsWith('refs/remotes/') === true ? ref : null
+      })(),
       remote: { name: remoteName, branches: flowRemoteNames },
       existing: flowLocalNames,
       releaseInitialName: nextFlowVersion('release', (tree?.tags ?? []).map((tag) => tag.name)) ?? '',

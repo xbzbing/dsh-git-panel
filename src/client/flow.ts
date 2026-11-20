@@ -188,6 +188,8 @@ export interface FlowPreviewOp {
   readonly refs?: readonly string[]
   /** A squash finish deletes its branch with `-D`. */
   readonly force?: boolean
+  /** Local branch owning a remote deletion preview. */
+  readonly branch?: string
 }
 
 /** What a dialog's change legend renders: the edges the operation performs and
@@ -295,6 +297,7 @@ export function finishFlowPreview(input: FlowFinishPreviewInput): FlowPreview {
   if (input.deleteRemote) {
     ops.push({
       kind: 'deleteRemote',
+      branch: input.branch,
       ...((input.remoteDeleteRef ?? '').trim() !== ''
         ? { refs: [(input.remoteDeleteRef ?? '').replace(/^refs\/remotes\//, '')] }
         : input.remoteName != null ? { refs: [`${input.remoteName}/${input.branch}`] } : {}),
@@ -329,13 +332,18 @@ export function flowPreviewRemotes(
   remoteName: string | null,
 ): readonly FlowPreviewRemote[] {
   if (remoteName === null) return []
-  const prefix = `${remoteName}/`
+  const prefix = remoteName === null ? null : `${remoteName}/`
   const remotes: FlowPreviewRemote[] = []
   for (const op of ops) {
     if (op.kind !== 'push' && op.kind !== 'deleteRemote') continue
     for (const ref of op.refs ?? []) {
-      if (!ref.startsWith(prefix) || ref.length === prefix.length) continue
-      remotes.push({ ref, branch: ref.slice(prefix.length), deleted: op.kind === 'deleteRemote' })
+      if (op.kind === 'push' && (prefix === null || !ref.startsWith(prefix) || ref.length === prefix.length)) continue
+      if (op.kind === 'deleteRemote' && (ref === '' || ref.startsWith('refs/tags/'))) continue
+      remotes.push({
+        ref,
+        branch: op.kind === 'deleteRemote' && op.branch !== undefined ? op.branch : prefix === null ? ref : ref.slice(prefix.length),
+        deleted: op.kind === 'deleteRemote',
+      })
     }
   }
   return remotes

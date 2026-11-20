@@ -548,6 +548,7 @@ export const en: Record<GitKey, string> = {
   'error.invalidName': 'Invalid name',
   'error.notFastForward': 'Local and remote have diverged — a fast-forward pull is not possible; merge or rebase manually',
   'error.pushRejected': 'Push rejected: the remote has new commits — run “Check sync” and pull first, then push',
+  'error.upstreamChanged': 'The remote branch changed before deletion; it was preserved. Refresh and inspect it',
   'error.authFailed': 'Authentication failed: no usable git credentials (HTTPS needs a credential helper, SSH needs a key). Push once from the command line first to cache them',
   'error.noBranch': 'HEAD is not on a branch (detached, or no commits yet), so there is no branch to publish or attach an upstream to: switch to a branch and commit first',
   'error.hasUpstream': 'This branch already has an upstream; refresh and try again',

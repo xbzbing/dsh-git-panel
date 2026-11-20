@@ -549,6 +549,7 @@ export const es: Record<GitKey, string> = {
   'error.invalidName': 'Nombre no válido',
   'error.notFastForward': 'Local y remoto han divergido: no es posible extraer con avance rápido; fusione o haga rebase manualmente',
   'error.pushRejected': 'Inserción rechazada: el remoto tiene confirmaciones nuevas. Ejecute «Comprobar sincronización» y extraiga primero; luego inserte',
+  'error.upstreamChanged': 'La rama remota cambió antes de eliminarla y se conservó. Actualícela y revísela',
   'error.authFailed': 'Error de autenticación: no hay credenciales de git utilizables (HTTPS necesita un asistente de credenciales; SSH, una clave). Inserte una vez desde la línea de comandos para almacenarlas en caché',
   'error.noBranch': 'HEAD no está en una rama (desasociado o aún sin confirmaciones), así que no hay rama que publicar ni a la que asignar un upstream: cambie a una rama y confirme primero',
   'error.hasUpstream': 'La rama actual ya tiene un upstream; actualice e inténtelo de nuevo',

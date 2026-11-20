@@ -31,6 +31,7 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'local-changes-block': return t('error.localChangesBlock')
     case 'not-ff': return t('error.notFastForward')
     case 'push-rejected': return t('error.pushRejected')
+    case 'upstream-changed': return t('error.upstreamChanged')
     case 'auth-failed': return t('error.authFailed')
     case 'conflict': return t('error.conflict')
     case 'revert-conflict': return t('error.revertConflict')

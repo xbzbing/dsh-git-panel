@@ -257,7 +257,7 @@ test('a release finish previews the tag, the back-merge and the cleanup', () => 
         action: 'backMerge',
       },
     ],
-    ops: [{ kind: 'delete' }, { kind: 'deleteRemote', refs: ['origin/release/1.2.0'] }, { kind: 'push', refs: ['origin/main', 'origin/develop'] }],
+    ops: [{ kind: 'delete' }, { kind: 'deleteRemote', branch: 'release/1.2.0', refs: ['origin/release/1.2.0'] }, { kind: 'push', refs: ['origin/main', 'origin/develop'] }],
   })
 })
 
@@ -314,7 +314,7 @@ test('remote deletion preview uses the configured upstream ref', () => {
   })
   assert.deepEqual(preview.ops, [
     { kind: 'delete', },
-    { kind: 'deleteRemote', refs: ['origin/review/x'] },
+    { kind: 'deleteRemote', branch: 'feature/x', refs: ['origin/review/x'] },
   ])
 })
 

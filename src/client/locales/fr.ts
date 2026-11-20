@@ -549,6 +549,7 @@ export const fr: Record<GitKey, string> = {
   'error.invalidName': 'Nom invalide',
   'error.notFastForward': 'Le local et le distant ont divergé — un tirage en avance rapide est impossible ; fusionnez ou rebasez manuellement',
   'error.pushRejected': 'Envoi refusé : le distant a de nouveaux commits — lancez « Vérifier la synchronisation » et tirez d’abord, puis envoyez',
+  'error.upstreamChanged': 'La branche distante a changé avant la suppression et a été conservée. Actualisez-la et vérifiez-la',
   'error.authFailed': 'Échec de l’authentification : aucun identifiant git utilisable (HTTPS nécessite un credential helper, SSH une clé). Envoyez une première fois en ligne de commande pour les mettre en cache',
   'error.noBranch': 'HEAD n’est sur aucune branche (détachée, ou aucun commit encore) ; il n’y a donc pas de branche à publier ni à relier à un amont : basculez sur une branche et validez d’abord',
   'error.hasUpstream': 'La branche actuelle a déjà un amont ; actualisez et réessayez',
