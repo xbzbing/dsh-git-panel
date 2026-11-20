@@ -250,20 +250,30 @@ async function restore(
   },
   failure: Failure,
 ): Promise<Failure> {
+  let rollbackOk = true
   if (state.strategy === 'rebase') {
-    await git(deps, root, ['git', 'rebase', '--abort'], 'flow-abort')
+    const aborted = await git(deps, root, ['git', 'rebase', '--abort'], 'flow-abort')
+    rollbackOk = aborted.ok
   } else {
     // A merge conflict parks MERGE_HEAD; `--squash` conflicts do not, so the
-    // reset below is what guarantees the target ref and index are back.
-    await git(deps, root, ['git', 'merge', '--abort'], 'flow-abort')
+    // reset below is what guarantees the target ref and index are back. A
+    // failed abort is acceptable only when no merge state exists.
+    const aborted = await git(deps, root, ['git', 'merge', '--abort'], 'flow-abort')
+    if (!aborted.ok) {
+      const mergeHead = await raw(deps, root, ['git', 'rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], 'flow-merge-state')
+      rollbackOk = mergeHead.ok && mergeHead.exitCode !== 0
+    }
     const now = await currentBranch(deps, root)
-    if (now.ok && now.name === state.target) {
-      await git(deps, root, ['git', 'reset', '--hard', state.targetOid], 'flow-reset')
+    if (!now.ok) {
+      rollbackOk = false
+    } else if (now.name === state.target) {
+      const reset = await git(deps, root, ['git', 'reset', '--hard', state.targetOid], 'flow-reset')
+      rollbackOk = rollbackOk && reset.ok
     }
   }
   const back = await checkout(deps, root, state.startBranch)
   const head = await headOid(deps, root)
-  if (back !== null || !head.ok || head.oid !== state.startHead) {
+  if (!rollbackOk || back !== null || !head.ok || head.oid !== state.startHead) {
     return fail('merge-stuck', failure.error.message ?? 'the integration conflicted and could not be aborted')
   }
   const code: GitErrorCode = failure.error.code === 'conflict' ? 'merge-conflict' : failure.error.code
@@ -319,9 +329,10 @@ async function integrate(
 
 async function snapshotResult(
   deps: SnapshotDeps, config: GitPanelConfig, request: GitActionRequest, output: string,
+  failureCode: GitErrorCode = 'git-error',
 ): Promise<GitActionResult> {
   const snapshot = await snapshotForSession(deps, config, request.sessionId, { repo: request.repo })
-  if (!snapshot.ok) return fail('git-error', 'snapshot after action failed')
+  if (!snapshot.ok) return fail(failureCode, 'snapshot after action failed')
   return { ok: true, snapshot: snapshot.value, output }
 }
 
@@ -557,7 +568,12 @@ async function finishFlow(
     if (toDevelop !== null) return partial(toDevelop)
     const merged = await git(deps, root, ['git', 'merge', '--no-ff', '-m', message, '--end-of-options', `refs/heads/${action.target}`], 'flow-develop-merge')
     if (!merged.ok) {
-      await git(deps, root, ['git', 'merge', '--abort'], 'flow-develop-abort')
+      if (merged.error.code === 'conflict') {
+        const aborted = await git(deps, root, ['git', 'merge', '--abort'], 'flow-develop-abort')
+        if (!aborted.ok) {
+          return partial(fail('merge-stuck', `develop back-merge could not be aborted: ${aborted.error.message ?? aborted.error.code}`))
+        }
+      }
       return partial(merged)
     }
   }
@@ -609,7 +625,7 @@ async function finishFlow(
     if (!removed.ok) return partial(removed)
     output = removed.stdout
   }
-  return snapshotResult(deps, config, request, output.trim())
+  return snapshotResult(deps, config, request, output.trim(), 'flow-partial')
 }
 
 /** `flow-integrate`: merge `develop` into the checked-out feature branch. */
