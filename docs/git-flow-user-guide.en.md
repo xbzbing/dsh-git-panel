@@ -63,7 +63,7 @@ A release or hotfix finish follows these steps:
 4. Push the long-lived branches when selected.
 5. Delete the remote and local flow branches when selected.
 
-The tag identifies the release or hotfix. In the current implementation, finish push includes the long-lived branches but does not include the new tag. Check the remote tag and push it separately until this limitation is fixed.
+The tag identifies the release or hotfix. Finish push includes the new annotated tag and every long-lived branch moved by the operation. Remote deletion uses the expected OID with a lease, so a remote branch that advanced is preserved and the finish is refused.
 
 ## Confirmation
 
@@ -87,7 +87,7 @@ Remote branch deletion requires an additional acknowledgement in the confirmatio
 - `flow-partial` means the long-lived target branch already moved and a later step failed. Refresh and inspect branches, tags, and remote refs.
 - An uncertain network result does not prove that the remote stayed unchanged. Inspect the remote before retrying.
 
-The current implementation has no complete finish-resume dialog. For a partial result, preserve the state and inspect it first:
+There is no separate finish-resume dialog. When a Release or Hotfix already has its mainline merge, tag and develop back-merge, repeating the same finish request lets the host recognize the completed state and continue. For other partial results, preserve the state and inspect it first:
 
 ```bash
 git status

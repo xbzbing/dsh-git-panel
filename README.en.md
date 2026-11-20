@@ -43,7 +43,7 @@ After a first install the **Git** panel appears in the workspace tab bar with no
 
 Git Flow entries live in the branch list of the Git Overview. They support starting, integrating and finishing Feature, Release and Hotfix branches using the `develop`, `main` / `master`, `feature/*`, `release/*` and `hotfix/*` conventions. Finish previews the target branch, strategy, tag, push and deletion steps, then asks for confirmation before writing.
 
-In the current implementation, finish push includes the long-lived branches but not the new release or hotfix tag. Check and push that tag separately. A multi-step failure can return `flow-partial`, so refresh and inspect branches, tags and remote refs before retrying. See the [Git Flow user guide](docs/git-flow-user-guide.en.md) and the product, interaction and technical design materials in `docs/local/`.
+Finish push includes the new release or hotfix tag and every long-lived branch moved by the operation. A multi-step failure can return `flow-partial`, so refresh and inspect branches, tags and remote refs before retrying. When a release or hotfix already has its merge, tag and develop back-merge, the host can recognize that state and continue the remaining steps. See the [Git Flow user guide](docs/git-flow-user-guide.en.md) and the product, interaction and technical design materials in `docs/local/`.
 
 ## Multiple repositories and `.code-workspace`
 

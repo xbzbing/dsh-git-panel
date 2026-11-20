@@ -43,7 +43,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 Git Flow 入口位于 Git 总览的分支列表，支持 Feature、Release、Hotfix 的开始、整合和完成。它按 `develop`、`main` / `master` 以及 `feature/*`、`release/*`、`hotfix/*` 约定工作。完成操作会预览目标 branch、集成方式、tag、push 和删除步骤，并在写入前要求确认。
 
-当前版本的 finish push 只包含长期 branch，release / hotfix 的新 tag 需要另外检查和推送。多步操作失败可能返回 `flow-partial`，请先刷新并检查 branch、tag 和 remote，再决定是否重试。完整操作说明见 [Git Flow 使用帮助](docs/git-flow-user-guide.zh.md)，产品、交互和技术设计材料位于 `docs/local/`。
+finish push 会包含 release / hotfix 的新 tag 和本次移动的长期 branch。多步操作失败可能返回 `flow-partial`，请先刷新并检查 branch、tag 和 remote，再按当前状态重试。release / hotfix 的 merge、tag 和 develop 回合并已完成时，host 可以识别状态并继续后续步骤。完整操作说明见 [Git Flow 使用帮助](docs/git-flow-user-guide.zh.md)，产品、交互和技术设计材料位于 `docs/local/`。
 
 ## 多仓库与工作区文件
 

@@ -38,29 +38,29 @@ finish 的本地前置条件在第一次写之前判定：flow / 分支前缀一
 - 当前不在该 flow 分支时先切过去；finish 的语义是“完成这个分支”，行菜单可以从别的 checkout 发起。
 - 集成方式：`merge` = `git merge --no-ff -m <message>`；`squash` = `git merge --squash` + `git commit -m <message>`；`rebase` = 在 flow 分支 `git rebase <target>`，再切到 target `git merge --ff-only`。
 - 第一次集成失败（冲突 / 空提交 / checkout 被拒）：`merge --abort` 或 `rebase --abort`，必要时把 target `reset --hard` 回捕获的 tip，再切回发起时的分支并核对 HEAD 仍是捕获的 SHA；核不上就报 `merge-stuck`。冲突报 `merge-conflict`。
-- 第一次集成之后仍有步骤：release / hotfix 在主分支的合并提交上打标签，再把主分支 `--no-ff` 合并回 `develop`（release 因此 `develop` 也包含标签提交），结束时检出 `develop`；目标设计应先同步长期 branch 和 tag，再按 expected OID 删除远端、删除本地 branch，最后处理链式 release。当前实现仍是先删远端、删本地再推送，且 finish push 未包含本次 tag。这些步骤失败返回 `flow-partial`，因为此时 target 分支已经前进，“什么都没发生”是假话。客户端把失败步骤（git 原文）放进本地化提示里。
+- 第一次集成之后仍有步骤：release / hotfix 在主分支的合并提交上打标签，再把主分支 `--no-ff` 合并回 `develop`（release 因此 `develop` 也包含标签提交），结束时检出 `develop`；现在先创建链式 release（如有），再推长期 branch、tag 和链式 release，最后按 expected OID 与 lease 删除远端、删除本地 branch。这些步骤失败返回 `flow-partial`，因为此时 target 分支可能已经前进，“什么都没发生”是假话。客户端把失败步骤（git 原文）放进本地化提示里。
 - 标签为 annotated tag（`git tag -a -m "<flow> <tag>"`），指向主分支上的合并提交；打标签在 tag 未占用时才会进入序列（前置检查）。完成对话框同时显示 `目标分支`（主分支）与 `合并回`（`develop`），推送选项覆盖两者且默认勾选；远端缺少某个长期分支并不禁用该选项，推送会创建它，预览把该远端分支标为新增。取消勾选则只做本地完成。
 - 完成 feature 时可以链式开始 release：对话框新增一个默认不勾选的选项，勾选后显示 release 名称，默认值由 `nextFlowVersion('release', tags)` 从标签推出（与单独开始 release 同一规则），并同样做前缀 / 安全名 / 本地占用校验。host 在第一次写之前确认该 `release/…` 分支不存在；feature 合入 `develop`、清理旧分支后，用 `git checkout -b <release> develop --` 从更新后的 `develop` 切出新 release 并检出。链式 release 分支有自己独立的推送选项，默认勾选（与单独开始 release 一致；没有配置远端时禁用），勾选后用 `git push -u <releasePushRemote> refs/heads/<release>:refs/heads/<release>` 发布并设置上游；finish 的 `pushRemote` 仍只推送本次移动的长期分支，不包含新 release，`releasePushRemote` 也只允许与 `startRelease` 同时出现。失败与其余 finish 后置步骤一样报 `flow-partial`。该选项只对 feature 生效，release / hotfix 携带时在写之前以 `invalid-name` 拒绝。
 - 完成是多步且不可整体撤销的序列（移动长期分支、打标签、删除、推送），因此点击「完成」只打开一次步骤确认：确认正文重述本次将执行的集成方式、标签、合并回、删除本地 / 远端分支、推送与链式 release，确认按钮才真正提交。确认层同时承担原「远端删除二次确认」的职责：勾选删除远端时，确认框额外显示服务器删除警告与必须勾选的确认项。确认框在写入期间显示加载遮罩并锁定 Escape / backdrop，失败时错误留在确认框里；关闭确认只回到完成表单并保留填写内容。开始对话框没有破坏性步骤，不额外确认，但写入期间同样显示加载遮罩。
 
 ### 4. 清理动作沿用既有安全策略
 
-- 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`；没有上游时 host 拒绝（`upstream-missing`）。完成对话框在有上游时默认勾选（预览同时画出远端删除，取消勾选即保留），没有上游时该项禁用并说明原因。勾选时点击「完成」不会直接提交，而是在步骤确认里增加「删除远端分支」一行、服务器删除不可撤销的警告与必须勾选的确认项；确认项的勾选是按钮唯一解锁方式，关闭确认（Escape / 取消）只回到完成表单并保留已填内容。这与行菜单 `RemoteBranchDeleteConfirm` 的「ack 是唯一解锁方式」是同一契约，因此「删除远端分支必须勾选确认」的不变量在 Git Flow 路径上仍然成立；默认值可以保持勾选，因为它只是意图，不是授权。
-- 删本地分支：默认 `git branch -d`。squash 集成后分支不在 target 的祖先链上，`-d` 必然失败，因此目标行为是 `-D` 只在该策略被选中**且**对话框里额外勾选强制删除后才会发送。当前 host 仍需补充 wire action 校验，拒绝 merge / rebase 携带 `forceDelete: true`。
-- 推送：目标行为是一次推送本次移动的长期分支和 release / hotfix 的本次 tag（feature 只有 `develop`，release / hotfix 是主分支、`develop` 与 tag），从不 force；远端缺少的分支由这次推送创建，预览将其标为新增。remote 名必须出现在 `git remote` 里。当前实现的 refspec 仍未包含 tag。链式 release 的推送是另一条命令（`git push -u`），默认勾选，取消勾选即只在本地创建。
+- 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`，并以预检的真实远端 OID 使用 `--force-with-lease`；没有上游或 tracking ref 过期时 host 拒绝。完成对话框在有上游时默认勾选（预览同时画出远端删除，取消勾选即保留），没有上游时该项禁用并说明原因。勾选时点击「完成」不会直接提交，而是在步骤确认里增加「删除远端分支」一行、服务器删除不可撤销的警告与必须勾选的确认项；确认项的勾选是按钮唯一解锁方式，关闭确认（Escape / 取消）只回到完成表单并保留已填内容。这与行菜单 `RemoteBranchDeleteConfirm` 的「ack 是唯一解锁方式」是同一契约，因此「删除远端分支必须勾选确认」的不变量在 Git Flow 路径上仍然成立；默认值可以保持勾选，因为它只是意图，不是授权。
+- 删本地分支：默认 `git branch -d`。squash 集成后分支不在 target 的祖先链上，`-d` 必然失败，因此 `-D` 只在该策略被选中**且**对话框里额外勾选强制删除后才会发送。host 也拒绝 merge / rebase 携带 `forceDelete: true`，以及没有 `deleteBranch` 的 `forceDelete`。
+- 推送：一次推送本次移动的长期分支和 release / hotfix 的本次 tag（feature 只有 `develop`，release / hotfix 是主分支、`develop` 与 tag），从不 force；远端缺少的分支由这次推送创建，预览将其标为新增。remote 名必须出现在 `git remote` 里。链式 release 的推送是另一条命令（`git push -u`），默认勾选，取消勾选即只在本地创建。
 - `flow-integrate`（整合开发）只允许在 `feature/*` 上，`git merge develop` 冲突时 `merge --abort`，与 `branch-merge` 同一契约。
 
 ### 5. 主分支解析
 
-目标设计要求 hotfix 与 release 的主线由 host 统一解析，并将结果提供给 client：`main` → `master` → remote default branch → 配置化主线。当前 host 的 `mainlineCandidates()` 只读取 `refs/remotes/origin/HEAD`，client 还支持 snapshot 的 `defaultBranch`，自定义 remote 或自定义主线时可能出现 UI 可选但 host 拒绝的差异。
+目标设计要求 hotfix 与 release 的主线由 host 统一解析，并将结果提供给 client：`main` → `master` → remote default branch → 配置化主线。当前 host 与 client 对主线的回退规则保持一致，仍只读取 `refs/remotes/origin/HEAD`，自定义 remote 或自定义主线暂不在支持范围。
 
 ## Consequences
 
 - 正面：Git Flow 的入口、菜单与对话框现在真的执行；成功后面板复用 `onAction` 的快照刷新，无需额外 RPC 或轮询。失败在写之前拒绝，冲突回滚到发起 checkout。
 - 正面：`flow` 能力位让新旧 host / client 可以混跑：旧 host 不显示入口，新 host 对未知 action 不会收到请求。
 - 代价：finish 要求干净工作区（比 `branch-merge` 严格）。这是有意的：多步序列里只要出现未提交变更，回滚就无法精确到“发起时的样子”。
-- 代价：release / hotfix 的部分失败会留下“target 已前进、后续步骤未完成”的状态，`flow-partial` 只能如实报告并要求用户刷新检查；当前远端删除顺序、远端 OID 竞态和网络未知结果仍可能让远端恢复点不可用，不能把该流程描述成原子或完整可回滚。
+- 代价：release / hotfix 的部分失败会留下“target 已前进、后续步骤未完成”的状态。host 现在支持验证 tag 和 develop 状态后续作 merge / squash finish，并在远端 push 结果未知时保留现场，但整个序列仍不是远端原子事务。
 - 代价：squash 的本地删除需要二次勾选；如果用户不勾选，分支会被保留（可手动删除或再 finish 一次，第二次会因 `nothing-to-commit` 失败）。
-- 目标行为是 release / hotfix 标签一律 annotated，消息为 `<flow> <tag>`（`release v1.2.0` / `hotfix v1.2.1`）；当前 host 仍允许空 tag，且需要补充 tag push。需要自定义消息时仍可在终端操作，面板不提供。
+- release / hotfix 标签一律 annotated，消息为 `<flow> <tag>`（`release v1.2.0` / `hotfix v1.2.1`）。host 与 client 都要求非空安全 tag。需要自定义消息时仍可在终端操作，面板不提供。
 - 删远端不再隐含 fetch：按钮文案已改为“删除远端分支”，与实际命令一致；网络错误照旧分类为 `auth-failed` / `push-rejected`。
 - 该实现只覆盖 feature / hotfix / release；`bugfix/*` 与 `support/*` 仍是约定外的分支，菜单不提供入口。

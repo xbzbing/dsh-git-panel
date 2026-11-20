@@ -63,7 +63,7 @@ Squash 后 branch 不在 develop 的祖先链上。如果要删除本地 branch�
 4. 根据选择推送长期 branch。
 5. 根据选择删除远端和本地 flow branch。
 
-Release / Hotfix 的 tag 是发布识别的一部分。当前版本的 finish push 只推长期 branch，远端 tag 需要另外检查并手动推送。该行为属于待修复限制。
+Release / Hotfix 的 tag 是发布识别的一部分。finish push 会同时推送本次移动的长期 branch 和新建的 annotated tag。远端删除使用 expected OID 与 lease 保护，远端 branch 发生推进时会拒绝删除。
 
 ## 完成确认
 
@@ -87,7 +87,7 @@ finish 是多步写操作。确认框会列出：
 - `flow-partial` 表示长期 branch 已经移动，后续步骤失败。先刷新并检查 branch、tag 和 remote。
 - 网络请求返回不确定时，不能假设远端没有变化。先检查远端 branch，再决定是否重试。
 
-当前版本没有完整的 finish 续作界面。遇到 partial 状态时，建议先保留现场并检查：
+当前版本没有独立的 finish 续作界面。Release / Hotfix 的主线合并、tag 和 develop 回合并已经完成时，重复相同 finish 请求可以由 host 识别并继续后续步骤。其他 partial 状态仍建议先保留现场并检查：
 
 ```bash
 git status
