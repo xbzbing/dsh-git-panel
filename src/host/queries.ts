@@ -1378,7 +1378,7 @@ async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQuery
     runCommand(deps.run, ['git', 'for-each-ref', '--sort=-committerdate', fmt, 'refs/heads'], root, 'branches-local', deps.signal),
     runCommand(deps.run, ['git', 'for-each-ref', '--sort=-committerdate', fmt, 'refs/remotes'], root, 'branches-remote', deps.signal),
     runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'branch-current', deps.signal),
-    runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], root, 'branch-default', deps.signal),
+    runCommand(deps.run, ['git', 'for-each-ref', '--format=%(refname:short)%00%(symref)', 'refs/remotes'], root, 'branch-default', deps.signal),
   ])
   const local: GitBranch[] = 'run' in localRes && localRes.run.exitCode === 0 ? parseBranches(localRes.run.stdout) : []
   const remote: GitBranch[] = 'run' in remoteRes && remoteRes.run.exitCode === 0
@@ -1387,8 +1387,15 @@ async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQuery
   const current = 'run' in currentRes && currentRes.run.exitCode === 0 ? currentRes.run.stdout.trim() || null : null
   let defaultBranch: string | null = null
   if ('run' in defaultRes && defaultRes.run.exitCode === 0) {
-    const raw = defaultRes.run.stdout.trim()
-    defaultBranch = raw.replace(/^origin\//, '') || null
+    for (const line of defaultRes.run.stdout.split('\n')) {
+      const [shortName = '', symref = ''] = line.trim().split('\0')
+      if (!shortName.endsWith('/HEAD') || !symref.startsWith('refs/remotes/')) continue
+      const remotePrefix = shortName.slice(0, -'/HEAD'.length)
+      const targetPrefix = `refs/remotes/${remotePrefix}/`
+      if (!symref.startsWith(targetPrefix)) continue
+      defaultBranch = symref.slice(targetPrefix.length) || null
+      if (defaultBranch !== null) break
+    }
   }
   return { ok: true, value: { kind: 'branches', current, defaultBranch, local, remote } }
 }

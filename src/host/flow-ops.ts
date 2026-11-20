@@ -18,7 +18,7 @@
  * returns `flow-partial`, because the target branch already moved and pretending
  * nothing happened would be false.
  */
-import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.js'
+import { gitCommonDir, mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.js'
 import { classifyActionFailure, splitRemoteTrackingRef } from './actions.js'
 import { isSafeBranchName, isSafeRemoteName } from './validate.js'
 import type { FlowKind, FlowStrategy, GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.js'
@@ -118,10 +118,15 @@ async function mainlineCandidates(deps: SnapshotDeps, root: string): Promise<{ r
   const local = await localBranches(deps, root)
   if (!local.ok) return local
   const names = MAIN_CANDIDATES.filter((candidate) => local.names.includes(candidate))
-  const head = await raw(deps, root, ['git', 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], 'flow-default')
-  if (!head.ok) return head
-  if (head.exitCode === 0) {
-    const name = head.stdout.trim().replace(/^origin\//, '')
+  const remotes = await configuredRemotes(deps, root)
+  if (!remotes.ok) return remotes
+  for (const remote of remotes.names) {
+    const head = await raw(deps, root, ['git', 'symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`], 'flow-default')
+    if (!head.ok) return head
+    if (head.exitCode !== 0) continue
+    const rawName = head.stdout.trim()
+    const prefix = `${remote}/`
+    const name = rawName.startsWith(prefix) ? rawName.slice(prefix.length) : rawName
     if (name !== '' && local.names.includes(name) && !names.includes(name)) names.push(name)
   }
   return { ok: true, names }
@@ -155,7 +160,40 @@ async function remoteBranchOid(
   const outcome = await raw(deps, root, ['git', 'ls-remote', '--refs', remote, `refs/heads/${branch}`], 'flow-remote-ref')
   if (!outcome.ok) return outcome
   const line = outcome.stdout.split('\n').map((value) => value.trim()).find((value) => value !== '')
-  return { ok: true, oid: line?.split(/\s+/, 1)[0] ?? null }
+  if (line === undefined) return { ok: true, oid: null }
+  const oid = line.split(/\s+/, 1)[0] ?? ''
+  if (!/^[0-9a-fA-F]+$/.test(oid)) return fail('git-error', `remote ref returned an invalid object id: ${remote}/${branch}`)
+  return { ok: true, oid }
+}
+
+async function pushBranchPreflight(
+  deps: SnapshotDeps, root: string, remote: string, branch: string,
+): Promise<Failure | null> {
+  const remoteOid = await remoteBranchOid(deps, root, remote, branch)
+  if (!remoteOid.ok) return remoteOid
+  if (remoteOid.oid === null) return null
+  const localOid = await localRefOid(deps, root, `refs/heads/${branch}`, 'flow-push-local-ref')
+  if (!localOid.ok) return localOid
+  if (localOid.oid === null || localOid.oid === remoteOid.oid) return null
+  const localAncestorsRemote = await raw(
+    deps, root,
+    ['git', 'merge-base', '--is-ancestor', `refs/heads/${branch}`, remoteOid.oid],
+    'flow-push-remote-ahead',
+  )
+  if (!localAncestorsRemote.ok) return localAncestorsRemote
+  if (localAncestorsRemote.exitCode === 0) {
+    return fail('push-rejected', `remote branch is ahead: ${remote}/${branch}`)
+  }
+  const remoteAncestorsLocal = await raw(
+    deps, root,
+    ['git', 'merge-base', '--is-ancestor', remoteOid.oid, `refs/heads/${branch}`],
+    'flow-push-diverged',
+  )
+  if (!remoteAncestorsLocal.ok) return remoteAncestorsLocal
+  if (remoteAncestorsLocal.exitCode !== 0) {
+    return fail('push-rejected', `remote branch has diverged: ${remote}/${branch}`)
+  }
+  return null
 }
 
 /** The branch's configured upstream as a remote + remote branch, or null when
@@ -212,6 +250,7 @@ async function rollbackStartedBranch(
   root: string,
   branch: string,
   start: { readonly name: string | null; readonly oid: string | null },
+  createdBranchOid: string,
   createdDevelop: boolean,
 ): Promise<boolean> {
   if (start.name !== null) {
@@ -223,6 +262,8 @@ async function rollbackStartedBranch(
   } else {
     return false
   }
+  const branchOid = await localRefOid(deps, root, `refs/heads/${branch}`, 'flow-start-rollback-oid')
+  if (!branchOid.ok || branchOid.oid !== createdBranchOid) return false
   const removed = await git(deps, root, ['git', 'branch', '-D', '--end-of-options', branch], 'flow-start-rollback')
   if (!removed.ok) return false
   if (createdDevelop) {
@@ -251,6 +292,8 @@ async function restore(
   failure: Failure,
 ): Promise<Failure> {
   let rollbackOk = true
+  const targetBeforeRollback = await localRefOid(deps, root, `refs/heads/${state.target}`, 'flow-rollback-target-oid')
+  if (!targetBeforeRollback.ok || targetBeforeRollback.oid !== state.targetOid) rollbackOk = false
   if (state.strategy === 'rebase') {
     const aborted = await git(deps, root, ['git', 'rebase', '--abort'], 'flow-abort')
     rollbackOk = aborted.ok
@@ -266,9 +309,9 @@ async function restore(
     const now = await currentBranch(deps, root)
     if (!now.ok) {
       rollbackOk = false
-    } else if (now.name === state.target) {
+    } else if (rollbackOk && now.name === state.target) {
       const reset = await git(deps, root, ['git', 'reset', '--hard', state.targetOid], 'flow-reset')
-      rollbackOk = rollbackOk && reset.ok
+      rollbackOk = reset.ok
     }
   }
   const back = await checkout(deps, root, state.startBranch)
@@ -388,6 +431,8 @@ async function startFlow(
     if (createdDevelop) await git(deps, root, ['git', 'branch', '-d', '--end-of-options', DEVELOP], 'flow-develop-rollback')
     return checkedOut
   }
+  const createdBranchOid = await localRefOid(deps, root, `refs/heads/${action.branch}`, 'flow-start-oid')
+  if (!createdBranchOid.ok || createdBranchOid.oid === null) return fail('git-error', `created flow branch has no commit: ${action.branch}`)
   if (action.pushRemote !== undefined) {
     // `-u` is the same publish contract as the Publish button: the remote
     // branch is created and becomes the new branch's upstream, so a later
@@ -403,12 +448,12 @@ async function startFlow(
       // back locally while an orphan remote ref could remain.
       const remoteOid = await remoteBranchOid(deps, root, action.pushRemote, action.branch)
       if (!remoteOid.ok || remoteOid.oid !== null) return partial(pushed)
-      const rolledBack = await rollbackStartedBranch(deps, root, action.branch, { name: start.name, oid: startOid.oid }, createdDevelop)
+      const rolledBack = await rollbackStartedBranch(deps, root, action.branch, { name: start.name, oid: startOid.oid }, createdBranchOid.oid, createdDevelop)
       return rolledBack ? pushed : partial(pushed)
     }
-    return snapshotResult(deps, config, request, pushed.stdout)
+    return snapshotResult(deps, config, request, pushed.stdout, 'flow-partial')
   }
-  return snapshotResult(deps, config, request, checkedOut.stdout)
+  return snapshotResult(deps, config, request, checkedOut.stdout, 'flow-partial')
 }
 
 /** `flow-finish`: integrate the flow branch, run the flow's extra steps, then
@@ -492,6 +537,11 @@ async function finishFlow(
   if (tagTaken !== null && !tagTaken.ok) return tagTaken
   let resumeIntegrated = false
   if (tagTaken !== null && tagTaken.exists && action.flow !== 'feature') {
+    const tagType = await raw(deps, root, ['git', 'cat-file', '-t', '--end-of-options', `refs/tags/${tag}`], 'flow-tag-type')
+    if (!tagType.ok) return tagType
+    if (tagType.exitCode !== 0 || tagType.stdout.trim() !== 'tag') {
+      return fail('tag-exists', `tag already exists and is not annotated: ${tag}`)
+    }
     const taggedCommit = await localRefOid(deps, root, `refs/tags/${tag}^{}`, 'flow-tag-target')
     if (!taggedCommit.ok) return taggedCommit
     // An existing tag is resumable only when it names the current target tip.
@@ -506,10 +556,20 @@ async function finishFlow(
   } else if (tagTaken !== null && tagTaken.exists) {
     return fail('tag-exists', `tag already exists: ${tag}`)
   }
+  let resumeStartRelease = false
   if (startRelease !== '') {
     const releaseTaken = await hasRef(deps, root, `refs/heads/${startRelease}`)
     if (!releaseTaken.ok) return releaseTaken
-    if (releaseTaken.exists) return fail('branch-exists', `branch already exists: ${startRelease}`)
+    if (releaseTaken.exists) {
+      const releaseOid = await localRefOid(deps, root, `refs/heads/${startRelease}`, 'flow-release-oid')
+      if (!releaseOid.ok) return releaseOid
+      const developOid = await localRefOid(deps, root, `refs/heads/${DEVELOP}`, 'flow-develop-oid')
+      if (!developOid.ok) return developOid
+      if (releaseOid.oid === null || developOid.oid === null || releaseOid.oid !== developOid.oid) {
+        return fail('branch-exists', `branch already exists: ${startRelease}`)
+      }
+      resumeStartRelease = true
+    }
   }
 
   // The cleanup targets are resolved before anything moves, so a missing
@@ -527,7 +587,7 @@ async function finishFlow(
     const remoteOid = await remoteBranchOid(deps, root, upstream.upstream.remote, upstream.upstream.branch)
     if (!remoteOid.ok) return remoteOid
     if (remoteOid.oid === null || localFlowOid.oid === null || remoteOid.oid !== localFlowOid.oid) {
-      return fail('push-rejected', `remote upstream changed: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
+      return fail('upstream-changed', `remote upstream changed: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
     }
     expectedRemoteOid = remoteOid.oid
   }
@@ -537,6 +597,13 @@ async function finishFlow(
     if (!remotes.ok) return remotes
     for (const remote of pushRemotes) {
       if (!remotes.names.includes(remote)) return fail('invalid-name', `remote not configured: ${remote}`)
+    }
+    if (action.pushRemote !== undefined) {
+      const movedBranches = action.flow === 'feature' ? [action.target] : [action.target, DEVELOP]
+      for (const branch of movedBranches) {
+        const preflight = await pushBranchPreflight(deps, root, action.pushRemote, branch)
+        if (preflight !== null) return preflight
+      }
     }
   }
 
@@ -614,9 +681,14 @@ async function finishFlow(
     // Create the chained release before publishing or deleting the finished
     // feature. A later push failure must leave the original flow branch as a
     // recovery point, while the new release can remain as an explicit result.
-    const started = await git(deps, root, ['git', 'checkout', '-b', startRelease, DEVELOP, '--'], 'flow-release-start')
-    if (!started.ok) return partial(started)
-    output = started.stdout
+    if (resumeStartRelease) {
+      const resumed = await checkout(deps, root, startRelease)
+      if (resumed !== null) return partial(resumed)
+    } else {
+      const started = await git(deps, root, ['git', 'checkout', '-b', startRelease, DEVELOP, '--'], 'flow-release-start')
+      if (!started.ok) return partial(started)
+      output = started.stdout
+    }
   }
   if (action.pushRemote !== undefined) {
     // Publish every long-lived branch the finish moved: a feature only
@@ -645,7 +717,7 @@ async function finishFlow(
     const currentRemoteOid = await remoteBranchOid(deps, root, upstream.upstream.remote, upstream.upstream.branch)
     if (!currentRemoteOid.ok) return partial(currentRemoteOid)
     if (currentRemoteOid.oid !== expectedRemoteOid) {
-      return partial(fail('push-rejected', `remote upstream changed: ${upstream.upstream.remote}/${upstream.upstream.branch}`))
+      return partial(fail('upstream-changed', `remote upstream changed: ${upstream.upstream.remote}/${upstream.upstream.branch}`))
     }
     const removed = await git(
       deps, root,
@@ -678,7 +750,7 @@ async function integrateFlow(
     return fail('invalid-name', 'integration only applies on a feature branch')
   }
   const merged = await git(deps, root, ['git', 'merge', '--end-of-options', action.develop], 'flow-integrate')
-  if (merged.ok) return snapshotResult(deps, config, request, merged.stdout)
+  if (merged.ok) return snapshotResult(deps, config, request, merged.stdout, 'flow-partial')
   if (merged.error.code === 'conflict') {
     // Same contract as a branch merge: the panel has no conflict UI, so the
     // merge is aborted instead of parking the shared work tree mid-merge.
@@ -701,13 +773,14 @@ export async function runFlowAction(
   const workspace = await resolveWorkspace(deps, request.sessionId, request.repo, config.codeWorkspace)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
-  if (flowLocks.has(root)) return fail('operation-in-progress', 'another Git Flow operation is already running in this repository')
-  flowLocks.add(root)
+  const lockKey = await gitCommonDir(deps, root) ?? root
+  if (flowLocks.has(lockKey)) return fail('operation-in-progress', 'another Git Flow operation is already running in this repository')
+  flowLocks.add(lockKey)
   try {
     if (action.kind === 'flow-start') return await startFlow(deps, config, request, action, root)
     if (action.kind === 'flow-finish') return await finishFlow(deps, config, request, action, root)
     return await integrateFlow(deps, config, request, action, root)
   } finally {
-    flowLocks.delete(root)
+    flowLocks.delete(lockKey)
   }
 }

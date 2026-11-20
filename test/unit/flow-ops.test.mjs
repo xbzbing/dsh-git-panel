@@ -730,7 +730,7 @@ test('flow-finish refuses deleting an upstream that advanced remotely', async ()
       strategy: 'merge', message: 'finish advanced', deleteBranch: true, deleteRemote: true,
     })
     assert.equal(finished.ok, false, JSON.stringify(finished))
-    assert.equal(finished.error.code, 'push-rejected', JSON.stringify(finished))
+    assert.equal(finished.error.code, 'upstream-changed', JSON.stringify(finished))
     assert.equal(out(dir, ['rev-parse', 'develop']), developBefore, 'the target did not move')
     assert.ok(branchExists(dir, 'feature/advanced'), 'the local flow branch remains available')
     assert.equal(out(remote, ['rev-parse', 'refs/heads/feature/advanced']), out(collaborator, ['rev-parse', 'HEAD']), 'the advanced remote branch remains intact')
@@ -833,12 +833,20 @@ test('release finish can resume after integration and tag but push failure', asy
     writeFileSync(join(collaborator, 'remote.txt'), 'remote\n')
     await runGit(collaborator, ['add', 'remote.txt'])
     await runGit(collaborator, ['commit', '-qm', 'remote main moved'])
-    await runGit(collaborator, ['push', '-q', 'origin', 'main'])
+    const baseRunner = gitRunner()
+    const racingRunner = {
+      run: async (argv, options) => {
+        if (argv[1] === 'push' && argv.includes('refs/heads/main:refs/heads/main')) {
+          await runGit(collaborator, ['push', '-q', 'origin', 'main'])
+        }
+        return baseRunner.run(argv, options)
+      },
+    }
 
-    const partialFinish = await run(dir, {
+    const partialFinish = await runFlowAction(depsAt(dir, racingRunner), DEFAULT_CONFIG, { sessionId: SID, action: {
       kind: 'flow-finish', flow: 'release', branch: 'release/2.0.0', target: 'main',
       strategy: 'merge', message: 'release 2.0.0', deleteBranch: true, tag: 'v2.0.0', pushRemote: 'origin',
-    })
+    }})
     assert.equal(partialFinish.ok, false)
     assert.equal(partialFinish.error.code, 'flow-partial')
     assert.ok(tagExists(dir, 'v2.0.0'))
@@ -855,5 +863,108 @@ test('release finish can resume after integration and tag but push failure', asy
     rmSync(dir, { recursive: true, force: true })
     rmSync(remote, { recursive: true, force: true })
     rmSync(collaborator, { recursive: true, force: true })
+  }
+})
+
+
+test('flow-finish rejects a remote target that is ahead before integrating', async () => {
+  const dir = await freshRepo('gp-flow-target-ahead-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-target-ahead-bare-'))
+  const collaborator = mkdtempSync(join(tmpdir(), 'gp-flow-target-ahead-collab-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await runGit(collaborator, ['clone', '-q', remote, '.'])
+    await runGit(collaborator, ['checkout', '-q', 'develop'])
+    await runGit(collaborator, ['config', 'user.email', 'collab@t.co'])
+    await runGit(collaborator, ['config', 'user.name', 'Collaborator'])
+    writeFileSync(join(collaborator, 'ahead.txt'), 'remote ahead\n')
+    await runGit(collaborator, ['add', 'ahead.txt'])
+    await runGit(collaborator, ['commit', '-qm', 'remote develop moved'])
+    await runGit(collaborator, ['push', '-q', 'origin', 'develop'])
+
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/target-ahead', base: 'develop' })
+    writeFileSync(join(dir, 'feature.txt'), 'feature\n')
+    await runGit(dir, ['add', 'feature.txt'])
+    await runGit(dir, ['commit', '-qm', 'feature target ahead'])
+    const developBefore = out(dir, ['rev-parse', 'develop'])
+    const finished = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/target-ahead', target: 'develop',
+      strategy: 'merge', message: 'finish target ahead', deleteBranch: true, pushRemote: 'origin',
+    })
+    assert.equal(finished.ok, false)
+    assert.equal(finished.error.code, 'push-rejected')
+    assert.equal(out(dir, ['rev-parse', 'develop']), developBefore)
+    assert.equal(out(dir, ['rev-parse', '--abbrev-ref', 'HEAD']), 'feature/target-ahead')
+    assert.ok(branchExists(dir, 'feature/target-ahead'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+    rmSync(collaborator, { recursive: true, force: true })
+  }
+})
+
+
+test('feature finish can resume after a chained release push failure', async () => {
+  const dir = await freshRepo('gp-flow-chain-resume-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-chain-resume-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await runGit(dir, ['checkout', '-q', '-b', 'release-seed', 'main'])
+    writeFileSync(join(dir, 'seed.txt'), 'seed\n')
+    await runGit(dir, ['add', 'seed.txt'])
+    await runGit(dir, ['commit', '-qm', 'remote release seed'])
+    await runGit(dir, ['push', '-q', 'origin', 'release-seed:refs/heads/release/3.0.0'])
+    await runGit(dir, ['checkout', '-q', 'main'])
+
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/chain-resume', base: 'develop' })
+    writeFileSync(join(dir, 'feature.txt'), 'feature\n')
+    await runGit(dir, ['add', 'feature.txt'])
+    await runGit(dir, ['commit', '-qm', 'feature chain resume'])
+    const partialFinish = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/chain-resume', target: 'develop',
+      strategy: 'merge', message: 'finish chain resume', deleteBranch: true,
+      startRelease: 'release/3.0.0', pushRemote: 'origin', releasePushRemote: 'origin',
+    })
+    assert.equal(partialFinish.ok, false)
+    assert.equal(partialFinish.error.code, 'flow-partial')
+    assert.ok(branchExists(dir, 'release/3.0.0'))
+    assert.ok(branchExists(dir, 'feature/chain-resume'))
+
+    const resumed = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/chain-resume', target: 'develop',
+      strategy: 'merge', message: 'finish chain resume', deleteBranch: true,
+      startRelease: 'release/3.0.0',
+    })
+    assert.equal(resumed.ok, true, JSON.stringify(resumed))
+    assert.equal(resumed.snapshot.branch, 'release/3.0.0')
+    assert.equal(branchExists(dir, 'feature/chain-resume'), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  }
+})
+
+
+test('flow-finish does not resume from a lightweight tag', async () => {
+  const dir = await freshRepo('gp-flow-lightweight-tag-')
+  try {
+    await withDevelop(dir)
+    await run(dir, { kind: 'flow-start', flow: 'release', branch: 'release/3.1.0', base: 'develop' })
+    await runGit(dir, ['tag', 'v3.1.0', 'main'])
+    const refused = await run(dir, {
+      kind: 'flow-finish', flow: 'release', branch: 'release/3.1.0', target: 'main',
+      strategy: 'merge', message: 'release 3.1.0', deleteBranch: true, tag: 'v3.1.0',
+    })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.error.code, 'tag-exists')
+    assert.ok(branchExists(dir, 'release/3.1.0'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })

@@ -670,7 +670,7 @@ async function readWorktreeInfos(deps: SnapshotDeps, root: string): Promise<read
 /** The common git dir of the repository the cwd belongs to, as a realpath;
  * null when git cannot name one. Every worktree of a repository shares it, and
  * a linked worktree's `.git` file points into its `worktrees/` records. */
-async function gitCommonDir(deps: SnapshotDeps, cwd: string): Promise<string | null> {
+export async function gitCommonDir(deps: SnapshotDeps, cwd: string): Promise<string | null> {
   const run = await runCommand(deps.run, ['git', 'rev-parse', '--git-common-dir'], cwd, 'common-dir', deps.signal)
   if ('failure' in run) return null
   if (run.run.cancelled || run.run.timedOut || run.run.exitCode !== 0) return null

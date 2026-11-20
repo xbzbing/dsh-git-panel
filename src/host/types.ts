@@ -520,6 +520,8 @@ export type GitErrorCode =
   | 'not-ff'
   // A push was rejected by the remote (non-fast-forward: the remote advanced).
   | 'push-rejected'
+  // The expected upstream ref changed before a destructive remote deletion.
+  | 'upstream-changed'
   // A network git command failed on authentication (no usable credentials;
   // GIT_TERMINAL_PROMPT=0 makes an interactive prompt fail fast instead).
   | 'auth-failed'
