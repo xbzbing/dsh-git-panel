@@ -810,3 +810,50 @@ test('flow-start preserves local and remote state when a push result is uncertai
     rmSync(remote, { recursive: true, force: true })
   }
 })
+
+
+test('release finish can resume after integration and tag but push failure', async () => {
+  const dir = await freshRepo('gp-flow-resume-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-resume-bare-'))
+  const collaborator = mkdtempSync(join(tmpdir(), 'gp-flow-resume-collab-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await run(dir, { kind: 'flow-start', flow: 'release', branch: 'release/2.0.0', base: 'develop' })
+    writeFileSync(join(dir, 'release.txt'), '2.0.0\n')
+    await runGit(dir, ['add', 'release.txt'])
+    await runGit(dir, ['commit', '-qm', 'release 2.0.0'])
+
+    await runGit(collaborator, ['clone', '-q', remote, '.'])
+    await runGit(collaborator, ['checkout', '-q', 'main'])
+    await runGit(collaborator, ['config', 'user.email', 'collab@t.co'])
+    await runGit(collaborator, ['config', 'user.name', 'Collaborator'])
+    writeFileSync(join(collaborator, 'remote.txt'), 'remote\n')
+    await runGit(collaborator, ['add', 'remote.txt'])
+    await runGit(collaborator, ['commit', '-qm', 'remote main moved'])
+    await runGit(collaborator, ['push', '-q', 'origin', 'main'])
+
+    const partialFinish = await run(dir, {
+      kind: 'flow-finish', flow: 'release', branch: 'release/2.0.0', target: 'main',
+      strategy: 'merge', message: 'release 2.0.0', deleteBranch: true, tag: 'v2.0.0', pushRemote: 'origin',
+    })
+    assert.equal(partialFinish.ok, false)
+    assert.equal(partialFinish.error.code, 'flow-partial')
+    assert.ok(tagExists(dir, 'v2.0.0'))
+    assert.ok(branchExists(dir, 'release/2.0.0'))
+
+    const resumed = await run(dir, {
+      kind: 'flow-finish', flow: 'release', branch: 'release/2.0.0', target: 'main',
+      strategy: 'merge', message: 'release 2.0.0', deleteBranch: true, tag: 'v2.0.0',
+    })
+    assert.equal(resumed.ok, true, JSON.stringify(resumed))
+    assert.equal(branchExists(dir, 'release/2.0.0'), false)
+    assert.equal(out(dir, ['rev-parse', 'refs/tags/v2.0.0^{}']), out(dir, ['rev-parse', 'main']))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+    rmSync(collaborator, { recursive: true, force: true })
+  }
+})

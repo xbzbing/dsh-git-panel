@@ -490,7 +490,22 @@ async function finishFlow(
 
   const tagTaken = tag === '' ? null : await hasRef(deps, root, `refs/tags/${tag}`)
   if (tagTaken !== null && !tagTaken.ok) return tagTaken
-  if (tagTaken !== null && tagTaken.exists) return fail('tag-exists', `tag already exists: ${tag}`)
+  let resumeIntegrated = false
+  if (tagTaken !== null && tagTaken.exists && action.flow !== 'feature') {
+    const taggedCommit = await localRefOid(deps, root, `refs/tags/${tag}^{}`, 'flow-tag-target')
+    if (!taggedCommit.ok) return taggedCommit
+    // An existing tag is resumable only when it names the current target tip.
+    // Any other same-named tag belongs to another operation and remains a hard
+    // refusal.
+    const currentTarget = await localRefOid(deps, root, `refs/heads/${action.target}`, 'flow-target-oid')
+    if (!currentTarget.ok) return currentTarget
+    if (taggedCommit.oid === null || currentTarget.oid === null || taggedCommit.oid !== currentTarget.oid) {
+      return fail('tag-exists', `tag already exists: ${tag}`)
+    }
+    resumeIntegrated = true
+  } else if (tagTaken !== null && tagTaken.exists) {
+    return fail('tag-exists', `tag already exists: ${tag}`)
+  }
   if (startRelease !== '') {
     const releaseTaken = await hasRef(deps, root, `refs/heads/${startRelease}`)
     if (!releaseTaken.ok) return releaseTaken
@@ -539,24 +554,29 @@ async function finishFlow(
   if (!targetOid.ok) return targetOid
   if (targetOid.exitCode !== 0) return fail('not-found', `target branch not found: ${action.target}`)
 
-  const moved = await checkout(deps, root, action.branch)
-  if (moved !== null) return moved
+  if (resumeIntegrated) {
+    const onTarget = await checkout(deps, root, action.target)
+    if (onTarget !== null) return partial(onTarget)
+  } else {
+    const moved = await checkout(deps, root, action.branch)
+    if (moved !== null) return moved
 
-  const integrated = await integrate(deps, root, {
-    branch: action.branch,
-    target: action.target,
-    strategy: action.strategy,
-    message,
-    targetOid: targetOid.stdout.trim(),
-    startBranch: start.name,
-    startHead: startOid.oid,
-  })
-  if (integrated !== null) return integrated
+    const integrated = await integrate(deps, root, {
+      branch: action.branch,
+      target: action.target,
+      strategy: action.strategy,
+      message,
+      targetOid: targetOid.stdout.trim(),
+      startBranch: start.name,
+      startHead: startOid.oid,
+    })
+    if (integrated !== null) return integrated
+  }
 
   // From here the target branch holds the integration. Every remaining failure
   // is reported as partial instead of pretending the checkout is untouched.
   const tagOn = async (): Promise<Failure | null> => {
-    if (tag === '') return null
+    if (tag === '' || resumeIntegrated) return null
     const created = await git(deps, root, ['git', 'tag', '-a', '-m', `${action.flow} ${tag}`, '--end-of-options', tag, 'HEAD'], 'flow-tag')
     return created.ok ? null : partial(created)
   }
@@ -571,8 +591,14 @@ async function finishFlow(
     // commit (a release) and the fix (a hotfix).
     const toDevelop = await checkout(deps, root, DEVELOP)
     if (toDevelop !== null) return partial(toDevelop)
-    const merged = await git(deps, root, ['git', 'merge', '--no-ff', '-m', message, '--end-of-options', `refs/heads/${action.target}`], 'flow-develop-merge')
-    if (!merged.ok) {
+    const alreadyBackMerged = resumeIntegrated
+      ? await raw(deps, root, ['git', 'merge-base', '--is-ancestor', `refs/heads/${action.target}`, `refs/heads/${DEVELOP}`], 'flow-back-merge-state')
+      : null
+    if (alreadyBackMerged !== null && !alreadyBackMerged.ok) return partial(alreadyBackMerged)
+    const merged = alreadyBackMerged !== null && alreadyBackMerged.exitCode === 0
+      ? null
+      : await git(deps, root, ['git', 'merge', '--no-ff', '-m', message, '--end-of-options', `refs/heads/${action.target}`], 'flow-develop-merge')
+    if (merged !== null && !merged.ok) {
       if (merged.error.code === 'conflict') {
         const aborted = await git(deps, root, ['git', 'merge', '--abort'], 'flow-develop-abort')
         if (!aborted.ok) {
