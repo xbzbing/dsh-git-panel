@@ -138,6 +138,21 @@ async function headOid(deps: SnapshotDeps, root: string): Promise<{ readonly ok:
   return { ok: true, oid: outcome.exitCode === 0 ? outcome.stdout.trim() || null : null }
 }
 
+async function localRefOid(deps: SnapshotDeps, root: string, ref: string, label: string): Promise<{ readonly ok: true; readonly oid: string | null } | Failure> {
+  const outcome = await raw(deps, root, ['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', ref], label)
+  if (!outcome.ok) return outcome
+  return { ok: true, oid: outcome.exitCode === 0 ? outcome.stdout.trim() || null : null }
+}
+
+async function remoteBranchOid(
+  deps: SnapshotDeps, root: string, remote: string, branch: string,
+): Promise<{ readonly ok: true; readonly oid: string | null } | Failure> {
+  const outcome = await raw(deps, root, ['git', 'ls-remote', '--refs', remote, `refs/heads/${branch}`], 'flow-remote-ref')
+  if (!outcome.ok) return outcome
+  const line = outcome.stdout.split('\n').map((value) => value.trim()).find((value) => value !== '')
+  return { ok: true, oid: line?.split(/\s+/, 1)[0] ?? null }
+}
+
 /** The branch's configured upstream as a remote + remote branch, or null when
  * it has none (a local-only flow branch). */
 async function upstreamOf(
@@ -465,8 +480,20 @@ async function finishFlow(
   // upstream or an unknown remote refuses before the integration.
   const upstream = action.deleteRemote === true ? await upstreamOf(deps, root, action.branch) : null
   if (upstream !== null && !upstream.ok) return upstream
+  let expectedRemoteOid: string | null = null
   if (upstream !== null && upstream.upstream === null) {
     return fail('git-error', `the flow branch has no upstream to delete: ${action.branch}`)
+  }
+  if (upstream !== null && upstream.upstream !== null) {
+    if (!isSafeBranchName(upstream.upstream.branch)) return fail('invalid-name', `unsafe upstream branch: ${upstream.upstream.branch}`)
+    const localFlowOid = await localRefOid(deps, root, `refs/heads/${action.branch}`, 'flow-flow-oid')
+    if (!localFlowOid.ok) return localFlowOid
+    const remoteOid = await remoteBranchOid(deps, root, upstream.upstream.remote, upstream.upstream.branch)
+    if (!remoteOid.ok) return remoteOid
+    if (remoteOid.oid === null || localFlowOid.oid === null || remoteOid.oid !== localFlowOid.oid) {
+      return fail('push-rejected', `remote upstream changed: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
+    }
+    expectedRemoteOid = remoteOid.oid
   }
   const pushRemotes = [action.pushRemote, action.releasePushRemote].filter((name): name is string => name !== undefined)
   if (pushRemotes.length > 0) {
@@ -562,7 +589,12 @@ async function finishFlow(
     if (!pushed.ok) return partial(pushed)
     output = pushed.stdout
   }
-  if (upstream !== null && upstream.upstream !== null) {
+  if (upstream !== null && upstream.upstream !== null && expectedRemoteOid !== null) {
+    const currentRemoteOid = await remoteBranchOid(deps, root, upstream.upstream.remote, upstream.upstream.branch)
+    if (!currentRemoteOid.ok) return partial(currentRemoteOid)
+    if (currentRemoteOid.oid !== expectedRemoteOid) {
+      return partial(fail('push-rejected', `remote upstream changed: ${upstream.upstream.remote}/${upstream.upstream.branch}`))
+    }
     const removed = await git(deps, root, ['git', 'push', '--delete', upstream.upstream.remote, `refs/heads/${upstream.upstream.branch}`], 'flow-remote-delete')
     if (!removed.ok) return partial(removed)
     output = removed.stdout

@@ -698,3 +698,45 @@ test('flow-finish host enforces tags, strategy and force-delete invariants', asy
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+
+test('flow-finish refuses deleting an upstream that advanced remotely', async () => {
+  const dir = await freshRepo('gp-flow-remote-advanced-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-remote-advanced-bare-'))
+  const collaborator = mkdtempSync(join(tmpdir(), 'gp-flow-remote-advanced-collab-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/advanced', base: 'develop', pushRemote: 'origin' })
+    writeFileSync(join(dir, 'advanced.txt'), 'a\n')
+    await runGit(dir, ['add', 'advanced.txt'])
+    await runGit(dir, ['commit', '-qm', 'feature A'])
+    await runGit(dir, ['push', '-q', '-u', 'origin', 'feature/advanced'])
+
+    await runGit(collaborator, ['clone', '-q', remote, '.'])
+    await runGit(collaborator, ['checkout', '-q', 'feature/advanced'])
+    await runGit(collaborator, ['config', 'user.email', 'collab@t.co'])
+    await runGit(collaborator, ['config', 'user.name', 'Collaborator'])
+    writeFileSync(join(collaborator, 'collaborator.txt'), 'b\n')
+    await runGit(collaborator, ['add', 'collaborator.txt'])
+    await runGit(collaborator, ['commit', '-qm', 'feature B'])
+    await runGit(collaborator, ['push', '-q', 'origin', 'feature/advanced'])
+
+    const developBefore = out(dir, ['rev-parse', 'develop'])
+    const finished = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/advanced', target: 'develop',
+      strategy: 'merge', message: 'finish advanced', deleteBranch: true, deleteRemote: true,
+    })
+    assert.equal(finished.ok, false, JSON.stringify(finished))
+    assert.equal(finished.error.code, 'push-rejected', JSON.stringify(finished))
+    assert.equal(out(dir, ['rev-parse', 'develop']), developBefore, 'the target did not move')
+    assert.ok(branchExists(dir, 'feature/advanced'), 'the local flow branch remains available')
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/feature/advanced']), out(collaborator, ['rev-parse', 'HEAD']), 'the advanced remote branch remains intact')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+    rmSync(collaborator, { recursive: true, force: true })
+  }
+})
