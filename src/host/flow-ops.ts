@@ -621,7 +621,11 @@ async function finishFlow(
     if (currentRemoteOid.oid !== expectedRemoteOid) {
       return partial(fail('push-rejected', `remote upstream changed: ${upstream.upstream.remote}/${upstream.upstream.branch}`))
     }
-    const removed = await git(deps, root, ['git', 'push', '--delete', upstream.upstream.remote, `refs/heads/${upstream.upstream.branch}`], 'flow-remote-delete')
+    const removed = await git(
+      deps, root,
+      ['git', 'push', `--force-with-lease=refs/heads/${upstream.upstream.branch}:${expectedRemoteOid}`, '--delete', upstream.upstream.remote, `refs/heads/${upstream.upstream.branch}`],
+      'flow-remote-delete',
+    )
     if (!removed.ok) return partial(removed)
     output = removed.stdout
   }
