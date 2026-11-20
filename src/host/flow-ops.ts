@@ -35,6 +35,11 @@ const FLOW_PREFIX: Record<FlowKind, string> = {
   release: 'release/',
 }
 
+/** Flow actions mutate checkout state and refs across several commands. A
+ * process-local repository lock prevents two panel requests from interleaving
+ * those commands and making either request's preflight stale. */
+const flowLocks = new Set<string>()
+
 /** True for an action the flow runner must execute (index.ts routes on it). */
 export function isFlowAction(action: GitAction): action is FlowAction {
   return action.kind === 'flow-start' || action.kind === 'flow-finish' || action.kind === 'flow-integrate'
@@ -645,7 +650,13 @@ export async function runFlowAction(
   const workspace = await resolveWorkspace(deps, request.sessionId, request.repo, config.codeWorkspace)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
-  if (action.kind === 'flow-start') return startFlow(deps, config, request, action, root)
-  if (action.kind === 'flow-finish') return finishFlow(deps, config, request, action, root)
-  return integrateFlow(deps, config, request, action, root)
+  if (flowLocks.has(root)) return fail('operation-in-progress', 'another Git Flow operation is already running in this repository')
+  flowLocks.add(root)
+  try {
+    if (action.kind === 'flow-start') return await startFlow(deps, config, request, action, root)
+    if (action.kind === 'flow-finish') return await finishFlow(deps, config, request, action, root)
+    return await integrateFlow(deps, config, request, action, root)
+  } finally {
+    flowLocks.delete(root)
+  }
 }

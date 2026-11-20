@@ -21,9 +21,9 @@ import { gitRunner, runGit } from './_git-fixture.mjs'
 
 const SID = 'flow-session'
 
-function depsAt(dir) {
+function depsAt(dir, runner = gitRunner()) {
   return {
-    run: gitRunner(),
+    run: runner,
     fs: createFsDeps(),
     sessions: { liveCwd: () => dir, persistedMeta: async () => undefined },
   }
@@ -738,5 +738,47 @@ test('flow-finish refuses deleting an upstream that advanced remotely', async ()
     rmSync(dir, { recursive: true, force: true })
     rmSync(remote, { recursive: true, force: true })
     rmSync(collaborator, { recursive: true, force: true })
+  }
+})
+
+
+test('concurrent flow actions on one repository are rejected while the first runs', async () => {
+  const dir = await freshRepo('gp-flow-lock-')
+  let enteredResolve
+  const entered = new Promise((resolve) => { enteredResolve = resolve })
+  let releaseResolve
+  const release = new Promise((resolve) => { releaseResolve = resolve })
+  const base = gitRunner()
+  let blocked = false
+  const runner = {
+    run: async (argv, options) => {
+      if (!blocked && argv[1] === 'checkout' && argv[2] === '-b') {
+        blocked = true
+        enteredResolve()
+        await release
+      }
+      return base.run(argv, options)
+    },
+  }
+  try {
+    const first = runFlowAction(depsAt(dir, runner), DEFAULT_CONFIG, {
+      sessionId: SID,
+      action: { kind: 'flow-start', flow: 'feature', branch: 'feature/one', base: 'main' },
+    })
+    await entered
+    const second = await runFlowAction(depsAt(dir), DEFAULT_CONFIG, {
+      sessionId: SID,
+      action: { kind: 'flow-start', flow: 'feature', branch: 'feature/two', base: 'main' },
+    })
+    assert.equal(second.ok, false)
+    assert.equal(second.error.code, 'operation-in-progress')
+    releaseResolve()
+    const started = await first
+    assert.equal(started.ok, true, JSON.stringify(started))
+    assert.ok(branchExists(dir, 'feature/one'))
+    assert.equal(branchExists(dir, 'feature/two'), false)
+  } finally {
+    releaseResolve()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
