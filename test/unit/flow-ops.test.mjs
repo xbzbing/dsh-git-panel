@@ -648,8 +648,53 @@ test('flow-finish deletes the remote branch and pushes the target to the configu
     assert.equal(released.ok, true, JSON.stringify(released))
     assert.equal(out(remote, ['rev-parse', 'refs/heads/main']), out(dir, ['rev-parse', 'main']), 'the main line was pushed')
     assert.equal(out(remote, ['rev-parse', 'refs/heads/develop']), out(dir, ['rev-parse', 'develop']), 'the develop back-merge was pushed')
+    assert.equal(out(remote, ['cat-file', '-t', 'refs/tags/v1.3.0']), 'tag', 'the release tag was pushed as annotated tag')
+    assert.equal(out(remote, ['rev-parse', 'refs/tags/v1.3.0^{}']), out(dir, ['rev-parse', 'refs/tags/v1.3.0^{}']), 'the remote tag points at the local tag target')
   } finally {
     rmSync(dir, { recursive: true, force: true })
     rmSync(remote, { recursive: true, force: true })
+  }
+})
+
+
+test('flow-finish host enforces tags, strategy and force-delete invariants', async () => {
+  const dir = await freshRepo('gp-flow-finish-invariants-')
+  try {
+    await withDevelop(dir)
+    await run(dir, { kind: 'flow-start', flow: 'release', branch: 'release/1.5.0', base: 'develop' })
+    writeFileSync(join(dir, 'release-invariant.txt'), 'release\n')
+    await runGit(dir, ['add', 'release-invariant.txt'])
+    await runGit(dir, ['commit', '-qm', 'release invariant'])
+
+    const emptyTag = await run(dir, {
+      kind: 'flow-finish', flow: 'release', branch: 'release/1.5.0', target: 'main',
+      strategy: 'merge', message: 'release invariant', deleteBranch: false, tag: '',
+    })
+    assert.equal(emptyTag.ok, false)
+    assert.equal(emptyTag.error.code, 'invalid-name')
+
+    const releaseRebase = await run(dir, {
+      kind: 'flow-finish', flow: 'release', branch: 'release/1.5.0', target: 'main',
+      strategy: 'rebase', message: 'release invariant', deleteBranch: false, tag: 'v1.5.0',
+    })
+    assert.equal(releaseRebase.ok, false)
+    assert.equal(releaseRebase.error.code, 'invalid-name')
+
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/force', base: 'develop' })
+    writeFileSync(join(dir, 'force.txt'), 'force\n')
+    await runGit(dir, ['add', 'force.txt'])
+    await runGit(dir, ['commit', '-qm', 'force invariant'])
+    const forceOnMerge = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/force', target: 'develop',
+      strategy: 'merge', message: 'force invariant', deleteBranch: true, forceDelete: true,
+    })
+    assert.equal(forceOnMerge.ok, false)
+    assert.equal(forceOnMerge.error.code, 'invalid-name')
+
+    const customDevelop = await run(dir, { kind: 'flow-integrate', develop: 'main' })
+    assert.equal(customDevelop.ok, false)
+    assert.equal(customDevelop.error.code, 'invalid-name')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })

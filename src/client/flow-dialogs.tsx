@@ -27,7 +27,8 @@ import {
 const KIND_LABEL: Record<FlowKind, string> = { feature: 'Feature', hotfix: 'Hotfix', release: 'Release' }
 const KIND_SLUG: Record<FlowKind, string> = { feature: 'feature', hotfix: 'hotfix', release: 'release' }
 
-const STRATEGIES: readonly FlowStrategy[] = ['merge', 'squash', 'rebase']
+const FEATURE_STRATEGIES: readonly FlowStrategy[] = ['merge', 'squash', 'rebase']
+const RELEASE_STRATEGIES: readonly FlowStrategy[] = ['merge', 'squash']
 
 /** One branch pill. The optional tag rides inside the pill, right-aligned, so
  * the tag stays attached to the branch it was created on. */
@@ -273,6 +274,7 @@ export function renderFlowFinishModal(args: FlowFinishArgs): JSX.Element | null 
 
 function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing = [], releaseInitialName = '', busy = false, error = null, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
   const [strategy, setStrategy] = useState<FlowStrategy>('merge')
+  const strategies = flow === 'feature' ? FEATURE_STRATEGIES : RELEASE_STRATEGIES
   // The default message is a commit subject, so it follows the UI language and
   // names the branch being finished: `完成 feature/login`, not a fixed
   // `完成 git-flow`.
@@ -337,7 +339,10 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
   // creates it — so only a checkout without a remote disables the choice.
   const pushBranches = [target, ...targets.backMerge]
   const movedPushRefs = remote.name !== null
-    ? pushBranches.map((name) => `${remote.name}/${name}`)
+    ? [
+      ...pushBranches.map((name) => `${remote.name}/${name}`),
+      ...(needsTag && tag.trim() !== '' ? [`refs/tags/${tag.trim()}`] : []),
+    ]
     : null
   // The chained release branch is new, so its push only needs a configured
   // remote; it is its own checkbox and starts unchecked. The preview uses the
@@ -438,7 +443,7 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
     body: [
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.finish.heading', { branch })),
       h(renderFlowPreview, { key: 'preview', preview, errorText, remoteName: remote.name, remoteBranches: remote.branches, t }),
-      h('div', { key: 'modes', className: 'gp-flow__modes', role: 'radiogroup', 'aria-label': t('flow.finish.strategy') }, STRATEGIES.map((value) =>
+      h('div', { key: 'modes', className: 'gp-flow__modes', role: 'radiogroup', 'aria-label': t('flow.finish.strategy') }, strategies.map((value) =>
         h('label', { key: value, className: 'gp-flow__mode' }, [
           h('input', {
             key: 'r', type: 'radio', name: `${uid}-strategy`, className: 'gp-check',

@@ -383,13 +383,17 @@ async function finishFlow(
   if (!branchBelongsTo(action)) return fail('invalid-name', 'the branch does not belong to this flow')
   if (!isSafeBranchName(action.target)) return fail('invalid-name', `unsafe target branch: ${action.target}`)
   if (!STRATEGIES.includes(action.strategy)) return fail('invalid-name', `invalid flow strategy: ${String(action.strategy)}`)
+  if ((action.flow === 'release' || action.flow === 'hotfix') && action.strategy === 'rebase') {
+    return fail('invalid-name', `${action.flow} finish does not support rebase`)
+  }
   const message = action.message.trim()
   if (message === '') return fail('empty-message')
   const tag = action.tag?.trim() ?? ''
-  if (tag !== '') {
-    if (action.flow === 'feature') return fail('invalid-name', 'a feature is not tagged')
-    if (!isSafeBranchName(tag)) return fail('invalid-name', `unsafe tag name: ${tag}`)
+  if (action.flow === 'feature' && tag !== '') return fail('invalid-name', 'a feature is not tagged')
+  if ((action.flow === 'release' || action.flow === 'hotfix') && tag === '') {
+    return fail('invalid-name', `${action.flow} finish requires a tag`)
   }
+  if (tag !== '' && !isSafeBranchName(tag)) return fail('invalid-name', `unsafe tag name: ${tag}`)
   const deleteBranch = action.deleteBranch === true
   const forceDelete = action.forceDelete === true
   // A squash integration leaves the flow branch outside the target's ancestry,
@@ -397,6 +401,9 @@ async function finishFlow(
   // acknowledgement explicitly; without it the branch is left in place.
   if (deleteBranch && action.strategy === 'squash' && !forceDelete) {
     return fail('invalid-name', 'deleting a squashed flow branch needs the forced-delete acknowledgement')
+  }
+  if (forceDelete && (!deleteBranch || action.strategy !== 'squash')) {
+    return fail('invalid-name', 'forced flow-branch deletion is only valid for a squashed branch')
   }
   if (action.pushRemote !== undefined && !isSafeRemoteName(action.pushRemote)) {
     return fail('invalid-name', `unsafe remote name: ${action.pushRemote}`)
@@ -524,6 +531,37 @@ async function finishFlow(
   }
 
   let output = ''
+  if (startRelease !== '') {
+    // Create the chained release before publishing or deleting the finished
+    // feature. A later push failure must leave the original flow branch as a
+    // recovery point, while the new release can remain as an explicit result.
+    const started = await git(deps, root, ['git', 'checkout', '-b', startRelease, DEVELOP, '--'], 'flow-release-start')
+    if (!started.ok) return partial(started)
+    output = started.stdout
+  }
+  if (action.pushRemote !== undefined) {
+    // Publish every long-lived branch the finish moved: a feature only
+    // `develop`, a release / hotfix the main line, `develop`, and its tag.
+    const branches = action.flow === 'feature' ? [action.target] : [action.target, DEVELOP]
+    const refs = branches.map((name) => `refs/heads/${name}:refs/heads/${name}`)
+    if (action.flow !== 'feature') refs.push(`refs/tags/${tag}:refs/tags/${tag}`)
+    const pushed = await git(deps, root, ['git', 'push', action.pushRemote, ...refs], 'flow-push')
+    if (!pushed.ok) return partial(pushed)
+    output = pushed.stdout
+  }
+  if (action.releasePushRemote !== undefined && startRelease !== '') {
+    // The chained release push is its own choice: `-u` also makes the new
+    // branch track the remote, so a later finish can clean up its counterpart.
+    // Publish it before deleting the finished flow branch so a later network
+    // failure still leaves the original recovery point available.
+    const pushed = await git(
+      deps, root,
+      ['git', 'push', '-u', action.releasePushRemote, `refs/heads/${startRelease}:refs/heads/${startRelease}`],
+      'flow-release-push',
+    )
+    if (!pushed.ok) return partial(pushed)
+    output = pushed.stdout
+  }
   if (upstream !== null && upstream.upstream !== null) {
     const removed = await git(deps, root, ['git', 'push', '--delete', upstream.upstream.remote, `refs/heads/${upstream.upstream.branch}`], 'flow-remote-delete')
     if (!removed.ok) return partial(removed)
@@ -534,36 +572,6 @@ async function finishFlow(
     if (!removed.ok) return partial(removed)
     output = removed.stdout
   }
-  if (startRelease !== '') {
-    // The chained release is cut from the develop the feature just landed on,
-    // and the finish ends on it so the user can keep working there.
-    const started = await git(deps, root, ['git', 'checkout', '-b', startRelease, DEVELOP, '--'], 'flow-release-start')
-    if (!started.ok) return partial(started)
-    output = started.stdout
-  }
-  if (action.pushRemote !== undefined) {
-    // Publish every long-lived branch the finish moved: a feature only
-    // `develop`, a release / hotfix the main line and `develop`.
-    const branches = action.flow === 'feature' ? [action.target] : [action.target, DEVELOP]
-    const pushed = await git(
-      deps, root,
-      ['git', 'push', action.pushRemote, ...branches.map((name) => `refs/heads/${name}:refs/heads/${name}`)],
-      'flow-push',
-    )
-    if (!pushed.ok) return partial(pushed)
-    output = pushed.stdout
-  }
-  if (action.releasePushRemote !== undefined && startRelease !== '') {
-    // The chained release push is its own choice: `-u` also makes the new
-    // branch track the remote, so a later finish can clean up its counterpart.
-    const pushed = await git(
-      deps, root,
-      ['git', 'push', '-u', action.releasePushRemote, `refs/heads/${startRelease}:refs/heads/${startRelease}`],
-      'flow-release-push',
-    )
-    if (!pushed.ok) return partial(pushed)
-    output = pushed.stdout
-  }
   return snapshotResult(deps, config, request, output.trim())
 }
 
@@ -571,10 +579,10 @@ async function finishFlow(
 async function integrateFlow(
   deps: SnapshotDeps, config: GitPanelConfig, request: GitActionRequest, action: Extract<GitAction, { kind: 'flow-integrate' }>, root: string,
 ): Promise<GitActionResult> {
-  if (!isSafeBranchName(action.develop)) return fail('invalid-name', `unsafe develop branch: ${action.develop}`)
-  const develop = await hasRef(deps, root, `refs/heads/${action.develop}`)
+  if (action.develop !== DEVELOP) return fail('invalid-name', `flow integration only accepts ${DEVELOP}`)
+  const develop = await hasRef(deps, root, `refs/heads/${DEVELOP}`)
   if (!develop.ok) return develop
-  if (!develop.exists) return fail('not-found', `develop branch not found: ${action.develop}`)
+  if (!develop.exists) return fail('not-found', `develop branch not found: ${DEVELOP}`)
   const current = await currentBranch(deps, root)
   if (!current.ok) return current
   if (current.name === null) return fail('no-branch', 'detached HEAD: integration needs the checked-out feature branch')

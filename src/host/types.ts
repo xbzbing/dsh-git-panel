@@ -471,12 +471,14 @@ export type GitAction =
     readonly strategy: FlowStrategy
     readonly message: string
     readonly deleteBranch?: boolean
-    /** Delete the branch's configured upstream after the integration. */
+    /** Delete the branch's configured upstream after the integration. The host
+     * rechecks the remote ref before deleting it. */
     readonly deleteRemote?: boolean
     /** Push every long-lived branch the finish moved (feature: `develop`;
-     * release / hotfix: the main line and `develop`) to this configured remote. */
+     * release / hotfix: the main line and `develop`) and the release / hotfix
+     * tag to this configured remote. */
     readonly pushRemote?: string
-    /** Release / hotfix only: annotated tag created on the main line. */
+    /** Release / hotfix only: required annotated tag created on the main line. */
     readonly tag?: string
     /** A feature finish can chain a release start: create this `release/…`
      * branch from the updated `develop` after the integration and check it out.
