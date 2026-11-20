@@ -1373,7 +1373,7 @@ async function queryBranches(deps: SnapshotDeps, root: string): Promise<GitQuery
   // `%(symref)` is non-empty exactly for those symbolic rows, which the parser
   // drops — filtering by a `/HEAD` name suffix would also hide a real branch
   // that happens to end in `/HEAD`.
-  const fmt = '--format=%(refname:short)%00%(objectname:short)%00%(upstream:track)%00%(refname)%00%(symref)'
+  const fmt = '--format=%(refname:short)%00%(objectname:short)%00%(upstream:track)%00%(refname)%00%(symref)%00%(upstream)'
   const [localRes, remoteRes, currentRes, defaultRes] = await Promise.all([
     runCommand(deps.run, ['git', 'for-each-ref', '--sort=-committerdate', fmt, 'refs/heads'], root, 'branches-local', deps.signal),
     runCommand(deps.run, ['git', 'for-each-ref', '--sort=-committerdate', fmt, 'refs/remotes'], root, 'branches-remote', deps.signal),

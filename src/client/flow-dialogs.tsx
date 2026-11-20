@@ -254,6 +254,8 @@ export interface FlowFinishArgs {
   /** The checkout's remote and its tracking branch names, so the push option
    * can say which ref it would publish (and follow the chosen target). */
   readonly remote: { readonly name: string | null; readonly branches: readonly string[] }
+  /** Full upstream ref for the finished branch, when the host can delete it. */
+  readonly upstreamRef?: string | null
   /** Every local branch, so a chained release name is refused before it is sent. */
   readonly existing?: readonly string[]
   /** The next release version read off the tags (the chained release start). */
@@ -272,7 +274,7 @@ export function renderFlowFinishModal(args: FlowFinishArgs): JSX.Element | null 
   return h(FlowFinishModal, args)
 }
 
-function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing = [], releaseInitialName = '', busy = false, error = null, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
+function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, upstreamRef = null, existing = [], releaseInitialName = '', busy = false, error = null, onSubmit, onClose, container, t }: FlowFinishArgs): JSX.Element | null {
   const [strategy, setStrategy] = useState<FlowStrategy>('merge')
   const strategies = flow === 'feature' ? FEATURE_STRATEGIES : RELEASE_STRATEGIES
   // The default message is a commit subject, so it follows the UI language and
@@ -358,7 +360,8 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
     ...(movedPushRefs !== null && push ? movedPushRefs : []),
     ...(releasePushPreviewRef ?? []),
   ]
-  const remoteLabel = remote.name === null ? branch : `${remote.name}/${branch}`
+  const upstreamLabel = upstreamRef?.replace(/^refs\/remotes\//, '') ?? null
+  const remoteLabel = upstreamLabel ?? (remote.name === null ? branch : `${remote.name}/${branch}`)
   // The remote cleanup is armed by the checkbox; the confirmation it needs is
   // part of the one finish confirmation, not a second layer.
   const remoteArmed = hasUpstream && deleteRemote
@@ -407,6 +410,7 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, existing 
     deleteRemote: hasUpstream && deleteRemote,
     pushRefs: previewPushRefs.length > 0 ? previewPushRefs : null,
     remoteName: remote.name,
+    remoteDeleteRef: upstreamRef,
     forceDelete: strategy === 'squash' && forceDelete,
     startRelease: flow === 'feature' && startRelease ? (releaseBranch ?? 'release/…') : null,
   })

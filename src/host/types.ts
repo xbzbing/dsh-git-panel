@@ -879,6 +879,8 @@ export interface GitBranch {
    * the ref again reads this field.
    */
   readonly ref?: string
+  /** Full configured upstream ref for a local branch, when one exists. */
+  readonly upstream?: string
 }
 
 /** One entry in the stash stack (`git stash list`). */

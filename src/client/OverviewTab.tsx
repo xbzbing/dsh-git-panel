@@ -1173,6 +1173,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       // A row that is not HEAD has no sampled upstream: the remote cleanup
       // stays off instead of claiming there is none.
       hasUpstream: flowDialog.branch === snapshot.branch && snapshot.hasUpstream,
+      upstreamRef: flowDialog.branch === snapshot.branch ? (tree?.local ?? []).find((item) => item.name === flowDialog.branch)?.upstream ?? null : null,
       remote: { name: remoteName, branches: flowRemoteNames },
       existing: flowLocalNames,
       releaseInitialName: nextFlowVersion('release', (tree?.tags ?? []).map((tag) => tag.name)) ?? '',

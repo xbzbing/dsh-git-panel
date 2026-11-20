@@ -167,12 +167,13 @@ export function parseBranches(stdout: string): GitBranch[] {
   const out: GitBranch[] = []
   for (const line of stdout.split('\n')) {
     if (line.trim() === '') continue
-    const [name, shortHash = '', track = '', ref = '', symref = ''] = line.split('\0')
+    const [name, shortHash = '', track = '', ref = '', symref = '', upstream = ''] = line.split('\0')
     if (name === undefined || name === '' || symref !== '') continue
-    const branch: { name: string; shortHash: string | null; ahead?: number; behind?: number; ref?: string } = {
+    const branch: { name: string; shortHash: string | null; ahead?: number; behind?: number; ref?: string; upstream?: string } = {
       name,
       shortHash: shortHash === '' ? null : shortHash,
       ...(ref === '' ? {} : { ref }),
+      ...(upstream === '' ? {} : { upstream }),
     }
     const ahead = /ahead (\d+)/.exec(track)
     const behind = /behind (\d+)/.exec(track)

@@ -253,8 +253,10 @@ export interface FlowFinishPreviewInput {
   readonly deleteRemote: boolean
   /** Refs the push publishes; null when the option is off or unavailable. */
   readonly pushRefs: readonly string[] | null
-  /** The checkout's remote, for the deleted upstream's ref. */
+  /** The checkout's remote, for pushed refs and remote preview grouping. */
   readonly remoteName?: string | null
+  /** Full remote-tracking ref to delete, from the branch's configured upstream. */
+  readonly remoteDeleteRef?: string | null
   readonly forceDelete?: boolean
   /** Full `release/…` branch a feature finish also starts from `develop`. */
   readonly startRelease?: string | null
@@ -293,7 +295,9 @@ export function finishFlowPreview(input: FlowFinishPreviewInput): FlowPreview {
   if (input.deleteRemote) {
     ops.push({
       kind: 'deleteRemote',
-      ...(input.remoteName != null ? { refs: [`${input.remoteName}/${input.branch}`] } : {}),
+      ...((input.remoteDeleteRef ?? '').trim() !== ''
+        ? { refs: [(input.remoteDeleteRef ?? '').replace(/^refs\/remotes\//, '')] }
+        : input.remoteName != null ? { refs: [`${input.remoteName}/${input.branch}`] } : {}),
     })
   }
   if (input.pushRefs !== null && input.pushRefs.length > 0) ops.push({ kind: 'push', refs: input.pushRefs })

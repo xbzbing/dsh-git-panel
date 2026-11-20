@@ -306,6 +306,18 @@ test('the chain joins the edges into one left-to-right branch list', () => {
   assert.equal(flowPreviewChain([]).length, 0)
 })
 
+test('remote deletion preview uses the configured upstream ref', () => {
+  const preview = finishFlowPreview({
+    flow: 'feature', branch: 'feature/x', target: 'develop', backMerge: [],
+    strategy: 'merge', tag: '', deleteBranch: true, deleteRemote: true,
+    pushRefs: null, remoteName: 'origin', remoteDeleteRef: 'refs/remotes/origin/review/x',
+  })
+  assert.deepEqual(preview.ops, [
+    { kind: 'delete', },
+    { kind: 'deleteRemote', refs: ['origin/review/x'] },
+  ])
+})
+
 test('remote branches sit under their local branch, split on the full remote name', () => {
   const ops = [
     { kind: 'push', refs: ['up/stream/main', 'up/stream/develop'] },
