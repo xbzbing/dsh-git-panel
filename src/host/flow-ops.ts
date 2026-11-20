@@ -398,6 +398,11 @@ async function startFlow(
       'flow-start-push',
     )
     if (!pushed.ok) {
+      // A network failure has an unknown result: the server may have created
+      // the branch even though this client saw a non-zero exit. Never roll
+      // back locally while an orphan remote ref could remain.
+      const remoteOid = await remoteBranchOid(deps, root, action.pushRemote, action.branch)
+      if (!remoteOid.ok || remoteOid.oid !== null) return partial(pushed)
       const rolledBack = await rollbackStartedBranch(deps, root, action.branch, { name: start.name, oid: startOid.oid }, createdDevelop)
       return rolledBack ? pushed : partial(pushed)
     }

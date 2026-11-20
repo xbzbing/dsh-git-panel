@@ -782,3 +782,31 @@ test('concurrent flow actions on one repository are rejected while the first run
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+
+test('flow-start preserves local and remote state when a push result is uncertain', async () => {
+  const dir = await freshRepo('gp-flow-start-unknown-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-start-unknown-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['checkout', '-q', '-b', 'remote-seed', 'develop'])
+    writeFileSync(join(dir, 'remote-seed.txt'), 'remote\n')
+    await runGit(dir, ['add', 'remote-seed.txt'])
+    await runGit(dir, ['commit', '-qm', 'remote seed'])
+    await runGit(dir, ['push', '-q', 'origin', 'remote-seed:refs/heads/feature/orphan'])
+    await runGit(dir, ['checkout', '-q', 'main'])
+
+    const started = await run(dir, {
+      kind: 'flow-start', flow: 'feature', branch: 'feature/orphan', base: 'develop', pushRemote: 'origin',
+    })
+    assert.equal(started.ok, false)
+    assert.equal(started.error.code, 'flow-partial')
+    assert.ok(branchExists(dir, 'feature/orphan'), 'the local branch remains for inspection')
+    assert.ok(branchExists(remote, 'feature/orphan') || out(remote, ['show-ref', '--verify', '--quiet', 'refs/heads/feature/orphan']) === '', 'the remote branch remains intact')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  }
+})
