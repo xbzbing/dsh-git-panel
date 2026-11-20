@@ -218,6 +218,22 @@ test('planAction refuses an unresolved remote delete instead of guessing', () =>
   assert.equal(plan.error, 'invalid-name')
 })
 
+test('planAction refuses the Git Flow actions (the flow runner executes them)', () => {
+  const actions = [
+    { kind: 'flow-start', flow: 'feature', branch: 'feature/x', base: 'develop' },
+    {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/x', target: 'develop',
+      strategy: 'merge', message: 'finish',
+    },
+    { kind: 'flow-integrate', develop: 'develop' },
+  ]
+  for (const action of actions) {
+    const plan = planAction(action, false)
+    assert.equal(plan.error, 'git-error', `${action.kind} must not be planned into a bare argv`)
+    assert.equal('argv' in plan, false)
+  }
+})
+
 test('stash-push builds push with/without a message', () => {
   assert.deepEqual(planAction({ kind: 'stash-push' }, false).argv, [['git', 'stash', 'push']])
   assert.deepEqual(planAction({ kind: 'stash-push', message: 'wip' }, false).argv, [['git', 'stash', 'push', '-m', 'wip']])

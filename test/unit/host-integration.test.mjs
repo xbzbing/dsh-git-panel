@@ -3951,7 +3951,7 @@ test('the snapshot declares the menu capabilities', async () => {
   assert.equal(res.ok, true)
   assert.deepEqual(res.value.capabilities, {
     revDiff: true, pathHistory: true, commitCheckout: true, branchDelete: true, remoteBranchDelete: true,
-    branchCreate: true, branchMerge: true, cherryPick: true, syncMerge: true,
+    branchCreate: true, branchMerge: true, cherryPick: true, syncMerge: true, flow: true,
   })
 })
 

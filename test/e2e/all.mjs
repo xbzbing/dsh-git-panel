@@ -72,6 +72,10 @@ const RUNNERS = [
   // the capability gate that hides all three on an older host.
   'compare-history',
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
+  // The Git Flow dialogs: the capability gate, start / finish forms emitting the
+  // exact wire action, the squash forced-delete acknowledgement, and a refusal
+  // (or an in-flight submit) staying inside the open dialog.
+  'flow-dialogs',
   // The change list's flat / tree views (issue #99): directory rows and counts,
   // folding, directory-level stage and discard, the path filter, remembered view.
   'changes-tree',

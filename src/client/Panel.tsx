@@ -40,6 +40,7 @@ import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
 import { PanelMenuContext } from './menu-context.js'
+import { PanelRootContext } from './panel-root.js'
 import { usePanelMenu } from './use-panel-menu.js'
 import { contextMenusOf } from './menu-register.js'
 import { insertSessionQuote } from './quote.js'
@@ -64,6 +65,9 @@ const EMPTY_OVERVIEW_COMMANDS: OverviewMenuCommands = {
   openRemoteBranchDelete: () => {},
   openBranchCreate: () => {},
   openBranchMerge: () => {},
+  openFlowStart: () => {},
+  openFlowFinish: () => {},
+  openFlowIntegrate: () => {},
   openCherryPick: () => {},
   openRevert: () => {},
   openReset: () => {},
@@ -1139,6 +1143,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       })
       : null,
     h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) },
-      h(PanelMenuContext.Provider, { value: panelMenu }, body)),
+      h(PanelRootContext.Provider, { value: rootEl },
+        h(PanelMenuContext.Provider, { value: panelMenu }, body))),
   ])
 }

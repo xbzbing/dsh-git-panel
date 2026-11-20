@@ -38,6 +38,9 @@ import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { renderBranchDeleteConfirm, renderRemoteBranchDeleteConfirm } from './branch-delete.js'
 import { renderBranchCreateModal } from './branch-create.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
+import { finishTargets, flowBases, flowMainlines, nextFlowVersion, startBase, type FlowDialog } from './flow.js'
+import { renderFlowAboutModal, renderFlowFinishModal, renderFlowIntegrateModal, renderFlowStartModal } from './flow-dialogs.js'
+import { usePanelRoot } from './panel-root.js'
 import { renderStatusBar } from './overview-statusbar.js'
 import { RepoBar } from './overview-repobar.js'
 import { PublishModal } from './PublishModal.js'
@@ -272,6 +275,13 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // branch in their body, so a scope move under the dialog closes them through
   // the shared op-scope effect below (same contract as the switch confirm).
   const [branchMergeTarget, setBranchMergeTarget] = useState<{ start: string; label: string } | null>(null)
+  // Git Flow: one dialog state for the branch-list button and the branch rows'
+  // right-click entries, so both raise the same dialog. The submit runs the
+  // host's flow action through `onAction`: the fresh snapshot refreshes every
+  // pane, and a refusal renders inside the dialog.
+  const [flowDialog, setFlowDialog] = useState<FlowDialog | null>(null)
+  const [flowBusy, setFlowBusy] = useState(false)
+  const flowInFlight = useRef(false)
   const [pickTarget, setPickTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
   // Commit-undo targets (revert confirm + reset mode dialog), each a selected commit.
   const [revertTarget, setRevertTarget] = useState<{ hash: string; shortHash: string; subject: string } | null>(null)
@@ -384,6 +394,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     const localSection = buildLocalBranchSection(local, tree?.current ?? null, localPrimary)
     return {
       local: localSection.nodes,
+      localNames: local.map((branch) => branch.name),
       localPinned: localSection.pinned,
       localPrimary,
       remotePrimary,
@@ -391,6 +402,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       tags: buildBranchTree(tree?.tags ?? []),
     }
   }, [tree, remoteName])
+  // Git Flow's long-lived branches and the names its dialogs offer as bases,
+  // read from the same list the branch tree draws. These read every branch name,
+  // so they are folded once per tree like `branchTrees`: a render that only
+  // moves selection, expand state or a filter draft reuses them.
+  const flowLocalNames = branchTrees.localNames
+  const flowBasesInfo = useMemo(() => flowBases(flowLocalNames, tree?.defaultBranch ?? null), [flowLocalNames, tree])
+  const flowMains = useMemo(() => flowMainlines(flowLocalNames, tree?.defaultBranch ?? null), [flowLocalNames, tree])
+  const flowRemoteNames = useMemo(() => (tree?.remote ?? []).map((branch) => branch.name), [tree])
   // A clean work tree switches straight away (git carries nothing across and
   // has nothing to lose); a dirty one still opens the confirm so the user can
   // pick between carrying the changes and stashing first.
@@ -398,6 +417,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     setOpError(null)
     if (!snapshot.dirty) { void runBranchSwitch(option, false); return }
     setSwitchTarget(option)
+  }
+  // Git Flow entries: the button and the branch rows' menus raise the same
+  // dialog. The form's submit runs the host action; the dialog holds the busy
+  // state and the refusal so a double press or a second submit cannot fire.
+  const openFlow = (dialog: FlowDialog): void => { setOpError(null); setFlowBusy(false); setFlowDialog(dialog) }
+  const closeFlow = (): void => { setFlowDialog(null); setFlowBusy(false); setOpError(null) }
+  const flowEnv = { busy: flowBusy, setBusy: setFlowBusy, setError: setOpError, inFlight: flowInFlight }
+  const runFlow = (action: GitAction): void => {
+    void runSnapshotAction(flowEnv, onAction, action, closeFlow, t('error.generic'))
   }
   // The shared popup is an overlay above everything the panel draws, including
   // the pointer-anchored commit card: keep the card out of its way while it is
@@ -428,6 +456,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore, pathSearchSupport, pathSearchUnsupported } = useHistory(
     remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
   )
+  // The panel root lets the Git Flow dialogs render inside the panel instead of
+  // over the whole window (panel-root.ts).
+  const panelRoot = usePanelRoot()
 
   // A confirmation names the work tree it will act on (reset moves HEAD, revert
   // commits against it, switch changes the branch). Another actor — usually the
@@ -449,8 +480,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }
   }
   const opScopeRef = useRef<string | null>(null)
-  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null || branchToDelete !== null || remoteBranchToDelete !== null || branchMergeTarget !== null || pickTarget !== null
-  const opInFlight = opBusy || switchBusy || mergeSyncBusy
+  const opDialogOpen = resetTarget !== null || revertTarget !== null || switchTarget !== null || checkoutTarget !== null || branchToDelete !== null || remoteBranchToDelete !== null || branchMergeTarget !== null || pickTarget !== null || flowDialog !== null
+  const opInFlight = opBusy || switchBusy || mergeSyncBusy || flowBusy
   // The runs the menu offers, closing over this render's state (the owner reads
   // the published object at resolve time, so a fresh one each render is enough).
   const overviewMenuCommands: OverviewMenuCommands = {
@@ -470,6 +501,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     openCheckout: (value) => { setOpError(null); setCheckoutTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     openBranchCreate: (target) => { setOpError(null); setBranchCreateTarget(target) },
     openBranchMerge: (target) => { setOpError(null); setBranchMergeTarget(target) },
+    openFlowStart: (flow, base) => { setOpError(null); openFlow({ type: 'start', flow, ...(base !== undefined ? { base } : {}) }) },
+    openFlowFinish: (flow, branch) => { setOpError(null); openFlow({ type: 'finish', flow, branch }) },
+    openFlowIntegrate: () => { setOpError(null); openFlow({ type: 'integrate' }) },
     openCherryPick: (value) => { setOpError(null); setPickTarget({ hash: value.hash, shortHash: value.shortHash, subject: value.subject }) },
     quote: onQuote ?? (() => {}),
   }
@@ -491,6 +525,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       branchMerge: snapshot.capabilities?.branchMerge === true,
       cherryPick: snapshot.capabilities?.cherryPick === true,
       currentBranch: snapshot.branch,
+      flow: snapshot.capabilities?.flow === true,
+      flowDevelop: flowBasesInfo.develop,
+      flowMains,
     }
   }
   useEffect(() => {
@@ -513,6 +550,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     setRemoteBranchToDelete(null)
     setBranchMergeTarget(null)
     setPickTarget(null)
+    setFlowDialog(null)
     setOpError(null)
   }, [opScope, opDialogOpen, opInFlight, opError])
 
@@ -1101,6 +1139,71 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }) : null,
   ]
 
+  // Git Flow dialogs: built from the shared dialog state and rendered next to
+  // the other overlays in every layout. The panel root confines them to the
+  // panel (panel-root.ts); a release / hotfix start prefills the next version
+  // read off the tags.
+  const flowDialogs: (JSX.Element | null)[] = []
+  if (flowDialog?.type === 'start') {
+    const base = flowDialog.base ?? startBase(flowDialog.flow, flowBasesInfo)
+    const initialName = flowDialog.flow === 'feature'
+      ? ''
+      : nextFlowVersion(flowDialog.flow, (tree?.tags ?? []).map((tag) => tag.name)) ?? ''
+    flowDialogs.push(base === null ? null : renderFlowStartModal({
+      flow: flowDialog.flow,
+      branches: flowLocalNames,
+      defaultBase: base,
+      existing: flowLocalNames,
+      initialName,
+      remoteName,
+      remoteBranches: flowRemoteNames,
+      busy: flowBusy,
+      error: opError,
+      onSubmit: (request) => runFlow(request),
+      onClose: closeFlow,
+      ...(panelRoot !== null ? { container: panelRoot } : {}),
+      t,
+    }))
+  } else if (flowDialog?.type === 'finish') {
+    const targets = finishTargets(flowDialog.flow, flowBasesInfo, flowMains)
+    flowDialogs.push(targets === null ? null : renderFlowFinishModal({
+      flow: flowDialog.flow,
+      branch: flowDialog.branch,
+      targets,
+      // A row that is not HEAD has no sampled upstream: the remote cleanup
+      // stays off instead of claiming there is none.
+      hasUpstream: flowDialog.branch === snapshot.branch && snapshot.hasUpstream,
+      remote: { name: remoteName, branches: flowRemoteNames },
+      existing: flowLocalNames,
+      releaseInitialName: nextFlowVersion('release', (tree?.tags ?? []).map((tag) => tag.name)) ?? '',
+      busy: flowBusy,
+      error: opError,
+      onSubmit: (request) => runFlow(request),
+      onClose: closeFlow,
+      ...(panelRoot !== null ? { container: panelRoot } : {}),
+      t,
+    }))
+  } else if (flowDialog?.type === 'integrate') {
+    const develop = flowBasesInfo.develop
+    flowDialogs.push(develop === null ? null : renderFlowIntegrateModal({
+      develop,
+      current: snapshot.branch,
+      dirty: snapshot.dirty,
+      busy: flowBusy,
+      error: opError,
+      onSubmit: () => runFlow({ kind: 'flow-integrate', develop }),
+      onClose: closeFlow,
+      ...(panelRoot !== null ? { container: panelRoot } : {}),
+      t,
+    }))
+  } else if (flowDialog?.type === 'about') {
+    flowDialogs.push(renderFlowAboutModal({
+      onClose: closeFlow,
+      ...(panelRoot !== null ? { container: panelRoot } : {}),
+      t,
+    }))
+  }
+
   // The history middle column: a toolbar (search / author / since / fetch, plus
   // a filter trigger in compact) over the scrolling commit list.
   // The two filters are the platform Menu — the same dropdown surface the shell
@@ -1398,6 +1501,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onFilter: (ref) => setRef(ref),
       switchOptions,
       switchBusy,
+      busy: opInFlight,
+      flowSupported: snapshot.capabilities?.flow === true,
+      openFlow,
       onSwitch: openSwitch,
       onToggle: toggleSection,
       onRetry: reloadTree,
@@ -1425,6 +1531,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     return h('div', { className: 'gp-overview gp-overview--stacked' }, [
       fileDiffModal,
       ...opModals,
+      ...flowDialogs,
       h('div', { key: 'top', className: 'gp-overview__top', style: { flex: `0 0 ${split.pct}%` } }, topChildren),
       h('div', {
         key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
@@ -1456,6 +1563,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
             switchOptions,
             switchBusy,
+            busy: opInFlight,
+            flowSupported: snapshot.capabilities?.flow === true,
+            openFlow,
             onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
             onToggle: toggleSection,
             onRetry: reloadTree,
@@ -1469,6 +1579,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     return h('div', { className: 'gp-overview gp-overview--compact' }, [
       fileDiffModal,
       ...opModals,
+      ...flowDialogs,
       pane === 'detail'
         ? h('div', { key: 'detail', className: 'gp-col gp-col--mid gp-detail' }, [
           h('div', { key: 'back', className: 'gp-subhead' }, [
@@ -1484,6 +1595,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
         switchOptions,
         switchBusy,
+        busy: opInFlight,
+        flowSupported: snapshot.capabilities?.flow === true,
+        openFlow,
         onSwitch: (option) => { setSheetOpen(false); openSwitch(option) },
         onToggle: toggleSection,
         onRetry: reloadTree,
@@ -1498,6 +1612,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     // file-diff modal (click a changed file in the right column)
     fileDiffModal,
     ...opModals,
+    ...flowDialogs,
     // left: branches (scroll) + a fixed status bar footer (repo link + sync)
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, [
       reposBlock,
@@ -1505,6 +1620,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onFilter: (ref) => setRef(ref),
         switchOptions,
         switchBusy,
+        busy: opInFlight,
+        flowSupported: snapshot.capabilities?.flow === true,
+        openFlow,
         onSwitch: openSwitch,
         onToggle: toggleSection,
         onRetry: reloadTree,
