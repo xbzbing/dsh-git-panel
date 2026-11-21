@@ -137,7 +137,7 @@ src/
 
 ## Acknowledgements
 
-Thanks to [@ivanant](https://github.com/ivanant) for the many optimization suggestions and iteration requests filed against this project. Mobile layout, batch selection in the changes page, AI commit messages, commit-graph and icon polish, and publishing a branch that has no upstream all came mostly from his real-world usage reports — feedback that moved the panel well past "it works".
+Thanks to [@ivanant](https://github.com/ivanant) for his ongoing optimization suggestions, iteration requests and code. Mobile layout, batch selection in the changes page, AI commit messages, commit-graph and icon polish, and publishing a branch that has no upstream all came mostly from his real-world usage reports — feedback that moved the panel well past "it works". Git Flow support (#133) is his work as well: the start / finish / integrate entries in the branch list, branch and tag validation against the flow's naming rules, the step confirmations and chained release on finish, and the preview of the branch changes each action will make; this release's finish hardening, entry switch and user guide are built on top of it.
 
 Thanks to [@QianYI-Yan](https://github.com/QianYI-Yan) for the foundation of workspace multi-repo support (#83): scanning the workspace's subdirectories for independent repositories, carrying an optional `repo` field on every RPC request to switch work trees, and dimming the old contents while a switch is in flight — his PR (#85) was the first implementation of all three, and this release's worktree detection and file-browser roots are built on top of it.
 
