@@ -1211,10 +1211,12 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       t,
     }))
   } else if (flowDialog?.type === 'about') {
+    // The guide is reference material, not a panel-scoped write: it portals to
+    // the body and centres on the viewport, so a narrow sidebar does not shrink
+    // it into the panel's corner.
     flowDialogs.push(renderFlowAboutModal({
       onClose: closeFlow,
       ...(onDisableFlow !== undefined ? { onDisableFlow } : {}),
-      ...(panelRoot !== null ? { container: panelRoot } : {}),
       t,
     }))
   }

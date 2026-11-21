@@ -282,6 +282,29 @@ assert.deepEqual(await aboutDiagram.locator('.gp-flow-about__lane--main .gp-flow
 assert.equal(await aboutDiagram.locator('.gp-flow-about__edge--back').count(), 2)
 assert.match(await aboutDiagram.locator('desc').textContent(), /release\/\* → main\/master.*→ develop/)
 assert.equal(await about.getByRole('link', { name: '阅读原文' }).getAttribute('href'), 'https://nvie.com/posts/a-successful-git-branching-model/')
+// The guide is centred on the viewport, not on the panel the dialog was raised
+// from: the panel sits at the page's left edge, so a panel-centred dialog would
+// drift well left of the page centre. Let the open animation settle first —
+// its translateY would otherwise read as a few pixels off centre.
+await page.waitForTimeout(260)
+const guideGeometry = await page.evaluate(() => {
+  const frameEl = document.querySelector('.gp-modal--flow-about')
+  const frame = frameEl.getBoundingClientRect()
+  const backdrop = frameEl.parentElement
+  const layer = backdrop.getBoundingClientRect()
+  return {
+    dx: (frame.x + frame.width / 2) - window.innerWidth / 2,
+    dy: (frame.y + frame.height / 2) - window.innerHeight / 2,
+    fixed: getComputedStyle(backdrop).position,
+    coversViewport: Math.abs(layer.x) < 1 && Math.abs(layer.y) < 1
+      && Math.abs(layer.width - window.innerWidth) < 1 && Math.abs(layer.height - window.innerHeight) < 1,
+    panelLeft: document.getElementById('panel').getBoundingClientRect().x,
+  }
+})
+assert.ok(Math.abs(guideGeometry.dx) < 2, `the guide centres horizontally on the viewport (off by ${guideGeometry.dx}px, panel starts at ${guideGeometry.panelLeft}px)`)
+assert.ok(Math.abs(guideGeometry.dy) < 2, `the guide centres vertically on the viewport (off by ${guideGeometry.dy}px)`)
+assert.equal(guideGeometry.fixed, 'fixed', 'its backdrop is viewport-fixed, not panel-absolute')
+assert.equal(guideGeometry.coversViewport, true, 'the backdrop covers the whole viewport')
 await page.keyboard.press('Escape')
 await about.waitFor({ state: 'hidden' })
 assert.deepEqual(await actions(page), sent, 'opening the guide does not write to the repository')

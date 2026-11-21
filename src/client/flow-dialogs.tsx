@@ -588,7 +588,6 @@ export function renderFlowIntegrateModal({ develop, current, dirty, busy = false
 }
 
 export interface FlowAboutArgs {
-  readonly container?: Element | null
   readonly onClose: () => void
   /** Switches the plugin's Git Flow entries off. Absent when the settings form
    * is unreachable (no `configForms` service), where the dialog offers no
@@ -599,7 +598,9 @@ export interface FlowAboutArgs {
 
 /**
  * How the three Git Flow branch types move through this panel, plus the
- * switch-off for the entries. Switching them off is a preference write, not a
+ * switch-off for the entries. The guide is reference material rather than a
+ * panel-scoped write, so it portals to the body and centres on the viewport;
+ * its confirmation renders in the same layer. Switching them off is a preference write, not a
  * repository write, so it asks once for confirmation and reports the way back
  * (the plugin's settings form) instead of promising an undo in this dialog.
  */
@@ -608,7 +609,7 @@ export function renderFlowAboutModal(args: FlowAboutArgs): JSX.Element | null {
   return h(FlowAboutModal, args)
 }
 
-function FlowAboutModal({ container, onClose, onDisableFlow, t }: FlowAboutArgs): JSX.Element {
+function FlowAboutModal({ onClose, onDisableFlow, t }: FlowAboutArgs): JSX.Element {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -625,7 +626,6 @@ function FlowAboutModal({ container, onClose, onDisableFlow, t }: FlowAboutArgs)
     icon: h(MergeIcon, { size: 15 }),
     portalKey: 'flow-about-modal',
     variant: 'gp-modal--flow gp-modal--flow-about',
-    ...(container != null ? { container, contained: true, trapFocus: true } : {}),
     t,
     body: [
       h('p', { key: 'intro', className: 'gp-flow-about__intro' }, t('flow.about.intro')),
@@ -672,7 +672,6 @@ function FlowAboutModal({ container, onClose, onDisableFlow, t }: FlowAboutArgs)
       busyLabel: t('flow.about.disableBusy'),
       onConfirm: confirmDisable,
       onClose: () => { if (!busy) { setConfirming(false); setError(null) } },
-      ...(container != null ? { container, contained: true, trapFocus: true } : {}),
       t,
     })
     : null
