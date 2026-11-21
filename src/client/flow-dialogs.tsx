@@ -15,14 +15,15 @@ import { createElement as h, Fragment, useEffect, useId, useRef, useState } from
 import type { JSX, KeyboardEvent } from 'react'
 import { Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import { KEYS_OWNER_ATTR, KEYS_OWNER_CLASS } from './dialog-focus.js'
+import { FlowAboutDiagram, FlowPreviewDiagram } from './flow-diagram.js'
 import { BranchIcon, MergeIcon } from './icons.js'
 import { selectTrigger } from './select-trigger.js'
 import { renderConfirmModal, renderModalFooter, renderModalShell, type OpT } from './ops-modals.js'
 import {
-  DEVELOP_BRANCH, FLOW_PREFIX, defaultTagName, flowBranchName, flowPreviewChain, flowPreviewRemotes,
+  DEVELOP_BRANCH, FLOW_PREFIX, defaultTagName, flowBranchName, flowLane,
   finishFlowPreview, startFlowPreview,
-  type FlowFinishRequest, type FlowFinishTargets, type FlowKind, type FlowPreview,
-  type FlowPreviewNode, type FlowStartRequest, type FlowStrategy,
+  type FlowFinishRequest, type FlowFinishTargets, type FlowKind,
+  type FlowStartRequest, type FlowStrategy,
 } from './flow.js'
 
 /** The convention's own vocabulary: these stay English in every UI, as in the
@@ -62,100 +63,6 @@ function FlowBranchPicker({ id, label, value, branches, disabled, onChange }: {
           id, ariaLabel: `${label} ${value}`, disabled, extraClass: 'gp-flow__select',
         }),
       })),
-  ])
-}
-
-/** One branch pill. The optional tag rides inside the pill, right-aligned, so
- * the tag stays attached to the branch it was created on. */
-function previewNode(node: FlowPreviewNode, key: string, extra = '', tag?: string): JSX.Element {
-  const state = node.state === 'created'
-    ? ' gp-flow-map__node--new'
-    : node.state === 'deleted' ? ' gp-flow-map__node--gone' : ''
-  return h('span', {
-    key,
-    className: `gp-flow-map__node gp-flow-map__node--${node.lane}${state}${extra === '' ? '' : ` ${extra}`}`,
-    title: node.name,
-  }, [
-    h('i', { key: 'dot', className: 'gp-flow-map__dot' }),
-    h('span', { key: 'name', className: 'gp-flow-map__name' }, node.name),
-    tag === undefined
-      ? null
-      : h('span', { key: 'tag', className: 'gp-flow-map__tag gp-flow-map__tag--node' }, [
-        h('span', { key: 'hash', className: 'gp-flow-map__tag-hash' }, '#'),
-        tag,
-      ]),
-  ])
-}
-
-/** The local branches as one left-to-right chain, with pushed / deleted remote
- * branches hanging under their own branch. Every edge is the same animated
- * connector; the form below owns the strategy wording. A pushed ref the remote
- * does not have yet is drawn as a new (dashed) node. */
-function flowChain(preview: FlowPreview, remoteName: string | null, remoteBranches: ReadonlySet<string>, t: OpT): JSX.Element {
-  const nodes = flowPreviewChain(preview.routes)
-  const remotes = new Map(flowPreviewRemotes(preview.ops, remoteName).map((remote) => [remote.branch, remote]))
-  const hasRemote = nodes.some((node) => remotes.has(node.name))
-  const children: JSX.Element[] = []
-  nodes.forEach((node, index) => {
-    const tag = preview.routes.find((route) => route.to.name === node.name)?.tag
-    const remote = remotes.get(node.name)
-    const edge = `${index === 0 ? ' gp-flow-chain__col--first' : ''}${index === nodes.length - 1 ? ' gp-flow-chain__col--last' : ''}`
-    children.push(h('div', { key: `col-${index}`, className: `gp-flow-chain__col${edge}` }, [
-      previewNode(node, 'local', '', tag),
-      hasRemote
-        ? (remote === undefined
-          ? h('span', { key: 'v', className: 'gp-flow-chain__v gp-flow-chain__v--none' })
-          : h('span', {
-            key: 'v',
-            className: `gp-flow-chain__v${remote.deleted ? ' gp-flow-chain__v--del' : ''}`,
-            'aria-hidden': 'true',
-          }))
-        : null,
-      hasRemote
-        ? (remote === undefined
-          ? h('span', { key: 'empty', className: 'gp-flow-chain__empty' })
-          : previewNode({
-            name: remote.ref,
-            lane: 'other',
-            // A push of a branch the remote does not have yet creates it.
-            state: remote.deleted ? 'deleted' : remoteBranches.has(remote.ref) ? 'existing' : 'created',
-          }, 'remote', 'gp-flow-map__node--remote'))
-        : null,
-    ]))
-    if (index < nodes.length - 1) {
-      children.push(h('span', { key: `h-${index}`, className: 'gp-flow-chain__h', 'aria-hidden': 'true' }))
-    }
-  })
-  return h('div', { className: `gp-flow-chain gp-flow-chain--${nodes.length}`, role: 'group', 'aria-label': t('flow.preview.title') }, children)
-}
-
-/** The change preview both flow dialogs render: the branch chain, plus the
- * form's own error when the input cannot be submitted. */
-function renderFlowPreview(card: {
-  readonly preview: FlowPreview
-  /** A validation error (taken name / invalid name / empty tag); normal states
-   * show no explanatory line under the graph. */
-  readonly errorText?: string | null
-  /** The checkout's remote name, for splitting `origin/<branch>` refs. */
-  readonly remoteName?: string | null
-  /** Existing remote-tracking refs, so a pushed ref that does not exist yet is
-   * drawn as new. */
-  readonly remoteBranches?: readonly string[]
-  readonly t: OpT
-}): JSX.Element {
-  return h('div', {
-    className: 'gp-flow-map', role: 'group', 'aria-label': card.t('flow.preview.title'),
-  }, [
-    h('div', { key: 'head', className: 'gp-flow-map__head' }, [
-      h('span', { key: 'title', className: 'gp-flow-map__title' }, card.t('flow.preview.title')),
-    ]),
-    flowChain(card.preview, card.remoteName ?? null, new Set(card.remoteBranches ?? []), card.t),
-    card.errorText === undefined || card.errorText === null || card.errorText === ''
-      ? null
-      : h('div', { key: 'error', className: 'gp-flow-map__note gp-flow-map__note--error', role: 'alert' }, [
-        h('b', { key: 'mark' }, '!'),
-        card.errorText,
-      ]),
   ])
 }
 
@@ -236,7 +143,7 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
     body: [
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.start.heading', { kind: KIND_SLUG[flow] })),
       h('div', { key: 'txt', className: 'gp-modal__confirmtext' }, intro),
-      h(renderFlowPreview, { key: 'preview', preview, errorText, remoteName, remoteBranches, t }),
+      h(FlowPreviewDiagram, { key: 'preview', preview, errorText, remoteName, remoteBranches, t }),
       h('div', { key: 'name', className: 'gp-flow__field' }, [
         h('label', { key: 'l', className: 'gp-flow__label', htmlFor: nameId }, t('flow.start.nameLabel', { kind })),
         h('input', {
@@ -425,8 +332,6 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, upstreamR
     squash: t('flow.finish.strategySquash'),
     rebase: t('flow.finish.strategyRebase', { target }),
   }
-  // The card only carries the graph; the strategy wording lives in the radio
-  // list and its existing labels, not in a second sentence under the branches.
   const releaseError = !startRelease
     ? null
     : releaseTaken ? t('flow.start.exists') : releaseName.trim() !== '' && releaseBranch === null ? t('flow.start.invalid') : null
@@ -478,7 +383,7 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, upstreamR
     t,
     body: [
       h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.finish.heading', { branch })),
-      h(renderFlowPreview, { key: 'preview', preview, errorText, remoteName: remote.name, remoteBranches: remote.branches, t }),
+      h(FlowPreviewDiagram, { key: 'preview', preview, errorText, remoteName: remote.name, remoteBranches: remote.branches, t }),
       h('div', { key: 'modes', className: 'gp-flow__modes', role: 'radiogroup', 'aria-label': t('flow.finish.strategy') }, strategies.map((value) =>
         h('label', { key: value, className: 'gp-flow__mode' }, [
           h('input', {
@@ -658,6 +563,18 @@ export function renderFlowIntegrateModal({ develop, current, dirty, busy = false
     title: t('flow.integrate.title'),
     body: t('flow.integrate.body', { develop, current: current ?? t('switch.detached') })
       + (dirty ? `\n\n${t('flow.integrate.dirty')}` : ''),
+    extra: current === null ? null : h(FlowPreviewDiagram, {
+      key: 'preview', t,
+      preview: {
+        routes: [{
+          from: { name: develop, lane: flowLane(develop), state: 'existing' },
+          to: { name: current, lane: flowLane(current), state: 'existing' },
+          action: 'merge',
+        }],
+        ops: [], createsDevelop: false,
+      },
+      mergeLabel: t('flow.integrate.title'),
+    }),
     confirmLabel: t('flow.integrate.confirm'),
     danger: false,
     error,
@@ -670,102 +587,43 @@ export function renderFlowIntegrateModal({ develop, current, dirty, busy = false
   })
 }
 
-/** One stroked branch line; `merge` draws the dashed integration edge. */
-function graphPath(key: string, lane: string, d: string, merge = false): JSX.Element {
-  return h('path', {
-    key, d,
-    className: `gp-flow-graph__path gp-flow-graph__path--${lane}${merge ? ' gp-flow-graph__path--merge' : ''}`,
-  })
-}
-
-function graphDot(key: string, lane: string, cx: number, cy: number): JSX.Element {
-  return h('circle', { key, cx, cy, r: 3.5, className: `gp-flow-graph__dot gp-flow-graph__dot--${lane}` })
-}
-
-function graphLabel(key: string, lane: string, y: number, text: string): JSX.Element {
-  return h('text', {
-    key, x: 2, y: y + 3,
-    className: `gp-flow-graph__label gp-flow-graph__label--${lane}`,
-  }, text)
-}
-
-/**
- * The branch topology as one inline SVG: five lanes, long-lived branches as
- * solid lines, short-lived ones leaving and returning, and dashed edges for the
- * extra integration a release / hotfix performs. Lane names ride the left edge
- * so the picture reads without a legend.
- */
-function FlowGraph({ t }: { readonly t: OpT }): JSX.Element {
-  return h('svg', {
-    className: 'gp-flow-graph',
-    viewBox: '0 0 560 270',
-    role: 'img',
-    'aria-label': t('flow.about.diagramAlt'),
-  }, [
-    graphLabel('l-hotfix', 'hotfix', 26, 'hotfix/*'),
-    graphLabel('l-main', 'main', 80, 'main/master'),
-    graphLabel('l-release', 'release', 134, 'release/*'),
-    graphLabel('l-develop', 'develop', 188, 'develop'),
-    graphLabel('l-feature', 'feature', 242, 'feature/*'),
-    graphPath('p-main', 'main', 'M100 80 H540'),
-    graphPath('p-develop', 'develop', 'M100 188 H540'),
-    // feature/* leaves develop, collects two commits and merges back.
-    graphPath('p-feature', 'feature', 'M120 188 L120 224 Q120 242 138 242 H202 Q220 242 220 224 L220 188'),
-    // release/* leaves develop, merges back into develop, and also into main.
-    graphPath('p-release', 'release', 'M260 188 L260 152 Q260 134 278 134 H332 Q350 134 350 152 L350 188'),
-    graphPath('p-release-main', 'release', 'M326 134 L360 80', true),
-    // hotfix/* leaves main, merges into main and then into develop.
-    graphPath('p-hotfix', 'hotfix', 'M420 80 L420 44 Q420 26 438 26 H468'),
-    graphPath('p-hotfix-main', 'hotfix', 'M468 26 L505 80', true),
-    graphPath('p-hotfix-develop', 'hotfix', 'M468 26 L480 188', true),
-    graphDot('d-main-1', 'main', 110, 80),
-    graphDot('d-main-2', 'main', 360, 80),
-    graphDot('d-main-3', 'main', 505, 80),
-    graphDot('d-develop-1', 'develop', 110, 188),
-    graphDot('d-develop-2', 'develop', 150, 188),
-    graphDot('d-develop-3', 'develop', 220, 188),
-    graphDot('d-develop-4', 'develop', 300, 188),
-    graphDot('d-develop-5', 'develop', 350, 188),
-    graphDot('d-develop-6', 'develop', 480, 188),
-    graphDot('d-feature-1', 'feature', 150, 242),
-    graphDot('d-feature-2', 'feature', 185, 242),
-    graphDot('d-release-1', 'release', 292, 134),
-    graphDot('d-release-2', 'release', 326, 134),
-    graphDot('d-hotfix-1', 'hotfix', 446, 26),
-    graphDot('d-hotfix-2', 'hotfix', 468, 26),
-    // The release tag sits on main; the version is an illustration, not data.
-    h('text', { key: 'tag', x: 360, y: 66, textAnchor: 'middle', className: 'gp-flow-graph__tag' }, 'v1.0'),
-  ])
-}
-
 export interface FlowAboutArgs {
   readonly container?: Element | null
   readonly onClose: () => void
   readonly t: OpT
 }
 
-/** `什么是 Git Flow`: the model in two paragraphs plus the branch diagram. */
+/** How the three Git Flow branch types move through this panel. */
 export function renderFlowAboutModal({ container, onClose, t }: FlowAboutArgs): JSX.Element | null {
   if (typeof document === 'undefined') return null
   return renderModalShell({
     onClose,
-    title: t('flow.about.title'),
+    title: t('flow.about.heading'),
     icon: h(MergeIcon, { size: 15 }),
     portalKey: 'flow-about-modal',
-    variant: 'gp-modal--flow',
+    variant: 'gp-modal--flow gp-modal--flow-about',
     ...(container != null ? { container, contained: true, trapFocus: true } : {}),
     t,
     body: [
-      h('div', { key: 'heading', className: 'gp-flow__heading' }, t('flow.about.heading')),
-      h('div', { key: 'intro', className: 'gp-modal__confirmtext' }, t('flow.about.intro')),
-      h(FlowGraph, { key: 'graph', t }),
-      h('div', { key: 'detail', className: 'gp-modal__confirmtext gp-flow__about-detail' },
-        t('flow.about.detail').split('\n').map((line, index) =>
-          h('div', { key: index, className: 'gp-flow__about-line' }, line))),
+      h('p', { key: 'intro', className: 'gp-flow-about__intro' }, t('flow.about.intro')),
+      h('dl', { key: 'long-lived', className: 'gp-flow-about__branches' }, [
+        h('div', { key: 'main' }, [
+          h('dt', { key: 'name' }, h('code', null, 'main / master')),
+          h('dd', { key: 'detail' }, t('flow.about.main')),
+        ]),
+        h('div', { key: 'develop' }, [
+          h('dt', { key: 'name' }, h('code', null, 'develop')),
+          h('dd', { key: 'detail' }, t('flow.about.develop')),
+        ]),
+      ]),
+      h(FlowAboutDiagram, { key: 'diagram', t }),
     ],
-    footer: h('div', { key: 'footer', className: 'gp-modal__footer' }, [
+    footer: h('div', { key: 'footer', className: 'gp-modal__footer gp-flow-about__footer' }, [
+      h('a', {
+        key: 'source', className: 'gp-flow-about__source', target: '_blank', rel: 'noreferrer',
+        href: 'https://nvie.com/posts/a-successful-git-branching-model/',
+      }, t('flow.about.source'), h('span', { 'aria-hidden': true }, '↗')),
       h('button', { key: 'close', type: 'button', className: 'gp-btn gp-btn--primary', onClick: onClose }, t('common.close')),
     ]),
   })
 }
-

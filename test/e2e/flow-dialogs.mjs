@@ -238,14 +238,54 @@ const phoneFit = await phone.evaluate(() => {
     cardOverflow: card.scrollWidth - card.clientWidth,
     formOverflow: form.scrollWidth - form.clientWidth,
     cols: chain.querySelectorAll('.gp-flow-chain__col').length,
+    direction: getComputedStyle(chain).flexDirection,
+    fullWidthNodes: [...chain.querySelectorAll('.gp-flow-chain__col > .gp-flow-map__node')]
+      .every((node) => Math.abs(node.getBoundingClientRect().width - chain.getBoundingClientRect().width) < 1),
     width: document.querySelector('.gp-modal--flow').getBoundingClientRect().width,
   }
 })
 assert.equal(phoneFit.cardOverflow, 0, 'the legend does not overflow a phone-width dialog')
 assert.equal(phoneFit.formOverflow, 0, 'the dialog body does not scroll sideways')
 assert.equal(phoneFit.cols, 2, 'the phone keeps the two-node chain')
+assert.equal(phoneFit.direction, 'column', 'a narrow dialog stacks the nodes and arrows')
+assert.equal(phoneFit.fullWidthNodes, true, 'stacked nodes use the width of the graph')
+assert.match(await phone.locator('.gp-flow-chain__h').textContent(), /检出/)
 assert.ok(phoneFit.width < 420, 'the dialog is inside the narrow container-query band')
 await phone.close()
+
+// ── 1c. the About dialog explains the panel's branch routes ───────────────────
+
+await pickEntry(page, '什么是 Git Flow')
+const about = page.getByRole('dialog', { name: '什么是 Git Flow？' })
+assert.deepEqual(await about.locator('dt').allTextContents(), ['main / master', 'develop'])
+const aboutDiagram = about.getByRole('img', { name: '面板中的分支流程' })
+assert.deepEqual(await aboutDiagram.locator('.gp-flow-about__lane-label').allTextContents(), ['hotfix/*', 'main/master', 'release/*', 'develop', 'feature/*'])
+assert.deepEqual(await aboutDiagram.locator('.gp-flow-about__lane--main .gp-flow-about__version').allTextContents(), ['v1.2.0', 'v1.2.1'])
+assert.equal(await aboutDiagram.locator('.gp-flow-about__edge--back').count(), 2)
+assert.match(await aboutDiagram.locator('desc').textContent(), /release\/\* → main\/master.*→ develop/)
+assert.equal(await about.getByRole('link', { name: '阅读原文' }).getAttribute('href'), 'https://nvie.com/posts/a-successful-git-branching-model/')
+await page.keyboard.press('Escape')
+await about.waitFor({ state: 'hidden' })
+assert.deepEqual(await actions(page), sent, 'opening the guide does not write to the repository')
+
+const narrowAboutPage = await openPanel(SNAP)
+await pickEntry(narrowAboutPage, '什么是 Git Flow')
+await narrowAboutPage.setViewportSize({ width: 320, height: 700 })
+await narrowAboutPage.locator('#panel').evaluate((panel) => { panel.style.width = '320px'; panel.style.height = '660px' })
+await flush(narrowAboutPage)
+const aboutForm = narrowAboutPage.locator('.gp-modal--flow-about .gp-modal__form')
+assert.equal(await aboutForm.evaluate((form) => form.scrollWidth - form.clientWidth), 0, 'the intro fits a narrow panel')
+await narrowAboutPage.getByRole('button', { name: '关闭', exact: true }).last().click()
+await narrowAboutPage.locator('.gp-modal--flow-about').waitFor({ state: 'hidden' })
+await narrowAboutPage.close()
+
+await page.locator('.gp-flow-btn').click()
+await page.getByRole('menuitem', { name: '整合开发', exact: true }).click()
+const integrateDialog = page.getByRole('dialog', { name: '整合开发' })
+await integrateDialog.waitFor()
+assert.deepEqual(await integrateDialog.locator('.gp-flow-map__name').allTextContents(), ['develop', 'feature/login'])
+await page.keyboard.press('Escape')
+await integrateDialog.waitFor({ state: 'hidden' })
 
 // ── 2. finish form: squash needs the forced-delete acknowledgement ─────────
 
