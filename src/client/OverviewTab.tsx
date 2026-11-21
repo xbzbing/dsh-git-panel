@@ -123,6 +123,9 @@ interface OverviewProps {
   /** The panel's quote run (composer first, clipboard fallback) — the commit
    * row's menu entry uses it; the tab has no composer of its own. */
   readonly onQuote?: (text: string) => void
+  /** Turns the Git Flow entries off from the About dialog. Absent when the
+   * settings form is unreachable, which also hides that button. */
+  readonly onDisableFlow?: () => Promise<boolean>
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -169,7 +172,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, exactPathSeq, onClearExactPath, panelMenu, menuCommandsRef, menuFactsRef, onQuote, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, exactPathSeq, onClearExactPath, panelMenu, menuCommandsRef, menuFactsRef, onQuote, onDisableFlow, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   // Latest snapshot for late replies: a direct status-bar write (pull / push /
   // clean switch) has no dialog, so nothing else would stop its failure from
@@ -410,6 +413,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const flowBasesInfo = useMemo(() => flowBases(flowLocalNames, tree?.defaultBranch ?? null), [flowLocalNames, tree])
   const flowMains = useMemo(() => flowMainlines(flowLocalNames, tree?.defaultBranch ?? null), [flowLocalNames, tree])
   const flowRemoteNames = useMemo(() => (tree?.remote ?? []).map((branch) => branch.name), [tree])
+  // Two independent conditions: the host has to implement the flow actions, and
+  // the user has to leave the entries switched on. An older host sends no
+  // `flowEnabled`, which keeps the entries visible (they have no switch).
+  const flowSupported = snapshot.capabilities?.flow === true && snapshot.flowEnabled !== false
   // A clean work tree switches straight away (git carries nothing across and
   // has nothing to lose); a dirty one still opens the confirm so the user can
   // pick between carrying the changes and stashing first.
@@ -525,7 +532,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       branchMerge: snapshot.capabilities?.branchMerge === true,
       cherryPick: snapshot.capabilities?.cherryPick === true,
       currentBranch: snapshot.branch,
-      flow: snapshot.capabilities?.flow === true,
+      flow: flowSupported,
       flowDevelop: flowBasesInfo.develop,
       flowMains,
     }
@@ -1206,6 +1213,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   } else if (flowDialog?.type === 'about') {
     flowDialogs.push(renderFlowAboutModal({
       onClose: closeFlow,
+      ...(onDisableFlow !== undefined ? { onDisableFlow } : {}),
       ...(panelRoot !== null ? { container: panelRoot } : {}),
       t,
     }))
@@ -1509,7 +1517,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       switchOptions,
       switchBusy,
       busy: opInFlight,
-      flowSupported: snapshot.capabilities?.flow === true,
+      flowSupported,
       openFlow,
       onSwitch: openSwitch,
       onToggle: toggleSection,
@@ -1571,7 +1579,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             switchOptions,
             switchBusy,
             busy: opInFlight,
-            flowSupported: snapshot.capabilities?.flow === true,
+            flowSupported,
             openFlow,
             onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
             onToggle: toggleSection,
@@ -1603,7 +1611,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         switchOptions,
         switchBusy,
         busy: opInFlight,
-        flowSupported: snapshot.capabilities?.flow === true,
+        flowSupported,
         openFlow,
         onSwitch: (option) => { setSheetOpen(false); openSwitch(option) },
         onToggle: toggleSection,
@@ -1628,7 +1636,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         switchOptions,
         switchBusy,
         busy: opInFlight,
-        flowSupported: snapshot.capabilities?.flow === true,
+        flowSupported,
         openFlow,
         onSwitch: openSwitch,
         onToggle: toggleSection,

@@ -9,6 +9,7 @@ import type { ConfigFormsFace, SettingsNamespaceView } from './rpc.js'
 /** Volatile fields the settings schema exposes (host `GitPanelService.Config`). */
 export type VolatileField =
   | 'showInputPill'
+  | 'flowEnabled'
   | 'placement'
   | 'defaultDiffView'
   | 'changesView'

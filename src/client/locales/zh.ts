@@ -81,6 +81,12 @@ export const zh = {
   'flow.about.hotfix': '修复已发布版本',
   'flow.about.tag': '打标签',
   'flow.about.source': '阅读原文',
+  'flow.about.disable': '关闭 Git Flow',
+  'flow.about.disableTitle': '关闭 Git Flow？',
+  'flow.about.disableBody': '关闭后 Git 总览不再显示 Git Flow 按钮，分支、提交、文件和其它操作都不受影响。之后可以在插件设置的「显示 Git Flow 入口」里重新开启；也可以直接在对话里让 AI 执行 Git Flow 操作。',
+  'flow.about.disableConfirm': '关闭',
+  'flow.about.disableBusy': '正在关闭…',
+  'flow.about.disableFailed': '无法写入插件设置，Git Flow 入口保持不变。',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': '变更预览',
   'flow.preview.keyExisting': '现有',

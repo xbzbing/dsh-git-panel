@@ -179,6 +179,16 @@ test('showInputPill config flows into the snapshot and normalizes volatile refs'
   assert.equal(hidden.value.showInputPill, false)
 })
 
+test('flowEnabled config flows into the snapshot and normalizes volatile refs', async () => {
+  // On by default; the switch-off writes false; a volatile ref is unwrapped.
+  assert.equal(normalizeConfig({}).flowEnabled, true)
+  assert.equal(normalizeConfig({ flowEnabled: false }).flowEnabled, false)
+  assert.equal(normalizeConfig({ flowEnabled: { get: () => false } }).flowEnabled, false)
+  const off = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, flowEnabled: false }, SID)
+  assert.equal(off.ok, true)
+  assert.equal(off.value.flowEnabled, false)
+})
+
 test('detectCheckouts config flows into the snapshot and normalizes volatile refs', async () => {
   // Default on; explicit off honored; a schemastery volatile ref is unwrapped.
   assert.equal(normalizeConfig({}).detectCheckouts, true)

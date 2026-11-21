@@ -191,6 +191,10 @@ export interface GitSnapshot {
   readonly refreshIntervalMs: number
   /** Whether the input-bar git marker pill should render (user preference). */
   readonly showInputPill: boolean
+  /** Whether the Git Flow entries render at all (user preference). Absent on
+   * older hosts, which had no such switch: the client keeps them visible and
+   * still requires `capabilities.flow`. */
+  readonly flowEnabled?: boolean
   /** Default diff layout the views open with (user preference). */
   readonly defaultDiffView: DiffViewMode
   /** Changes-list presentation (user preference); absent on older hosts →

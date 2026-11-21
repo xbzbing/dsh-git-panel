@@ -82,6 +82,12 @@ export const ru: Record<GitKey, string> = {
   'flow.about.hotfix': 'Исправление опубликованной версии',
   'flow.about.tag': 'Метка',
   'flow.about.source': 'Читать оригинал',
+  'flow.about.disable': 'Отключить Git Flow',
+  'flow.about.disableTitle': 'Отключить Git Flow?',
+  'flow.about.disableBody': 'В обзоре Git больше не будет кнопки Git Flow. Ветки, коммиты, файлы и остальные действия не изменятся. Позже можно снова включить её в настройке «Показывать вход в Git Flow» на странице плагина или попросить ИИ в диалоге выполнить операции Git Flow.',
+  'flow.about.disableConfirm': 'Отключить',
+  'flow.about.disableBusy': 'Отключение…',
+  'flow.about.disableFailed': 'Не удалось записать настройку плагина; вход в Git Flow остался без изменений.',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': 'Предпросмотр изменений',
   'flow.preview.keyExisting': 'Существующая',

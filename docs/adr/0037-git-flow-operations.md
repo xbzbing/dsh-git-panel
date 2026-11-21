@@ -64,3 +64,4 @@ finish 的本地前置条件在第一次写之前判定：flow / 分支前缀一
 - release / hotfix 标签一律 annotated，消息为 `<flow> <tag>`（`release v1.2.0` / `hotfix v1.2.1`）。host 与 client 都要求非空安全 tag。需要自定义消息时仍可在终端操作，面板不提供。
 - 删远端不再隐含 fetch：按钮文案已改为“删除远端分支”，与实际命令一致；网络错误照旧分类为 `auth-failed` / `push-rejected`。
 - 该实现只覆盖 feature / hotfix / release；`bugfix/*` 与 `support/*` 仍是约定外的分支，菜单不提供入口。
+- 入口由插件设置 `flowEnabled` 控制（默认开启，`.volatile()`），快照以 `flowEnabled` 下发；关闭只是隐藏入口，`flow-*` 动作在 host 侧照常可用（设置页可重新开启，「什么是 Git Flow」弹窗提供带确认的关闭入口）。旧 host 不下发该字段时 client 视为开启，并仍要求 `capabilities.flow`。

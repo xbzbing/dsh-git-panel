@@ -82,6 +82,12 @@ export const es: Record<GitKey, string> = {
   'flow.about.hotfix': 'Corregir una versión publicada',
   'flow.about.tag': 'Etiquetar',
   'flow.about.source': 'Leer el artículo original',
+  'flow.about.disable': 'Desactivar Git Flow',
+  'flow.about.disableTitle': '¿Desactivar Git Flow?',
+  'flow.about.disableBody': 'La vista general de Git dejará de mostrar el botón de Git Flow. Las ramas, los commits, los archivos y las demás acciones no cambian. Puedes volver a activarlo con el ajuste «Mostrar entradas de Git Flow» en la página del plugin, o pedir a la IA en la conversación que ejecute operaciones de Git Flow.',
+  'flow.about.disableConfirm': 'Desactivar',
+  'flow.about.disableBusy': 'Desactivando…',
+  'flow.about.disableFailed': 'No se pudo guardar el ajuste del plugin; las entradas de Git Flow siguen como estaban.',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': 'Vista de cambios',
   'flow.preview.keyExisting': 'Existente',

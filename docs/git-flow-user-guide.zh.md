@@ -178,6 +178,12 @@ git tag --list
 - release / hotfix 完成后检查远端 tag 是否存在。
 - 远端 push 被拒绝时，先检查远端领先或分叉状态，不要使用 force push。
 
+## 关闭和重新开启入口
+
+Git Flow 入口默认开启。如果不使用这套分支模型，可以在「什么是 Git Flow」弹窗底部点击「关闭 Git Flow」，二次确认后 Git 总览不再显示 Git Flow 按钮；分支、提交、文件和其它操作都不受影响。
+
+重新开启在插件设置页完成：打开插件详情页，把「显示 Git Flow 入口」打开即可。关闭期间也可以直接在对话里让 AI 执行 Git Flow 操作，host 的 flow 动作并不会因为入口隐藏而失效。
+
 ## 当前支持边界
 
 - 支持 Feature、Release、Hotfix。

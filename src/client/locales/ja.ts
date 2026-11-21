@@ -82,6 +82,12 @@ export const ja: Record<GitKey, string> = {
   'flow.about.hotfix': '公開済みバージョンを修正する',
   'flow.about.tag': 'タグ付け',
   'flow.about.source': '原文を読む',
+  'flow.about.disable': 'Git Flow をオフにする',
+  'flow.about.disableTitle': 'Git Flow をオフにしますか？',
+  'flow.about.disableBody': 'Git の概要に Git Flow ボタンが表示されなくなります。ブランチ、コミット、ファイルなどの他の操作は変わりません。あとでプラグインページの「Git Flow の入口を表示」設定で再びオンにできます。会話で AI に Git Flow の操作を実行させることもできます。',
+  'flow.about.disableConfirm': 'オフにする',
+  'flow.about.disableBusy': 'オフにしています…',
+  'flow.about.disableFailed': 'プラグイン設定を書き込めませんでした。Git Flow の入口はそのままです。',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': '変更プレビュー',
   'flow.preview.keyExisting': '既存',

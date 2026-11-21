@@ -109,6 +109,24 @@ async function openPanel(snapshot, remoteRefs = REMOTE_BRANCHES, tagNames = ['v1
         },
       },
     }
+    // The About dialog's switch-off writes the plugin setting through the
+    // settings form; the fixture records the write instead of persisting it.
+    const configWrites = []
+    fixture.configWrites = configWrites
+    ctx.get = (key) => key === 'connection'
+      ? connection
+      : key === 'configForms'
+        ? {
+          describe: () => ({
+            getSnapshot: () => ({ view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, flowEnabled: {} } } }] } }),
+            subscribe: () => () => {},
+            ensure: async () => {},
+          }),
+          get: () => ({
+            set: async (field, value) => { configWrites.push([field, value]); return true },
+          }),
+        }
+        : undefined
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(panel).render(registered['conversation.view']({ sessionId: 'flow-session' }))
   }, {
@@ -267,6 +285,28 @@ assert.equal(await about.getByRole('link', { name: '阅读原文' }).getAttribut
 await page.keyboard.press('Escape')
 await about.waitFor({ state: 'hidden' })
 assert.deepEqual(await actions(page), sent, 'opening the guide does not write to the repository')
+
+// Switching the entries off is a preference write behind one confirmation.
+await pickEntry(page, '什么是 Git Flow')
+await page.getByRole('button', { name: '关闭 Git Flow', exact: true }).click()
+await flush(page)
+// The confirmation is its own dialog above the guide (role=dialog on the frame
+// itself, so it is queried from the page, not from a backdrop descendant).
+const disableConfirm = page.getByRole('dialog', { name: '关闭 Git Flow？' })
+await disableConfirm.waitFor()
+const disableBody = await disableConfirm.textContent()
+assert.match(disableBody, /插件设置/, 'the confirmation says where the switch is turned back on')
+assert.match(disableBody, /AI/, 'it also names running the flow through the AI')
+assert.deepEqual(await page.evaluate(() => window.__gpFixture.configWrites), [], 'opening the confirmation writes nothing')
+await disableConfirm.locator('.gp-modal__footer .gp-btn:last-child').click()
+await page.waitForFunction(() => document.querySelector('.gp-modal--flow-about') === null)
+assert.deepEqual(await page.evaluate(() => window.__gpFixture.configWrites), [['flowEnabled', false]], 'confirming writes the plugin setting once')
+
+// A snapshot with the switch off hides the entry entirely; an older host sends
+// no field and keeps it (asserted by SNAP's own button above).
+const flowOff = await openPanel({ ...SNAP, flowEnabled: false })
+assert.equal(await flowOff.locator('.gp-flow-btn').count(), 0, 'the preference removes the Git Flow button')
+await flowOff.close()
 
 const narrowAboutPage = await openPanel(SNAP)
 await pickEntry(narrowAboutPage, '什么是 Git Flow')

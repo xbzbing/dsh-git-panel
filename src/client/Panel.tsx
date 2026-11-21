@@ -955,6 +955,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       menuCommandsRef: overviewCommandsRef,
       menuFactsRef: overviewStateRef,
       onQuote: quoteRun,
+      // The About dialog's switch-off writes the plugin setting; without the
+      // settings service there is no way back on, so no button either.
+      ...(hasConfigForms(ctx) ? { onDisableFlow: () => writePanelConfigField(ctx, 'flowEnabled', false) } : {}),
       t,
       })
       : undefined

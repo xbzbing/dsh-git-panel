@@ -41,7 +41,7 @@ After a first install the **Git** panel appears in the workspace tab bar with no
 
 ## Git Flow
 
-Git Flow entries live in the branch list of the Git Overview. They support starting, integrating and finishing Feature, Release and Hotfix branches using the `develop`, `main` / `master`, `feature/*`, `release/*` and `hotfix/*` conventions. Finish previews the target branch, strategy, tag, push and deletion steps, then asks for confirmation before writing.
+Git Flow entries live in the branch list of the Git Overview and are on by default; the "What is Git Flow" dialog can turn them off, and the plugin settings turn them back on. They support starting, integrating and finishing Feature, Release and Hotfix branches using the `develop`, `main` / `master`, `feature/*`, `release/*` and `hotfix/*` conventions. Finish previews the target branch, strategy, tag, push and deletion steps, then asks for confirmation before writing.
 
 The Git Flow user guide includes the core concepts, Mermaid branch diagrams, rendered plugin screenshots and a complete Feature → Release / Hotfix case. Finish push includes the new release or hotfix tag and every long-lived branch moved by the operation. A multi-step failure can return `flow-partial`, so refresh and inspect branches, tags and remote refs before retrying. When a release or hotfix already has its merge, tag and develop back-merge, the host can recognize that state and continue the remaining steps. See the [Git Flow user guide](docs/git-flow-user-guide.en.md) and [ADR-0037](docs/adr/0037-git-flow-operations.md).
 

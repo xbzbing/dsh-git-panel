@@ -48,6 +48,10 @@ export interface GitPanelConfig {
   readonly codeWorkspace: string
   /** Whether the input-bar git marker pill is shown. */
   readonly showInputPill: boolean
+  /** Whether the Git Flow entries show in the branch list. The actions stay
+   * available to the host either way; this only hides the entry (see the About
+   * dialog's switch-off, which reports how to turn it back on). */
+  readonly flowEnabled: boolean
   /** Where the panel is mounted: the view tab, the right sidebar, or both. */
   readonly placement: GitPanelPlacement
   /** Default diff layout the views open with (user can switch per-diff). */
@@ -89,6 +93,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   compactPackages: true,
   codeWorkspace: 'off',
   showInputPill: true,
+  flowEnabled: true,
   placement: 'all',
   defaultDiffView: 'unified',
   changesView: 'flat',
@@ -146,6 +151,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     compactPackages: readBool(c.compactPackages, DEFAULT_CONFIG.compactPackages),
     codeWorkspace: readCodeWorkspace(c.codeWorkspace, DEFAULT_CONFIG.codeWorkspace),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
+    flowEnabled: readBool(c.flowEnabled, DEFAULT_CONFIG.flowEnabled),
     placement: readPlacement(c.placement, DEFAULT_CONFIG.placement),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
     changesView: readChangesView(c.changesView, DEFAULT_CONFIG.changesView),
@@ -1198,6 +1204,7 @@ export async function snapshotForSession(
     ...(untrackedCollapsed ? { untrackedCollapsed: true as const } : {}),
     refreshIntervalMs: config.refreshIntervalMs,
     showInputPill: config.showInputPill,
+    flowEnabled: config.flowEnabled,
     defaultDiffView: config.defaultDiffView,
     changesView: config.changesView,
     graphStyle: config.graphStyle,

@@ -99,6 +99,7 @@ export const CSS = `
 .gp-flow-about__legend-back::before{content:'';width:12px;border-top:1px dashed currentColor}
 @container (max-width:380px){.gp-flow-about__lane-label,.gp-flow-about__version{font-size:16px}}
 .gp-flow-about__footer{align-items:center;justify-content:space-between}
+.gp-flow-about__actions{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
 .gp-flow-about__source{display:inline-flex;align-items:center;gap:4px;color:var(--dsw-alias-label-secondary);font-size:12px;text-decoration:none}
 .gp-flow-about__source:hover,.gp-flow-about__source:focus-visible{color:var(--dsw-alias-label-primary);text-decoration:underline}
 .gp-flow__heading{font-size:16px;font-weight:600;line-height:1.3;color:var(--dsw-alias-label-primary)}
@@ -123,7 +124,7 @@ export const CSS = `
 .gp-flow-map__head{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}
 .gp-flow-chain{display:flex;align-items:flex-start;gap:6px;min-width:0}
 .gp-flow-chain__col{display:grid;flex:1 1 0;gap:4px;min-width:0}
-.gp-flow-chain__h{flex:0 1 48px;min-width:24px;display:grid;justify-items:center;gap:1px;padding-top:1px;text-align:center}
+.gp-flow-chain__h{flex:0 0 auto;white-space:nowrap;display:grid;justify-items:center;gap:1px;padding-top:1px;text-align:center}
 .gp-flow-chain__h,.gp-flow-chain__v{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.25;overflow-wrap:anywhere}
 .gp-flow-arrow{display:block;width:22px;height:12px;flex:none;color:var(--dsw-alias-state-business-primary)}
 .gp-flow-arrow--down{transform:rotate(90deg)}

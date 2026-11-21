@@ -590,13 +590,36 @@ export function renderFlowIntegrateModal({ develop, current, dirty, busy = false
 export interface FlowAboutArgs {
   readonly container?: Element | null
   readonly onClose: () => void
+  /** Switches the plugin's Git Flow entries off. Absent when the settings form
+   * is unreachable (no `configForms` service), where the dialog offers no
+   * switch-off button instead of one that cannot write. */
+  readonly onDisableFlow?: () => Promise<boolean>
   readonly t: OpT
 }
 
-/** How the three Git Flow branch types move through this panel. */
-export function renderFlowAboutModal({ container, onClose, t }: FlowAboutArgs): JSX.Element | null {
+/**
+ * How the three Git Flow branch types move through this panel, plus the
+ * switch-off for the entries. Switching them off is a preference write, not a
+ * repository write, so it asks once for confirmation and reports the way back
+ * (the plugin's settings form) instead of promising an undo in this dialog.
+ */
+export function renderFlowAboutModal(args: FlowAboutArgs): JSX.Element | null {
   if (typeof document === 'undefined') return null
-  return renderModalShell({
+  return h(FlowAboutModal, args)
+}
+
+function FlowAboutModal({ container, onClose, onDisableFlow, t }: FlowAboutArgs): JSX.Element {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const confirmDisable = (): void => {
+    if (onDisableFlow === undefined || busy) return
+    setBusy(true)
+    setError(null)
+    const failed = (): void => { setBusy(false); setError(t('flow.about.disableFailed')) }
+    onDisableFlow().then((ok) => { if (ok) onClose(); else failed() }, failed)
+  }
+  const about = renderModalShell({
     onClose,
     title: t('flow.about.heading'),
     icon: h(MergeIcon, { size: 15 }),
@@ -623,7 +646,35 @@ export function renderFlowAboutModal({ container, onClose, t }: FlowAboutArgs): 
         key: 'source', className: 'gp-flow-about__source', target: '_blank', rel: 'noreferrer',
         href: 'https://nvie.com/posts/a-successful-git-branching-model/',
       }, t('flow.about.source'), h('span', { 'aria-hidden': true }, '↗')),
-      h('button', { key: 'close', type: 'button', className: 'gp-btn gp-btn--primary', onClick: onClose }, t('common.close')),
+      h('div', { key: 'actions', className: 'gp-flow-about__actions' }, [
+        // Only offered when the settings service is reachable: the switch lives
+        // in the plugin's config, and a button that cannot write would lie.
+        onDisableFlow === undefined
+          ? null
+          : h('button', {
+            key: 'disable', type: 'button', className: 'gp-btn', onClick: () => { setError(null); setConfirming(true) },
+          }, t('flow.about.disable')),
+        h('button', { key: 'close', type: 'button', className: 'gp-btn gp-btn--primary', onClick: onClose }, t('common.close')),
+      ]),
     ]),
   })
+  // The confirmation is its own layer above the guide: closing it returns to
+  // the guide untouched, and the switch-off keeps it open while it writes so its
+  // error has somewhere to render.
+  const confirmLayer = confirming
+    ? renderConfirmModal({
+      title: t('flow.about.disableTitle'),
+      body: t('flow.about.disableBody'),
+      confirmLabel: t('flow.about.disableConfirm'),
+      danger: false,
+      error,
+      confirmBusy: busy,
+      busyLabel: t('flow.about.disableBusy'),
+      onConfirm: confirmDisable,
+      onClose: () => { if (!busy) { setConfirming(false); setError(null) } },
+      ...(container != null ? { container, contained: true, trapFocus: true } : {}),
+      t,
+    })
+    : null
+  return h(Fragment, null, [about, confirmLayer])
 }

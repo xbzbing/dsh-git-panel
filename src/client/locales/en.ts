@@ -82,6 +82,12 @@ export const en: Record<GitKey, string> = {
   'flow.about.hotfix': 'Fix a published version',
   'flow.about.tag': 'Tag',
   'flow.about.source': 'Read the original',
+  'flow.about.disable': 'Turn off Git Flow',
+  'flow.about.disableTitle': 'Turn off Git Flow?',
+  'flow.about.disableBody': 'The Git overview will stop showing the Git Flow button. Branches, commits, files and the other actions are unaffected. Turn it back on later with the “Show Git Flow entries” setting on the plugin page, or ask the AI in the conversation to run Git Flow operations.',
+  'flow.about.disableConfirm': 'Turn off',
+  'flow.about.disableBusy': 'Turning off…',
+  'flow.about.disableFailed': 'The plugin setting could not be written; the Git Flow entries stay as they are.',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': 'Change preview',
   'flow.preview.keyExisting': 'Existing',

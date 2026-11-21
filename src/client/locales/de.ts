@@ -82,6 +82,12 @@ export const de: Record<GitKey, string> = {
   'flow.about.hotfix': 'Eine veröffentlichte Version korrigieren',
   'flow.about.tag': 'Tag setzen',
   'flow.about.source': 'Originalartikel lesen',
+  'flow.about.disable': 'Git Flow ausschalten',
+  'flow.about.disableTitle': 'Git Flow ausschalten?',
+  'flow.about.disableBody': 'Die Git-Übersicht zeigt dann keine Git-Flow-Schaltfläche mehr. Branches, Commits, Dateien und die übrigen Aktionen bleiben unverändert. Später lässt sich die Einstellung „Git-Flow-Einträge anzeigen“ auf der Plugin-Seite wieder einschalten; alternativ kann die KI im Dialog Git-Flow-Aktionen ausführen.',
+  'flow.about.disableConfirm': 'Ausschalten',
+  'flow.about.disableBusy': 'Wird ausgeschaltet…',
+  'flow.about.disableFailed': 'Die Plugin-Einstellung konnte nicht geschrieben werden; die Git-Flow-Einträge bleiben unverändert.',
   // Git Flow change preview (the legend both dialogs render)
   'flow.preview.title': 'Änderungsvorschau',
   'flow.preview.keyExisting': 'Vorhanden',

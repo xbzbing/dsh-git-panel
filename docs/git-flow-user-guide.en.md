@@ -178,6 +178,12 @@ git tag --list
 - Check that the release or hotfix tag exists on the remote after finishing.
 - When push is rejected, inspect whether the remote is ahead or diverged. Do not use force push.
 
+## Turning the entries off and back on
+
+The Git Flow entries are on by default. If the team does not use this model, click **Turn off Git Flow** at the bottom of the "What is Git Flow" dialog and confirm: the Git overview stops showing the Git Flow button, while branches, commits, files and the other actions are unaffected.
+
+Turn them back on from the plugin settings page by enabling "Show Git Flow entries". While they are off, the AI can still run Git Flow operations from the conversation — hiding the entries does not disable the host actions.
+
 ## Current scope
 
 - Feature, Release, and Hotfix are supported.
