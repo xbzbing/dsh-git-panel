@@ -131,40 +131,69 @@
       // pointerdown — so the e2e can drive open/pick/dismiss for real. The
       // anchor is rendered as-is; the plugin owns its aria-haspopup/aria-expanded.
       Menu: function (props) {
+        var rootRef = window.React.useRef(null);
+        var listRef = window.React.useRef(null);
+        function refocus() { rootRef.current?.querySelector('button')?.focus(); }
+        window.React.useLayoutEffect(function () {
+          if (props.open && props.autoFocus) listRef.current?.querySelector('button:not(:disabled)')?.focus();
+        }, [props.open, props.autoFocus]);
         window.React.useEffect(function () {
           if (!props.open) return undefined;
-          var onKey = function (event) { if (event.key === 'Escape') props.onClose(); };
-          var onDown = function (event) {
-            var target = event.target;
-            var inside = target && target.closest
-              && (target.closest('.dsh-menu-root') || target.closest('.dsh-menu-list'));
-            if (!inside) props.onClose();
+          var onEscape = function (event) {
+            if (event.key !== 'Escape' || event.defaultPrevented) return;
+            event.preventDefault();
+            props.onClose();
+            if (props.autoFocus) refocus();
           };
-          document.addEventListener('keydown', onKey);
+          var onNavigate = function (event) {
+            if (!props.autoFocus || event.defaultPrevented || !listRef.current?.contains(event.target)) return;
+            var items = Array.from(listRef.current.querySelectorAll('button:not(:disabled)'));
+            var index = items.indexOf(event.target);
+            var next;
+            if (event.key === 'ArrowDown') next = (index + 1) % items.length;
+            else if (event.key === 'ArrowUp') next = (index - 1 + items.length) % items.length;
+            else return;
+            event.preventDefault();
+            items[next]?.focus();
+          };
+          var onDown = function (event) {
+            if (!rootRef.current?.contains(event.target) && !listRef.current?.contains(event.target)) props.onClose();
+          };
+          document.addEventListener('keydown', onEscape, true);
+          document.addEventListener('keydown', onNavigate);
           document.addEventListener('pointerdown', onDown);
           return function () {
-            document.removeEventListener('keydown', onKey);
+            document.removeEventListener('keydown', onEscape, true);
+            document.removeEventListener('keydown', onNavigate);
             document.removeEventListener('pointerdown', onDown);
           };
-        }, [props.open, props.onClose]);
+        }, [props.open, props.onClose, props.autoFocus]);
         var items = props.items || [];
+        var portaled = props.portal && props.autoFocus;
+        var rect = portaled && props.open ? rootRef.current?.getBoundingClientRect() : null;
         var list = props.open ? window.React.createElement('div', {
-          className: 'dsh-menu-list', role: 'menu', 'data-menu-surface': '',
+          ref: listRef, className: ['dsh-menu-list', props.listClassName].filter(Boolean).join(' '),
+          role: 'menu', 'data-menu-surface': '',
+          style: rect ? { position: 'fixed', zIndex: 1100, top: rect.bottom + 4, left: rect.left } : undefined,
         }, items.map(function (item) {
           var selected = item.id === props.selectedId;
           return window.React.createElement('button', {
             key: item.id, type: 'button', role: 'menuitem',
             className: selected ? 'dsh-menu-item dsh-menu-item--selected' : 'dsh-menu-item',
             'aria-checked': selected, disabled: item.disabled === true,
-            onClick: function () { if (props.onSelect) props.onSelect(item.id); },
+            onClick: function () {
+              if (props.onSelect) props.onSelect(item.id);
+              if (props.autoFocus) refocus();
+            },
           }, item.label);
         })) : null;
         // Positional children, not an array: no key warnings from a wrapper.
         // Mirror the real primitive: its wrapper carries the caller's className
         // (gp-filter / gp-search-scope), which the panel's CSS styles.
         return window.React.createElement('span', {
+          ref: rootRef,
           className: props.className ? 'dsh-menu-root ' + props.className : 'dsh-menu-root',
-        }, props.anchor, list);
+        }, props.anchor, props.portal && props.autoFocus && list ? window.ReactDOM.createPortal(list, document.body) : list);
       },
       MenuItemButton: function (props) {
         return window.React.createElement('button', {

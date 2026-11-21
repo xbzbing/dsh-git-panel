@@ -219,7 +219,7 @@ function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, 
     // on top of its picker), the key belongs to that one — both listeners are on
     // `document`, so without this check one keystroke closes both layers.
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape' || busy) return
+      if (e.key !== 'Escape' || e.defaultPrevented || busy) return
       if (!isTopOverlay(backdropRef.current)) return
       onClose()
     }

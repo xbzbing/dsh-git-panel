@@ -32,10 +32,12 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [contenteditable="tr
 
 /** Marks a subtree that handles its own Tab / Escape before the dialog does. */
 export const KEYS_OWNER_ATTR = 'data-gp-keys-owner'
+/** Equivalent marker for platform surfaces that only accept a class name. */
+export const KEYS_OWNER_CLASS = 'gp-keys-owner'
 
 function inKeysOwner(event: KeyboardEvent): boolean {
   const target = event.target
-  return target instanceof Element && target.closest(`[${KEYS_OWNER_ATTR}]`) !== null
+  return target instanceof Element && target.closest(`[${KEYS_OWNER_ATTR}], .${KEYS_OWNER_CLASS}`) !== null
 }
 
 /**

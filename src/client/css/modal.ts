@@ -102,7 +102,9 @@ export const CSS = `
 .gp-flow__field--stack{flex-direction:column;align-items:stretch;gap:6px}
 .gp-flow__label{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
 .gp-flow__field .gp-input{flex:1 1 auto;min-width:0;width:auto}
-.gp-flow__select{cursor:pointer}
+.gp-flow__branch-picker{flex:1 1 auto;min-width:0}
+.gp-flow__branch-picker > span{display:block;width:100%}
+.gp-flow__branch-picker .gp-select-trigger.gp-flow__select{width:100%;max-width:none;min-height:30px;justify-content:space-between;text-align:start;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2)}
 /* The finish target when it is not a choice (a feature / release lands on
  * develop): a value, not a disabled control, so it does not look editable. */
 .gp-flow__target{flex:1 1 auto;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);overflow-wrap:anywhere}

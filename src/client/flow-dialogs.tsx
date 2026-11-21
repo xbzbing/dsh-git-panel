@@ -12,8 +12,11 @@
  * error inside the dialog while it runs. Nothing here touches git.
  */
 import { createElement as h, Fragment, useEffect, useId, useRef, useState } from 'react'
-import type { JSX } from 'react'
+import type { JSX, KeyboardEvent } from 'react'
+import { Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { KEYS_OWNER_ATTR, KEYS_OWNER_CLASS } from './dialog-focus.js'
 import { BranchIcon, MergeIcon } from './icons.js'
+import { selectTrigger } from './select-trigger.js'
 import { renderConfirmModal, renderModalFooter, renderModalShell, type OpT } from './ops-modals.js'
 import {
   DEVELOP_BRANCH, FLOW_PREFIX, defaultTagName, flowBranchName, flowPreviewChain, flowPreviewRemotes,
@@ -29,6 +32,38 @@ const KIND_SLUG: Record<FlowKind, string> = { feature: 'feature', hotfix: 'hotfi
 
 const FEATURE_STRATEGIES: readonly FlowStrategy[] = ['merge', 'squash', 'rebase']
 const RELEASE_STRATEGIES: readonly FlowStrategy[] = ['merge', 'squash']
+
+function FlowBranchPicker({ id, label, value, branches, disabled, onChange }: {
+  id: string
+  label: string
+  value: string
+  branches: readonly string[]
+  disabled: boolean
+  onChange: (branch: string) => void
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const open = expanded && !disabled
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (open || disabled || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return
+    event.preventDefault()
+    setExpanded(true)
+  }
+  return h('div', { className: 'gp-flow__field' }, [
+    h('label', { key: 'label', className: 'gp-flow__label', htmlFor: id }, label),
+    h('div', { key: 'picker', className: 'gp-flow__branch-picker', onKeyDown, ...(open ? { [KEYS_OWNER_ATTR]: '' } : {}) },
+      h(Menu, {
+        open, autoFocus: true, portal: true, align: 'start',
+        listClassName: KEYS_OWNER_CLASS,
+        items: branches.map((branch) => ({ id: branch, label: branch })),
+        selectedId: value,
+        onClose: () => setExpanded(false),
+        onSelect: (branch) => { setExpanded(false); onChange(branch) },
+        anchor: selectTrigger(open, value, () => setExpanded((previous) => !previous), {
+          id, ariaLabel: `${label} ${value}`, disabled, extraClass: 'gp-flow__select',
+        }),
+      })),
+  ])
+}
 
 /** One branch pill. The optional tag rides inside the pill, right-aligned, so
  * the tag stays attached to the branch it was created on. */
@@ -212,13 +247,10 @@ function FlowStartModal({ flow, branches, defaultBase, existing, initialName = '
           onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') submit() },
         }),
       ]),
-      h('div', { key: 'base', className: 'gp-flow__field' }, [
-        h('label', { key: 'l', className: 'gp-flow__label', htmlFor: baseId }, t('flow.start.base')),
-        h('select', {
-          key: 's', id: baseId, className: 'gp-input gp-flow__select', value: base,
-          onChange: (e: { target: { value: string } }) => setBase(e.target.value),
-        }, branches.map((b) => h('option', { key: b, value: b }, b))),
-      ]),
+      h(FlowBranchPicker, {
+        key: 'base', id: baseId, label: t('flow.start.base'), value: base,
+        branches, disabled: busy, onChange: setBase,
+      }),
       h('label', {
         key: 'push',
         className: `gp-modal__check${remoteName === null ? ' gp-flow__check--off' : ''}`,
@@ -459,13 +491,10 @@ function FlowFinishModal({ flow, branch, targets, hasUpstream, remote, upstreamR
       // `main` and `master`); the legend already names a fixed target, so a
       // control that cannot change is not rendered.
       targets.editable
-        ? h('div', { key: 'target', className: 'gp-flow__field' }, [
-          h('label', { key: 'l', className: 'gp-flow__label', htmlFor: targetId }, t('flow.finish.target')),
-          h('select', {
-            key: 's', id: targetId, className: 'gp-input gp-flow__select', value: target,
-            onChange: (e: { target: { value: string } }) => setTarget(e.target.value),
-          }, targets.options.map((name) => h('option', { key: name, value: name }, name))),
-        ])
+        ? h(FlowBranchPicker, {
+          key: 'target', id: targetId, label: t('flow.finish.target'), value: target,
+          branches: targets.options, disabled: busy || confirmOpen, onChange: setTarget,
+        })
         : null,
       h('div', { key: 'msg', className: 'gp-flow__field gp-flow__field--stack' }, [
         h('label', { key: 'l', className: 'gp-flow__label', htmlFor: messageId }, t('flow.finish.message')),

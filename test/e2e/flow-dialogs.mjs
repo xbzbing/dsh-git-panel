@@ -64,7 +64,7 @@ async function flush(page) {
 }
 
 /** Mount the panel on the Overview tab with a flow-shaped mock connection. */
-async function openPanel(snapshot, remoteRefs = REMOTE_BRANCHES, tagNames = ['v1.2.3']) {
+async function openPanel(snapshot, remoteRefs = REMOTE_BRANCHES, tagNames = ['v1.2.3'], branches = LOCAL) {
   const page = await browser.newPage({ viewport: { width: 1000, height: 760 } })
   page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
   page.on('pageerror', (error) => consoleErrors.push('PAGEERROR ' + error.message))
@@ -111,7 +111,14 @@ async function openPanel(snapshot, remoteRefs = REMOTE_BRANCHES, tagNames = ['v1
     }
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(panel).render(registered['conversation.view']({ sessionId: 'flow-session' }))
-  }, { snapshot, local: LOCAL, remoteBranches: remoteRefs, tags: tagNames })
+  }, {
+    snapshot,
+    local: branches.map((branch) => snapshot.hasUpstream && branch.name === snapshot.branch
+      ? { ...branch, upstream: `refs/remotes/origin/${branch.name}` }
+      : branch),
+    remoteBranches: remoteRefs,
+    tags: tagNames,
+  })
   await page.locator('[role="tab"]').first().waitFor()
   await page.waitForFunction(() => window.__gpFixture.snapshotReplies > 0)
   await flush(page)
@@ -160,7 +167,19 @@ assert.equal(await page.locator('.gp-flow-btn').count(), 1, 'the host capability
 assert.equal((await page.locator('.gp-flow-btn').textContent()).trim(), 'Git Flow')
 
 await pickEntry(page, '开始 Feature')
-assert.equal(await page.locator('.gp-modal--flow .gp-flow__field select').inputValue(), 'develop', 'a feature starts on develop when it exists')
+const basePicker = page.getByRole('button', { name: '根基 develop' })
+assert.equal(await basePicker.getAttribute('aria-expanded'), 'false', 'a feature defaults to develop')
+await basePicker.press('ArrowDown')
+const baseMenu = page.locator('body > [data-menu-surface]')
+await baseMenu.waitFor()
+assert.equal(await baseMenu.getByRole('menuitem', { name: 'develop', exact: true }).getAttribute('aria-checked'), 'true')
+assert.equal(await baseMenu.getByRole('menuitem', { name: 'feature/login', exact: true }).evaluate((item) => item === document.activeElement), true)
+await page.keyboard.press('ArrowDown')
+assert.equal(await baseMenu.getByRole('menuitem', { name: 'develop', exact: true }).evaluate((item) => item === document.activeElement), true)
+await page.keyboard.press('Escape')
+await baseMenu.waitFor({ state: 'detached' })
+assert.equal(await basePicker.evaluate((button) => document.activeElement === button), true, 'Escape returns focus without dismissing the dialog')
+assert.equal(await page.locator('.gp-modal--flow select').count(), 0)
 assert.equal(await page.locator('.gp-modal__check').count(), 1, 'the start dialog offers only the push choice')
 assert.equal(await page.locator('.gp-modal__check input').isChecked(), true, 'pushing the new branch defaults on')
 assert.deepEqual(
@@ -168,6 +187,10 @@ assert.deepEqual(
   ['develop', 'feature/…'],
   'the chain starts from the resolved base and previews the new branch',
 )
+await basePicker.click()
+await baseMenu.getByRole('menuitem', { name: 'main', exact: true }).click()
+assert.equal(await page.getByRole('button', { name: '根基 main' }).getAttribute('aria-expanded'), 'false')
+assert.match(await page.locator('.gp-flow-map').textContent(), /main/, 'the new base updates the preview')
 await page.locator('.gp-modal--flow .gp-flow__field input').fill('login2')
 await flush(page)
 assert.match(await page.locator('.gp-flow-map').textContent(), /feature\/login2/, 'the legend previews the full branch name')
@@ -193,8 +216,8 @@ await page.evaluate(() => {
 await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 let sent = await actions(page)
 assert.deepEqual(sent[sent.length - 1], {
-  kind: 'flow-start', flow: 'feature', branch: 'feature/login2', base: 'develop', pushRemote: 'origin',
-}, 'the start action carries the resolved base and the default publish')
+  kind: 'flow-start', flow: 'feature', branch: 'feature/login2', base: 'main', pushRemote: 'origin',
+}, 'the start action carries the selected base and the default publish')
 
 // ── 1b. the legend reflows inside a phone-width dialog ─────────────────────
 
@@ -373,7 +396,7 @@ assert.equal(await releasePage.locator('.gp-flow-chain__v:not(.gp-flow-chain__v-
 assert.match(await releasePage.locator('.gp-flow-map__tag').textContent(), /1\.2\.0/, 'the tag rides on the main line')
 assert.equal(await releasePage.locator('.gp-flow__target').count(), 0, 'the chain names the fixed target, so no duplicate value row')
 assert.equal(await releasePage.locator('.gp-modal__confirmtext').count(), 0, 'the legend replaced the prose body')
-assert.equal(await releasePage.locator('.gp-flow__field select').count(), 0, 'a release has one fixed landing main line')
+assert.equal(await releasePage.locator('.gp-flow__branch-picker').count(), 0, 'a release has one fixed landing main line')
 const releasePush = await releasePage.locator('.gp-modal__check').last().textContent()
 assert.match(releasePush, /origin\/main.*origin\/develop/, 'the push option names both moved branches')
 assert.equal(await releasePage.locator('.gp-modal__check input').last().isChecked(), true, 'pushing both branches is on by default')
@@ -397,6 +420,21 @@ assert.equal(sent[sent.length - 1].target, 'main', 'a release submits the main l
 assert.equal(sent[sent.length - 1].deleteRemote, true, 'the default remote delete is part of the submitted action')
 assert.equal(sent[sent.length - 1].pushRemote, 'origin', 'the default push is part of the submitted action')
 await releasePage.close()
+
+const hotfixPage = await openPanel({ ...SNAP, branch: 'hotfix/1.2.1' }, REMOTE_BRANCHES, ['v1.2.3'], [
+  ...LOCAL, { name: 'master', shortHash: 'de54fc0' },
+])
+await pickEntry(hotfixPage, '完成 Hotfix')
+const targetPicker = hotfixPage.locator('.gp-flow__select')
+assert.equal((await targetPicker.textContent()).trim(), 'main')
+await targetPicker.click()
+const targetMenu = hotfixPage.locator('body > [data-menu-surface]')
+await targetMenu.getByRole('menuitem', { name: 'master', exact: true }).click()
+assert.equal((await targetPicker.textContent()).trim(), 'master')
+assert.match(await hotfixPage.locator('.gp-flow-map').textContent(), /master/)
+await submitFinish(hotfixPage)
+assert.equal((await actions(hotfixPage)).at(-1).target, 'master', 'the hotfix uses the selected landing branch')
+await hotfixPage.close()
 
 // ── 2c. no upstream: the remote delete stays off and disabled ──────────────
 

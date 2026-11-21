@@ -14,12 +14,14 @@ export function selectTrigger(
   open: boolean,
   label: string,
   toggle: () => void,
-  opts: { readonly disabled?: boolean; readonly extraClass?: string } = {},
+  opts: { readonly id?: string; readonly ariaLabel?: string; readonly disabled?: boolean; readonly extraClass?: string } = {},
 ): JSX.Element {
   const className = opts.extraClass === undefined ? 'gp-select-trigger' : `gp-select-trigger ${opts.extraClass}`
   return h('button', {
     type: 'button',
+    id: opts.id,
     className,
+    'aria-label': opts.ariaLabel,
     'aria-haspopup': 'menu',
     'aria-expanded': open,
     title: label,
