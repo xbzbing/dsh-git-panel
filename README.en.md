@@ -15,14 +15,10 @@ The panel only reads the Git repository at the current session's working directo
 dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
 # Pre-release (GitHub Release asset; never published to npm)
-dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/v1.8.0-rc.1/xbzbing-dsh-git-panel-1.8.0-rc.1.tgz
+dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/<TAG>/xbzbing-dsh-git-panel-<VERSION>.tgz
 ```
 
-Pre-release versions carry a `-` suffix (e.g. `1.8.0-rc.1`): they ship only as GitHub prereleases, never to npm, and never trigger the in-panel "update available" prompt. `lib/` is not committed, so `dsh plugin add github:…` does not work.
-
-After a first install the **Git** panel appears in the workspace tab bar with no restart or page refresh. On update, a version that only changes the client half takes effect immediately; one that changes the host half needs a dsh restart. Settings on the detail page apply immediately.
-
-> **Compatibility**: verified on `dsh@0.2.1-rc.2` and `dsh@0.2.2-rc.3` — installation, the Git panel, the input-bar marker, the host RPC, and the plugin detail page all work normally.
+New versions can be installed directly through dsh's plugin update mechanism; for a manual update, uninstall the old version first and then install the new one. Installing a new version directly with `add` may require restarting the dsh instance.
 
 ## Features
 

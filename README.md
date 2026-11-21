@@ -15,14 +15,10 @@
 dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
 # 预发布（GitHub Release 附件，不发 npm）
-dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/v1.8.0-rc.1/xbzbing-dsh-git-panel-1.8.0-rc.1.tgz
+dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/<TAG>/xbzbing-dsh-git-panel-<VERSION>.tgz
 ```
 
-预发布版本号带 `-`（如 `1.8.0-rc.1`），只发 GitHub Release、不发 npm，也不会触发面板里的「有新版本」提示。仓库不提交 `lib/`，所以不能用 `dsh plugin add github:…` 安装。
-
-首次安装后，工作区标签栏会直接出现 **Git** 面板，无需重启或刷新页面。更新时，只改了 client 端的版本立即生效；含 host 端改动的版本需重启 dsh。详情页的配置改动即时生效。
-
-> **兼容性**：已在 `dsh@0.2.1-rc.2` 与 `dsh@0.2.2-rc.3` 上实测，安装、Git 面板、输入框标记、host RPC 与插件详情页均可正常使用。
+通过 dsh 的插件更新机制可以直接更新到新版本，手动更新需要先卸载旧版本，再安装新版本。如果直接通过 add 安装新版本，可能需要重启 dsh 实例。
 
 ## 功能
 
