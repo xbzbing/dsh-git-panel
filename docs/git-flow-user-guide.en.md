@@ -1,8 +1,82 @@
 # Git Flow User Guide
 
+Git Flow is a branching model that organizes versioned development around long-lived and short-lived branches. It fits projects with explicit releases, a release-hardening phase, or a need to maintain a published version while the next version is being developed. Git does not enforce one branching model, so the team should agree on its main-line names, release policy and branch-cleanup rules before adopting Git Flow.
+
 Git Flow is available from the branch list in the Git Overview. It is intended for repositories that use `develop`, `main` or `master`, `feature/*`, `release/*`, and `hotfix/*` by convention.
 
 When the host does not declare `capabilities.flow`, the panel hides the Git Flow entries. Normal branch operations remain available.
+
+## Core concepts
+
+- `main` / `master` is the long-lived production or published-version line. Release and Hotfix finishes create an annotated tag on it.
+- `develop` integrates work for the next version. Features finish into it, and Release or Hotfix finishes merge the main-line result back into it.
+- `feature/*` holds one feature or a closely related set of changes. It normally starts from `develop` and finishes back into `develop`.
+- `release/*` prepares a version after feature work is frozen. It starts from `develop`, finishes into the main line with a tag, and then merges back into `develop`.
+- `hotfix/*` repairs a published version. It starts from the main line, finishes there with a tag, and then merges back into `develop`.
+- A tag is the stable identifier for a published version. The panel creates annotated tags for Release and Hotfix, and pushes the tag when push is selected.
+
+```mermaid
+flowchart LR
+    main["main / master<br/>published versions"]:::main
+    develop["develop<br/>next version integration"]:::develop
+    feature["feature/*<br/>feature work"]:::feature
+    release["release/*<br/>release hardening"]:::release
+    hotfix["hotfix/*<br/>production fix"]:::hotfix
+
+    develop -->|"start / finish"| feature
+    feature -->|"finish Feature"| develop
+    develop -->|"start Release"| release
+    release -->|"finish + annotated tag"| main
+    main -->|"Release back-merge"| develop
+    main -->|"start Hotfix"| hotfix
+    hotfix -->|"finish + annotated tag"| main
+    main -->|"Hotfix back-merge"| develop
+
+    classDef main fill:#e9f7ef,stroke:#258653,color:#155b38
+    classDef develop fill:#edf3ff,stroke:#3d71db,color:#244b9b
+    classDef feature fill:#fff7e6,stroke:#b9790e,color:#7a4f00
+    classDef release fill:#f5f5f5,stroke:#555,color:#222
+    classDef hotfix fill:#fff0ef,stroke:#cc4944,color:#8e2e2a
+```
+
+In classic Git Flow, a Hotfix may also need to be synchronized into an in-progress Release branch. The panel's current automated finish path uses the main line → `develop` back-merge path. Special release coordination still needs to be handled manually.
+
+## Screenshots from the rendered plugin
+
+The screenshots below were captured from the built client bundle rendered in Chrome. They show the About, Start Feature, Integrate develop and Finish Release interfaces. The repository data comes from an isolated test repository and does not represent a real project's history.
+
+![Git Flow core concepts and branch diagram](assets/screenshots/git-flow-about.png)
+
+![Start Feature: create feature/payment from develop and preview its push](assets/screenshots/git-flow-start-feature.png)
+
+![Integrate develop: merge develop into the current feature](assets/screenshots/git-flow-integrate-develop.png)
+
+![Finish Release: merge into the main line, tag, back-merge develop and push](assets/screenshots/git-flow-finish-release.png)
+
+## Example: from feature work to a release
+
+Suppose the team is preparing `v1.3.0` while production needs an urgent `v1.3.1` fix. A typical sequence is:
+
+1. Start `feature/payment` from `develop` and implement the payment work.
+2. Integrate the latest `develop` into the feature branch to find conflicts early.
+3. Finish the Feature into `develop`, optionally enabling chained creation of `release/1.3.0`.
+4. Keep the Release branch focused on release hardening and release blockers.
+5. Finish the Release. The panel integrates it into the main line, creates the annotated `v1.3.0` tag and merges the main-line result back into `develop`.
+6. If production needs a fix, start `hotfix/1.3.1` from the main line. Finish it to create `v1.3.1` and merge the fix back into `develop`.
+
+```mermaid
+flowchart TD
+    A["develop"] -->|"Start Feature"| B["feature/payment"]
+    B -->|"Finish Feature"| C["develop"]
+    C -->|"Start Release"| D["release/1.3.0"]
+    D -->|"Finish Release"| E["main / master<br/>tag v1.3.0"]
+    E -->|"Back-merge"| C
+    E -->|"Start Hotfix"| F["hotfix/1.3.1"]
+    F -->|"Finish Hotfix"| G["main / master<br/>tag v1.3.1"]
+    G -->|"Back-merge"| C
+```
+
+Both the Release and Hotfix create a tag on the main line. When push is selected, the panel also pushes the long-lived branches moved by the operation and the new tag. Finish is a multi-step write, so review the preview and confirmation before submitting.
 
 ## Start a flow branch
 

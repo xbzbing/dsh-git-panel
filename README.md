@@ -29,7 +29,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 - **Git 总览**：分支 / 标签列表、提交历史图与提交详情，点文件即看该提交里的差异。差异弹窗可切到只读的「文件」视图查看该版本的完整源码，点「复制变更后的文件内容」拿到该提交的整份内容（严格小于 10 MiB）。历史支持“消息 / 哈希”和“文件 / 路径”两种搜索，并叠加作者、日期、分支筛选。相对时间列按界面语言自适应宽度，面板变窄时先收起作者、再收起哈希。
 - **变更记录**：逐文件或批量暂存 / 放弃，提交与 **Amend**，贮藏，增删行统计。列表可切平铺 / 树形，树形支持整目录暂存与放弃；勾选按行记「侧」，只勾暂存侧就按 index 现有内容提交。「已暂存的更改」与「更改」两组表头始终保留，空着时计数为 0，一眼能看出有没有暂存。
 - **常用 Git 操作**：切换 / 新建 / 合并 / 删除分支，拣选提交，增删标签，还原 / 重置。破坏性操作二次确认；合并与拣选冲突会自动中止并恢复；除删除远程分支外不自动推送。没有上游但远端已有同名分支时，同步按钮提供「设置上游」（只写 tracking，不推送不联网），其余情况才提供「发布」。状态栏只用符号表示同步状态：`✓` 已同步、`↑n` 待推送、`↓n` 待拉取、`↓n ↑n` 已分叉、`HEAD` 游离，没有上游时是一个不带数字的 `↑`；完整句子留在悬停提示与读屏名称里。分叉时提供一次确认的「同步」：先把远程提交合并进当前分支，再普通推送（不 force，冲突自动中止）。
-- **Git Flow**：分支列表支持 Feature、Release、Hotfix 的开始、整合和完成，覆盖 `develop`、`main` / `master` 与约定前缀分支；finish 会预览合并、tag、push 和删除步骤并要求确认。详细操作见 [Git Flow 使用帮助](docs/git-flow-user-guide.zh.md)，设计与验收材料见 `docs/local/`。
+- **Git Flow**：分支列表支持 Feature、Release、Hotfix 的开始、整合和完成，覆盖 `develop`、`main` / `master` 与约定前缀分支；finish 会预览合并、tag、push 和删除步骤并要求确认。详细操作见 [Git Flow 使用帮助](docs/git-flow-user-guide.zh.md)，安全约束与实现边界见 [ADR-0037](docs/adr/0037-git-flow-operations.md)。
 - **AI 生成提交信息**：参照仓库既有提交风格，模型默认跟随当前会话、可在详情页固定。**生成会把 diff 内容发送给所选模型的供应商。**
 - **输入框 Git 标记**：zsh 风格的 `<仓库名> (<分支>)`，绿色为已同步、橙色为有未提交变更，点击跳转面板；空白对话尚未渲染视图标签栏时，改为打开右侧边栏的 Git 页。
 - **多仓库切换**：自动识别 worktree 与子目录里的独立仓库，会话自己仓库的 worktree 建在工作区外也能直接切换；`.code-workspace` 里 `folders` 列出的目录（包括工作区之外的仓库）也能加入同一个列表，详见 [多仓库与工作区文件](#多仓库与工作区文件)。**存储库**区还能把列表上限设为 10–100（默认 50）：数量越多，扫描与渲染越慢。
@@ -43,7 +43,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 Git Flow 入口位于 Git 总览的分支列表，支持 Feature、Release、Hotfix 的开始、整合和完成。它按 `develop`、`main` / `master` 以及 `feature/*`、`release/*`、`hotfix/*` 约定工作。完成操作会预览目标 branch、集成方式、tag、push 和删除步骤，并在写入前要求确认。
 
-finish push 会包含 release / hotfix 的新 tag 和本次移动的长期 branch。多步操作失败可能返回 `flow-partial`，请先刷新并检查 branch、tag 和 remote，再按当前状态重试。release / hotfix 的 merge、tag 和 develop 回合并已完成时，host 可以识别状态并继续后续步骤。完整操作说明见 [Git Flow 使用帮助](docs/git-flow-user-guide.zh.md)，产品、交互和技术设计材料位于 `docs/local/`。
+Git Flow 使用帮助包含基本概念、Mermaid 分支流程图、插件界面截图和从 Feature 到 Release / Hotfix 的完整案例。finish push 会包含 release / hotfix 的新 tag 和本次移动的长期 branch。多步操作失败可能返回 `flow-partial`，请先刷新并检查 branch、tag 和 remote，再按当前状态重试。release / hotfix 的 merge、tag 和 develop 回合并已完成时，host 可以识别状态并继续后续步骤。完整操作说明见 [Git Flow 使用帮助](docs/git-flow-user-guide.zh.md)，安全约束与实现边界见 [ADR-0037](docs/adr/0037-git-flow-operations.md)。
 
 ## 多仓库与工作区文件
 

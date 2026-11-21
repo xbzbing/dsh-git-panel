@@ -1,8 +1,82 @@
 # Git Flow 使用帮助
 
-GitFlow 入口位于 Git 总览的分支列表中。它适合已经约定使用 `develop`、`main` / `master`、`feature/*`、`release/*` 和 `hotfix/*` 的仓库。
+Git Flow 是一种以长期分支和短期分支组织版本开发的分支模型。它最适合有明确版本、需要发布准备阶段，或需要同时维护已发布版本与下一版本的项目。Git 本身没有强制的分支模型，团队应先约定主线名称、发布策略和分支清理规则，再使用 Git Flow。
+
+Git Flow 入口位于 Git 总览的分支列表中。它适合已经约定使用 `develop`、`main` / `master`、`feature/*`、`release/*` 和 `hotfix/*` 的仓库。
 
 如果当前 host 没有声明 `capabilities.flow`，面板不会显示 GitFlow 入口。普通分支操作仍然可以继续使用。
+
+## 基本概念
+
+- `main` / `master` 是生产或已发布版本所在的长期分支。Release 和 Hotfix 完成后会在这条线上创建 annotated tag。
+- `develop` 是下一版本的集成分支。Feature 完成后合并到这里，Release 或 Hotfix 完成后也会把主线结果合回这里。
+- `feature/*` 用于一个功能或一组紧密相关的改动，通常从 `develop` 创建，完成后回到 `develop`。
+- `release/*` 用于冻结功能后的发布准备。它从 `develop` 创建，完成后进入主线并打标签，再回合并 `develop`。
+- `hotfix/*` 用于修复已发布版本。它从主线创建，完成后进入主线并打标签，再回合并 `develop`。
+- Tag 是发布版本的稳定标识。当前面板为 Release 和 Hotfix 创建 annotated tag，并在选择推送时一并推送 tag。
+
+```mermaid
+flowchart LR
+    main["main / master<br/>已发布版本"]:::main
+    develop["develop<br/>下一版本集成"]:::develop
+    feature["feature/*<br/>功能开发"]:::feature
+    release["release/*<br/>发布准备"]:::release
+    hotfix["hotfix/*<br/>线上修复"]:::hotfix
+
+    develop -->|"开始 / 完成"| feature
+    feature -->|"完成 Feature"| develop
+    develop -->|"开始 Release"| release
+    release -->|"完成并打 annotated tag"| main
+    main -->|"Release 回合并"| develop
+    main -->|"开始 Hotfix"| hotfix
+    hotfix -->|"完成并打 annotated tag"| main
+    main -->|"Hotfix 回合并"| develop
+
+    classDef main fill:#e9f7ef,stroke:#258653,color:#155b38
+    classDef develop fill:#edf3ff,stroke:#3d71db,color:#244b9b
+    classDef feature fill:#fff7e6,stroke:#b9790e,color:#7a4f00
+    classDef release fill:#f5f5f5,stroke:#555,color:#222
+    classDef hotfix fill:#fff0ef,stroke:#cc4944,color:#8e2e2a
+```
+
+经典 Git Flow 在存在进行中的 Release 时，Hotfix 也可能需要同步到该 Release 分支。本插件当前的自动完成流程固定使用“主线 → `develop`”的回合并路径，特殊发布协调仍需手动处理。
+
+## 实机界面
+
+以下截图来自已构建的插件 client bundle 在 Chrome 中的实际渲染，展示了介绍图、开始 Feature、整合开发和完成 Release 四个界面。截图中的仓库数据是隔离测试仓库，不代表某个真实项目的提交历史。
+
+![Git Flow 基本概念和分支图](assets/screenshots/git-flow-about.png)
+
+![开始 Feature：从 develop 创建 feature/payment 并预览推送](assets/screenshots/git-flow-start-feature.png)
+
+![整合开发：将 develop 合并进当前 Feature](assets/screenshots/git-flow-integrate-develop.png)
+
+![完成 Release：合入主线、打标签、回合并 develop 并推送](assets/screenshots/git-flow-finish-release.png)
+
+## 案例：从功能开发到版本发布
+
+假设团队准备发布 `v1.3.0`，同时线上需要一个 `v1.3.1` 紧急修复。推荐的操作顺序如下：
+
+1. 从 `develop` 开始 `feature/payment`，完成支付功能开发。
+2. 在功能分支上整合最新 `develop`，提前发现冲突。
+3. 完成 Feature，将它合并回 `develop`，必要时开启链式创建 `release/1.3.0`。
+4. 在 Release 分支上只处理发布准备和发布阻塞问题。
+5. 完成 Release，面板会把它合入主线、创建 `v1.3.0` annotated tag，再把主线结果合回 `develop`。
+6. 线上发现问题时，从主线开始 `hotfix/1.3.1`。完成 Hotfix 后，面板会创建 `v1.3.1` 并把修复合回 `develop`。
+
+```mermaid
+flowchart TD
+    A["develop"] -->|"开始 Feature"| B["feature/payment"]
+    B -->|"完成 Feature"| C["develop"]
+    C -->|"开始 Release"| D["release/1.3.0"]
+    D -->|"完成 Release"| E["main / master<br/>tag v1.3.0"]
+    E -->|"回合并"| C
+    E -->|"开始 Hotfix"| F["hotfix/1.3.1"]
+    F -->|"完成 Hotfix"| G["main / master<br/>tag v1.3.1"]
+    G -->|"回合并"| C
+```
+
+这个案例中，Release 和 Hotfix 都会产生主线上的 tag。推送选项打开时，面板还会推送被移动的长期分支和新建 tag。完成操作是多步写入，提交前必须检查预览和确认框。
 
 ## 开始分支
 
