@@ -257,7 +257,7 @@ test('a release finish previews the tag, the back-merge and the cleanup', () => 
         action: 'backMerge',
       },
     ],
-    ops: [{ kind: 'delete' }, { kind: 'deleteRemote', refs: ['origin/release/1.2.0'] }, { kind: 'push', refs: ['origin/main', 'origin/develop'] }],
+    ops: [{ kind: 'delete' }, { kind: 'deleteRemote', branch: 'release/1.2.0', refs: ['origin/release/1.2.0'] }, { kind: 'push', refs: ['origin/main', 'origin/develop'] }],
   })
 })
 
@@ -304,6 +304,18 @@ test('the chain joins the edges into one left-to-right branch list', () => {
   assert.deepEqual(flowPreviewChain(preview.routes).map((node) => node.name), ['release/1.2.0', 'main', 'develop'])
   // The first edge starts the chain; each target is appended once.
   assert.equal(flowPreviewChain([]).length, 0)
+})
+
+test('remote deletion preview uses the configured upstream ref', () => {
+  const preview = finishFlowPreview({
+    flow: 'feature', branch: 'feature/x', target: 'develop', backMerge: [],
+    strategy: 'merge', tag: '', deleteBranch: true, deleteRemote: true,
+    pushRefs: null, remoteName: 'origin', remoteDeleteRef: 'refs/remotes/origin/review/x',
+  })
+  assert.deepEqual(preview.ops, [
+    { kind: 'delete', },
+    { kind: 'deleteRemote', branch: 'feature/x', refs: ['origin/review/x'] },
+  ])
 })
 
 test('remote branches sit under their local branch, split on the full remote name', () => {

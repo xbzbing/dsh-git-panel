@@ -107,6 +107,7 @@ export class GitPanelService extends TypertRemoteService {
    */
   static Config = Schema.object({
     showInputPill: Schema.boolean().default(true).volatile().description('显示输入框的 Git 分支标记'),
+    flowEnabled: Schema.boolean().default(true).volatile().description('显示 Git Flow 入口（关闭后分支列表不再显示 Git Flow 按钮，其它功能不受影响；可在「什么是 Git Flow」里关闭，也可在这里重新开启）'),
     placement: Schema.union([
       Schema.const('all').description('标签页和侧边栏都显示'),
       Schema.const('tab').description('只在对话区的标签页显示'),

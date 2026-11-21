@@ -64,7 +64,7 @@ async function flush(page) {
 }
 
 /** Mount the panel on the Overview tab with a flow-shaped mock connection. */
-async function openPanel(snapshot, remoteRefs = REMOTE_BRANCHES, tagNames = ['v1.2.3']) {
+async function openPanel(snapshot, remoteRefs = REMOTE_BRANCHES, tagNames = ['v1.2.3'], branches = LOCAL) {
   const page = await browser.newPage({ viewport: { width: 1000, height: 760 } })
   page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
   page.on('pageerror', (error) => consoleErrors.push('PAGEERROR ' + error.message))
@@ -109,9 +109,34 @@ async function openPanel(snapshot, remoteRefs = REMOTE_BRANCHES, tagNames = ['v1
         },
       },
     }
+    // The About dialog's switch-off writes the plugin setting through the
+    // settings form; the fixture records the write instead of persisting it.
+    const configWrites = []
+    fixture.configWrites = configWrites
+    ctx.get = (key) => key === 'connection'
+      ? connection
+      : key === 'configForms'
+        ? {
+          describe: () => ({
+            getSnapshot: () => ({ view: { namespaces: [{ ns: 'dbGitPanel', schema: { dict: { showInputPill: {}, flowEnabled: {} } } }] } }),
+            subscribe: () => () => {},
+            ensure: async () => {},
+          }),
+          get: () => ({
+            set: async (field, value) => { configWrites.push([field, value]); return true },
+          }),
+        }
+        : undefined
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(panel).render(registered['conversation.view']({ sessionId: 'flow-session' }))
-  }, { snapshot, local: LOCAL, remoteBranches: remoteRefs, tags: tagNames })
+  }, {
+    snapshot,
+    local: branches.map((branch) => snapshot.hasUpstream && branch.name === snapshot.branch
+      ? { ...branch, upstream: `refs/remotes/origin/${branch.name}` }
+      : branch),
+    remoteBranches: remoteRefs,
+    tags: tagNames,
+  })
   await page.locator('[role="tab"]').first().waitFor()
   await page.waitForFunction(() => window.__gpFixture.snapshotReplies > 0)
   await flush(page)
@@ -160,7 +185,19 @@ assert.equal(await page.locator('.gp-flow-btn').count(), 1, 'the host capability
 assert.equal((await page.locator('.gp-flow-btn').textContent()).trim(), 'Git Flow')
 
 await pickEntry(page, '开始 Feature')
-assert.equal(await page.locator('.gp-modal--flow .gp-flow__field select').inputValue(), 'develop', 'a feature starts on develop when it exists')
+const basePicker = page.getByRole('button', { name: '根基 develop' })
+assert.equal(await basePicker.getAttribute('aria-expanded'), 'false', 'a feature defaults to develop')
+await basePicker.press('ArrowDown')
+const baseMenu = page.locator('body > [data-menu-surface]')
+await baseMenu.waitFor()
+assert.equal(await baseMenu.getByRole('menuitem', { name: 'develop', exact: true }).getAttribute('aria-checked'), 'true')
+assert.equal(await baseMenu.getByRole('menuitem', { name: 'feature/login', exact: true }).evaluate((item) => item === document.activeElement), true)
+await page.keyboard.press('ArrowDown')
+assert.equal(await baseMenu.getByRole('menuitem', { name: 'develop', exact: true }).evaluate((item) => item === document.activeElement), true)
+await page.keyboard.press('Escape')
+await baseMenu.waitFor({ state: 'detached' })
+assert.equal(await basePicker.evaluate((button) => document.activeElement === button), true, 'Escape returns focus without dismissing the dialog')
+assert.equal(await page.locator('.gp-modal--flow select').count(), 0)
 assert.equal(await page.locator('.gp-modal__check').count(), 1, 'the start dialog offers only the push choice')
 assert.equal(await page.locator('.gp-modal__check input').isChecked(), true, 'pushing the new branch defaults on')
 assert.deepEqual(
@@ -168,6 +205,10 @@ assert.deepEqual(
   ['develop', 'feature/…'],
   'the chain starts from the resolved base and previews the new branch',
 )
+await basePicker.click()
+await baseMenu.getByRole('menuitem', { name: 'main', exact: true }).click()
+assert.equal(await page.getByRole('button', { name: '根基 main' }).getAttribute('aria-expanded'), 'false')
+assert.match(await page.locator('.gp-flow-map').textContent(), /main/, 'the new base updates the preview')
 await page.locator('.gp-modal--flow .gp-flow__field input').fill('login2')
 await flush(page)
 assert.match(await page.locator('.gp-flow-map').textContent(), /feature\/login2/, 'the legend previews the full branch name')
@@ -193,8 +234,8 @@ await page.evaluate(() => {
 await page.waitForFunction(() => document.querySelector('.gp-modal--flow') === null)
 let sent = await actions(page)
 assert.deepEqual(sent[sent.length - 1], {
-  kind: 'flow-start', flow: 'feature', branch: 'feature/login2', base: 'develop', pushRemote: 'origin',
-}, 'the start action carries the resolved base and the default publish')
+  kind: 'flow-start', flow: 'feature', branch: 'feature/login2', base: 'main', pushRemote: 'origin',
+}, 'the start action carries the selected base and the default publish')
 
 // ── 1b. the legend reflows inside a phone-width dialog ─────────────────────
 
@@ -215,14 +256,99 @@ const phoneFit = await phone.evaluate(() => {
     cardOverflow: card.scrollWidth - card.clientWidth,
     formOverflow: form.scrollWidth - form.clientWidth,
     cols: chain.querySelectorAll('.gp-flow-chain__col').length,
+    direction: getComputedStyle(chain).flexDirection,
+    fullWidthNodes: [...chain.querySelectorAll('.gp-flow-chain__col > .gp-flow-map__node')]
+      .every((node) => Math.abs(node.getBoundingClientRect().width - chain.getBoundingClientRect().width) < 1),
     width: document.querySelector('.gp-modal--flow').getBoundingClientRect().width,
   }
 })
 assert.equal(phoneFit.cardOverflow, 0, 'the legend does not overflow a phone-width dialog')
 assert.equal(phoneFit.formOverflow, 0, 'the dialog body does not scroll sideways')
 assert.equal(phoneFit.cols, 2, 'the phone keeps the two-node chain')
+assert.equal(phoneFit.direction, 'column', 'a narrow dialog stacks the nodes and arrows')
+assert.equal(phoneFit.fullWidthNodes, true, 'stacked nodes use the width of the graph')
+assert.match(await phone.locator('.gp-flow-chain__h').textContent(), /检出/)
 assert.ok(phoneFit.width < 420, 'the dialog is inside the narrow container-query band')
 await phone.close()
+
+// ── 1c. the About dialog explains the panel's branch routes ───────────────────
+
+await pickEntry(page, '什么是 Git Flow')
+const about = page.getByRole('dialog', { name: '什么是 Git Flow？' })
+assert.deepEqual(await about.locator('dt').allTextContents(), ['main / master', 'develop'])
+const aboutDiagram = about.getByRole('img', { name: '面板中的分支流程' })
+assert.deepEqual(await aboutDiagram.locator('.gp-flow-about__lane-label').allTextContents(), ['hotfix/*', 'main/master', 'release/*', 'develop', 'feature/*'])
+assert.deepEqual(await aboutDiagram.locator('.gp-flow-about__lane--main .gp-flow-about__version').allTextContents(), ['v1.2.0', 'v1.2.1'])
+assert.equal(await aboutDiagram.locator('.gp-flow-about__edge--back').count(), 2)
+assert.match(await aboutDiagram.locator('desc').textContent(), /release\/\* → main\/master.*→ develop/)
+assert.equal(await about.getByRole('link', { name: '阅读原文' }).getAttribute('href'), 'https://nvie.com/posts/a-successful-git-branching-model/')
+// The guide is centred on the viewport, not on the panel the dialog was raised
+// from: the panel sits at the page's left edge, so a panel-centred dialog would
+// drift well left of the page centre. Let the open animation settle first —
+// its translateY would otherwise read as a few pixels off centre.
+await page.waitForTimeout(260)
+const guideGeometry = await page.evaluate(() => {
+  const frameEl = document.querySelector('.gp-modal--flow-about')
+  const frame = frameEl.getBoundingClientRect()
+  const backdrop = frameEl.parentElement
+  const layer = backdrop.getBoundingClientRect()
+  return {
+    dx: (frame.x + frame.width / 2) - window.innerWidth / 2,
+    dy: (frame.y + frame.height / 2) - window.innerHeight / 2,
+    fixed: getComputedStyle(backdrop).position,
+    coversViewport: Math.abs(layer.x) < 1 && Math.abs(layer.y) < 1
+      && Math.abs(layer.width - window.innerWidth) < 1 && Math.abs(layer.height - window.innerHeight) < 1,
+    panelLeft: document.getElementById('panel').getBoundingClientRect().x,
+  }
+})
+assert.ok(Math.abs(guideGeometry.dx) < 2, `the guide centres horizontally on the viewport (off by ${guideGeometry.dx}px, panel starts at ${guideGeometry.panelLeft}px)`)
+assert.ok(Math.abs(guideGeometry.dy) < 2, `the guide centres vertically on the viewport (off by ${guideGeometry.dy}px)`)
+assert.equal(guideGeometry.fixed, 'fixed', 'its backdrop is viewport-fixed, not panel-absolute')
+assert.equal(guideGeometry.coversViewport, true, 'the backdrop covers the whole viewport')
+await page.keyboard.press('Escape')
+await about.waitFor({ state: 'hidden' })
+assert.deepEqual(await actions(page), sent, 'opening the guide does not write to the repository')
+
+// Switching the entries off is a preference write behind one confirmation.
+await pickEntry(page, '什么是 Git Flow')
+await page.getByRole('button', { name: '关闭 Git Flow', exact: true }).click()
+await flush(page)
+// The confirmation is its own dialog above the guide (role=dialog on the frame
+// itself, so it is queried from the page, not from a backdrop descendant).
+const disableConfirm = page.getByRole('dialog', { name: '关闭 Git Flow？' })
+await disableConfirm.waitFor()
+const disableBody = await disableConfirm.textContent()
+assert.match(disableBody, /插件设置/, 'the confirmation says where the switch is turned back on')
+assert.match(disableBody, /AI/, 'it also names running the flow through the AI')
+assert.deepEqual(await page.evaluate(() => window.__gpFixture.configWrites), [], 'opening the confirmation writes nothing')
+await disableConfirm.locator('.gp-modal__footer .gp-btn:last-child').click()
+await page.waitForFunction(() => document.querySelector('.gp-modal--flow-about') === null)
+assert.deepEqual(await page.evaluate(() => window.__gpFixture.configWrites), [['flowEnabled', false]], 'confirming writes the plugin setting once')
+
+// A snapshot with the switch off hides the entry entirely; an older host sends
+// no field and keeps it (asserted by SNAP's own button above).
+const flowOff = await openPanel({ ...SNAP, flowEnabled: false })
+assert.equal(await flowOff.locator('.gp-flow-btn').count(), 0, 'the preference removes the Git Flow button')
+await flowOff.close()
+
+const narrowAboutPage = await openPanel(SNAP)
+await pickEntry(narrowAboutPage, '什么是 Git Flow')
+await narrowAboutPage.setViewportSize({ width: 320, height: 700 })
+await narrowAboutPage.locator('#panel').evaluate((panel) => { panel.style.width = '320px'; panel.style.height = '660px' })
+await flush(narrowAboutPage)
+const aboutForm = narrowAboutPage.locator('.gp-modal--flow-about .gp-modal__form')
+assert.equal(await aboutForm.evaluate((form) => form.scrollWidth - form.clientWidth), 0, 'the intro fits a narrow panel')
+await narrowAboutPage.getByRole('button', { name: '关闭', exact: true }).last().click()
+await narrowAboutPage.locator('.gp-modal--flow-about').waitFor({ state: 'hidden' })
+await narrowAboutPage.close()
+
+await page.locator('.gp-flow-btn').click()
+await page.getByRole('menuitem', { name: '整合开发', exact: true }).click()
+const integrateDialog = page.getByRole('dialog', { name: '整合开发' })
+await integrateDialog.waitFor()
+assert.deepEqual(await integrateDialog.locator('.gp-flow-map__name').allTextContents(), ['develop', 'feature/login'])
+await page.keyboard.press('Escape')
+await integrateDialog.waitFor({ state: 'hidden' })
 
 // ── 2. finish form: squash needs the forced-delete acknowledgement ─────────
 
@@ -373,7 +499,7 @@ assert.equal(await releasePage.locator('.gp-flow-chain__v:not(.gp-flow-chain__v-
 assert.match(await releasePage.locator('.gp-flow-map__tag').textContent(), /1\.2\.0/, 'the tag rides on the main line')
 assert.equal(await releasePage.locator('.gp-flow__target').count(), 0, 'the chain names the fixed target, so no duplicate value row')
 assert.equal(await releasePage.locator('.gp-modal__confirmtext').count(), 0, 'the legend replaced the prose body')
-assert.equal(await releasePage.locator('.gp-flow__field select').count(), 0, 'a release has one fixed landing main line')
+assert.equal(await releasePage.locator('.gp-flow__branch-picker').count(), 0, 'a release has one fixed landing main line')
 const releasePush = await releasePage.locator('.gp-modal__check').last().textContent()
 assert.match(releasePush, /origin\/main.*origin\/develop/, 'the push option names both moved branches')
 assert.equal(await releasePage.locator('.gp-modal__check input').last().isChecked(), true, 'pushing both branches is on by default')
@@ -397,6 +523,21 @@ assert.equal(sent[sent.length - 1].target, 'main', 'a release submits the main l
 assert.equal(sent[sent.length - 1].deleteRemote, true, 'the default remote delete is part of the submitted action')
 assert.equal(sent[sent.length - 1].pushRemote, 'origin', 'the default push is part of the submitted action')
 await releasePage.close()
+
+const hotfixPage = await openPanel({ ...SNAP, branch: 'hotfix/1.2.1' }, REMOTE_BRANCHES, ['v1.2.3'], [
+  ...LOCAL, { name: 'master', shortHash: 'de54fc0' },
+])
+await pickEntry(hotfixPage, '完成 Hotfix')
+const targetPicker = hotfixPage.locator('.gp-flow__select')
+assert.equal((await targetPicker.textContent()).trim(), 'main')
+await targetPicker.click()
+const targetMenu = hotfixPage.locator('body > [data-menu-surface]')
+await targetMenu.getByRole('menuitem', { name: 'master', exact: true }).click()
+assert.equal((await targetPicker.textContent()).trim(), 'master')
+assert.match(await hotfixPage.locator('.gp-flow-map').textContent(), /master/)
+await submitFinish(hotfixPage)
+assert.equal((await actions(hotfixPage)).at(-1).target, 'master', 'the hotfix uses the selected landing branch')
+await hotfixPage.close()
 
 // ── 2c. no upstream: the remote delete stays off and disabled ──────────────
 

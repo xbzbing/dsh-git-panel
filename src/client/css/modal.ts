@@ -75,34 +75,41 @@ export const CSS = `
  * keeps the dialog scrollable instead of overflowing it. */
 .gp-modal-backdrop--contained{position:absolute;inset:0;z-index:1001;padding:16px}
 .gp-modal-backdrop--contained .gp-modal--flow{width:min(520px,100%);max-height:100%}
-/* Git Flow's branch diagram: long-lived lanes solid, short-lived branches
- * leaving and returning, dashed edges for the extra merge a release / hotfix
- * performs. Lane names double as the legend, so no separate key. */
-.gp-flow-graph{display:block;width:100%;height:auto;margin:2px 0 4px}
-.gp-flow-graph__path{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.gp-flow-graph__path--main,.gp-flow-graph__dot--main{stroke:var(--dsw-alias-state-success-primary)}
-.gp-flow-graph__path--develop,.gp-flow-graph__dot--develop{stroke:var(--dsw-alias-state-business-primary)}
-.gp-flow-graph__path--feature,.gp-flow-graph__dot--feature{stroke:var(--dsw-alias-state-warn-primary)}
-.gp-flow-graph__path--release,.gp-flow-graph__dot--release{stroke:var(--dsw-alias-label-primary)}
-.gp-flow-graph__path--hotfix,.gp-flow-graph__dot--hotfix{stroke:var(--dsw-alias-state-error-primary)}
-.gp-flow-graph__path--merge{stroke-width:1.4;stroke-dasharray:3 3;opacity:.8}
-.gp-flow-graph__dot{fill:var(--dsw-alias-bg-layer-2);stroke-width:2}
-.gp-flow-graph__label{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:14px;font-weight:600;fill:var(--dsw-alias-label-tertiary)}
-.gp-flow-graph__label--main{fill:var(--dsw-alias-state-success-primary)}
-.gp-flow-graph__label--develop{fill:var(--dsw-alias-state-business-primary)}
-.gp-flow-graph__label--feature{fill:var(--dsw-alias-state-warn-primary)}
-.gp-flow-graph__label--release{fill:var(--dsw-alias-label-primary)}
-.gp-flow-graph__label--hotfix{fill:var(--dsw-alias-state-error-primary)}
-.gp-flow-graph__tag{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:13px;font-weight:600;fill:var(--dsw-alias-label-secondary)}
-/* The About explanation lists the three flows as separate lines instead of
- * one wrapped paragraph; the newlines are part of the locale string. */
-.gp-flow__about-detail{display:flex;flex-direction:column;gap:5px}
+/* The guide and the live previews share the branch colours and quiet surfaces. */
+.gp-modal--flow-about .gp-modal__form{gap:14px}
+.gp-flow-about__intro{margin:0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.55}
+.gp-flow-about__branches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.gp-flow-about__branches > div{padding:9px 11px;min-width:0}
+.gp-flow-about__branches > div + div{border-inline-start:1px solid var(--dsw-alias-border-l2)}
+.gp-flow-about__branches dt{font-size:13px;font-weight:600}
+.gp-flow-about__branches dd{margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}
+.gp-flow-about__diagram{display:grid;gap:6px;margin:0;padding:10px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);min-width:0}
+.gp-flow-about__diagram figcaption{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.gp-flow-about__diagram svg{display:block;width:100%;height:auto}
+.gp-flow-about__guide{stroke:var(--dsw-alias-border-l2);stroke-dasharray:2 4;vector-effect:non-scaling-stroke}
+.gp-flow-about__edge{fill:none;stroke:var(--gp-flow-lane);stroke-width:1.8;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.gp-flow-about__edge--back{stroke-dasharray:4 3}
+.gp-flow-about__dot{fill:var(--dsw-alias-bg-layer-1);stroke:var(--gp-flow-lane);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.gp-flow-about__lane-label,.gp-flow-about__version{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px;fill:var(--dsw-alias-label-primary)}
+.gp-flow-about__lane-label{font-weight:600}
+.gp-flow-about__version{fill:var(--dsw-alias-label-secondary)}
+.gp-flow-about__legend{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--dsw-alias-label-secondary);font-size:11px}
+.gp-flow-about__legend span{display:inline-flex;align-items:center;gap:5px}
+.gp-flow-about__legend-tag::before{content:'#';font-weight:600}
+.gp-flow-about__legend-back::before{content:'';width:12px;border-top:1px dashed currentColor}
+@container (max-width:380px){.gp-flow-about__lane-label,.gp-flow-about__version{font-size:16px}}
+.gp-flow-about__footer{align-items:center;justify-content:space-between}
+.gp-flow-about__actions{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.gp-flow-about__source{display:inline-flex;align-items:center;gap:4px;color:var(--dsw-alias-label-secondary);font-size:12px;text-decoration:none}
+.gp-flow-about__source:hover,.gp-flow-about__source:focus-visible{color:var(--dsw-alias-label-primary);text-decoration:underline}
 .gp-flow__heading{font-size:16px;font-weight:600;line-height:1.3;color:var(--dsw-alias-label-primary)}
 .gp-flow__field{display:flex;align-items:center;gap:8px;min-width:0}
 .gp-flow__field--stack{flex-direction:column;align-items:stretch;gap:6px}
 .gp-flow__label{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
 .gp-flow__field .gp-input{flex:1 1 auto;min-width:0;width:auto}
-.gp-flow__select{cursor:pointer}
+.gp-flow__branch-picker{flex:1 1 auto;min-width:0}
+.gp-flow__branch-picker > span{display:block;width:100%}
+.gp-flow__branch-picker .gp-select-trigger.gp-flow__select{width:100%;max-width:none;min-height:30px;justify-content:space-between;text-align:start;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2)}
 /* The finish target when it is not a choice (a feature / release lands on
  * develop): a value, not a disabled control, so it does not look editable. */
 .gp-flow__target{flex:1 1 auto;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);overflow-wrap:anywhere}
@@ -111,65 +118,44 @@ export const CSS = `
 .gp-flow__mode{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none}
 .gp-flow__check--off{color:var(--dsw-alias-label-tertiary);cursor:default}
 .gp-flow__hint{font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
-/* Git Flow change preview: the operation's edges (solid current branches,
- * dashed created ones, struck-through deleted ones) with an animated connector
- * that names the direction. The dialog is the query container, so the card
- * reflows on a phone or a narrow sidebar panel, not only on a narrow viewport. */
-.gp-flow-map{--gp-flow-canvas:color-mix(in srgb,var(--dsw-alias-state-business-primary) 5%,var(--dsw-alias-bg-layer-2));display:flex;flex-direction:column;gap:7px;padding:9px 10px 8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,var(--dsw-alias-border-l1));border-radius:9px;background:var(--gp-flow-canvas)}
-.gp-flow-map__head{display:flex;align-items:center;gap:8px;min-width:0;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}
-.gp-flow-map__key{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:10px;font-weight:400;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
-.gp-flow-map__key-item{display:inline-flex;align-items:center;gap:3px}
-.gp-flow-map__key-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary);flex:none}
-.gp-flow-map__key-dot--new{background:transparent;border:1px dashed var(--dsw-alias-label-tertiary)}
-.gp-flow-map__key-dot--gone{background:transparent;border:1px solid var(--dsw-alias-state-error-primary)}
-.gp-flow-map__key-tag{display:inline-flex;align-items:center;justify-content:center;width:10px;height:10px;border:1px dashed color-mix(in srgb,var(--dsw-alias-state-warn-primary) 65%,transparent);border-radius:3px;color:var(--dsw-alias-state-warn-primary);font-size:8px;font-style:normal;line-height:1}
-.gp-flow-map__key-flow{color:var(--dsw-alias-state-business-primary);font-size:11px;font-style:normal;letter-spacing:-.5px;line-height:1}
-.gp-flow-chain{display:flex;align-items:flex-start;min-width:0;width:100%}
-.gp-flow-chain__col{display:flex;flex-direction:column;align-items:center;flex:0 1 auto;min-width:0;color:var(--dsw-alias-state-business-primary)}
-.gp-flow-chain__col > .gp-flow-map__node{max-width:100%}
-.gp-flow-chain__h{flex:1 1 24px;min-width:16px;height:21px;margin:0 4px;color:var(--dsw-alias-state-business-primary);background:currentColor;opacity:.78;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M5 2l5 5-5 5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") repeat-x 0 50%/14px 14px;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M5 2l5 5-5 5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") repeat-x 0 50%/14px 14px;animation:gp-flow-map-stream .8s linear infinite}
-.gp-flow-chain__v{width:100%;height:42px;background:currentColor;opacity:.78;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M2 5l5 5 5-5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") repeat-y 50% 0/14px 14px;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M2 5l5 5 5-5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") repeat-y 50% 0/14px 14px;animation:gp-flow-map-stream-v .8s linear infinite}
-.gp-flow-chain__v--del{color:var(--dsw-alias-state-error-primary)}
-.gp-flow-chain__v--none{background:none}
-.gp-flow-chain__empty{width:100%;height:19px}
-.gp-flow-map__node{--gp-flow-lane:var(--dsw-alias-label-tertiary);display:inline-flex;align-items:center;gap:5px;flex:none;min-width:0;max-width:100%;height:21px;padding:0 7px;border:1px solid var(--dsw-alias-border-l3);border-radius:999px;background:var(--dsw-alias-bg-layer-2);font-family:inherit;font-size:11px;font-weight:500;line-height:1;color:var(--dsw-alias-label-primary);box-sizing:border-box}
-.gp-flow-map__node--main{--gp-flow-lane:var(--dsw-alias-state-success-primary)}
-.gp-flow-map__node--develop{--gp-flow-lane:var(--dsw-alias-state-business-primary)}
-.gp-flow-map__node--feature{--gp-flow-lane:var(--dsw-alias-state-warn-primary)}
-.gp-flow-map__node--release{--gp-flow-lane:var(--dsw-alias-label-primary)}
-.gp-flow-map__node--hotfix{--gp-flow-lane:var(--dsw-alias-state-error-primary)}
-.gp-flow-map__dot{width:5px;height:5px;border-radius:50%;flex:none;background:var(--gp-flow-lane)}
-.gp-flow-map__name{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4}
-.gp-flow-map__node--new{border-style:dashed;background:color-mix(in srgb,var(--gp-flow-lane) 8%,var(--dsw-alias-bg-layer-2))}
-.gp-flow-map__node--new .gp-flow-map__dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--gp-flow-lane)}
-.gp-flow-map__node--gone{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-skip-ink:none;text-decoration-color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 9%,var(--dsw-alias-bg-layer-2))}
-.gp-flow-map__node--gone .gp-flow-map__dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--dsw-alias-state-error-primary)}
-.gp-flow-map__node--remote{height:19px;padding:0 6px;font-size:10px;background:var(--dsw-alias-bg-layer-2)}
-.gp-flow-map__tag{display:inline-flex;align-items:center;gap:3px;flex:none;height:19px;padding:0 6px;border:1px dashed color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,transparent);border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,var(--dsw-alias-bg-layer-2));font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:10px;line-height:1;color:var(--dsw-alias-state-warn-primary);white-space:nowrap;box-sizing:border-box}
-.gp-flow-map__tag--node{height:15px;padding:0 4px;margin-left:auto;font-size:9px;border-radius:3px}
-.gp-flow-map__tag-hash{font-size:9px;opacity:.8}
-.gp-flow-map__note{display:flex;gap:5px;padding-top:6px;border-top:1px solid color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);font-size:10px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
-.gp-flow-map__note b{font-weight:600;color:var(--dsw-alias-label-secondary)}
-.gp-flow-map__note--error{color:var(--dsw-alias-state-error-primary)}
-.gp-flow-map__note--error b{color:var(--dsw-alias-state-error-primary)}
-@keyframes gp-flow-map-stream{to{-webkit-mask-position:14px 50%;mask-position:14px 50%}}
-@keyframes gp-flow-map-stream-v{to{-webkit-mask-position:50% 14px;mask-position:50% 14px}}
-@container (max-width:420px){
-  .gp-flow-map{padding:8px;gap:6px}
-  .gp-flow-map__head{flex-wrap:wrap;gap:4px 8px;font-size:10.5px}
-  .gp-flow-map__note{padding-top:5px;font-size:9.5px}
-  .gp-flow-map__node{height:20px;font-size:10.5px}
-  .gp-flow-map__node--remote{height:18px;font-size:9.5px}
-  .gp-flow-chain__h{height:20px;margin:0 3px}
-  .gp-flow-chain__v{height:28px}
-  .gp-flow-map__tag--node{display:none}
-  .gp-flow-chain__empty{height:18px}
-}
-@container (max-width:310px){
-  .gp-flow-map__node{height:19px;font-size:9.5px;max-width:90px}
-  .gp-flow-map__node--remote{height:17px;font-size:9px;max-width:90px}
-  .gp-flow-chain__h{height:19px;min-width:12px;margin:0 2px}
-  .gp-flow-chain__empty{height:17px}
+/* Preview edges each have one labelled arrow. Remote effects sit under the
+ * affected branch, and the whole sequence stacks when the panel gets narrow. */
+.gp-flow-map{display:grid;gap:10px;min-width:0;padding:10px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.gp-flow-map__head{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.gp-flow-chain{display:flex;align-items:flex-start;gap:6px;min-width:0}
+.gp-flow-chain__col{display:grid;flex:1 1 0;gap:4px;min-width:0}
+.gp-flow-chain__h{flex:0 0 auto;white-space:nowrap;display:grid;justify-items:center;gap:1px;padding-top:1px;text-align:center}
+.gp-flow-chain__h,.gp-flow-chain__v{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.25;overflow-wrap:anywhere}
+.gp-flow-arrow{display:block;width:22px;height:12px;flex:none;color:var(--dsw-alias-state-business-primary)}
+.gp-flow-arrow--down{transform:rotate(90deg)}
+.gp-flow-chain__remote{display:grid;gap:4px;min-width:0}
+.gp-flow-chain__v{display:flex;align-items:center;gap:1px;min-height:16px}
+.gp-flow-chain__v--del,.gp-flow-chain__v--del .gp-flow-arrow,.gp-flow-map__delete{color:var(--dsw-alias-state-error-primary)}
+.gp-flow-map__node{--gp-flow-lane:var(--dsw-alias-label-tertiary);display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-width:0;min-height:29px;padding:4px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:11px;line-height:1.35;box-sizing:border-box}
+.gp-flow-map__node--main,.gp-flow-about__lane--main{--gp-flow-lane:var(--dsw-alias-state-success-primary)}
+.gp-flow-map__node--develop,.gp-flow-about__lane--develop{--gp-flow-lane:var(--dsw-alias-state-business-primary)}
+.gp-flow-map__node--feature,.gp-flow-about__lane--feature{--gp-flow-lane:var(--dsw-alias-state-warn-primary)}
+.gp-flow-map__node--release,.gp-flow-about__lane--release{--gp-flow-lane:var(--dsw-alias-label-primary)}
+.gp-flow-map__node--hotfix,.gp-flow-about__lane--hotfix{--gp-flow-lane:var(--dsw-alias-state-error-primary)}
+.gp-flow-map__dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--gp-flow-lane)}
+.gp-flow-map__name{min-width:0;flex:1 1 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--dsw-font-mono,ui-monospace,monospace)}
+.gp-flow-map__node--new{border-style:dashed;border-color:color-mix(in srgb,var(--gp-flow-lane) 45%,var(--dsw-alias-border-l2));background:color-mix(in srgb,var(--gp-flow-lane) 7%,var(--dsw-alias-bg-layer-2))}
+.gp-flow-map__node--gone{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,var(--dsw-alias-border-l2))}
+.gp-flow-map__node--gone .gp-flow-map__name{text-decoration:line-through;text-decoration-color:var(--dsw-alias-state-error-primary)}
+.gp-flow-map__node--remote{min-height:24px;font-size:10px}
+.gp-flow-map__delete{font-size:10px;overflow-wrap:anywhere}
+.gp-flow-map__tag,.gp-flow-map__publish-tags code{padding:1px 4px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 15%,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:10px;overflow-wrap:anywhere}
+.gp-flow-map__tag{min-width:0;max-width:100%}
+.gp-flow-map__tag-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.gp-flow-map__publish-tags{display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-width:0;font-size:10px;color:var(--dsw-alias-label-secondary)}
+.gp-flow-map__publish-tags code{min-width:0}
+.gp-flow-map__note{padding-top:6px;border-top:1px solid var(--dsw-alias-border-l2);font-size:11px;color:var(--dsw-alias-state-error-primary)}
+@container (max-width:380px){
+  .gp-flow-chain{flex-direction:column;align-items:stretch;gap:2px}
+  .gp-flow-chain__col,.gp-flow-chain__h{flex:none}
+  .gp-flow-chain__h{display:flex;flex-direction:row-reverse;justify-content:flex-end;align-items:center;gap:2px;text-align:start;min-height:18px}
+  .gp-flow-chain__h .gp-flow-arrow{transform:rotate(90deg)}
+  .gp-flow-chain__remote{margin-inline-start:14px;padding-inline-start:6px;border-inline-start:1px solid var(--dsw-alias-border-l2)}
 }
 .gp-btn--sm{height:24px;padding:0 8px;font-size:11px}
 .gp-btn--danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}

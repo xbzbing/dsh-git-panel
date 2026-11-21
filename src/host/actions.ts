@@ -50,10 +50,17 @@ export function splitRemoteTrackingRef(
 
 /** Plan a remote branch deletion. The destination is the full `refs/heads/…`
  * ref, so a tag sharing the branch's name can never be what `--delete` hits. */
-export function planRemoteBranchDelete(remote: string, branch: string): PlanResult {
+export function planRemoteBranchDelete(remote: string, branch: string, expectedOid?: string): PlanResult {
   if (!isSafeRemoteName(remote)) return { error: 'invalid-name', message: `unsafe remote name: ${remote}` }
   if (!isSafeBranchName(branch)) return { error: 'invalid-name', message: `unsafe branch name: ${branch}` }
-  return { argv: [['git', 'push', '--delete', remote, `refs/heads/${branch}`]] }
+  if (expectedOid !== undefined && !isSafeRev(expectedOid)) return { error: 'invalid-name', message: `unsafe expected remote oid: ${expectedOid}` }
+  return {
+    argv: [[
+      'git', 'push',
+      ...(expectedOid === undefined ? [] : [`--force-with-lease=refs/heads/${branch}:${expectedOid}`]),
+      '--delete', remote, `refs/heads/${branch}`,
+    ]],
+  }
 }
 
 /** Build the git command sequence for an action. */
@@ -945,7 +952,16 @@ export async function runAction(
     if (target === null) {
       return { ok: false, error: { code: 'not-found', message: 'the remote-tracking ref names no configured remote' } }
     }
-    plan = planRemoteBranchDelete(target.remote, target.branch)
+    const tracking = await runCommand(deps.run, ['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', request.action.ref], root, 'remote-branch-oid', deps.signal)
+    if ('failure' in tracking) {
+      return { ok: false, error: { code: 'git-unavailable', message: tracking.failure instanceof Error ? tracking.failure.message : String(tracking.failure) } }
+    }
+    if (tracking.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+    if (tracking.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+    if (tracking.run.exitCode !== 0 || !isSafeRev(tracking.run.stdout.trim())) {
+      return { ok: false, error: { code: 'upstream-missing', message: `remote-tracking ref is stale: ${request.action.ref}` } }
+    }
+    plan = planRemoteBranchDelete(target.remote, target.branch, tracking.run.stdout.trim())
   } else {
     plan = planAction(request.action, unborn)
   }

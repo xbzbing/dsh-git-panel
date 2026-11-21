@@ -91,6 +91,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pendingFollow, setPendingFollow] = useState<boolean | null>(null)
   const [pendingFold, setPendingFold] = useState<boolean | null>(null)
   const [pendingEdit, setPendingEdit] = useState<boolean | null>(null)
+  const [pendingFlow, setPendingFlow] = useState<boolean | null>(null)
   const [pendingPackages, setPendingPackages] = useState<boolean | null>(null)
   // Workspace file: three states in one string value (`off` / `auto` / a file
   // name). `customOpen` shows the name box before a name exists; `draftName`
@@ -165,6 +166,8 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const filesFollowRepo = pendingFollow ?? (typeof snap?.value?.filesFollowRepo === 'boolean' ? (snap.value.filesFollowRepo as boolean) : false)
   const collapseReposOnPick = pendingFold ?? (typeof snap?.value?.collapseReposOnPick === 'boolean' ? (snap.value.collapseReposOnPick as boolean) : false)
   const allowFileEdit = pendingEdit ?? (typeof snap?.value?.allowFileEdit === 'boolean' ? (snap.value.allowFileEdit as boolean) : true)
+  // Absent on hosts that predate the switch: those keep the entries visible.
+  const flowEnabled = pendingFlow ?? (snap?.value?.flowEnabled !== false)
   const compactPackages = pendingPackages ?? (typeof snap?.value?.compactPackages === 'boolean' ? (snap.value.compactPackages as boolean) : true)
   const snapshotWorkspace = typeof snap?.value?.codeWorkspace === 'string' ? (snap.value.codeWorkspace as string).trim() : ''
   const rawWorkspace = pendingWorkspace ?? snapshotWorkspace
@@ -257,6 +260,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const toggle = (next: boolean): Promise<void> => {
     setPending(next)
     return commitField('showInputPill', next, () => setPending(null))
+  }
+
+  const toggleFlow = (next: boolean): Promise<void> => {
+    setPendingFlow(next)
+    return commitField('flowEnabled', next, () => setPendingFlow(null))
   }
 
   const setPlacement = (next: GitPanelPlacement): Promise<void> => {
@@ -640,6 +648,20 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.fileEditToggle')),
       ]),
       h('p', { key: 'edithint', className: 'gp-cfg__hint' }, t('cfg.fileEditHint', { exts: EDITABLE_EXTENSIONS.join(', '), names: EDITABLE_FILENAMES.join(', ') })),
+    ]),
+    // The way back on: the Git Flow entries can be switched off from the guide
+    // dialog, and this row is the only place left to turn them back on.
+    field('flow', [
+      h('h3', { key: 'flowtitle', className: 'gp-cfg__title' }, t('cfg.flowTitle')),
+      h('label', { key: 'flowrow', className: 'gp-cfg__row' }, [
+        h('input', {
+          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+          checked: flowEnabled, disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleFlow(e.currentTarget.checked) },
+        }),
+        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.flowToggle')),
+      ]),
+      h('p', { key: 'flowhint', className: 'gp-cfg__hint' }, t('cfg.flowHint')),
     ]),
   ]
   const viewBody = [

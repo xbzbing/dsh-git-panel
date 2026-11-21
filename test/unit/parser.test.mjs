@@ -108,11 +108,12 @@ test('parseBranches reads name/hash/track with ahead·behind', () => {
 })
 
 test('parseBranches carries the full ref and drops symbolic rows', () => {
-  // name \0 shortHash \0 track \0 ref \0 symref
-  const stdout = 'main\x00abc1234\x00\x00refs/heads/main\x00'
+  // name \0 shortHash \0 track \0 ref \0 symref \0 upstream
+  const stdout = 'main\x00abc1234\x00\x00refs/heads/main\x00\x00refs/remotes/origin/main\n'
   const rows = parseBranches(stdout)
   assert.equal(rows.length, 1)
   assert.equal(rows[0].ref, 'refs/heads/main')
+  assert.equal(rows[0].upstream, 'refs/remotes/origin/main')
 
   // A remote-tracking HEAD is a symbolic ref, not a branch.
   const withSymref = 'origin\x00abc1234\x00\x00refs/remotes/origin/HEAD\x00refs/remotes/origin/main\n'

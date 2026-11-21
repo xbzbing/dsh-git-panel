@@ -191,6 +191,10 @@ export interface GitSnapshot {
   readonly refreshIntervalMs: number
   /** Whether the input-bar git marker pill should render (user preference). */
   readonly showInputPill: boolean
+  /** Whether the Git Flow entries render at all (user preference). Absent on
+   * older hosts, which had no such switch: the client keeps them visible and
+   * still requires `capabilities.flow`. */
+  readonly flowEnabled?: boolean
   /** Default diff layout the views open with (user preference). */
   readonly defaultDiffView: DiffViewMode
   /** Changes-list presentation (user preference); absent on older hosts →
@@ -471,12 +475,14 @@ export type GitAction =
     readonly strategy: FlowStrategy
     readonly message: string
     readonly deleteBranch?: boolean
-    /** Delete the branch's configured upstream after the integration. */
+    /** Delete the branch's configured upstream after the integration. The host
+     * rechecks the remote ref before deleting it. */
     readonly deleteRemote?: boolean
     /** Push every long-lived branch the finish moved (feature: `develop`;
-     * release / hotfix: the main line and `develop`) to this configured remote. */
+     * release / hotfix: the main line and `develop`) and the release / hotfix
+     * tag to this configured remote. */
     readonly pushRemote?: string
-    /** Release / hotfix only: annotated tag created on the main line. */
+    /** Release / hotfix only: required annotated tag created on the main line. */
     readonly tag?: string
     /** A feature finish can chain a release start: create this `release/…`
      * branch from the updated `develop` after the integration and check it out.
@@ -518,6 +524,8 @@ export type GitErrorCode =
   | 'not-ff'
   // A push was rejected by the remote (non-fast-forward: the remote advanced).
   | 'push-rejected'
+  // The expected upstream ref changed before a destructive remote deletion.
+  | 'upstream-changed'
   // A network git command failed on authentication (no usable credentials;
   // GIT_TERMINAL_PROMPT=0 makes an interactive prompt fail fast instead).
   | 'auth-failed'
@@ -877,6 +885,8 @@ export interface GitBranch {
    * the ref again reads this field.
    */
   readonly ref?: string
+  /** Full configured upstream ref for a local branch, when one exists. */
+  readonly upstream?: string
 }
 
 /** One entry in the stash stack (`git stash list`). */
