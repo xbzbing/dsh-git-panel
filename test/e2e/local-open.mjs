@@ -11,7 +11,7 @@
  */
 import { chromium } from 'playwright-core'
 import { createServer } from 'node:http'
-import { createReadStream } from 'node:fs'
+import { createReadStream, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import assert from 'node:assert/strict'
@@ -31,12 +31,27 @@ const SNAP = {
 // Serve the harness directory so the page has a loopback origin.
 const server = createServer((req, res) => {
   const path = (req.url || '/').split('?')[0]
+  // An http origin makes Chrome ask for the icon; there is none, and a 404
+  // would land in the console assertions below, so answer without a body.
+  if (path === '/favicon.ico') {
+    res.writeHead(204)
+    res.end()
+    return
+  }
   const name = path === '/' ? '/harness.html' : path
   const type = name.endsWith('.html') ? 'text/html; charset=utf-8'
     : name.endsWith('.js') ? 'text/javascript; charset=utf-8'
       : 'application/octet-stream'
+  const file = resolve(DIR, '.' + name)
+  // A missing file used to raise ENOENT on the read stream, which is an
+  // unhandled 'error' event on the server and killed the runner outright.
+  if (!existsSync(file)) {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+    res.end('not found')
+    return
+  }
   res.writeHead(200, { 'content-type': type })
-  createReadStream(resolve(DIR, '.' + name)).pipe(res)
+  createReadStream(file).pipe(res)
 })
 await new Promise((r) => server.listen(0, '127.0.0.1', r))
 const port = server.address().port

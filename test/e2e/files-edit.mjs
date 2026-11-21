@@ -466,7 +466,20 @@ await page.waitForTimeout(250)
 assert.match(await page.evaluate(() => document.querySelector('.gp-files__edit-notice')?.textContent ?? ''), /系统拒绝写入（EACCES）/)
 await page.evaluate(() => [...document.querySelectorAll('.gp-files__edit-notice-btn')].find((b) => b.textContent === '复制我的内容')?.click())
 await page.waitForTimeout(300)
-assert.ok(await page.evaluate(() => [...document.querySelectorAll('.gp-files__edit-notice-btn')].some((b) => b.textContent === '已复制' || b.textContent === '复制失败')), 'copying the draft reports its outcome')
+// The outcome has to be visible (the button face changes for 1.6 s) and reach
+// screen readers through the notice's live region.
+const copyOutcome = await page.evaluate(() => {
+  const live = document.querySelector('.gp-files__edit-notice .gp-copy-live')
+  return {
+    faces: [...document.querySelectorAll('.gp-files__edit-notice-btn')].map((b) => b.textContent),
+    live: live?.textContent ?? null,
+    aria: live?.getAttribute('aria-live') ?? null,
+  }
+})
+const copyFace = copyOutcome.faces.find((label) => label === '内容已复制' || label === '复制失败')
+assert.ok(copyFace !== undefined, `copying the draft reports its outcome: ${JSON.stringify(copyOutcome)}`)
+assert.equal(copyOutcome.live, copyFace, 'the live region repeats the copy outcome')
+assert.equal(copyOutcome.aria, 'polite', 'the copy outcome is announced politely')
 
 // One write per save, however fast the keys come; a leave asked while it is in
 // flight waits for the answer and then goes ahead without asking.
