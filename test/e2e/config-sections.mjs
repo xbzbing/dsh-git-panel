@@ -150,7 +150,7 @@ try {
   const titled = m.filter((s) => s.fieldTitle !== null)
   assert.ok(titled.length >= 2)
   for (const s of titled) assert.deepEqual(s.fieldTitle, { size: 14, weight: 500 }, 'field titles are 14px/500, below the section title')
-  assert.deepEqual(m.map((s) => s.fieldCount), [3, 5, 6, 5], 'field groups per section (repositories gained the workspace-file and list-ceiling rows)')
+  assert.deepEqual(m.map((s) => s.fieldCount), [4, 5, 6, 5], 'field groups per section (basic carries the Git Flow switch, repositories the workspace-file and list-ceiling rows)')
 
   // The package-folding row is a real setting, not just a count. This harness
   // binds the locale to the raw key on purpose (the CSS assertions below must
@@ -174,6 +174,31 @@ try {
   assert.equal(packagesRow.hint, 'cfg.packagesHint', 'the row carries its own hint key, not a reused one')
   assert.equal(packagesRow.checked, true, 'package folding is on by default')
   assert.equal(packagesRow.title, '', 'the row has no field title of its own, like the other switches')
+
+  // The Git Flow switch is the way back on after the guide dialog switched the
+  // entries off, so its key, default and placement are part of the contract.
+  const flowRow = await page.evaluate(() => {
+    const body = document.getElementById('gp-cfg-sec-basic')
+    const row = [...body.querySelectorAll('.gp-cfg__row')]
+      .find((r) => r.querySelector('.gp-cfg__text')?.textContent?.trim() === 'cfg.flowToggle')
+    if (row === undefined) return null
+    const field = row.closest('.gp-cfg__field')
+    return {
+      title: (field?.querySelector('.gp-cfg__title')?.textContent ?? '').trim(),
+      checked: row.querySelector('input[role="switch"]').checked,
+      hint: (field?.querySelector('.gp-cfg__hint')?.textContent ?? '').trim(),
+    }
+  })
+  assert.deepEqual(flowRow, { title: 'cfg.flowTitle', checked: true, hint: 'cfg.flowHint' }, 'the basic section carries the Git Flow switch, on by default')
+  // Click the switch inside that row (the section holds three of them).
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#gp-cfg-sec-basic .gp-cfg__row')]
+      .find((r) => r.querySelector('.gp-cfg__text')?.textContent?.trim() === 'cfg.flowToggle')
+    row?.querySelector('input[role="switch"]')?.click()
+  })
+  await page.waitForTimeout(120)
+  const flowWrite = await page.evaluate(() => (window.__cfgWrites ?? []).filter(([name]) => name === 'flowEnabled').at(-1)?.[1] ?? null)
+  assert.equal(flowWrite, false, 'switching it off writes flowEnabled: false')
 
   // The list ceiling is a real numeric row, seeded from the host default and
   // clamped at the shared bounds before the write: the host enforces the same
