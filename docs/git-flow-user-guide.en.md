@@ -45,13 +45,13 @@ In classic Git Flow, a Hotfix may also need to be synchronized into an in-progre
 
 The screenshots below were captured from the built client bundle rendered in Chrome. They show the About, Start Feature, Integrate develop and Finish Release interfaces. The repository data comes from an isolated test repository and does not represent a real project's history.
 
-![Git Flow core concepts and branch diagram](assets/screenshots/git-flow-about.png)
+![Git Flow core concepts and branch diagram](assets/screenshots/git-flow-about-en.png)
 
-![Start Feature: create feature/payment from develop and preview its push](assets/screenshots/git-flow-start-feature.png)
+![Start Feature: create feature/payment from develop and preview its push](assets/screenshots/git-flow-start-feature-en.png)
 
-![Integrate develop: merge develop into the current feature](assets/screenshots/git-flow-integrate-develop.png)
+![Integrate develop: merge develop into the current feature](assets/screenshots/git-flow-integrate-develop-en.png)
 
-![Finish Release: merge into the main line, tag, back-merge develop and push](assets/screenshots/git-flow-finish-release.png)
+![Finish Release: merge into the main line, tag, back-merge develop and push](assets/screenshots/git-flow-finish-release-en.png)
 
 ## Example: from feature work to a release
 
