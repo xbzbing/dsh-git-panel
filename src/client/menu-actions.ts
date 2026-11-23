@@ -46,11 +46,31 @@ export interface MenuEnv {
   readonly callbacks?: MenuCallbacks
 }
 
-/** File-row menu: the platform group, then Git, then this plugin's own entries. */
+/** File-row menu: the platform group, then Git. The composer entry is not
+ * here: it rides with the borrowed group (see {@link fileBorrowedActions}),
+ * the only place that knows whether the platform already offers one. */
 export function fileMenuActions(
   value: TreeTargetValue, env: MenuEnv, platform: readonly MenuAction[],
 ): MenuAction[] {
-  return [...platform, ...gitGroup(value, env, 'file'), ...browserGroup(value, env)]
+  return [...platform, ...gitGroup(value, env, 'file')]
+}
+
+/** The platform's "Add to chat" for a file (dsh 0.2.3+), as the proxy names it. */
+export const PLATFORM_ADD_TO_CHAT = 'reference.file/addToChat'
+
+/**
+ * The borrowed group of a file row. The platform's "Add to chat" puts an
+ * `@file` reference chip into the draft — the agent reads it as a file, not as
+ * quoted text — so when the platform offers it, this plugin's quote entry would
+ * be a second, weaker answer to the same request and is left out. A host
+ * without it (or a platform answer that missed the budget) gets the quote entry
+ * instead, in the same place.
+ */
+export function fileBorrowedActions(
+  value: TreeTargetValue, env: MenuEnv, platform: readonly MenuAction[],
+): MenuAction[] {
+  if (platform.some((action) => action.id === PLATFORM_ADD_TO_CHAT)) return [...platform]
+  return [...platform, ...browserGroup(value, env)]
 }
 
 /** Directory row / status-bar root: the same shape, without the file-only

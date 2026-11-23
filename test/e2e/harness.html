@@ -371,7 +371,11 @@
           { id: 'file-actions.file/copyImage', label: 'copyImage' },
           { id: 'file-actions.file/download', label: 'download' },
           { id: 'file-actions.file/saveAs', label: 'saveAs' },
-        ]
+          { id: 'reference.file/addToChat', label: 'addToChat' },
+        ].filter(function (view) {
+          // A host before dsh 0.2.3 has no "Add to chat" (__platformNoAddToChat).
+          return !(window.__platformNoAddToChat === true && view.id === 'reference.file/addToChat')
+        })
       }
       if (kind === 'directory') {
         return [

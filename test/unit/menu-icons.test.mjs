@@ -9,7 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  MENU_ICONS, menuIcon, registerMenuIcons, fileMenuActions, directoryMenuActions, branchMenuActions,
+  MENU_ICONS, menuIcon, registerMenuIcons, fileMenuActions, fileBorrowedActions, directoryMenuActions, branchMenuActions,
   commitMenuActions, changeMenuActions, changeDirMenuActions, stashMenuActions,
   repoRowMenuActions, pillMenuActions,
 } from '../../lib/testkit.mjs'
@@ -31,6 +31,7 @@ const pillCommands = { openTab: () => {}, fetch: () => {} }
 function everyMenu() {
   return [
     ['file', fileMenuActions(value, env, [{ id: 'open-in-app.file/float', label: 'x' }])],
+    ['file-borrowed', fileBorrowedActions(value, env, [{ id: 'open-in-app.file/float', label: 'x' }])],
     ['directory', directoryMenuActions(value, env, [])],
     ['branch', branchMenuActions({ ...identity, name: 'main', isCurrent: false, isRemote: false }, env, overviewCommands, { busy: false, branchDelete: true, branchCreate: true, branchMerge: true, currentBranch: 'main' })],
     ['branch-remote', branchMenuActions({ ...identity, name: 'origin/x', isCurrent: false, isRemote: true, ref: 'refs/remotes/origin/x' }, env, overviewCommands, { busy: false, remoteBranchDelete: true, branchCreate: true, branchMerge: true, currentBranch: 'main' })],

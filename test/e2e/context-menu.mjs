@@ -166,8 +166,8 @@ assert.deepEqual(offered.map((a) => a.id), [
   'file-actions.file/copyImage',
   'file-actions.file/download',
   'file-actions.file/saveAs',
-  'quote-path',
-], 'platform group first (the sidebar entry is whitelisted out), then the composer entry')
+  'reference.file/addToChat',
+], 'platform group only (the sidebar entry is whitelisted out); its "Add to chat" replaces the quote entry')
 assert.ok(!offered.some((a) => a.id === 'open-in-app.file/sidebar'), 'no "open in sidebar" entry')
 
 // The platform group is asked for the absolute path, so a nested root resolves.
@@ -243,18 +243,31 @@ assert.deepEqual(dirOffered.map((a) => a.id), [
 ], 'the directory row adds only the composer entry after the platform group')
 
 // ── P9: reference into the composer ───────────────────────────────────────
-// A file row carries the quote entry (the harness exposes a composer face);
-// invoking it writes the relative path and hands the keyboard back.
-await page.evaluate(() => { window.__menuStub.clear(); window.__quotes = []; window.__quoteFocus = 0 })
+// "Add to chat" is forwarded to the platform, which inserts the @file chip.
+await page.evaluate(() => { window.__menuStub.clear() })
+await row.click({ button: 'right' })
+await page.evaluate(() => window.__menuStub.resolvePending())
+await page.waitForTimeout(100)
+await page.evaluate(() => { window.__menuStub.state.selected.length = 0 })
+assert.equal(await page.evaluate(() => window.__menuStub.invoke('reference.file/addToChat')), 'ok')
+assert.deepEqual(
+  await page.evaluate(() => window.__menuStub.state.selected.map((s) => s.id)),
+  ['reference.file/addToChat'],
+  'the platform adds the file reference itself',
+)
+// A host without it gets the quote entry in the same place (the harness exposes
+// a composer face); invoking it writes the relative path and hands the keyboard back.
+await page.evaluate(() => { window.__platformNoAddToChat = true; window.__menuStub.clear(); window.__quotes = []; window.__quoteFocus = 0 })
 await row.click({ button: 'right' })
 await page.evaluate(() => window.__menuStub.resolvePending())
 await page.waitForTimeout(100)
 const quoteOffered = await page.evaluate(() => window.__menuStub.state.offered.map((a) => a.id))
-assert.ok(quoteOffered.includes('quote-path'), 'the file row offers the composer entry')
-assert.equal(quoteOffered[quoteOffered.length - 1], 'quote-path', 'the quote is the browser\'s last entry')
+assert.ok(!quoteOffered.includes('reference.file/addToChat'), 'the old host has no "Add to chat"')
+assert.equal(quoteOffered[quoteOffered.length - 1], 'quote-path', 'the quote entry closes the borrowed group')
 assert.equal(await page.evaluate(() => window.__menuStub.invoke('quote-path')), 'ok')
 assert.deepEqual(await page.evaluate(() => window.__quotes), ['README.md'], 'the file path lands in the composer')
 assert.equal(await page.evaluate(() => window.__quoteFocus), 1, 'the composer takes the keyboard back')
+await page.evaluate(() => { window.__platformNoAddToChat = false })
 
 // ── a platform that answers late does not take the plugin's entries ───────
 // The borrowed group is a contribution of its own, so the browser's entries are
@@ -275,7 +288,7 @@ const pendingOwn = await page.evaluate(async () => {
   }
 })
 assert.equal(pendingOwn.borrowing, true, 'the borrowed group is its own contribution')
-assert.ok(pendingOwn.own.includes('quote-path'), 'the plugin entries resolve without the platform')
+assert.deepEqual(pendingOwn.own, [], 'the plugin entries (none on this non-Git root) resolve without the platform')
 assert.ok(!pendingOwn.own.some((id) => id.startsWith('open-in-app.')), 'and they do not carry the platform entries')
 await page.evaluate(() => { window.__platformReadyDelay = 0 })
 await page.evaluate(() => window.__menuStub.resolvePending())

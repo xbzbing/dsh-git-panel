@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { NO_MENU, menuTriggerFactory, fileMenuActions, directoryMenuActions } from '../../lib/testkit.mjs'
+import { NO_MENU, menuTriggerFactory, fileMenuActions, fileBorrowedActions, directoryMenuActions } from '../../lib/testkit.mjs'
 
 /** A clipboard supplier the panel supplies in the real wiring. */
 function stubClipboard(result = true) {
@@ -46,7 +46,7 @@ test('the composer entry hands the path to the panel, not to the clipboard', asy
   const clipboard = stubClipboard()
   const env = envWith(undefined, { ...FACTS, canQuote: true }, clipboard.write)
   env.callbacks = { ...CALLBACKS, quote: (text) => quoted.push(text) }
-  const [quote] = fileMenuActions(value(), env, [])
+  const [quote] = fileBorrowedActions(value(), env, [])
   await quote.run()
   assert.deepEqual(quoted, ['src/a.ts'])
   assert.deepEqual(clipboard.writes, [], 'the entry is not a copy')
@@ -93,18 +93,30 @@ test('a thunk value is handed to the platform as a function target', () => {
   })
 })
 
-test('a composer on the host adds the quote entry after the platform group', () => {
+test('a host without "Add to chat" gets the quote entry after the platform group', () => {
   const quoted = []
   const env = envWith(undefined, { ...FACTS, canQuote: true })
   env.callbacks = { ...CALLBACKS, quote: (text) => quoted.push(text) }
-  const actions = fileMenuActions(value(), env, platform)
+  const actions = fileBorrowedActions(value(), env, platform)
   assert.deepEqual(actions.map((a) => a.id), ['open-in-app.file/float', 'quote-path'])
   void actions[1].run()
   assert.deepEqual(quoted, ['src/a.ts'])
 })
 
+test('the platform\'s "Add to chat" replaces the quote entry on a file row', () => {
+  const env = envWith(undefined, { ...FACTS, canQuote: true })
+  const withAdd = [...platform, { id: 'reference.file/addToChat', label: 'Add to chat' }]
+  const actions = fileBorrowedActions(value(), env, withAdd)
+  assert.deepEqual(actions.map((a) => a.id), ['open-in-app.file/float', 'reference.file/addToChat'])
+})
+
+test('the file row\'s own group never carries the quote entry', () => {
+  const env = envWith(undefined, { ...FACTS, canQuote: true })
+  assert.ok(!fileMenuActions(value(), env, platform).some((a) => a.id === 'quote-path'))
+})
+
 test('without a composer the quote entry is absent (not disabled)', () => {
-  const actions = fileMenuActions(value(), envWith(undefined), platform)
+  const actions = fileBorrowedActions(value(), envWith(undefined), platform)
   assert.ok(!actions.some((a) => a.id === 'quote-path'))
 })
 

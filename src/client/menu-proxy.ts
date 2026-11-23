@@ -29,7 +29,9 @@ export const PLATFORM_BUDGET_MS = 800
 
 /** Action ids kept from the platform's `file` menu (view id =
  * `<contribution>/<action>`, both percent-encoded by the platform). `sidebar`
- * is deliberately absent: the file browser opens its own preview. */
+ * is deliberately absent: the file browser opens its own preview.
+ * `reference.file/addToChat` (dsh 0.2.3+) puts an `@file` reference into the
+ * draft without sending; a host without it simply offers nothing for that id. */
 export const FILE_VIEWS: readonly string[] = [
   'open-in-app.file/float',
   'open-in-app.file/reveal',
@@ -38,6 +40,7 @@ export const FILE_VIEWS: readonly string[] = [
   'file-actions.file/copyImage',
   'file-actions.file/download',
   'file-actions.file/saveAs',
+  'reference.file/addToChat',
 ]
 
 /** Action ids kept from the platform's `directory` menu. */

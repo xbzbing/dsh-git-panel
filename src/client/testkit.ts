@@ -46,7 +46,7 @@ export { absPath, baseName, platformPathFor, revisionName, imageSideLabel } from
 export { FILE_VIEWS, DIRECTORY_VIEWS, IMAGE_VIEWS, PLATFORM_BUDGET_MS, platformActions } from './menu-proxy.js'
 export { MENU_KIND, MENU_KINDS, registerMenuOwner, menuOwner, disposeMenuOwners } from './menu-owners.js'
 export { NO_MENU, menuTriggerFactory } from './menu-bindings.js'
-export { fileMenuActions, directoryMenuActions, copyText } from './menu-actions.js'
+export { fileMenuActions, fileBorrowedActions, directoryMenuActions, copyText } from './menu-actions.js'
 export { MENU_ICONS, menuIcon, registerMenuIcons } from './menu-icons.js'
 export { searchPublish } from './history-filter.js'
 export { COMPARE_GROUPS, COMPARE_ROW_HEIGHTS, compareApplies, compareCandidates, compareRowHeight, compareRows, filterCandidates, moveCursor, pickedLabel, revealOffset, revisionCandidates } from './compare-refs.js'
