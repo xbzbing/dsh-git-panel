@@ -62,6 +62,7 @@ import { MENU_KIND } from './menu-owners.js'
 import type { PanelMenu } from './menu-bindings.js'
 import { CommitRow, renderFileTree, renderHoverCard } from './overview-rows.js'
 import { renderFileDiffModal } from './overview-filediff.js'
+import { diffReviewOf, type ReviewHost } from './DiffReviewBar.js'
 
 /** Stable empty collapsed-dirs set; shared so a fully-expanded tree never allocates. */
 const EMPTY_DIRS: ReadonlySet<string> = new Set()
@@ -123,6 +124,8 @@ interface OverviewProps {
   /** The panel's quote run (composer first, clipboard fallback) — the commit
    * row's menu entry uses it; the tab has no composer of its own. */
   readonly onQuote?: (text: string) => void
+  /** Diff line comments into the composer (ADR-0038); absent without one. */
+  readonly review?: ReviewHost
   /** Turns the Git Flow entries off from the About dialog. Absent when the
    * settings form is unreachable, which also hides that button. */
   readonly onDisableFlow?: () => Promise<boolean>
@@ -172,7 +175,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, exactPathSeq, onClearExactPath, panelMenu, menuCommandsRef, menuFactsRef, onQuote, onDisableFlow, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, exactPath, exactPathSeq, onClearExactPath, panelMenu, menuCommandsRef, menuFactsRef, onQuote, onDisableFlow, review, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   // Latest snapshot for late replies: a direct status-bar write (pull / push /
   // clean switch) has no dialog, so nothing else would stop its failure from
@@ -963,7 +966,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   useEffect(() => { if (versionKey === null) setViewSlot({ key: null, view: 'diff' }) }, [versionKey])
   const setFileDiffView = (view: 'diff' | 'file'): void => setViewSlot({ key: versionKey, view })
   const fileVersion = useFileVersion(remote, sessionId, fileVersionTarget, fileDiffView === 'file')
+  // The dialog only ever holds one commit's file; the review object follows the
+  // commit, not every render (the DiffView inside is memoized).
+  const reviewCommit = detail.fileDiff !== null && 'hash' in detail.fileDiff ? detail.fileDiff.hash : null
+  const commitReview = useMemo(
+    () => diffReviewOf(review, reviewCommit === null ? null : { kind: 'commit', hash: reviewCommit }),
+    [review, reviewCommit],
+  )
   const fileDiffModal = renderFileDiffModal(detail.fileDiff, {
+    ...(commitReview === undefined ? {} : { review: commitReview }),
     visible: queryVisible,
     data: detail.fileDiffData,
     error: detail.fileDiffError,

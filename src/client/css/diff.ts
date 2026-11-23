@@ -100,6 +100,41 @@ export const CSS = `
 .gp-diff-uni__code{box-shadow:none}
 .gp-diff-cell{padding:0 4px;white-space:pre-wrap;word-break:break-all;line-height:20px}
 .gp-diff-no{color:var(--dsw-alias-label-tertiary);text-align:right;padding:0 5px;user-select:none;font-size:11px;line-height:20px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);border-right:1px solid var(--dsw-alias-border-l2)}
+.gp-diff-no--pick{cursor:pointer;position:relative}
+.gp-diff-no--pick:hover{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
+/* The "+" that says a line can be picked, shown while the pointer is anywhere
+ * on the line (the platform's review tab does the same). The rows are flat grid
+ * cells with no row element, so the code cell's hover reaches back to its
+ * gutter through :has(). The badge belongs to the gutter cell, so a click on it
+ * is a click on the gutter; it sits just right of the gutter — over the
+ * unified view's sign column, or the start of the code — and leaves the number
+ * readable. It is centered on the row's height, so a wrapped line shows it
+ * beside the middle of its text. In the unified view the new-side number
+ * carries it; a deletion has only an old-side number, whose badge skips the
+ * empty new-side column. Pointer hover only: a touch has no hover to reveal it. */
+@media (hover:hover){
+.gp-diff-no--pick:hover::after,
+.gp-diff-no--pick:has(+ .gp-diff-cell:hover)::after,
+.gp-diff-no--pick:has(+ .gp-diff-uni__sign:hover)::after,
+.gp-diff-no--pick:has(+ .gp-diff-uni__sign + .gp-diff-uni__code:hover)::after,
+.gp-diff-no--pick:has(+ .gp-diff-no:not(.gp-diff-no--pick) + .gp-diff-uni__sign:hover)::after,
+.gp-diff-no--pick:has(+ .gp-diff-no:not(.gp-diff-no--pick) + .gp-diff-uni__sign + .gp-diff-uni__code:hover)::after{content:'+';position:absolute;z-index:2;top:50%;transform:translateY(-50%);left:calc(100% + 1px);width:18px;height:18px;border-radius:4px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);font-size:14px;font-weight:600;line-height:18px;text-align:center}
+.gp-diff-no--pick:has(+ .gp-diff-no)::after{left:calc(200% + 2px)}
+}
+/* Diff line comments (ADR-0038): the picked range keeps its add/del tint and
+ * takes a business-colored layer above it, so a picked deletion still reads as
+ * a deletion. */
+.gp-diff-no--sel,.gp-diff-no--sel:hover{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}
+.gp-diff-cell--sel{background-image:linear-gradient(color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent),color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent))}
+.gp-review{flex:none;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}
+.gp-review__head{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;row-gap:2px;font-size:12px}
+.gp-review__title{font-weight:600;color:var(--dsw-alias-label-primary)}
+.gp-review__hint{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.gp-review__stale{font-size:12px;color:var(--dsw-alias-state-warn-primary)}
+.gp-review__input{box-sizing:border-box;width:100%;min-height:56px;max-height:160px;resize:vertical;padding:6px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px}
+.gp-review__input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
+.gp-review__error{font-size:12px;color:var(--dsw-alias-state-error-primary)}
+.gp-review__actions{display:flex;justify-content:flex-end;gap:6px}
 .gp-diff-row--add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-success-primary) 55%,transparent)}
 .gp-diff-row--del{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent)}
 .gp-diff-row--hunk{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);color:var(--dsw-alias-state-business-primary);padding:3px 8px;font-size:11px;font-weight:600;border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2)}

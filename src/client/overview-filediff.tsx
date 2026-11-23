@@ -20,6 +20,7 @@ import { renderDiffExpand, renderDiffModes } from './diff-controls.js'
 import { PlatformTip } from './platform-tip.js'
 import { CodePreview } from './files-preview.js'
 import type { FileVersionControl, FileVersionState } from './file-version.js'
+import type { DiffReview } from './DiffReviewBar.js'
 
 /** The read-only file view and the copy action share one version read. Both
  * surfaces above (the commit overlay and the revision comparison) hand the
@@ -59,6 +60,8 @@ export interface FileDiffModalCbs {
   compact: boolean
   /** Read-only file view + copy. Absent keeps the dialog diff-only. */
   version?: FileVersionModal
+  /** Line comments into the composer (ADR-0038); memoized by the caller. */
+  review?: DiffReview
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -77,7 +80,7 @@ export function renderFileDiffModal(
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
   const commitSide = 'hash' in fileDiff
-  const { visible, data, error, mode, onMode, expanded, onExpand, onClose, pathFeedback, onCopyPath, remote, sessionId, compact, version, t } = cb
+  const { visible, data, error, mode, onMode, expanded, onExpand, onClose, pathFeedback, onCopyPath, remote, sessionId, compact, version, review, t } = cb
   const view = version?.view ?? 'diff'
   // Compact drops the side-by-side mode (no room on a phone) and renders split
   // as unified instead; the preference itself is left untouched.
@@ -209,6 +212,7 @@ export function renderFileDiffModal(
       : h(DiffView, {
         key: 'diff', visible, text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId,
         expanded, truncated: data.truncated === true, newLines: data.newLines, t,
+        ...(review === undefined ? {} : { review }),
         ...(commitSide ? { base: 'commit' as const, commit: fileDiff.hash } : { base: 'rev' as const, rev: fileDiff.rev }),
       })
   const modal = h('div', {

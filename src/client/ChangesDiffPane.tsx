@@ -12,10 +12,12 @@ import type { GitPanelRemote } from './rpc.js'
 import type { GitKey } from './locales.js'
 import { DiffView, type DiffMode } from './DiffView.js'
 import { renderDiffExpand, renderDiffModes } from './diff-controls.js'
-import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon } from './icons.js'
+import { IconFilesDiffOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon, QuoteIcon } from './icons.js'
 import { pathCopyButton } from './path-copy-button.js'
 import type { CopyFeedback } from './copy-feedback.js'
 import { DiffCardFocus, type DiffCard } from './diff-card.js'
+import type { DiffReview } from './DiffReviewBar.js'
 
 /** The view-mode switch, grouped so its three parts travel together. */
 interface DiffModeSwitch {
@@ -48,11 +50,15 @@ interface ChangesDiffPaneProps {
   readonly onToggleExpand: () => void
   /** Compact only: drill back from the diff to the change list. */
   readonly onBackToList: () => void
+  /** Line comments into the composer (ADR-0038). */
+  readonly review?: DiffReview
+  /** Open the platform's "Local changes" review tab at this file. */
+  readonly onOpenReviewView?: (path: string) => void
 }
 
 /** The diff area. `keys` stay on the returned nodes so React reuses them. */
 export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
-  const { diffPath, diffData, summary, card, mode: modeSwitch, copy, expanded, compact, queryVisible, remote, sessionId, t, onToggleExpand, onBackToList } = props
+  const { diffPath, diffData, summary, card, mode: modeSwitch, copy, expanded, compact, queryVisible, remote, sessionId, t, onToggleExpand, onBackToList, review, onOpenReviewView } = props
   const { visible: cardOpen, cardRef } = card
   return diffPath === null
     ? h('div', { className: 'gp-empty' }, t('changes.selectFile'))
@@ -113,6 +119,17 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
           'aria-pressed': cardOpen,
           onClick: () => card.toggle(),
         }, h(cardOpen ? ExitFullscreenIcon : FullscreenIcon, { size: 14 }))
+        // The platform's own review tab for the session checkout: the same file,
+        // with its comment records and code-host actions (ADR-0038). It wears
+        // that tab's glyph, so the button reads as "open Local changes"; a shell
+        // without the glyph has no such tab either, the quote glyph is a guard.
+        const reviewBtn = onOpenReviewView === undefined ? null : h('button', {
+          key: 'review', type: 'button',
+          className: 'gp-icon-btn gp-diff__review-btn',
+          title: t('diff.openReviewView'),
+          'aria-label': t('diff.openReviewView'),
+          onClick: () => onOpenReviewView(diffPath.path),
+        }, h(IconFilesDiffOutlineRegular ?? QuoteIcon, { size: 14 }))
         const cardClose = cardOpen
           ? h('button', {
             key: 'cardclose', ref: card.closeRef, type: 'button',
@@ -131,13 +148,13 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
         if (compact) {
           return [
             h('div', { key: 'row1', className: 'gp-diff__toolbar-row' }, [back, path, sum]),
-            h('div', { key: 'row2', className: 'gp-diff__toolbar-row gp-diff__toolbar-row--controls' }, [expand, modalBtn, modes, cardClose]),
+            h('div', { key: 'row2', className: 'gp-diff__toolbar-row gp-diff__toolbar-row--controls' }, [expand, reviewBtn, modalBtn, modes, cardClose]),
           ]
         }
-        return [back, path, sum, expand, modalBtn, modes, cardClose]
+        return [back, path, sum, expand, reviewBtn, modalBtn, modes, cardClose]
       })()),
       diffData === null
         ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
-        : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: modeSwitch.current, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
+        : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: modeSwitch.current, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, ...(review === undefined ? {} : { review }), t }),
     ])
 }

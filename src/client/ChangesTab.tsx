@@ -39,6 +39,7 @@ import { SyncConfirmModal } from './SyncConfirmModal.js'
 import { ChangesDiffPane } from './ChangesDiffPane.js'
 import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
+import { diffReviewOf, type ReviewHost } from './DiffReviewBar.js'
 
 interface ChangesTabProps {
   /** The panel's menu face (rows bind through it). */
@@ -74,6 +75,11 @@ interface ChangesTabProps {
   /** Docked repository list above the change list; the panel withholds it in
    * the compact layout, which keeps the list in the overview's branch filter. */
   readonly repositories?: RepositoriesHost
+  /** Diff line comments into the composer (ADR-0038); absent without one. */
+  readonly review?: ReviewHost
+  /** Open the platform's "Local changes" review tab at a file; absent when it
+   * cannot show this checkout (ADR-0038). */
+  readonly onOpenReviewView?: (path: string) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -91,7 +97,7 @@ const byPath = (a: GitChange, b: GitChange): number => a.path.localeCompare(b.pa
 // would wait indefinitely for a stray click.
 const DISCARD_ARM_MS = 4000
 
-export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickRef,  remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, onSetChangesView, compact, stacked, cramped, repositories, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickRef,  remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, onSetChangesView, compact, stacked, cramped, repositories, review, onOpenReviewView, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
@@ -149,6 +155,13 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // check mark + tint on the path itself (the visible text never swaps to the
   // phrase — a bare text node wraps when the toolbar squeezes the button).
   const pathCopy = useCopyFeedback(diffPath === null ? null : diffPath.path)
+  // One review object per side of the index: the DiffView is memoized, so the
+  // object only changes when the comment source does.
+  const diffScope = diffPath === null ? null : diffPath.base === 'staged' ? 'staged' : 'unstaged'
+  const diffReview = useMemo(
+    () => diffReviewOf(review, diffScope === null ? null : { kind: 'local', scope: diffScope }),
+    [review, diffScope],
+  )
   const [amendPrefilled, setAmendPrefilled] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
   const [armedSuggest, setArmedSuggest] = useState(false)
@@ -928,6 +941,8 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     copy: { feedback: pathCopy.feedback, onCopy: () => pathCopy.copy() },
     expanded,
     compact, queryVisible, remote, sessionId, t,
+    ...(diffReview === undefined ? {} : { review: diffReview }),
+    ...(onOpenReviewView === undefined ? {} : { onOpenReviewView }),
     onToggleExpand: () => { if (diffPath !== null) void showDiff(diffPath.path, diffPath.base, !expanded) },
     onBackToList: () => setPane('list'),
   })

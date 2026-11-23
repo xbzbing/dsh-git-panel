@@ -1,0 +1,245 @@
+/**
+ * Diff line comments quoted into the composer (issue #123, ADR-0038).
+ *
+ * A reader picks consecutive lines on one side of a diff, writes a comment and
+ * adds it to the session's composer as one atomic quote; nothing is sent until
+ * the reader sends the draft. The quote text follows the platform's own
+ * local-changes review tab (`@deepseek-ai/dsh-experimental-client-ui-forge`,
+ * `formatReviewComment`) heading for heading — `## User Comment N`, `File`,
+ * `Side`, `Lines`, `Source`, `Diff hunk`, `Comment` — so comments from both
+ * surfaces number on in one draft and reach the agent in one shape. This
+ * plugin adds a `Repository` line: its diffs can come from a checkout other
+ * than the session cwd.
+ *
+ * Pure: no DOM, no React. The diff text is the source of truth for hunks; the
+ * rendered rows only supply the text of lines picked outside every hunk
+ * (revealed context), which carry a plain `Code` block instead of a hunk.
+ */
+
+/** Old (`L`) or new (`R`) side of a diff. */
+export type ReviewSide = 'L' | 'R'
+
+/** One hunk of a unified diff, as git printed it. */
+export interface ReviewHunk {
+  readonly oldStart: number
+  readonly oldLines: number
+  readonly newStart: number
+  readonly newLines: number
+  /** Body lines in patch form (` `, `+`, `-`, `\`). */
+  readonly lines: readonly string[]
+}
+
+/** A picked line range; `anchor` is the line the range grows from. */
+export interface ReviewLineRange {
+  readonly side: ReviewSide
+  readonly start: number
+  readonly end: number
+  readonly anchor: number
+}
+
+/** Which diff the comment was written on. */
+export type ReviewSource =
+  /** Working tree against the index (`unstaged`) or the index against HEAD (`staged`). */
+  | { readonly kind: 'local'; readonly scope: 'unstaged' | 'staged' }
+  /** One commit against its first parent. */
+  | { readonly kind: 'commit'; readonly hash: string }
+  /** The working tree against a chosen revision. */
+  | { readonly kind: 'rev'; readonly rev: string }
+
+/** The snippet frozen when the range was picked: what the reader saw. */
+export type ReviewSnippet =
+  | { readonly kind: 'hunk'; readonly text: string }
+  | { readonly kind: 'code'; readonly text: string }
+
+/** Everything one quote carries. */
+export interface ReviewQuoteInput {
+  /** Absolute repository root, or undefined when unknown. */
+  readonly repository?: string
+  /** Repository-relative path (the new path of a rename). */
+  readonly path: string
+  readonly range: ReviewLineRange
+  readonly source: ReviewSource
+  readonly snippet: ReviewSnippet
+  readonly body: string
+}
+
+/** The composer's display of a quote (the platform's `QuoteSummary`). */
+export interface ReviewQuoteSummary {
+  readonly label: string
+  readonly title: string
+  readonly detail: string
+  readonly body: string
+}
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+
+/**
+ * Parse the hunks of a single-file unified diff.
+ * @param text - `git diff` / `git show` output for one path.
+ * @returns hunks in order; a header-less or binary diff yields none.
+ */
+export function parseReviewHunks(text: string): ReviewHunk[] {
+  const hunks: ReviewHunk[] = []
+  let current: { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] } | null = null
+  for (const line of text.split('\n')) {
+    const header = HUNK_HEADER.exec(line)
+    if (header !== null) {
+      if (current !== null) hunks.push(current)
+      current = {
+        oldStart: Number(header[1]), oldLines: header[2] === undefined ? 1 : Number(header[2]),
+        newStart: Number(header[3]), newLines: header[4] === undefined ? 1 : Number(header[4]),
+        lines: [],
+      }
+      continue
+    }
+    if (current === null) continue
+    // A second file header ends the hunk (combined output never reaches here,
+    // but a stray one must not be read as body text).
+    if (line.startsWith('diff ')) { hunks.push(current); current = null; continue }
+    const mark = line.charAt(0)
+    if (mark === ' ' || mark === '+' || mark === '-' || mark === '\\') current.lines.push(line)
+  }
+  if (current !== null) hunks.push(current)
+  return hunks
+}
+
+/**
+ * The hunk covering one line of one side.
+ * @returns the hunk index, or -1 for a line outside every hunk (revealed
+ *   context, or a side the hunk does not touch).
+ */
+export function reviewHunkIndex(hunks: readonly ReviewHunk[], side: ReviewSide, line: number): number {
+  for (let i = 0; i < hunks.length; i++) {
+    const hunk = hunks[i]!
+    const start = side === 'L' ? hunk.oldStart : hunk.newStart
+    const count = side === 'L' ? hunk.oldLines : hunk.newLines
+    if (line >= start && line < start + count) return i
+  }
+  return -1
+}
+
+/**
+ * Pick a line, or grow the current range to it.
+ *
+ * A range stays on one side and inside one hunk — the quote carries that hunk,
+ * and a range across hunks would quote code the reader never saw between them.
+ * A line outside every hunk is picked alone. Anything else starts over at the
+ * clicked line rather than silently picking something the reader did not ask
+ * for.
+ * @param previous - the current range, or null.
+ * @param extend - true for Shift+click.
+ */
+export function pickReviewLine(
+  previous: ReviewLineRange | null, hunks: readonly ReviewHunk[],
+  side: ReviewSide, line: number, extend: boolean,
+): ReviewLineRange {
+  if (extend && previous !== null && previous.side === side) {
+    const at = reviewHunkIndex(hunks, side, previous.anchor)
+    if (at >= 0 && at === reviewHunkIndex(hunks, side, line)) {
+      return { side, anchor: previous.anchor, start: Math.min(previous.anchor, line), end: Math.max(previous.anchor, line) }
+    }
+  }
+  return { side, anchor: line, start: line, end: line }
+}
+
+/**
+ * Whether a line of a side lies inside a range.
+ */
+export function reviewRangeHas(range: ReviewLineRange | null, side: ReviewSide, line: number | null): boolean {
+  return range !== null && line !== null && range.side === side && line >= range.start && line <= range.end
+}
+
+/**
+ * Freeze the snippet a range quotes.
+ * @param lineText - the rendered text of a line of the range's side, or
+ *   undefined when it is not on screen (only consulted outside every hunk).
+ * @returns the hunk in patch form, the picked lines as plain code, or null when
+ *   neither is available.
+ */
+export function reviewSnippet(
+  hunks: readonly ReviewHunk[], range: ReviewLineRange,
+  lineText: (side: ReviewSide, line: number) => string | undefined,
+): ReviewSnippet | null {
+  const at = reviewHunkIndex(hunks, range.side, range.start)
+  if (at >= 0) {
+    const hunk = hunks[at]!
+    // The header is rebuilt from git's own numbers (an empty side keeps the
+    // line it follows), without the trailing function-context label.
+    return { kind: 'hunk', text: [`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, ...hunk.lines].join('\n') }
+  }
+  const lines: string[] = []
+  for (let line = range.start; line <= range.end; line++) {
+    const text = lineText(range.side, line)
+    if (text === undefined) return null
+    lines.push(text)
+  }
+  return { kind: 'code', text: lines.join('\n') }
+}
+
+/** `R12` or `L3–5`: the range label shown beside the form and in the composer. */
+export function reviewRangeLabel(range: Pick<ReviewLineRange, 'side' | 'start' | 'end'>): string {
+  return `${range.side}${range.start}${range.end === range.start ? '' : `\u2013${range.end}`}`
+}
+
+/** The `Source:` lines of a quote. */
+function sourceLines(source: ReviewSource): string {
+  if (source.kind === 'local') return `Source: Local (${source.scope})`
+  if (source.kind === 'commit') return `Source: Local (commit)\nCommit: ${source.hash}`
+  return `Source: Local (working tree)\nBase: ${source.rev}`
+}
+
+/** A fence longer than any backtick run inside, so quoted code cannot close it. */
+function fenceFor(text: string): string {
+  let longest = 0
+  for (const match of text.matchAll(/`+/g)) longest = Math.max(longest, match[0].length)
+  return '`'.repeat(Math.max(3, longest + 1))
+}
+
+/**
+ * Format one comment as the composer quote.
+ * @param index - one-based number after the comments already in the draft.
+ */
+export function formatReviewQuote(input: ReviewQuoteInput, index: number): string {
+  const { range, snippet } = input
+  const lines = range.start === range.end ? String(range.start) : `${range.start}-${range.end}`
+  const fence = fenceFor(snippet.text)
+  const block = snippet.kind === 'hunk'
+    ? `Diff hunk:\n${fence}diff\n${snippet.text}\n${fence}`
+    : `Code:\n${fence}\n${snippet.text}\n${fence}`
+  const repository = input.repository === undefined || input.repository === '' ? '' : `Repository: ${input.repository}\n`
+  return `## User Comment ${index}\n${repository}File: ${input.path}\nSide: ${range.side}\nLines: ${lines}\n${sourceLines(input.source)}\n${block}\nComment:\n${input.body.trim()}`
+}
+
+const COMMENT_HEADING = /(?:^|\n)(?:> )?## User Comment (\d+)/g
+
+/**
+ * The number the next comment takes: one past the highest already in the
+ * draft, so this plugin and the platform's review tab never reuse a number.
+ * @param draft - the composer's current draft, or undefined when unreadable.
+ */
+export function nextReviewIndex(draft: string | undefined): number {
+  if (draft === undefined) return 1
+  let highest = 0
+  for (const match of draft.matchAll(COMMENT_HEADING)) highest = Math.max(highest, Number(match[1]))
+  return highest + 1
+}
+
+/** The composer's chip for a quote: `name.ts R12`, titled by the path. */
+export function reviewQuoteSummary(path: string, range: ReviewLineRange, body: string): ReviewQuoteSummary {
+  const detail = reviewRangeLabel(range)
+  return { label: `${path.slice(path.lastIndexOf('/') + 1)} ${detail}`, title: path, detail, body: body.trim() }
+}
+
+/**
+ * Whether a frozen snippet still describes the diff now on screen: the same
+ * hunk text is still there (or, for revealed context, the range still reads the
+ * same). A stale comment keeps its frozen snippet and asks the reader to check
+ * it instead of re-pointing it at whatever the line numbers hold now.
+ */
+export function reviewSnippetCurrent(
+  snippet: ReviewSnippet, hunks: readonly ReviewHunk[], range: ReviewLineRange,
+  lineText: (side: ReviewSide, line: number) => string | undefined,
+): boolean {
+  const now = reviewSnippet(hunks, range, lineText)
+  return now !== null && now.kind === snippet.kind && now.text === snippet.text
+}

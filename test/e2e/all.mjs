@@ -76,6 +76,10 @@ const RUNNERS = [
   // exact wire action, the squash forced-delete acknowledgement, and a refusal
   // (or an in-flight submit) staying inside the open dialog.
   'flow-dialogs',
+  // Diff line comments into the composer (issue #123, ADR-0038): picking, the
+  // quote text and numbering, refusal and Escape, and the "Local changes"
+  // review-tab entry with its gates.
+  'diff-review',
   // The change list's flat / tree views (issue #99): directory rows and counts,
   // folding, directory-level stage and discard, the path filter, remembered view.
   'changes-tree',

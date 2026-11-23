@@ -43,7 +43,9 @@ import { PanelMenuContext } from './menu-context.js'
 import { PanelRootContext } from './panel-root.js'
 import { usePanelMenu } from './use-panel-menu.js'
 import { contextMenusOf } from './menu-register.js'
-import { insertSessionQuote } from './quote.js'
+import { insertSessionQuote, quoteAvailable, sessionDraft } from './quote.js'
+import { openReviewView, reviewViewAvailable } from './review-view.js'
+import type { ReviewHost } from './DiffReviewBar.js'
 import { CompareHost, type CompareRequest } from './compare-host.js'
 import { compareApplies } from './compare-refs.js'
 import { runRemoteFetch } from './fetch-report.js'
@@ -657,6 +659,27 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       menus?.notify(ok ? t('menu.quoteFailed') : t('menu.copyFailed'), false)
     })
   }, [ctx, sessionId, t])
+  // Diff line comments (ADR-0038): offered only where a composer can take
+  // them, so a gutter never invites a comment that has nowhere to go. The
+  // repository root rides along because the panel may show a checkout other
+  // than the session cwd.
+  const reviewRoot = view.state === 'ready' ? view.snapshot.root : null
+  const canReview = hasSession(sessionId) && quoteAvailable(ctx, sessionId)
+  const reviewHost = useMemo((): ReviewHost | undefined => {
+    if (!canReview || !hasSession(sessionId)) return undefined
+    return {
+      ...(reviewRoot === null ? {} : { repository: reviewRoot }),
+      add: (text, summary) => insertSessionQuote(ctx, sessionId, text, summary),
+      draft: () => sessionDraft(ctx, sessionId),
+    }
+  }, [canReview, ctx, sessionId, reviewRoot])
+  // The platform's "Local changes" tab reads the session checkout only, so the
+  // entry exists for the default repository alone.
+  const reviewViewOn = reviewViewAvailable(ctx, sessionId, repo)
+  const openLocalReview = useCallback((path: string): void => {
+    if (!hasSession(sessionId)) return
+    if (!openReviewView(ctx, sessionId, path)) contextMenusOf(ctx)?.notify(t('diff.openReviewViewFailed'), false)
+  }, [ctx, sessionId, t])
   const menuSources = useCallback(
     (): readonly MenuSource[] => (hasSession(sessionId) ? [controllerFor(sessionId)] : []),
     [sessionId],
@@ -955,6 +978,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       menuCommandsRef: overviewCommandsRef,
       menuFactsRef: overviewStateRef,
       onQuote: quoteRun,
+      ...(reviewHost === undefined ? {} : { review: reviewHost }),
       // The About dialog's switch-off writes the plugin setting; without the
       // settings service there is no way back on, so no button either.
       ...(hasConfigForms(ctx) ? { onDisableFlow: () => writePanelConfigField(ctx, 'flowEnabled', false) } : {}),
@@ -983,7 +1007,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     const snapshot = view.snapshot
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), onSetChangesView: (view) => writePanelConfigField(ctx, 'changesView', view), compact, stacked, cramped, repositories: compact ? undefined : repositories, panelMenu, menuCommandsRef: changesCommandsRef, menuFactsRef: changesStateRef, menuPickRef: changesPickRef, t })
+        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), onSetChangesView: (view) => writePanelConfigField(ctx, 'changesView', view), compact, stacked, cramped, repositories: compact ? undefined : repositories, panelMenu, menuCommandsRef: changesCommandsRef, menuFactsRef: changesStateRef, menuPickRef: changesPickRef, ...(reviewHost === undefined ? {} : { review: reviewHost }), ...(reviewViewOn ? { onOpenReviewView: openLocalReview } : {}), t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list
@@ -1143,6 +1167,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
         key: `compare:${sessionId}:${repo}`, remote: repoRemote, sessionId, request: compare,
         compact, defaultDiffView: view.state === 'ready' ? view.snapshot.defaultDiffView : 'unified',
         onClose: () => setCompare(null), t,
+        ...(reviewHost === undefined ? {} : { review: reviewHost }),
       })
       : null,
     h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) },

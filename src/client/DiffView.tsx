@@ -24,6 +24,8 @@ import { imageSideLabel } from './menu-paths.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import type { GitKey } from './locales.js'
 import type { DiffBase, DiffMode } from './views/diff/diff-types.js'
+import { ReviewBar, useDiffReview, type DiffReview, type ReviewPicking } from './DiffReviewBar.js'
+import { reviewRangeHas, type ReviewSide } from './review-quote.js'
 
 /** unified = single inline column; split = side-by-side; before/after show one
  * side's full content. */
@@ -84,10 +86,13 @@ interface DiffViewProps {
    * context at -U, so the text alone is ambiguous at the file end). Required:
    * a caller that omits it would silently lose the trailing expand control. */
   readonly newLines: number
+  /** Line comments into the composer (ADR-0038). Absent: the gutters stay
+   * plain numbers. Must be a stable object — this component is memoized. */
+  readonly review?: DiffReview
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-export const DiffView = memo(function DiffView({ visible = true, text, mode, path, remote, sessionId, base, commit, rev, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
+export const DiffView = memo(function DiffView({ visible = true, text, mode, path, remote, sessionId, base, commit, rev, expanded, truncated, newLines, review, t }: DiffViewProps): JSX.Element {
   const dismissedNotices = useDismissedNotices()
   const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
@@ -114,6 +119,8 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     setRows((prev) => retargetTrailingGap(prev, newLines) ?? baseRows)
   }, [text, newLines, baseRows])
   const expand = useGapExpander(setRows, remote, sessionId, path, base, commit, text, newLines)
+  const reviewState = useDiffReview(review, text, rows, path)
+  const picking = reviewState.picking
 
   // An SVG is both an image (rendered old/new comparison) and text (a source
   // diff). It gets a render/source toggle, defaulting to the rendered view;
@@ -347,8 +354,10 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
       const lines: Array<JSX.Element | null> = [leadPad]
       for (let i = windowFirst; i < windowLast; i++) {
         const line = numbered[i]!
-        lines.push(h('div', { key: `n${i}`, className: 'gp-diff-no' }, line.no ?? ''))
-        lines.push(codeCell('gp-diff-cell', `c${i}`, line.text, hlCached, find, i))
+        const side: ReviewSide = mode === 'before' ? 'L' : 'R'
+        const sel = reviewRangeHas(picking?.range ?? null, side, line.no)
+        lines.push(gutterCell(`n${i}`, line.no, side, picking, sel))
+        lines.push(codeCell(`gp-diff-cell${sel ? ' gp-diff-cell--sel' : ''}`, `c${i}`, line.text, hlCached, find, i))
       }
       lines.push(tailPad)
       return h('div', { className: 'gp-diff__single', ref: bodyRef }, lines)
@@ -356,14 +365,14 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     if (unified !== null) {
       const out: Array<JSX.Element | null> = [leadPad]
       for (let i = windowFirst; i < windowLast; i++) {
-        out.push(...renderUnifiedRow(unified[i]!, i, hlCached, expand, find, t))
+        out.push(...renderUnifiedRow(unified[i]!, i, hlCached, expand, find, t, picking))
       }
       out.push(tailPad)
       return h('div', { className: 'gp-diff__unified', ref: bodyRef }, out)
     }
     const out: Array<JSX.Element | null> = [leadPad]
     for (let i = windowFirst; i < windowLast; i++) {
-      out.push(...renderRow(rows[i]!, i, hlCached, expand, find, t))
+      out.push(...renderRow(rows[i]!, i, hlCached, expand, find, t, picking))
     }
     out.push(tailPad)
     return h('div', { className: 'gp-diff__side', ref: bodyRef }, out)
@@ -402,7 +411,10 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     failedText !== null && !dismissedNotices.isDismissed(noticeKey(failedText))
       ? h(NoticeBar, { key: 'expand-failed', text: failedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(noticeKey(failedText)) })
       : null,
-    h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl, style: { '--gp-gutter-w': gutterW } }, body),
+    h('div', { key: 'scroll', className: `gp-diff__scroll${picking !== null ? ' gp-diff__scroll--review' : ''}`, ref: setViewportEl, style: { '--gp-gutter-w': gutterW } }, body),
+    review !== undefined && path !== undefined && reviewState.draft !== null
+      ? h(ReviewBar, { key: 'review', review, path, draft: reviewState.draft, stale: reviewState.stale, onDone: reviewState.clear, t })
+      : null,
   ])
   return svg ? svgFrame(svgView, setSvgView, wrapped, t) : wrapped
 })
@@ -540,9 +552,28 @@ function afterLines(rows: readonly SideRow[]): NumberedLine[] {
   return rows.filter((r) => r.rightText !== null).map((r) => ({ no: r.rightNo, text: r.rightText as string }))
 }
 
+/**
+ * A line-number cell. With comments on, a numbered cell picks its line (Shift
+ * grows the range); the cell stays a plain grid cell so the row geometry and
+ * its measurement are the same with comments on or off.
+ */
+function gutterCell(key: string, no: number | null, side: ReviewSide, picking: ReviewPicking | null, selected: boolean): JSX.Element {
+  if (picking === null || no === null) return h('div', { key, className: 'gp-diff-no' }, no ?? '')
+  return h('div', {
+    key, className: `gp-diff-no gp-diff-no--pick${selected ? ' gp-diff-no--sel' : ''}`,
+    'data-side': side, 'data-line': no,
+    onClick: (e: { shiftKey: boolean; preventDefault: () => void }) => {
+      // Shift+click would otherwise extend the page's text selection too.
+      if (e.shiftKey) e.preventDefault()
+      picking.pick(side, no, e.shiftKey)
+    },
+  }, no)
+}
+
 function renderRow(
   row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
+  picking: ReviewPicking | null = null,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' }, 'data-r': i }, row.text ?? '')]
@@ -550,8 +581,10 @@ function renderRow(
   if (row.kind === 'gap') {
     return [renderGap(row.gap!, i, expand, t)]
   }
-  const leftCls = row.kind === 'del' || row.kind === 'mod' ? 'gp-diff-row--del' : ''
-  const rightCls = row.kind === 'add' || row.kind === 'mod' ? 'gp-diff-row--add' : ''
+  const leftSel = reviewRangeHas(picking?.range ?? null, 'L', row.leftNo)
+  const rightSel = reviewRangeHas(picking?.range ?? null, 'R', row.rightNo)
+  const leftCls = `${row.kind === 'del' || row.kind === 'mod' ? 'gp-diff-row--del' : ''}${leftSel ? ' gp-diff-cell--sel' : ''}`
+  const rightCls = `${row.kind === 'add' || row.kind === 'mod' ? 'gp-diff-row--add' : ''}${rightSel ? ' gp-diff-cell--sel' : ''}`
   const leftCell = row.leftText === null
     ? h('div', { key: `l${i}`, className: `gp-diff-cell ${leftCls}` })
     : row.kind === 'mod' && row.leftWord !== undefined
@@ -563,9 +596,9 @@ function renderRow(
       ? wordCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', hl, find, i)
       : codeCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, hl, find, i)
   return [
-    h('div', { key: `ln${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
+    gutterCell(`ln${i}`, row.leftNo, 'L', picking, leftSel),
     leftCell,
-    h('div', { key: `rn${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),
+    gutterCell(`rn${i}`, row.rightNo, 'R', picking, rightSel),
     rightCell,
   ]
 }
@@ -578,6 +611,7 @@ function renderRow(
 function renderUnifiedRow(
   row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
+  picking: ReviewPicking | null = null,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' }, 'data-r': i }, row.text ?? '')]
@@ -587,7 +621,9 @@ function renderUnifiedRow(
   }
   const isDel = row.kind === 'del'
   const isAdd = row.kind === 'add'
-  const rowCls = isAdd ? 'gp-diff-row--add' : isDel ? 'gp-diff-row--del' : ''
+  const oldSel = reviewRangeHas(picking?.range ?? null, 'L', row.leftNo)
+  const newSel = reviewRangeHas(picking?.range ?? null, 'R', row.rightNo)
+  const rowCls = `${isAdd ? 'gp-diff-row--add' : isDel ? 'gp-diff-row--del' : ''}${oldSel || newSel ? ' gp-diff-cell--sel' : ''}`
   const sign = isAdd ? '+' : isDel ? '\u2212' : '\u00a0'
   const content = row.rightText ?? row.leftText ?? ''
   const wordRange = isAdd ? row.rightWord : isDel ? row.leftWord : undefined
@@ -597,8 +633,8 @@ function renderUnifiedRow(
     ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, hl, find, i)
     : codeCell(codeCls, `c${i}`, content, hl, find, i)
   return [
-    h('div', { key: `ol${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
-    h('div', { key: `nl${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),
+    gutterCell(`ol${i}`, row.leftNo, 'L', picking, oldSel),
+    gutterCell(`nl${i}`, row.rightNo, 'R', picking, newSel),
     h('div', { key: `sg${i}`, className: `gp-diff-uni__sign ${rowCls}` }, sign),
     code,
   ]
