@@ -212,3 +212,44 @@ test('a refreshed diff keeps a comment current only while its hunk reads the sam
   assert.equal(reviewSnippetCurrent(snippet, changed, range, () => undefined), false)
   assert.equal(reviewSnippetCurrent(snippet, [], range, () => undefined), false, 'the hunk is gone')
 })
+
+test('a side the whole hunk leaves empty keeps its own start in a window', () => {
+  // A new file, a deleted file and a zero-context insertion: git already
+  // writes that side's start as the line before, so the window must not
+  // subtract one again.
+  const added = parseReviewHunks(['@@ -0,0 +1,20 @@', ...Array.from({ length: 20 }, (_, i) => `+n${i + 1}`)].join('\n'))
+  assert.equal(reviewSnippet(added, { side: 'R', anchor: 10, start: 10, end: 10 }, () => undefined).text.split('\n')[0], '@@ -0,0 +7,7 @@')
+  assert.equal(reviewSnippet(added, { side: 'R', anchor: 1, start: 1, end: 1 }, () => undefined).text.split('\n')[0], '@@ -0,0 +1,4 @@')
+  const deleted = parseReviewHunks(['@@ -1,20 +0,0 @@', ...Array.from({ length: 20 }, (_, i) => `-o${i + 1}`)].join('\n'))
+  assert.equal(reviewSnippet(deleted, { side: 'L', anchor: 10, start: 10, end: 10 }, () => undefined).text.split('\n')[0], '@@ -7,7 +0,0 @@')
+  const inserted = parseReviewHunks(['@@ -5,0 +6,12 @@', ...Array.from({ length: 12 }, (_, i) => `+x${i + 1}`)].join('\n'))
+  assert.equal(reviewSnippet(inserted, { side: 'R', anchor: 12, start: 12, end: 12 }, () => undefined).text.split('\n')[0], '@@ -5,0 +9,7 @@')
+})
+
+test('expanded context keeps a comment current while the quoted window reads the same', () => {
+  const small = parseReviewHunks(['@@ -1,3 +1,4 @@', ' a1', '+b2', ' c3', ' d4'].join('\n'))
+  const range = { side: 'R', anchor: 2, start: 2, end: 2 }
+  const snippet = reviewSnippet(small, range, () => undefined)
+  assert.equal(snippet.text.split('\n')[0], '@@ -1,3 +1,4 @@', 'the whole small hunk, under git\'s header')
+  const tail = Array.from({ length: 7 }, (_, i) => ` t${i + 5}`)
+  const wide = parseReviewHunks(['@@ -1,10 +1,11 @@', ' a1', '+b2', ' c3', ' d4', ...tail].join('\n'))
+  assert.equal(reviewSnippetCurrent(snippet, wide, range, () => undefined), true, 'a wider hunk still holds the window')
+  const edited = parseReviewHunks(['@@ -1,10 +1,11 @@', ' a1', '+b2', ' c3-edited', ' d4', ...tail].join('\n'))
+  assert.equal(reviewSnippetCurrent(snippet, edited, range, () => undefined), false, 'a quoted context line changed')
+  const shifted = parseReviewHunks(['@@ -1,11 +1,12 @@', ' z0', ' a1', '+b2', ' c3', ' d4', ...tail].join('\n'))
+  assert.equal(reviewSnippetCurrent(snippet, shifted, { ...range, anchor: 3, start: 3, end: 3 }, () => undefined), false, 'the same text at other numbers')
+
+  // A rebuilt window survives the hunk growing around it, too.
+  const long = parseReviewHunks(['@@ -1,20 +1,20 @@', ...Array.from({ length: 20 }, (_, i) => ` line ${i + 1}`)].join('\n'))
+  const mid = { side: 'R', anchor: 10, start: 10, end: 10 }
+  const frozen = reviewSnippet(long, mid, () => undefined)
+  const longer = parseReviewHunks(['@@ -1,40 +1,40 @@', ...Array.from({ length: 40 }, (_, i) => ` line ${i + 1}`)].join('\n'))
+  assert.equal(reviewSnippetCurrent(frozen, longer, mid, () => undefined), true)
+
+  // Revealed context compares the picked lines wherever they are rendered now.
+  const code = { kind: 'code', text: 'const ten = 10' }
+  const at10 = { side: 'R', anchor: 10, start: 10, end: 10 }
+  assert.equal(reviewSnippetCurrent(code, longer, at10, (side, line) => (side === 'R' && line === 10 ? 'const ten = 10' : undefined)), true)
+  assert.equal(reviewSnippetCurrent(code, longer, at10, () => 'other'), false)
+  assert.equal(reviewSnippetCurrent(code, longer, at10, () => undefined), false, 'no longer rendered')
+})

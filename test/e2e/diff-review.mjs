@@ -9,7 +9,9 @@
  * Escape closes the form wherever its focus is, not what surrounds it, and
  * hands the keyboard back to the gutter; the gutters work from the keyboard
  * through one tab stop; a refreshed diff that moved the code marks the comment
- * stale and keeps its frozen quote; an unreadable draft still numbers on; the
+ * stale and keeps its frozen quote; expanding the context keeps the form, its
+ * text and its pick; a composing Escape reaches neither the enlarged card nor
+ * the commit dialog; an unreadable draft still numbers on; the
  * review-tab button opens the session's local changes at the file, fits the
  * compact toolbar, and is absent without the bundle.
  *
@@ -275,6 +277,17 @@ await page.locator(gutter('R', 2)).click()
 await page.locator('.gp-review__input').press('Escape')
 assert.equal(await page.locator('.gp-review').count(), 0, 'the first Escape closes the form')
 assert.equal(await page.locator('.gp-diff--card').count(), 1, 'and leaves the card open')
+// A composing Escape belongs to the input method: neither the form nor the
+// card around it takes it.
+await page.locator(gutter('R', 2)).click()
+await page.locator('.gp-review__input').fill('卡片里的组合输入')
+await page.locator('.gp-review__input').evaluate((el) => {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }))
+})
+assert.equal(await page.locator('.gp-diff--card').count(), 1, 'a composing Escape leaves the card open')
+assert.equal(await page.locator('.gp-review__input').inputValue(), '卡片里的组合输入', 'and the comment in it')
+await page.locator('.gp-review__input').press('Escape')
+assert.equal(await page.locator('.gp-review').count(), 0)
 // The same from a button of the form: the card does not take the key.
 await page.locator(gutter('R', 2)).click()
 await page.locator('.gp-review__actions .gp-btn:not(.gp-btn--primary)').focus()
@@ -300,6 +313,58 @@ const staleQuote = await page.evaluate(() => window.__review.quotes.at(-1))
 assert.equal(await page.evaluate(() => window.__review.quotes.length), quotesBefore + 1, 'a stale comment can still be added')
 assert.ok(staleQuote.text.includes('\n+line2\n') && !staleQuote.text.includes('line2-edited'), 'the quote keeps the frozen snippet')
 await page.evaluate(() => { window.__fixture.diffText = null })
+
+// Expanding the context keeps the diff mounted: the comment being written, its
+// text and its pick survive, and a wider hunk around the same lines is not
+// "changed code".
+await page.locator('.gp-changes__refresh').click()
+await page.waitForFunction(() => !(document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line2-edited'))
+await page.evaluate(() => {
+  window.__fixture.diffContextText = [
+    'diff --git a/a.txt b/a.txt', '--- a/a.txt', '+++ b/a.txt', '@@ -1,5 +1,6 @@',
+    ' line1', '+line2', ' line3', ' line4', ' line5', ' line6',
+  ].join('\n')
+})
+await page.locator(gutter('R', 2)).click()
+await page.locator('.gp-review__input').fill('Half written.')
+await page.locator('.gp-diff__expand').click()
+await page.waitForFunction(() => (document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line6'))
+assert.equal(await page.locator('.gp-review').count(), 1, 'expanding the context keeps the form')
+assert.equal(await page.locator('.gp-review__input').inputValue(), 'Half written.', 'and its text')
+assert.equal(await page.locator('.gp-review__stale').count(), 0, 'a wider hunk is not changed code')
+assert.equal(await page.locator('.gp-diff-no--sel').count(), 1, 'the pick stays tinted')
+await page.locator('.gp-review__input').press('Escape')
+await page.locator('.gp-diff__expand').click()
+await page.waitForFunction(() => !(document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line6'))
+await page.evaluate(() => { window.__fixture.diffContextText = null })
+
+// The commit file-diff dialog closes on any Escape that reaches the document;
+// a composing one stays with the form, and the dialog with it.
+await page.locator('[role="tab"]').nth(0).click()
+await page.locator('.gp-commit-row').first().click()
+const commitFile = page.locator('.gp-tree-row').filter({ hasText: 'index.ts' }).first()
+await commitFile.click()
+await page.waitForSelector('.gp-modal .gp-diff-no--pick')
+await page.locator('.gp-modal .gp-diff-no--pick[data-side="R"]').first().click()
+await page.locator('.gp-modal .gp-review__input').fill('弹窗里的组合输入')
+await page.locator('.gp-modal .gp-review__input').evaluate((el) => {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }))
+})
+assert.equal(await page.locator('.gp-modal').count(), 1, 'a composing Escape leaves the commit dialog open')
+assert.equal(await page.locator('.gp-modal .gp-review__input').inputValue(), '弹窗里的组合输入', 'and the comment in it')
+// Expanding the dialog's context keeps the comment too.
+const diffQueries = await page.evaluate(() => window.__fixture.queries.filter((k) => k === 'diff').length)
+await page.locator('.gp-modal .gp-diff__expand').click()
+await page.waitForFunction((n) => window.__fixture.queries.filter((k) => k === 'diff').length > n, diffQueries)
+await page.waitForSelector('.gp-modal .gp-diff__expand[aria-pressed="true"]')
+await page.waitForTimeout(150)
+assert.equal(await page.locator('.gp-modal .gp-review__input').inputValue(), '弹窗里的组合输入', 'expanding the dialog keeps the comment')
+await page.locator('.gp-modal .gp-review__input').press('Escape')
+assert.equal(await page.locator('.gp-modal .gp-review').count(), 0, 'a plain Escape closes the form first')
+assert.equal(await page.locator('.gp-modal').count(), 1, 'and only the form')
+await page.keyboard.press('Escape')
+assert.equal(await page.locator('.gp-modal').count(), 0, 'the next Escape closes the dialog')
+await page.locator('[role="tab"]').nth(1).click()
 
 // The review-tab entry opens the session's local changes at this file.
 const reviewBtn = page.locator('.gp-diff__review-btn')

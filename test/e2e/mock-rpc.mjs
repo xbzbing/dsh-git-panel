@@ -14,6 +14,8 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     // A whole diff served verbatim for `a.txt`, with its new-side line count:
     // the long-diff scenarios need more rows than the one-line fixture has.
     diffFullText: null, diffFullNewLines: 0,
+    // A diff served for `a.txt` when the query asks for expanded context.
+    diffContextText: null,
     fetchError: null, holdFetch: false, releaseFetch: null,
     suggestCalls: 0, releaseSuggest: null,
     defaultStashes: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }],
@@ -138,6 +140,9 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             // An SVG is text: git produces a real source diff for it.
             if (q.path.endsWith('.svg')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/icon.svg b/icon.svg\n--- a/icon.svg\n+++ b/icon.svg\n@@ -1 +1 @@\n-<svg width="1"/>\n+<svg width="2"/>\n', newLines: 1 } } }
             if (q.path.endsWith('.ts')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-const count = 1\n+const count = 2\n', newLines: 1 } } }
+            if (fixture.diffContextText !== null && q.path === 'a.txt' && q.context !== undefined) {
+              return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: fixture.diffContextText, newLines: 6 } } }
+            }
             if (fixture.diffFullText !== null && q.path === 'a.txt') {
               return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: fixture.diffFullText, newLines: fixture.diffFullNewLines } } }
             }
