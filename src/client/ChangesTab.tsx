@@ -146,7 +146,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // Drives the expand-bar wording ("已展开" + collapse); a fresh mount starts
   // capped even if the controller kept its fullChanges mode.
   const [listExpanded, setListExpanded] = useState(false)
-  const { stashes, diffPath, diffData, expanded, showDiff } = useChangesData(
+  const { stashes, diffPath, diffData, expanded, diffExpanded, showDiff } = useChangesData(
     remote, sessionId, snapshot, queryVisible, () => setError(t('error.generic')), queryKey,
   )
   const [diffMode, setDiffMode] = useState<DiffMode>(() => snapshot.defaultDiffView)
@@ -940,10 +940,11 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     mode: { options: diffModes, current: effDiffMode, onChange: setDiffMode },
     copy: { feedback: pathCopy.feedback, onCopy: () => pathCopy.copy() },
     expanded,
+    diffExpanded,
     compact, queryVisible, remote, sessionId, t,
     ...(diffReview === undefined ? {} : { review: diffReview }),
     ...(onOpenReviewView === undefined ? {} : { onOpenReviewView }),
-    onToggleExpand: () => { if (diffPath !== null) void showDiff(diffPath.path, diffPath.base, !expanded) },
+    onToggleExpand: () => { if (diffPath !== null) void showDiff(diffPath.path, diffPath.base, !expanded, true) },
     onBackToList: () => setPane('list'),
   })
 

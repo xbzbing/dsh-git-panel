@@ -981,12 +981,13 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     mode: detail.fileDiffMode,
     onMode: detail.setFileDiffMode,
     expanded: detail.fileDiffExpanded,
+    dataExpanded: detail.fileDiffDataExpanded,
     onExpand: (expand) => {
       const target = detail.fileDiff
       // The overview's own dialog only ever holds a commit; the revision shape
       // belongs to compare-host, which renders this modal itself.
       if (target === null || !('hash' in target)) return
-      detail.openFileDiff(target.path, target.hash, target.shortHash, expand)
+      detail.openFileDiff(target.path, target.hash, target.shortHash, expand, true)
     },
     onClose: detail.closeFileDiff,
     pathFeedback: pathCopy.feedback,

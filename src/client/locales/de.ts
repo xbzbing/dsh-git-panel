@@ -521,6 +521,7 @@ export const de: Record<GitKey, string> = {
   'diff.reviewAdd': 'Zum Eingabefeld hinzufügen',
   'diff.reviewFailed': 'Konnte nicht zum Eingabefeld hinzugefügt werden. Der Kommentar bleibt erhalten; kehren Sie zum Chat zurück und versuchen Sie es erneut.',
   'diff.reviewStale': 'Der Code hat sich geändert. Das Zitat behält den ausgewählten Code; prüfen Sie ihn vor dem Hinzufügen.',
+  'diff.reviewHidden': 'Die ausgewählten Zeilen werden im Diff gerade nicht angezeigt (der Kontext ist evtl. eingeklappt). Das Zitat behält den ausgewählten Code; prüfen Sie ihn vor dem Hinzufügen.',
   'diff.openReviewView': 'In „Lokale Änderungen“ prüfen',
   'diff.openReviewViewFailed': 'Der Tab „Lokale Änderungen“ konnte nicht geöffnet werden',
   'diff.truncated': 'Die git-Ausgabe hat das Ausgabelimit überschritten: Nur das Ende dieser Unterschiede ist erhalten, die ersten Änderungen und die +/−-Zähler fehlen möglicherweise',

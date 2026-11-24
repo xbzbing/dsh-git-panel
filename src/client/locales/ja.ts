@@ -520,6 +520,7 @@ export const ja: Record<GitKey, string> = {
   'diff.reviewAdd': '入力欄に追加',
   'diff.reviewFailed': '入力欄に追加できませんでした。コメントは残っています。チャットに戻って再試行してください。',
   'diff.reviewStale': 'コードが変更されました。引用は選択時のコードのままです。確認してから追加してください。',
+  'diff.reviewHidden': '選択した行は現在の差分に表示されていません（コンテキストを折りたたんだ可能性があります）。引用は選択時のコードのままです。確認してから追加してください。',
   'diff.openReviewView': '「ローカルの変更」でレビュー',
   'diff.openReviewViewFailed': '「ローカルの変更」タブを開けませんでした',
   'diff.truncated': 'git の出力が上限を超えました：この差分は末尾のみ残っているため、冒頭の変更と +/- の集計が欠けている可能性があります',

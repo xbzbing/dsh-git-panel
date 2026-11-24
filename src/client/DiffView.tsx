@@ -74,8 +74,10 @@ interface DiffViewProps {
   readonly commit?: string
   /** The revision a `base: 'rev'` comparison reads its old side from. */
   readonly rev?: string
-  /** True while the toolbar's "expand all" is engaged. Only then can hidden
-   * context be a surprise, so only then does the capped notice render. */
+  /** True when `text` was read with "expand all" context. Only then can hidden
+   * context be a surprise, so only then does the capped notice render. Callers
+   * pass the expansion of the text on screen, not the toolbar's pending one:
+   * a context switch keeps the old text until the new one arrives. */
   readonly expanded?: boolean
   /** The host flagged the diff text as truncated (the runner dropped the head
    * of its output at the cap): surviving hunks stay readable, but the header and

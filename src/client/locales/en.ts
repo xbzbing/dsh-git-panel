@@ -520,6 +520,7 @@ export const en: Record<GitKey, string> = {
   'diff.reviewAdd': 'Add to input',
   'diff.reviewFailed': 'Couldn’t add to the input. The comment is kept; return to the chat and try again.',
   'diff.reviewStale': 'The code has changed. The quote keeps the code you picked; check it before adding.',
+  'diff.reviewHidden': 'The picked lines aren’t shown in the diff now (the context may be collapsed). The quote keeps the code you picked; check it before adding.',
   'diff.openReviewView': 'Review in Local changes',
   'diff.openReviewViewFailed': 'Couldn’t open the Local changes tab',
   'diff.truncated': 'git output exceeded the output cap: only the tail of this diff survived, so the opening changes and the +/- counts may be missing',

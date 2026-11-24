@@ -15,8 +15,9 @@ import type { GitKey } from './locales.js'
 import { KEYS_OWNER_ATTR } from './dialog-focus.js'
 import {
   formatReviewQuote, parseReviewHunks, pickReviewLine, reviewQuoteSummary,
-  reviewRangeLabel, reviewSnippet, reviewSnippetCurrent,
+  reviewRangeLabel, reviewSnippet, reviewSnippetState,
   type ReviewHunk, type ReviewLineRange, type ReviewQuoteSummary, type ReviewSide, type ReviewSnippet, type ReviewSource,
+  type ReviewSnippetState,
 } from './review-quote.js'
 
 /** What a diff surface hands the renderer to accept comments. Build it once
@@ -80,7 +81,8 @@ function rowText(rows: readonly SideRow[]): (side: ReviewSide, line: number) => 
 export function useDiffReview(review: DiffReview | undefined, text: string, rows: readonly SideRow[], path: string | undefined): {
   readonly picking: ReviewPicking | null
   readonly draft: Draft | null
-  readonly stale: boolean
+  /** Why the frozen snippet no longer matches the screen, or null while it does. */
+  readonly stale: Exclude<ReviewSnippetState, 'current'> | null
   readonly clear: () => void
 } {
   // Without a comment target no gutter picks, so the hunks are never read.
@@ -99,14 +101,16 @@ export function useDiffReview(review: DiffReview | undefined, text: string, rows
     const snippet = reviewSnippet(hunks, range, lineText)
     if (snippet !== null) setDraft({ range, snippet })
   }, [hunks, lineText])
-  // A refreshed diff may have moved the code under the picked numbers. The
-  // comment keeps the snippet the reader saw and says so, rather than tinting
-  // whatever those numbers hold now.
-  const stale = useMemo(
-    () => draft !== null && !reviewSnippetCurrent(draft.snippet, hunks, draft.range, lineText),
-    [draft, hunks, lineText],
-  )
-  const picking = review === undefined ? null : { range: draft === null || stale ? null : draft.range, pick }
+  // A refreshed diff may have moved the code under the picked numbers, or a
+  // narrower context may no longer render them. The comment keeps the snippet
+  // the reader saw and says which, rather than tinting whatever those numbers
+  // hold now.
+  const stale = useMemo(() => {
+    if (draft === null) return null
+    const state = reviewSnippetState(draft.snippet, hunks, draft.range, lineText)
+    return state === 'current' ? null : state
+  }, [draft, hunks, lineText])
+  const picking = review === undefined ? null : { range: draft === null || stale !== null ? null : draft.range, pick }
   return { picking, draft: review === undefined ? null : draft, stale, clear }
 }
 
@@ -114,7 +118,7 @@ interface ReviewBarProps {
   readonly review: DiffReview
   readonly path: string
   readonly draft: Draft
-  readonly stale: boolean
+  readonly stale: Exclude<ReviewSnippetState, 'current'> | null
   readonly onDone: () => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
@@ -166,7 +170,7 @@ export function ReviewBar({ review, path, draft, stale, onDone, t }: ReviewBarPr
       h('span', { key: 'title', className: 'gp-review__title' }, t('diff.reviewTitle', { range })),
       h('span', { key: 'hint', className: 'gp-review__hint' }, t('diff.reviewHint')),
     ]),
-    stale ? h('div', { key: 'stale', className: 'gp-review__stale', role: 'status' }, t('diff.reviewStale')) : null,
+    stale === null ? null : h('div', { key: 'stale', className: 'gp-review__stale', role: 'status' }, t(stale === 'changed' ? 'diff.reviewStale' : 'diff.reviewHidden')),
     h('textarea', {
       key: 'input', ref: inputRef, className: 'gp-review__input', rows: 3, value: body,
       placeholder: t('diff.reviewPlaceholder'), 'aria-label': t('diff.reviewPlaceholder'),

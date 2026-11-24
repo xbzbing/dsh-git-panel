@@ -41,6 +41,9 @@ interface ChangesDiffPaneProps {
   readonly mode: DiffModeSwitch
   readonly copy: PathCopyControl
   readonly expanded: boolean
+  /** Whether `diffData` was read with expanded context; lags `expanded` while
+   * a context switch loads. */
+  readonly diffExpanded: boolean
   readonly compact: boolean
   /** Diff queries are gated by page visibility; the DiffView follows it. */
   readonly queryVisible: boolean
@@ -58,7 +61,7 @@ interface ChangesDiffPaneProps {
 
 /** The diff area. `keys` stay on the returned nodes so React reuses them. */
 export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
-  const { diffPath, diffData, summary, card, mode: modeSwitch, copy, expanded, compact, queryVisible, remote, sessionId, t, onToggleExpand, onBackToList, review, onOpenReviewView } = props
+  const { diffPath, diffData, summary, card, mode: modeSwitch, copy, expanded, diffExpanded, compact, queryVisible, remote, sessionId, t, onToggleExpand, onBackToList, review, onOpenReviewView } = props
   const { visible: cardOpen, cardRef } = card
   return diffPath === null
     ? h('div', { className: 'gp-empty' }, t('changes.selectFile'))
@@ -155,6 +158,6 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
       })()),
       diffData === null
         ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
-        : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: modeSwitch.current, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, ...(review === undefined ? {} : { review }), t }),
+        : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: modeSwitch.current, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded: diffExpanded, truncated: diffData.truncated === true, newLines: diffData.newLines, ...(review === undefined ? {} : { review }), t }),
     ])
 }

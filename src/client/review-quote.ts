@@ -323,43 +323,93 @@ export function reviewQuoteSummary(path: string, range: ReviewLineRange, body: s
 }
 
 /**
+ * Where a frozen snippet stands against the diff on screen: `current` (it still
+ * reads the same at the same numbers), `changed` (the code there differs) or
+ * `hidden` (the picked lines are not rendered now, e.g. collapsed context, so
+ * nothing can be compared).
+ */
+export type ReviewSnippetState = 'current' | 'changed' | 'hidden'
+
+/** Index of the body line holding `line` on `side`, or -1. */
+function lineIndex(numbered: NumberedHunk, side: ReviewSide, line: number): number {
+  const before = side === 'L' ? numbered.oldBefore : numbered.newBefore
+  return numbered.hunk.lines.findIndex((text, i) => occupies(text, side) && before[i] === line)
+}
+
+/**
+ * Whether the hunk now covering a range still holds the frozen window: aligned
+ * on the first picked line, every frozen line the hunk spans reads the same and
+ * the other side's numbers have not moved. Frozen context past the hunk's edges
+ * (a narrower hunk after collapsing) is not on screen and is not compared, but
+ * the picked lines must all be inside it.
+ */
+function windowHolds(frozen: NumberedHunk, now: NumberedHunk, range: ReviewLineRange): boolean {
+  const first = lineIndex(frozen, range.side, range.start)
+  const last = lineIndex(frozen, range.side, range.end)
+  const at = lineIndex(now, range.side, range.start)
+  if (first < 0 || last < 0 || at < 0) return false
+  const shift = at - first
+  if (last + shift >= now.hunk.lines.length) return false
+  for (let i = 0; i < frozen.hunk.lines.length; i++) {
+    const j = i + shift
+    if (j < 0 || j >= now.hunk.lines.length) continue
+    if (frozen.hunk.lines[i] !== now.hunk.lines[j]) return false
+  }
+  // A frozen window with no line on the other side states no number there to
+  // keep (git names the line it follows); otherwise that side must not shift.
+  const otherCount = range.side === 'L' ? frozen.hunk.newLines : frozen.hunk.oldLines
+  if (otherCount === 0) return true
+  const frozenOther = range.side === 'L' ? frozen.newBefore : frozen.oldBefore
+  const nowOther = range.side === 'L' ? now.newBefore : now.oldBefore
+  return frozenOther[first] === nowOther[at]
+}
+
+/** The picked lines' text in a frozen window, without patch marks. */
+function pickedText(frozen: NumberedHunk, range: ReviewLineRange): string {
+  const before = range.side === 'L' ? frozen.oldBefore : frozen.newBefore
+  const lines: string[] = []
+  frozen.hunk.lines.forEach((text, i) => {
+    if (occupies(text, range.side) && before[i]! >= range.start && before[i]! <= range.end) lines.push(text.slice(1))
+  })
+  return lines.join('\n')
+}
+
+/**
  * Whether a frozen snippet still describes the diff now on screen. A hunk
- * snippet is current while the hunk now covering the range still holds the
- * quoted window, line for line at the same numbers: an edit elsewhere in the
- * hunk, or a wider hunk from expanded context, leaves the quote accurate. A code
- * snippet is current while the picked lines read the same, wherever they are
- * rendered now. A stale comment keeps its frozen snippet and asks the reader to
+ * snippet stays current while the hunk now covering the range holds the quoted
+ * window at the same numbers: an edit elsewhere in the hunk, or a wider or
+ * narrower hunk from switching the context, leaves the quote accurate. Picked
+ * lines now outside every hunk, and a code snippet, compare the rendered text
+ * of the picked lines; lines not rendered at all are `hidden`, not `changed`.
+ * A comment that is not current keeps its frozen snippet and asks the reader to
  * check it instead of re-pointing it at whatever the line numbers hold now.
  */
-export function reviewSnippetCurrent(
+export function reviewSnippetState(
   snippet: ReviewSnippet, hunks: readonly ReviewHunk[], range: ReviewLineRange,
   lineText: (side: ReviewSide, line: number) => string | undefined,
-): boolean {
-  if (snippet.kind === 'code') {
+): ReviewSnippetState {
+  const rendered = (): string | null => {
     const lines: string[] = []
     for (let line = range.start; line <= range.end; line++) {
       const text = lineText(range.side, line)
-      if (text === undefined) return false
+      if (text === undefined) return null
       lines.push(text)
     }
-    return lines.join('\n') === snippet.text
+    return lines.join('\n')
   }
+  const compare = (expected: string): ReviewSnippetState => {
+    const now = rendered()
+    return now === null ? 'hidden' : now === expected ? 'current' : 'changed'
+  }
+  if (snippet.kind === 'code') return compare(snippet.text)
+  const frozenHunk = parseReviewHunks(snippet.text)[0]
+  if (frozenHunk === undefined) return 'changed'
+  const frozen = numberHunk(frozenHunk)
   const at = reviewHunkIndex(hunks, range.side, range.start)
-  if (at < 0) return false
-  const hunk = hunks[at]!
-  if (wholeHunk(hunk) === snippet.text) return true
-  const header = HUNK_HEADER.exec(snippet.text)
-  if (header === null) return false
-  const size = snippet.text.split('\n').length - 1
-  if (size < 1 || size > hunk.lines.length) return false
-  // The window's first line on the range's side carries the header's start, so
-  // only the few offsets where that counter matches can hold it.
-  const start = Number(range.side === 'L' ? header[1] : header[3])
-  const numbered = numberHunk(hunk)
-  const before = range.side === 'L' ? numbered.oldBefore : numbered.newBefore
-  for (let from = 0; from + size <= hunk.lines.length; from++) {
-    if (before[from] !== start) continue
-    if (windowText(numbered, from, from + size - 1) === snippet.text) return true
+  if (at >= 0 && at === reviewHunkIndex(hunks, range.side, range.end)) {
+    const hunk = hunks[at]!
+    if (wholeHunk(hunk) === snippet.text) return 'current'
+    return windowHolds(frozen, numberHunk(hunk), range) ? 'current' : 'changed'
   }
-  return false
+  return compare(pickedText(frozen, range))
 }

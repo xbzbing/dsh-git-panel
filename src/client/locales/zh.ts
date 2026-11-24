@@ -542,6 +542,7 @@ export const zh = {
   'diff.reviewAdd': '添加到输入框',
   'diff.reviewFailed': '没能添加到输入框，评论已保留，请回到对话后重试',
   'diff.reviewStale': '代码已经变化：引用的仍是选中时的代码，请核对后再添加',
+  'diff.reviewHidden': '选中的行不在当前显示的差异里（例如收起了上下文）：引用的仍是选中时的代码，请核对后再添加',
   'diff.openReviewView': '在「本地变更」中审阅',
   'diff.openReviewViewFailed': '没能打开「本地变更」页签',
   'diff.truncated': 'git 输出超出上限：此差异只保留了尾段，开头的改动与增删统计可能缺失',

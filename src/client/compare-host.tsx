@@ -177,6 +177,8 @@ function RevDiffOverlay(props: {
   // The comparison's old side is the picked revision; the quote names it.
   const revReview = useMemo(() => diffReviewOf(review, { kind: 'rev', rev }), [review, rev])
   const [data, setData] = useState<GitDiffPayload | null>(null)
+  // The expansion `data` was read with; lags `expanded` while a switch loads.
+  const [dataExpanded, setDataExpanded] = useState(false)
   const [error, setError] = useState(false)
   const [mode, setMode] = useState<DiffMode>(defaultMode)
   const [expanded, setExpanded] = useState(false)
@@ -213,6 +215,7 @@ function RevDiffOverlay(props: {
       const diff = queryAs(res, 'diff')
       if (diff === null) { setData(null); setError(true); return }
       setData({ text: diff.text, newLines: diff.newLines, truncated: diff.truncated })
+      setDataExpanded(expanded)
     })
   }, [remote, sessionId, path, rev, expanded])
 
@@ -223,7 +226,7 @@ function RevDiffOverlay(props: {
   }, [onClose])
 
   return renderFileDiffModal({ path, rev, label }, {
-    visible: true, data, error, mode, onMode: setMode, expanded, onExpand: setExpanded,
+    visible: true, data, error, mode, onMode: setMode, expanded, dataExpanded, onExpand: setExpanded,
     onClose, pathFeedback: copy.feedback, onCopyPath: copy.copy, remote, sessionId, compact, t,
     ...(revReview === undefined ? {} : { review: revReview }),
     version: {

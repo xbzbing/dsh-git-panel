@@ -521,6 +521,7 @@ export const fr: Record<GitKey, string> = {
   'diff.reviewAdd': 'Ajouter au champ de saisie',
   'diff.reviewFailed': 'Impossible d’ajouter au champ de saisie. Le commentaire est conservé ; revenez à la discussion et réessayez.',
   'diff.reviewStale': 'Le code a changé. La citation garde le code choisi ; vérifiez-le avant de l’ajouter.',
+  'diff.reviewHidden': 'Les lignes choisies ne sont plus affichées dans le diff (le contexte est peut-être replié). La citation garde le code choisi ; vérifiez-le avant de l’ajouter.',
   'diff.openReviewView': 'Examiner dans Modifications locales',
   'diff.openReviewViewFailed': 'Impossible d’ouvrir l’onglet Modifications locales',
   'diff.truncated': 'La sortie de git a dépassé la limite : seule la fin de ces différences a été conservée, les premières modifications et les compteurs +/- peuvent donc manquer',

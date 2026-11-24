@@ -521,6 +521,7 @@ export const es: Record<GitKey, string> = {
   'diff.reviewAdd': 'Añadir al campo de entrada',
   'diff.reviewFailed': 'No se pudo añadir al campo de entrada. El comentario se conserva; vuelve al chat e inténtalo de nuevo.',
   'diff.reviewStale': 'El código ha cambiado. La cita conserva el código elegido; revísalo antes de añadirla.',
+  'diff.reviewHidden': 'Las líneas elegidas no se muestran ahora en el diff (quizá se contrajo el contexto). La cita conserva el código elegido; revísalo antes de añadirla.',
   'diff.openReviewView': 'Revisar en Cambios locales',
   'diff.openReviewViewFailed': 'No se pudo abrir la pestaña Cambios locales',
   'diff.truncated': 'La salida de git superó el límite: solo se conservó el final de estas diferencias, así que pueden faltar los primeros cambios y los recuentos +/-',

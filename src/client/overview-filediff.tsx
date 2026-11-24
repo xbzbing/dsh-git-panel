@@ -48,7 +48,11 @@ export interface FileDiffModalCbs {
   error: boolean
   mode: DiffMode
   onMode: (mode: DiffMode) => void
+  /** Whether the context is expanded for the next diff (the toolbar's state). */
   expanded: boolean
+  /** Whether `data` was read with expanded context; lags `expanded` while a
+   * context switch loads. */
+  dataExpanded: boolean
   onExpand: (expand: boolean) => void
   onClose: () => void
   /** Click-to-copy state of the header path: idle until the user copies. */
@@ -80,7 +84,7 @@ export function renderFileDiffModal(
 ): JSX.Element | null {
   if (fileDiff === null || typeof document === 'undefined') return null
   const commitSide = 'hash' in fileDiff
-  const { visible, data, error, mode, onMode, expanded, onExpand, onClose, pathFeedback, onCopyPath, remote, sessionId, compact, version, review, t } = cb
+  const { visible, data, error, mode, onMode, expanded, dataExpanded, onExpand, onClose, pathFeedback, onCopyPath, remote, sessionId, compact, version, review, t } = cb
   const view = version?.view ?? 'diff'
   // Compact drops the side-by-side mode (no room on a phone) and renders split
   // as unified instead; the preference itself is left untouched.
@@ -211,7 +215,7 @@ export function renderFileDiffModal(
       ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
       : h(DiffView, {
         key: 'diff', visible, text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId,
-        expanded, truncated: data.truncated === true, newLines: data.newLines, t,
+        expanded: dataExpanded, truncated: data.truncated === true, newLines: data.newLines, t,
         ...(review === undefined ? {} : { review }),
         ...(commitSide ? { base: 'commit' as const, commit: fileDiff.hash } : { base: 'rev' as const, rev: fileDiff.rev }),
       })
