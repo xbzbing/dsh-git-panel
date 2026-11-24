@@ -8,7 +8,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import './_tmp-ceiling.mjs'
 import { linkOrSkip } from './_fs-helpers.mjs'
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, sep } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
@@ -959,7 +959,18 @@ test('a cancelled worktree read is not remembered as "no worktrees"', async () =
       return inner(argv, opts)
     },
   }
-  assert.equal((await resolveWorkspace(deps, SID, '../wt-outside')).ok, false, 'this request has no answer')
+  const unanswered = await resolveWorkspace(deps, SID, '../wt-outside')
+  assert.equal(unanswered.ok, false, 'this request has no answer')
+  // The refusal says it is not evidence, so the client keeps a remembered pick.
+  assert.equal(unanswered.failure.error.code, 'invalid-repo')
+  assert.equal(unanswered.failure.error.unverified, true)
+  // The same mark has to survive the endpoint the client actually calls: the
+  // snapshot is what the panel reads, not `resolveWorkspace`.
+  cancels = 2
+  const sample = await snapshotForSession(deps, DEFAULT_CONFIG, SID, { repo: '../wt-outside' })
+  assert.equal(sample.ok, false)
+  assert.equal(sample.error.code, 'invalid-repo')
+  assert.equal(sample.error.unverified, true, 'the wire carries the distinction')
   // The next request runs git again: a cancelled read is "unknown", not "the
   // repository has no worktrees", and caching it would refuse every such row
   // for a whole window.
@@ -999,4 +1010,232 @@ test('a path reused by another repository is refused inside the window', async (
   // records: the cached entry is re-verified, not trusted because the string
   // matches.
   assert.equal((await resolveWorkspace(deps, SID, '../wt')).ok, false)
+})
+
+test('a refusal git answered is definitive: no unverified mark', async () => {
+  const deps = cachedDepsAt(wtRepo)
+  const refused = await resolveWorkspace(deps, SID, 'no-such-checkout')
+  assert.equal(refused.ok, false)
+  assert.equal(refused.failure.error.code, 'invalid-repo')
+  assert.equal(refused.failure.error.unverified, undefined)
+  const snap = await snapshotForSession(deps, DEFAULT_CONFIG, SID, { repo: 'no-such-checkout' })
+  assert.equal(snap.ok, false)
+  assert.equal(snap.error.unverified, undefined)
+})
+
+test('repo-list says whether the worktree probe answered', async () => {
+  const deps = cachedDepsAt(wtRepo)
+  assert.equal((await listSessionRepos(deps, SID, true, undefined, 'off')).value.worktrees, 'ok')
+  // The probe switched off is a definitive "no worktree rows", not a failure.
+  assert.equal((await listSessionRepos(deps, SID, false, undefined, 'off')).value.worktrees, 'ok')
+
+  const inner = deps.run.run.bind(deps.run)
+  deps.run = {
+    run: async (argv, opts) => {
+      if (argv[1] === 'worktree' && argv[2] === 'list') {
+        return { exitCode: null, stdout: '', stderr: '', cancelled: false, timedOut: true }
+      }
+      return inner(argv, opts)
+    },
+  }
+  const listed = (await listSessionRepos(deps, SID, true, undefined, 'off')).value
+  assert.equal(listed.worktrees, 'failed', 'a timed-out probe cannot prove a checkout is gone')
+  assert.equal(listed.repos.some((entry) => entry.path === '../wt-outside'), false, 'the row is missing for now')
+
+  // A cwd outside any repository is an answer: no worktrees to miss.
+  assert.equal((await listSessionRepos(depsAt(ws), SID, true, undefined, 'off')).value.worktrees, 'ok')
+})
+
+test('a workspace file that cannot be read leaves the refusal unverified', async () => {
+  // The half of the refusal the worktree door cannot speak for: a folder only
+  // the `.code-workspace` allow-list admits is refused while that file is
+  // unreadable, but the folder is still there — the client must only fall back
+  // for this load, not forget the pick.
+  const file = join(hub, 'hub.code-workspace')
+  const good = readFileSync(file, 'utf8')
+  const deps = { ...depsAt(hub), rootNegCache: new Map() }
+  try {
+    writeFileSync(file, '{ not json')
+    const broken = await resolveWorkspace(deps, SID, '../outer', 'auto')
+    assert.equal(broken.ok, false)
+    assert.equal(broken.failure.error.code, 'invalid-repo')
+    assert.equal(broken.failure.error.unverified, true, 'the allow-list could not be built')
+    // No negative cache either: the next request after the repair resolves,
+    // where a definitive refusal would have poisoned the window.
+    writeFileSync(file, good)
+    const repaired = await resolveWorkspace(deps, SID, '../outer', 'auto')
+    assert.equal(repaired.ok, true, 'the refusal was not remembered')
+
+    // A named file that is not there is the same shape of answer: the setting
+    // names it, so the file may come back (renamed, restored) at any time.
+    const missing = await resolveWorkspace({ ...depsAt(hub), rootNegCache: new Map() }, SID, '../outer', 'typo.code-workspace')
+    assert.equal(missing.ok, false)
+    assert.equal(missing.failure.error.unverified, true)
+
+    // Several candidates and no choice is equally "we could not build it".
+    const second = join(hub, 'second.code-workspace')
+    writeFileSync(second, JSON.stringify({ folders: [] }))
+    try {
+      const ambiguous = await resolveWorkspace({ ...depsAt(hub), rootNegCache: new Map() }, SID, '../outer', 'auto')
+      assert.equal(ambiguous.ok, false)
+      assert.equal(ambiguous.failure.error.unverified, true)
+    } finally {
+      rmSync(second, { force: true })
+    }
+  } finally {
+    writeFileSync(file, good)
+  }
+})
+
+test('a workspace file that parses and omits the folder is a definitive refusal', async () => {
+  // The allow-list was built and the folder is not in it: the user edited the
+  // file, so the pick really is gone — forgetting it is the right repair.
+  const listed = await resolveWorkspace({ ...depsAt(hub), rootNegCache: new Map() }, SID, '../other', 'auto')
+  assert.equal(listed.ok, false)
+  assert.equal(listed.failure.error.code, 'invalid-repo')
+  assert.equal(listed.failure.error.unverified, undefined)
+})
+
+test('a selector that resolves to nothing is definitive whatever the doors could read', async () => {
+  // A deleted nested repository (or a `../` one) is refused by every door no
+  // matter what the workspace file or git would say, so an unreadable setting
+  // must not keep the tab's pick alive forever.
+  const second = join(hub, 'second.code-workspace')
+  writeFileSync(second, JSON.stringify({ folders: [] }))
+  try {
+    for (const repo of ['gone-sub', '../never-existed']) {
+      const deps = { ...depsAt(hub), rootNegCache: new Map() }
+      const refused = await resolveWorkspace(deps, SID, repo, 'auto')
+      assert.equal(refused.ok, false, repo)
+      assert.equal(refused.failure.error.code, 'invalid-repo', repo)
+      assert.equal(refused.failure.error.unverified, undefined, repo + ' is gone, not unanswered')
+      assert.equal(deps.rootNegCache.size, 1, repo + ' arms the negative cache')
+    }
+  } finally {
+    rmSync(second, { force: true })
+  }
+  // Same where git never answers: nothing outside the cwd carries that name.
+  const deps = cachedDepsAt(wtRepo)
+  deps.run = { run: async () => { throw new Error('spawn git ENOENT') } }
+  const silent = await resolveWorkspace(deps, SID, '../never-existed')
+  assert.equal(silent.failure.error.code, 'invalid-repo')
+  assert.equal(silent.failure.error.unverified, undefined)
+})
+
+test('an unknown allow-list does not spend a git run on the certified door', async () => {
+  const second = join(hub, 'second.code-workspace')
+  writeFileSync(second, JSON.stringify({ folders: [] }))
+  try {
+    const deps = { ...depsAt(hub), rootNegCache: new Map() }
+    const inner = deps.run.run.bind(deps.run)
+    let toplevels = 0
+    deps.run = {
+      run: async (argv, opts) => {
+        if (argv[1] === 'rev-parse' && argv[2] === '--show-toplevel' && samePathAs(opts.cwd, hub)) toplevels += 1
+        return inner(argv, opts)
+      },
+    }
+    const refused = await resolveWorkspace(deps, SID, '../outer', 'auto')
+    assert.equal(refused.failure.error.unverified, true)
+    assert.equal(toplevels, 0, 'the verdict was already "unverified"')
+  } finally {
+    rmSync(second, { force: true })
+  }
+})
+
+test('the certified door reuses the cached default repository instead of asking git', async () => {
+  const deps = { ...cachedDepsAt(wtRepo), rootCache: new Map() }
+  assert.equal((await resolveWorkspace(deps, SID)).ok, true, 'the default repository is resolved first')
+  const inner = deps.run.run.bind(deps.run)
+  let toplevels = 0
+  deps.run = {
+    run: async (argv, opts) => {
+      if (argv[1] === 'worktree' && argv[2] === 'list') {
+        return { exitCode: null, stdout: '', stderr: '', cancelled: false, timedOut: true }
+      }
+      if (argv[1] === 'rev-parse' && argv[2] === '--show-toplevel') toplevels += 1
+      return inner(argv, opts)
+    },
+  }
+  const refused = await resolveWorkspace(deps, SID, '../wt-outside')
+  assert.equal(refused.failure.error.unverified, true)
+  assert.equal(toplevels, 0, 'the cwd is known to be a repository')
+})
+
+test('git missing leaves an existing external selector unverified', async () => {
+  const deps = cachedDepsAt(wtRepo)
+  deps.run = { run: async () => { throw new Error('spawn git ENOENT') } }
+  const refused = await resolveWorkspace(deps, SID, '../wt-outside')
+  assert.equal(refused.ok, false)
+  assert.equal(refused.failure.error.code, 'invalid-repo')
+  assert.equal(refused.failure.error.unverified, true, 'git could not say whether the cwd owns it')
+  assert.equal(deps.rootNegCache.size, 0)
+})
+
+test('repo-list marks the probe failed when git cannot place the workspace repository', async () => {
+  for (const [label, outcome] of [
+    ['timeout', { exitCode: null, stdout: '', stderr: '', cancelled: false, timedOut: true }],
+    ['cancelled', { exitCode: null, stdout: '', stderr: '', cancelled: true, timedOut: false }],
+    ['git missing', null],
+  ]) {
+    const deps = cachedDepsAt(wtRepo)
+    const inner = deps.run.run.bind(deps.run)
+    deps.run = {
+      run: async (argv, opts) => {
+        if (argv[1] === 'rev-parse' && argv[2] === '--show-toplevel') {
+          if (outcome === null) throw new Error('spawn git ENOENT')
+          return outcome
+        }
+        return inner(argv, opts)
+      },
+    }
+    const probed = await listSessionRepos(deps, SID, true, undefined, 'off')
+    assert.equal(probed.value.worktrees, 'failed', label + ': the probe never got to run')
+    const off = await listSessionRepos(deps, SID, false, undefined, 'off')
+    assert.equal(off.value.worktrees, 'ok', label + ': no probe was asked for')
+  }
+})
+
+test('repo-list marks the probe failed when the outside checkouts cannot be certified', async () => {
+  const deps = cachedDepsAt(wtRepo)
+  const inner = deps.run.run.bind(deps.run)
+  deps.run = {
+    run: async (argv, opts) => {
+      if (argv[1] === 'rev-parse' && argv[2] === '--git-common-dir') {
+        return { exitCode: null, stdout: '', stderr: '', cancelled: false, timedOut: true }
+      }
+      return inner(argv, opts)
+    },
+  }
+  const listed = (await listSessionRepos(deps, SID, true, undefined, 'off')).value
+  assert.equal(listed.worktrees, 'failed')
+  const outside = listed.repos.find((entry) => entry.path === '../wt-outside')
+  assert.equal(outside?.disabled, 'uncertified', 'the row is listed but cannot be chosen for now')
+})
+
+function samePathAs(a, b) {
+  try {
+    return realpathSync.native(a) === realpathSync.native(b)
+  } catch {
+    return false
+  }
+}
+
+test('an unknown allow-list only clouds the selectors its door takes', async (t) => {
+  // A symlink inside the cwd that lands outside it is not an outward selector,
+  // so the workspace-file door never sees it; with the certified door answered
+  // (a plain hub has no worktree records) the refusal is definitive.
+  const link = join(hub, 'link-outer')
+  if (!linkOrSkip(t, outer, link, 'dir')) return
+  const second = join(hub, 'second.code-workspace')
+  writeFileSync(second, JSON.stringify({ folders: [] }))
+  try {
+    const refused = await resolveWorkspace({ ...depsAt(hub), rootNegCache: new Map() }, SID, 'link-outer', 'auto')
+    assert.equal(refused.ok, false)
+    assert.equal(refused.failure.error.code, 'invalid-repo')
+    assert.equal(refused.failure.error.unverified, undefined)
+  } finally {
+    rmSync(second, { force: true })
+    rmSync(link, { force: true })
+  }
 })

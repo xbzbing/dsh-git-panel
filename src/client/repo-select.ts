@@ -6,8 +6,16 @@
  * relative to the session cwd — '' means "the repository the cwd belongs to",
  * which is the historical behavior. State is module-level so the pill, all
  * three tabs and every RPC share one choice per session.
+ *
+ * The module is the only reader and writer of the tab's pick record
+ * (pick-store.ts): a session's record is read once, on its first lookup after
+ * the module loads, and every deliberate pick writes it back. A repair either
+ * stays in memory (the host could not confirm the pick this time; the next
+ * module load tries it again) or forgets the record too (the host answered
+ * that the selector is gone).
  */
 import type { GitPanelRemote } from './rpc.js'
+import { readPick, updatePicks, type FilesPick, type PickRecord } from './pick-store.js'
 
 const selections = new Map<string, string>()
 
@@ -16,20 +24,89 @@ const selections = new Map<string, string>()
  * picked" and "picked `''` on purpose" would be the same state. */
 const rootPicks = new Set<string>()
 
+/** Sessions whose stored record this module has already read. A record is read
+ * once per module load: a repair that cleared memory must not be undone by the
+ * next lookup reading the record back. */
+const loaded = new Set<string>()
+
+/** Sessions whose file-root pick came back from a record made under a follow
+ * config no sample of this module has confirmed yet (see syncFilesFollowConfig). */
+const unconfirmedFollow = new Map<string, boolean>()
+
+/** Sessions whose stored file-root pick carries no follow value: it was made
+ * before any sample of this module read the config. The first sample stamps
+ * it with the value in force, so a later flip can still retire it. */
+const unstampedFollow = new Set<string>()
+
+/** Move a session's stored record into memory, once. No notification: a read
+ * only fills in what the store already held before the module reloaded. */
+function hydrate(sessionId: string): void {
+  if (loaded.has(sessionId)) return
+  loaded.add(sessionId)
+  const record = readPick(sessionId)
+  if (record === undefined) return
+  if (record.repo !== undefined) selections.set(sessionId, record.repo)
+  else if (record.rootPick === true) rootPicks.add(sessionId)
+  if (record.files === undefined) return
+  if (record.follow !== undefined && followConfig !== undefined && record.follow !== followConfig.value) {
+    // The picks belong to a setting that is no longer in force.
+    updatePicks([sessionId], withoutFiles, { touch: false })
+    return
+  }
+  applyFilesPick(sessionId, record.files)
+  if (record.follow !== undefined) {
+    if (followConfig === undefined) unconfirmedFollow.set(sessionId, record.follow)
+  } else if (followConfig !== undefined) stampFollow([sessionId], followConfig.value)
+  else unstampedFollow.add(sessionId)
+}
+
+/** Record the follow config a session's file-root pick now belongs to. */
+function stampFollow(ids: readonly string[], follow: boolean): void {
+  updatePicks(ids, (record) => {
+    if (record === undefined) return undefined
+    const { at: _at, ...rest } = record
+    return rest.files === undefined ? rest : { ...rest, follow }
+  }, { touch: false })
+}
+
+function withoutFiles(record: PickRecord | undefined): Omit<PickRecord, 'at'> | undefined {
+  if (record === undefined) return undefined
+  const { files: _files, follow: _follow, at: _at, ...rest } = record
+  return rest
+}
+
+/** Write the session's repository pick (memory is the source) into its record. */
+function persistRepo(sessionId: string): void {
+  updatePicks([sessionId], (record) => {
+    const { repo: _repo, rootPick: _rootPick, at: _at, ...rest } = record ?? { at: 0 }
+    const repo = selections.get(sessionId)
+    return {
+      ...rest,
+      ...(repo !== undefined ? { repo } : rootPicks.has(sessionId) ? { rootPick: true as const } : {}),
+    }
+  })
+}
+
 /** The repository this session follows ('' = the cwd's own repository). */
 export function selectedRepo(sessionId: string): string {
+  hydrate(sessionId)
   return selections.get(sessionId) ?? ''
 }
 
 /** Whether this session ever chose a checkout — including a deliberate return
  * to the workspace root. A repair (dropRepo) is not a choice. */
 export function hasRepoPick(sessionId: string): boolean {
+  hydrate(sessionId)
   return selections.has(sessionId) || rootPicks.has(sessionId)
 }
 
 /** Point a session at another repository; '' records a deliberate pick of the
- * workspace root (the reset of the selection itself, but not of the intent). */
-export function selectRepo(sessionId: string, repo: string): void {
+ * workspace root (the reset of the selection itself, but not of the intent).
+ * `persist: false` keeps the pick in memory only: an automatic pick (the panel
+ * choosing a session's first sub-repository) is not the user's intent, and
+ * writing it would pin every later load to a choice nobody made. */
+export function selectRepo(sessionId: string, repo: string, options: { readonly persist?: boolean } = {}): void {
+  hydrate(sessionId)
   if (repo === '') {
     selections.delete(sessionId)
     rootPicks.add(sessionId)
@@ -37,14 +114,19 @@ export function selectRepo(sessionId: string, repo: string): void {
     rootPicks.delete(sessionId)
     selections.set(sessionId, repo)
   }
+  if (options.persist !== false) persistRepo(sessionId)
   notifySelection()
 }
 
-/** Forget any pick without recording intent: the repair path (a pick the host
- * can no longer resolve) must not read as "the user chose the root". */
-export function clearRepoPick(sessionId: string): void {
+/** Drop any pick without recording intent: the repair path (a pick the host
+ * can no longer resolve) must not read as "the user chose the root". By
+ * default only this module load falls back; `forget` also deletes the stored
+ * pick, for a refusal the host gave as definitive. */
+export function clearRepoPick(sessionId: string, options: { readonly forget?: boolean } = {}): void {
+  hydrate(sessionId)
   selections.delete(sessionId)
   rootPicks.delete(sessionId)
+  if (options.forget === true) persistRepo(sessionId)
   notifySelection()
 }
 
@@ -77,10 +159,50 @@ const filesRootPicks = new Set<string>()
  * repository whatever the config default says. */
 const filesFollowPicks = new Set<string>()
 
+function applyFilesPick(sessionId: string, pick: FilesPick): void {
+  if (pick.mode === 'pin') filesPicks.set(sessionId, pick.path)
+  else if (pick.mode === 'root') filesRootPicks.add(sessionId)
+  else filesFollowPicks.add(sessionId)
+}
+
+/** Write the session's file-root pick (memory is the source) into its record,
+ * with the follow config it was made under. */
+function persistFiles(sessionId: string): void {
+  unconfirmedFollow.delete(sessionId)
+  unstampedFollow.delete(sessionId)
+  const pin = filesPicks.get(sessionId)
+  const files: FilesPick | undefined = pin !== undefined
+    ? { mode: 'pin', path: pin }
+    : filesRootPicks.has(sessionId)
+      ? { mode: 'root' }
+      : filesFollowPicks.has(sessionId) ? { mode: 'follow' } : undefined
+  const follow = followConfig?.value
+  if (files !== undefined && follow === undefined) unstampedFollow.add(sessionId)
+  updatePicks([sessionId], (record) => {
+    const rest = withoutFiles(record) ?? {}
+    return files === undefined ? rest : { ...rest, files, ...(follow !== undefined ? { follow } : {}) }
+  })
+}
+
+/** Bumped on every file-root change the store makes on its own (a repair, a
+ * config flip) or on a panel's behalf, so every mounted copy re-renders. */
+let filesVersion = 0
+
+/** The file-root state's version, for `useSyncExternalStore`. */
+export function filesRootVersion(): number {
+  return filesVersion
+}
+
+function notifyFiles(): void {
+  filesVersion += 1
+  notifySelection()
+}
+
 /** The selector file-browser requests run under: an explicit choice first (a
  * root pick, then the follow opt-in), else the config default — off parks at
  * the project root, on follows the repository the panel follows. */
 export function filesRootSelector(sessionId: string, follow: boolean): string {
+  hydrate(sessionId)
   const pick = filesPicks.get(sessionId)
   if (pick !== undefined) return pick
   if (filesRootPicks.has(sessionId)) return ''
@@ -92,6 +214,7 @@ export function filesRootSelector(sessionId: string, follow: boolean): string {
  * null = following (the follow row highlights then). An unchosen session
  * reads its source off the config default: on → follow, off → project root. */
 export function filesRootPick(sessionId: string, follow: boolean): string | null {
+  hydrate(sessionId)
   if (filesRootPicks.has(sessionId)) return ''
   const pick = filesPicks.get(sessionId)
   if (pick !== undefined) return pick
@@ -102,6 +225,7 @@ export function filesRootPick(sessionId: string, follow: boolean): string | null
 /** Root the browser at a candidate ('' = the project root); picking a root
  * ends any follow opt-in. */
 export function pickFilesRoot(sessionId: string, path: string): void {
+  hydrate(sessionId)
   filesFollowPicks.delete(sessionId)
   if (path === '') {
     filesPicks.delete(sessionId)
@@ -110,26 +234,36 @@ export function pickFilesRoot(sessionId: string, path: string): void {
     filesRootPicks.delete(sessionId)
     filesPicks.set(sessionId, path)
   }
+  persistFiles(sessionId)
+  notifyFiles()
 }
 
 /** The checkout a session's browser is pinned to, when it picked one. */
 export function pinnedFilesRoot(sessionId: string): string | undefined {
+  hydrate(sessionId)
   return filesPicks.get(sessionId)
 }
 
 /** Drop a session's checkout pin without recording intent: the repair path
  * when the pinned checkout left the list — the session returns to the config
- * default, exactly like a session that never picked. */
-export function clearFilesRootPin(sessionId: string): void {
+ * default, exactly like a session that never picked. `forget` also deletes the
+ * stored pin, as for clearRepoPick. */
+export function clearFilesRootPin(sessionId: string, options: { readonly forget?: boolean } = {}): void {
+  hydrate(sessionId)
   filesPicks.delete(sessionId)
+  if (options.forget === true) persistFiles(sessionId)
+  notifyFiles()
 }
 
 /** Choose the follow row: the browser tracks the switched repository again —
  * an opt-in that holds whatever the config default says. */
 export function resumeFilesRootFollow(sessionId: string): void {
+  hydrate(sessionId)
   filesPicks.delete(sessionId)
   filesRootPicks.delete(sessionId)
   filesFollowPicks.add(sessionId)
+  persistFiles(sessionId)
+  notifyFiles()
 }
 
 /** Drop every session's override: flipping the follow config re-arms the
@@ -138,6 +272,19 @@ export function resetFilesRootPicks(): void {
   filesPicks.clear()
   filesRootPicks.clear()
   filesFollowPicks.clear()
+  unconfirmedFollow.clear()
+  unstampedFollow.clear()
+  updatePicks('all', withoutFiles, { touch: false })
+  notifyFiles()
+}
+
+/** Drop one session's file-root override, in memory and in its record. */
+function dropFilesPick(sessionId: string): void {
+  filesPicks.delete(sessionId)
+  filesRootPicks.delete(sessionId)
+  filesFollowPicks.delete(sessionId)
+  unstampedFollow.delete(sessionId)
+  updatePicks([sessionId], withoutFiles, { touch: false })
 }
 
 /** The follow config as last read off a ready sample, with that sample's
@@ -154,16 +301,33 @@ export function knownFilesFollowConfig(): boolean | undefined {
  * Feed the follow config from a ready sample. Only a change seen on a sample
  * newer than the last one read re-arms the default (every override dropped):
  * the first sighting is a mount, not a flip, and an older sample — a hidden
- * session's cached view — must not flip it back.
+ * session's cached view — must not flip it back. A pick restored from a record
+ * made under another value than this sample carries is dropped the same way:
+ * the setting flipped while no module was there to see it.
  *
- * @returns Whether the overrides were reset.
+ * @returns Whether any override was dropped.
  */
 export function syncFilesFollowConfig(value: boolean, checkedAt: number): boolean {
   if (followConfig !== undefined && checkedAt <= followConfig.at) return false
   const flipped = followConfig !== undefined && followConfig.value !== value
   followConfig = { value, at: checkedAt }
-  if (flipped) resetFilesRootPicks()
-  return flipped
+  if (flipped) {
+    resetFilesRootPicks()
+    return true
+  }
+  if (unstampedFollow.size > 0) {
+    stampFollow([...unstampedFollow], value)
+    unstampedFollow.clear()
+  }
+  let dropped = false
+  for (const [sessionId, recorded] of unconfirmedFollow) {
+    if (recorded === value) continue
+    dropFilesPick(sessionId)
+    dropped = true
+  }
+  unconfirmedFollow.clear()
+  if (dropped) notifyFiles()
+  return dropped
 }
 
 /**

@@ -19,7 +19,7 @@ export type GitView =
   // broke) and the published one is the last good read. The panes keep working
   // on it and say so, instead of degrading to the file browser over a blip.
   | { readonly state: 'ready'; readonly snapshot: GitSnapshot; readonly stale?: true }
-  | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string; readonly showInputPill?: boolean; readonly isGitRepo?: boolean } }
+  | { readonly state: 'error'; readonly error: { readonly code: string; readonly detail?: string; readonly cwd?: string; readonly showInputPill?: boolean; readonly isGitRepo?: boolean; readonly unverified?: true } }
 
 export interface GitQuerySignal {
   readonly tick: number
@@ -167,6 +167,9 @@ export class GitController {
           // whether the panel surfaces the "git not installed" notice.
           const e = result.error as { detail?: string; cwd?: string; isGitRepo?: boolean }
           this.setView({ state: 'error', error: { code: 'git-unavailable', ...(e.detail ? { detail: e.detail } : {}), ...(e.cwd ? { cwd: e.cwd } : {}), ...(e.isGitRepo !== undefined ? { isGitRepo: e.isGitRepo } : {}) } })
+        } else if (result.error.code === 'invalid-repo') {
+          // `unverified` decides whether the panel forgets the remembered pick.
+          this.setView({ state: 'error', error: { code: 'invalid-repo', ...(result.error.unverified === true ? { unverified: true } : {}) } })
         } else {
           this.setView({ state: 'error', error: { code: result.error.code, ...('detail' in result.error ? { detail: (result.error as { detail?: string }).detail } : {}) } })
         }
