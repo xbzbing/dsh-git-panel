@@ -436,11 +436,12 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     onChange: setQuery, onToggleCase: () => setCaseSensitive((c) => !c),
     onStep: step, onClose: () => setFindOpen(false), t,
   }) : null
-  // The toolbar asked for a full expansion but hidden context remains → say so,
-  // and drop the notice the moment the last gap is consumed. Reading the parsed
-  // rows rather than the requested context size is what makes it exact: git can
-  // cover a whole file at 2000 lines of context when nearby edits merge their
-  // hunks, and can leave a gap short of 4000 lines when a hunk hugs one file edge.
+  // The text on screen was read with a full expansion but hidden context
+  // remains → say so, and drop the notice the moment the last gap is consumed.
+  // Reading the parsed rows rather than the requested context size is what
+  // makes it exact: git can cover a whole file at 2000 lines of context when
+  // nearby edits merge their hunks, and can leave a gap short of 4000 lines
+  // when a hunk hugs one file edge.
   const capped = expanded === true && rows.some((r) => r.kind === 'gap')
   const truncatedText = t('diff.truncated')
   const cappedText = t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT })

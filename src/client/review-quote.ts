@@ -379,8 +379,9 @@ function pickedText(frozen: NumberedHunk, range: ReviewLineRange): string {
  * snippet stays current while the hunk now covering the range holds the quoted
  * window at the same numbers: an edit elsewhere in the hunk, or a wider or
  * narrower hunk from switching the context, leaves the quote accurate. Picked
- * lines now outside every hunk, and a code snippet, compare the rendered text
- * of the picked lines; lines not rendered at all are `hidden`, not `changed`.
+ * lines no longer inside one hunk (outside every hunk, or split across two),
+ * and a code snippet, compare the rendered text of the picked lines; lines not
+ * rendered at all are `hidden`, not `changed`.
  * A comment that is not current keeps its frozen snippet and asks the reader to
  * check it instead of re-pointing it at whatever the line numbers hold now.
  */
