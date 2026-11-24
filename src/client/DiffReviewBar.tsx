@@ -14,9 +14,9 @@ import type { SideRow } from './diff.js'
 import type { GitKey } from './locales.js'
 import { KEYS_OWNER_ATTR } from './dialog-focus.js'
 import {
-  formatReviewQuote, nextReviewIndex, parseReviewHunks, pickReviewLine, reviewQuoteSummary,
+  formatReviewQuote, parseReviewHunks, pickReviewLine, reviewQuoteSummary,
   reviewRangeLabel, reviewSnippet, reviewSnippetCurrent,
-  type ReviewLineRange, type ReviewQuoteSummary, type ReviewSide, type ReviewSnippet, type ReviewSource,
+  type ReviewHunk, type ReviewLineRange, type ReviewQuoteSummary, type ReviewSide, type ReviewSnippet, type ReviewSource,
 } from './review-quote.js'
 
 /** What a diff surface hands the renderer to accept comments. Build it once
@@ -28,8 +28,8 @@ export interface DiffReview {
   readonly repository?: string
   /** Put one quote into the composer; false when the composer did not take it. */
   readonly add: (text: string, summary: ReviewQuoteSummary) => boolean
-  /** The composer's draft, read to number the next comment. */
-  readonly draft: () => string | undefined
+  /** The number the next comment takes (see `nextReviewIndex`). */
+  readonly nextIndex: () => number
 }
 
 /** The panel's half of a {@link DiffReview}: everything but which diff it is.
@@ -49,6 +49,8 @@ export interface ReviewPicking {
   /** Pick a line, or grow the range to it with Shift. */
   readonly pick: (side: ReviewSide, line: number, extend: boolean) => void
 }
+
+const NO_HUNKS: readonly ReviewHunk[] = []
 
 interface Draft {
   readonly range: ReviewLineRange
@@ -81,7 +83,8 @@ export function useDiffReview(review: DiffReview | undefined, text: string, rows
   readonly stale: boolean
   readonly clear: () => void
 } {
-  const hunks = useMemo(() => parseReviewHunks(text), [text])
+  // Without a comment target no gutter picks, so the hunks are never read.
+  const hunks = useMemo(() => (review === undefined ? NO_HUNKS : parseReviewHunks(text)), [review, text])
   const [draft, setDraft] = useState<Draft | null>(null)
   const draftRef = useRef<Draft | null>(null)
   draftRef.current = draft
@@ -128,7 +131,7 @@ export function ReviewBar({ review, path, draft, stale, onDone, t }: ReviewBarPr
   const empty = body.trim() === ''
   const add = (): void => {
     if (empty) return
-    const index = nextReviewIndex(review.draft())
+    const index = review.nextIndex()
     const text = formatReviewQuote({
       ...(review.repository === undefined ? {} : { repository: review.repository }),
       path, range: draft.range, source: review.source, snippet: draft.snippet, body,
@@ -143,8 +146,16 @@ export function ReviewBar({ review, path, draft, stale, onDone, t }: ReviewBarPr
     }
   }
   // Keys owner: the enlarged diff card closes on a capture-phase Escape, which
-  // must yield to the form — the comment is the innermost thing open.
-  return h('section', { className: 'gp-review', [KEYS_OWNER_ATTR]: '', 'aria-label': t('diff.reviewTitle', { range }) }, [
+  // must yield to the form — the comment is the innermost thing open. The form
+  // handles Escape wherever its focus is (the field or a button): an owned key
+  // nobody handles would fall through to the card's bubble listener.
+  const onKeyDown = (e: { key: string; defaultPrevented: boolean; preventDefault: () => void; stopPropagation: () => void }): void => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return
+    e.preventDefault()
+    e.stopPropagation()
+    onDone()
+  }
+  return h('section', { className: 'gp-review', [KEYS_OWNER_ATTR]: '', 'aria-label': t('diff.reviewTitle', { range }), onKeyDown }, [
     h('div', { key: 'head', className: 'gp-review__head' }, [
       h('span', { key: 'title', className: 'gp-review__title' }, t('diff.reviewTitle', { range })),
       h('span', { key: 'hint', className: 'gp-review__hint' }, t('diff.reviewHint')),
@@ -154,11 +165,8 @@ export function ReviewBar({ review, path, draft, stale, onDone, t }: ReviewBarPr
       key: 'input', ref: inputRef, className: 'gp-review__input', rows: 3, value: body,
       placeholder: t('diff.reviewPlaceholder'), 'aria-label': t('diff.reviewPlaceholder'),
       onChange: (e: { target: { value: string } }) => { setBody(e.target.value); if (failed) setFailed(false) },
-      onKeyDown: (e: { key: string; metaKey: boolean; ctrlKey: boolean; preventDefault: () => void; stopPropagation: () => void }) => {
-        // Escape closes the form, not the dialog around the diff: the comment
-        // is the innermost thing open.
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onDone() }
-        else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); add() }
+      onKeyDown: (e: { key: string; metaKey: boolean; ctrlKey: boolean; preventDefault: () => void }) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); add() }
       },
     }),
     failed ? h('div', { key: 'err', className: 'gp-review__error', role: 'alert' }, t('diff.reviewFailed')) : null,

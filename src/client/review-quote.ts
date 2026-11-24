@@ -280,9 +280,11 @@ const COMMENT_HEADING = /(?:^|\n)(?:> )?## User Comment (\d+)/g
  * The number the next comment takes: one past the highest already in the
  * draft, so this plugin and the platform's review tab never reuse a number.
  * @param draft - the composer's current draft, or undefined when unreadable.
+ * @param added - comments this panel has put into the session's composer; an
+ *   unreadable draft numbers on from them instead of restarting at 1.
  */
-export function nextReviewIndex(draft: string | undefined): number {
-  if (draft === undefined) return 1
+export function nextReviewIndex(draft: string | undefined, added = 0): number {
+  if (draft === undefined) return added + 1
   let highest = 0
   for (const match of draft.matchAll(COMMENT_HEADING)) highest = Math.max(highest, Number(match[1]))
   return highest + 1

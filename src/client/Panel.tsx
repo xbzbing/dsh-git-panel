@@ -46,6 +46,7 @@ import { contextMenusOf } from './menu-register.js'
 import { insertSessionQuote, quoteAvailable, sessionDraft } from './quote.js'
 import { openReviewView, reviewViewAvailable } from './review-view.js'
 import type { ReviewHost } from './DiffReviewBar.js'
+import { nextReviewIndex } from './review-quote.js'
 import { CompareHost, type CompareRequest } from './compare-host.js'
 import { compareApplies } from './compare-refs.js'
 import { runRemoteFetch } from './fetch-report.js'
@@ -665,12 +666,20 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // than the session cwd.
   const reviewRoot = view.state === 'ready' ? view.snapshot.root : null
   const canReview = hasSession(sessionId) && quoteAvailable(ctx, sessionId)
+  // Comments this panel put into each session's composer: the numbering
+  // fallback for a composer whose draft cannot be read. Keyed by session, so a
+  // repository switch (the same composer) keeps counting.
+  const reviewAdded = useRef(new Map<string, number>())
   const reviewHost = useMemo((): ReviewHost | undefined => {
     if (!canReview || !hasSession(sessionId)) return undefined
     return {
       ...(reviewRoot === null ? {} : { repository: reviewRoot }),
-      add: (text, summary) => insertSessionQuote(ctx, sessionId, text, summary),
-      draft: () => sessionDraft(ctx, sessionId),
+      add: (text, summary) => {
+        if (!insertSessionQuote(ctx, sessionId, text, summary)) return false
+        reviewAdded.current.set(sessionId, (reviewAdded.current.get(sessionId) ?? 0) + 1)
+        return true
+      },
+      nextIndex: () => nextReviewIndex(sessionDraft(ctx, sessionId), reviewAdded.current.get(sessionId) ?? 0),
     }
   }, [canReview, ctx, sessionId, reviewRoot])
   // The platform's "Local changes" tab reads the session checkout only, so the

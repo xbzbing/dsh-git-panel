@@ -111,16 +111,22 @@ export const CSS = `
  * readable. It is centered on the row's height, so a wrapped line shows it
  * beside the middle of its text. In the unified view the new-side number
  * carries it; a deletion has only an old-side number, whose badge skips the
- * empty new-side column. Pointer hover only: a touch has no hover to reveal it. */
+ * empty new-side column. Pointer hover only: a touch has no hover to reveal it.
+ * The badge's box and the gutter's own hover are separate rules from the
+ * :has() list: a browser without :has() drops that whole list, and still shows
+ * the badge while the pointer is on the number itself. */
 @media (hover:hover){
-.gp-diff-no--pick:hover::after,
+.gp-diff-no--pick::after{position:absolute;z-index:2;top:50%;transform:translateY(-50%);left:calc(100% + 1px);width:18px;height:18px;border-radius:4px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);font-size:14px;font-weight:600;line-height:18px;text-align:center}
+.gp-diff-no--pick:hover::after{content:'+'}
 .gp-diff-no--pick:has(+ .gp-diff-cell:hover)::after,
 .gp-diff-no--pick:has(+ .gp-diff-uni__sign:hover)::after,
 .gp-diff-no--pick:has(+ .gp-diff-uni__sign + .gp-diff-uni__code:hover)::after,
 .gp-diff-no--pick:has(+ .gp-diff-no:not(.gp-diff-no--pick) + .gp-diff-uni__sign:hover)::after,
-.gp-diff-no--pick:has(+ .gp-diff-no:not(.gp-diff-no--pick) + .gp-diff-uni__sign + .gp-diff-uni__code:hover)::after{content:'+';position:absolute;z-index:2;top:50%;transform:translateY(-50%);left:calc(100% + 1px);width:18px;height:18px;border-radius:4px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);font-size:14px;font-weight:600;line-height:18px;text-align:center}
+.gp-diff-no--pick:has(+ .gp-diff-no:not(.gp-diff-no--pick) + .gp-diff-uni__sign + .gp-diff-uni__code:hover)::after{content:'+'}
 .gp-diff-no--pick:has(+ .gp-diff-no)::after{left:calc(200% + 2px)}
 }
+.gp-diff-no--pick:focus{outline:none}
+.gp-diff-no--pick:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 /* Diff line comments (ADR-0038): the picked range keeps its add/del tint and
  * takes a business-colored layer above it, so a picked deletion still reads as
  * a deletion. */

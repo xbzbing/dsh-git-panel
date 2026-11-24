@@ -121,6 +121,21 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   const expand = useGapExpander(setRows, remote, sessionId, path, base, commit, text, newLines)
   const reviewState = useDiffReview(review, text, rows, path)
   const picking = reviewState.picking
+  const reviewAnchor = reviewState.draft?.range ?? null
+  const clearReview = reviewState.clear
+  // Closing the form from inside it (Cancel, Escape) hands the keyboard back to
+  // the gutter it was opened from, so the reader keeps their place instead of
+  // dropping to <body>. An added comment leaves focus alone: the composer has
+  // already taken it.
+  const closeReview = useCallback((): void => {
+    const wrap = containerRef.current
+    const inForm = wrap?.querySelector('.gp-review')?.contains(document.activeElement) === true
+    clearReview()
+    if (!inForm || wrap === null) return
+    const target = (reviewAnchor === null ? null : wrap.querySelector<HTMLElement>(gutterSelector(reviewAnchor.side, reviewAnchor.anchor)))
+      ?? wrap.querySelector<HTMLElement>('.gp-diff-no--pick')
+    target?.focus({ preventScroll: true })
+  }, [clearReview, reviewAnchor])
 
   // An SVG is both an image (rendered old/new comparison) and text (a source
   // diff). It gets a render/source toggle, defaulting to the rendered view;
@@ -346,6 +361,31 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   const leadPad = spacer('lead', tops[windowFirst]!)
   const tailPad = spacer('tail', tops[count]! - tops[windowLast]!)
 
+  // One gutter takes Tab (a roving tab stop), so a keyboard reader enters the
+  // numbers once instead of tabbing through every line: the picked range's
+  // anchor while it is mounted, else the first numbered line mounted.
+  const gutters: GutterPicking | null = ((): GutterPicking | null => {
+    if (picking === null) return null
+    const want = picking.range === null ? null : gutterKey(picking.range.side, picking.range.anchor)
+    let first: string | null = null
+    const seen = (side: ReviewSide, no: number | null): boolean => {
+      if (no === null) return false
+      const key = gutterKey(side, no)
+      first ??= key
+      return key === want
+    }
+    for (let i = windowFirst; i < windowLast; i++) {
+      if (numbered !== null) {
+        if (seen(mode === 'before' ? 'L' : 'R', numbered[i]!.no)) return { ...picking, stop: want }
+        continue
+      }
+      const row = (unified ?? rows)[i]!
+      if (row.kind === 'hunk' || row.kind === 'gap') continue
+      if (seen('L', row.leftNo) || seen('R', row.rightNo)) return { ...picking, stop: want }
+    }
+    return { ...picking, stop: first }
+  })()
+
   // Text diff (regular files, and an SVG in 'source' mode). Each mode renders
   // only [windowFirst, windowLast) of its own row list.
   const body = ((): JSX.Element => {
@@ -356,7 +396,7 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
         const line = numbered[i]!
         const side: ReviewSide = mode === 'before' ? 'L' : 'R'
         const sel = reviewRangeHas(picking?.range ?? null, side, line.no)
-        lines.push(gutterCell(`n${i}`, line.no, side, picking, sel))
+        lines.push(gutterCell(`n${i}`, line.no, side, gutters, sel))
         lines.push(codeCell(`gp-diff-cell${sel ? ' gp-diff-cell--sel' : ''}`, `c${i}`, line.text, hlCached, find, i))
       }
       lines.push(tailPad)
@@ -365,14 +405,14 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     if (unified !== null) {
       const out: Array<JSX.Element | null> = [leadPad]
       for (let i = windowFirst; i < windowLast; i++) {
-        out.push(...renderUnifiedRow(unified[i]!, i, hlCached, expand, find, t, picking))
+        out.push(...renderUnifiedRow(unified[i]!, i, hlCached, expand, find, t, gutters))
       }
       out.push(tailPad)
       return h('div', { className: 'gp-diff__unified', ref: bodyRef }, out)
     }
     const out: Array<JSX.Element | null> = [leadPad]
     for (let i = windowFirst; i < windowLast; i++) {
-      out.push(...renderRow(rows[i]!, i, hlCached, expand, find, t, picking))
+      out.push(...renderRow(rows[i]!, i, hlCached, expand, find, t, gutters))
     }
     out.push(tailPad)
     return h('div', { className: 'gp-diff__side', ref: bodyRef }, out)
@@ -411,9 +451,9 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     failedText !== null && !dismissedNotices.isDismissed(noticeKey(failedText))
       ? h(NoticeBar, { key: 'expand-failed', text: failedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(noticeKey(failedText)) })
       : null,
-    h('div', { key: 'scroll', className: `gp-diff__scroll${picking !== null ? ' gp-diff__scroll--review' : ''}`, ref: setViewportEl, style: { '--gp-gutter-w': gutterW } }, body),
+    h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl, style: { '--gp-gutter-w': gutterW } }, body),
     review !== undefined && path !== undefined && reviewState.draft !== null
-      ? h(ReviewBar, { key: 'review', review, path, draft: reviewState.draft, stale: reviewState.stale, onDone: reviewState.clear, t })
+      ? h(ReviewBar, { key: 'review', review, path, draft: reviewState.draft, stale: reviewState.stale, onDone: closeReview, t })
       : null,
   ])
   return svg ? svgFrame(svgView, setSvgView, wrapped, t) : wrapped
@@ -552,20 +592,49 @@ function afterLines(rows: readonly SideRow[]): NumberedLine[] {
   return rows.filter((r) => r.rightText !== null).map((r) => ({ no: r.rightNo, text: r.rightText as string }))
 }
 
+/** The picking state plus the one gutter that takes Tab ({@link gutterKey}). */
+interface GutterPicking extends ReviewPicking {
+  readonly stop: string | null
+}
+
+/** A gutter's identity within one diff: its side and line. */
+function gutterKey(side: ReviewSide, line: number): string {
+  return `${side}${line}`
+}
+
+function gutterSelector(side: ReviewSide, line: number): string {
+  return `.gp-diff-no--pick[data-side="${side}"][data-line="${line}"]`
+}
+
+/** Move focus to the next (or previous) picking gutter of the same side, in
+ * document order; the browser scrolls it into view, and the window follows. */
+function stepGutter(from: HTMLElement, side: ReviewSide, delta: 1 | -1): void {
+  const scroll = from.closest('.gp-diff__scroll')
+  if (scroll === null) return
+  const all = [...scroll.querySelectorAll<HTMLElement>(`.gp-diff-no--pick[data-side="${side}"]`)]
+  all[all.indexOf(from) + delta]?.focus()
+}
+
 /**
  * A line-number cell. With comments on, a numbered cell picks its line (Shift
- * grows the range); the cell stays a plain grid cell so the row geometry and
- * its measurement are the same with comments on or off.
+ * grows the range) by click, Enter or Space, and ArrowUp / ArrowDown walk the
+ * same side; the cell stays a plain grid cell so the row geometry and its
+ * measurement are the same with comments on or off.
  */
-function gutterCell(key: string, no: number | null, side: ReviewSide, picking: ReviewPicking | null, selected: boolean): JSX.Element {
+function gutterCell(key: string, no: number | null, side: ReviewSide, picking: GutterPicking | null, selected: boolean): JSX.Element {
   if (picking === null || no === null) return h('div', { key, className: 'gp-diff-no' }, no ?? '')
   return h('div', {
     key, className: `gp-diff-no gp-diff-no--pick${selected ? ' gp-diff-no--sel' : ''}`,
     'data-side': side, 'data-line': no,
+    role: 'button', tabIndex: picking.stop === gutterKey(side, no) ? 0 : -1, 'aria-pressed': selected,
     onClick: (e: { shiftKey: boolean; preventDefault: () => void }) => {
       // Shift+click would otherwise extend the page's text selection too.
       if (e.shiftKey) e.preventDefault()
       picking.pick(side, no, e.shiftKey)
+    },
+    onKeyDown: (e: { key: string; shiftKey: boolean; currentTarget: HTMLElement; preventDefault: () => void }) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picking.pick(side, no, e.shiftKey) }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); stepGutter(e.currentTarget, side, e.key === 'ArrowDown' ? 1 : -1) }
     },
   }, no)
 }
@@ -573,7 +642,7 @@ function gutterCell(key: string, no: number | null, side: ReviewSide, picking: R
 function renderRow(
   row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
-  picking: ReviewPicking | null = null,
+  picking: GutterPicking | null = null,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' }, 'data-r': i }, row.text ?? '')]
@@ -611,7 +680,7 @@ function renderRow(
 function renderUnifiedRow(
   row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
-  picking: ReviewPicking | null = null,
+  picking: GutterPicking | null = null,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' }, 'data-r': i }, row.text ?? '')]
