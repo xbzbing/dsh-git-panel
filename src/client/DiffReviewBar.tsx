@@ -149,8 +149,11 @@ export function ReviewBar({ review, path, draft, stale, onDone, t }: ReviewBarPr
   // must yield to the form — the comment is the innermost thing open. The form
   // handles Escape wherever its focus is (the field or a button): an owned key
   // nobody handles would fall through to the card's bubble listener.
-  const onKeyDown = (e: { key: string; defaultPrevented: boolean; preventDefault: () => void; stopPropagation: () => void }): void => {
-    if (e.key !== 'Escape' || e.defaultPrevented) return
+  const onKeyDown = (e: { key: string; defaultPrevented: boolean; preventDefault: () => void; stopPropagation: () => void; nativeEvent?: { isComposing?: boolean } }): void => {
+    // Escape during IME composition cancels the candidate list, not the form:
+    // the keystroke that ends a Chinese or Japanese input would otherwise throw
+    // the comment away (compare-flow's filter guards the same way).
+    if (e.key !== 'Escape' || e.defaultPrevented || e.nativeEvent?.isComposing === true) return
     e.preventDefault()
     e.stopPropagation()
     onDone()

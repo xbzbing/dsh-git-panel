@@ -12,7 +12,7 @@ import { languageForPath, useCodeHighlighter, type CodeHighlighter, type Highlig
 import { splitHighlightSpans } from './code-spans.js'
 import { memoizeHighlighter } from './highlight-cache.js'
 import { isCodeWorkspacePath } from './edit-buffer.js'
-import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
+import { buildTops, findWindowRange, lowerBound, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
 import { ImageCompare } from './ImageCompare.js'
@@ -123,18 +123,23 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   const picking = reviewState.picking
   const reviewAnchor = reviewState.draft?.range ?? null
   const clearReview = reviewState.clear
+  // The gutter that last had focus: the roving Tab stop follows the reader.
+  const [stopKey, setStopKey] = useState<string | null>(null)
+  useEffect(() => { setStopKey(null) }, [path, review])
   // Closing the form from inside it (Cancel, Escape) hands the keyboard back to
   // the gutter it was opened from, so the reader keeps their place instead of
-  // dropping to <body>. An added comment leaves focus alone: the composer has
-  // already taken it.
+  // dropping to <body>; a gutter only mounted above the viewport (the overscan
+  // band) is scrolled in rather than left focused out of sight. An added
+  // comment leaves focus alone: the composer has already taken it.
   const closeReview = useCallback((): void => {
     const wrap = containerRef.current
     const inForm = wrap?.querySelector('.gp-review')?.contains(document.activeElement) === true
     clearReview()
     if (!inForm || wrap === null) return
     const target = (reviewAnchor === null ? null : wrap.querySelector<HTMLElement>(gutterSelector(reviewAnchor.side, reviewAnchor.anchor)))
+      ?? wrap.querySelector<HTMLElement>('.gp-diff-no--pick[tabindex="0"]')
       ?? wrap.querySelector<HTMLElement>('.gp-diff-no--pick')
-    target?.focus({ preventScroll: true })
+    target?.focus()
   }, [clearReview, reviewAnchor])
 
   // An SVG is both an image (rendered old/new comparison) and text (a source
@@ -362,28 +367,34 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   const tailPad = spacer('tail', tops[count]! - tops[windowLast]!)
 
   // One gutter takes Tab (a roving tab stop), so a keyboard reader enters the
-  // numbers once instead of tabbing through every line: the picked range's
-  // anchor while it is mounted, else the first numbered line mounted.
+  // numbers once instead of tabbing through every line. The stop follows the
+  // last gutter focused; before anything is focused it is the picked range's
+  // anchor, and failing that the first numbered line of the *viewport* — the
+  // window reaches above it (overscan), and seeding there would scroll the diff
+  // backwards on the first Tab.
   const gutters: GutterPicking | null = ((): GutterPicking | null => {
     if (picking === null) return null
-    const want = picking.range === null ? null : gutterKey(picking.range.side, picking.range.anchor)
-    let first: string | null = null
-    const seen = (side: ReviewSide, no: number | null): boolean => {
-      if (no === null) return false
+    const anchor = picking.range === null ? null : gutterKey(picking.range.side, picking.range.anchor)
+    // The mounted window starts an overscan band above the viewport; the row the
+    // reader actually sees first is the one at the scroll offset.
+    const viewportTopRow = lowerBound(tops, Math.max(0, viewport.top - bodyOffset))
+    const mounted = new Set<string>()
+    let viewportFirstKey: string | null = null
+    const visit = (index: number, side: ReviewSide, no: number | null): void => {
+      if (no === null) return
       const key = gutterKey(side, no)
-      first ??= key
-      return key === want
+      mounted.add(key)
+      if (viewportFirstKey === null && index >= viewportTopRow) viewportFirstKey = key
     }
     for (let i = windowFirst; i < windowLast; i++) {
-      if (numbered !== null) {
-        if (seen(mode === 'before' ? 'L' : 'R', numbered[i]!.no)) return { ...picking, stop: want }
-        continue
-      }
+      if (numbered !== null) { visit(i, mode === 'before' ? 'L' : 'R', numbered[i]!.no); continue }
       const row = (unified ?? rows)[i]!
       if (row.kind === 'hunk' || row.kind === 'gap') continue
-      if (seen('L', row.leftNo) || seen('R', row.rightNo)) return { ...picking, stop: want }
+      visit(i, 'L', row.leftNo)
+      visit(i, 'R', row.rightNo)
     }
-    return { ...picking, stop: first }
+    const stop = [stopKey, anchor, viewportFirstKey].find((key) => key !== null && mounted.has(key)) ?? null
+    return { ...picking, stop, onFocus: setStopKey }
   })()
 
   // Text diff (regular files, and an SVG in 'source' mode). Each mode renders
@@ -595,6 +606,8 @@ function afterLines(rows: readonly SideRow[]): NumberedLine[] {
 /** The picking state plus the one gutter that takes Tab ({@link gutterKey}). */
 interface GutterPicking extends ReviewPicking {
   readonly stop: string | null
+  /** The stop follows the gutter that last had focus. */
+  readonly onFocus: (key: string) => void
 }
 
 /** A gutter's identity within one diff: its side and line. */
@@ -626,7 +639,9 @@ function gutterCell(key: string, no: number | null, side: ReviewSide, picking: G
   return h('div', {
     key, className: `gp-diff-no gp-diff-no--pick${selected ? ' gp-diff-no--sel' : ''}`,
     'data-side': side, 'data-line': no,
-    role: 'button', tabIndex: picking.stop === gutterKey(side, no) ? 0 : -1, 'aria-pressed': selected,
+    role: 'button', tabIndex: picking.stop === gutterKey(side, no) ? 0 : -1,
+    'aria-label': gutterKey(side, no), 'aria-current': selected ? 'true' : undefined,
+    onFocus: () => picking.onFocus(gutterKey(side, no)),
     onClick: (e: { shiftKey: boolean; preventDefault: () => void }) => {
       // Shift+click would otherwise extend the page's text selection too.
       if (e.shiftKey) e.preventDefault()
