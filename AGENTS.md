@@ -44,7 +44,7 @@
 - RPC 有传输层 `{ ok, value }` 和业务层 `{ ok, value|error }` 两层信封，必须分别判断。
 - 写操作经 `onAction` 回灌快照；标签操作用本地失效信号。切换仓库时旧视图可回放，请求必须带新仓库标签，`.gp-body` 在途时 inert。
 - 新快照到达后修剪已消失的选择项；选择键只能经 `selection-keys.ts` 构造和解析。
-- 仓库选择与文件浏览根的标签页记录（`sessionStorage`）只经 `repo-select.ts` 读写，组件不得直接访问；只有显式选择写记录。修复按 `listVerdict` / `sampleVerdict` 分级：只有确定的否决（不带 `unverified` 的 `invalid-repo`、`stale` 行）才删记录，`worktrees: 'failed'` 的列表不修剪。见 ADR-0038。
+- 仓库选择与文件浏览根的标签页记录（`sessionStorage`）只经 `repo-select.ts`（其存储层是 `pick-store.ts`）读写，组件不得直接访问；只有用户的显式选择写记录，面板自动挑的第一个子仓库只写内存。修复按 `listVerdict` / `sampleVerdict` 分级：只有确定的否决（不带 `unverified` 的 `invalid-repo`、`stale` 行）才删记录，`worktrees: 'failed'` 的列表不修剪。见 ADR-0038。
 - merge 提交的文件列表、统计和 diff 统一使用 first-parent。截断、降级和未跟踪折叠必须保留标记并显示提示；大仓库遵守 `STATS_FANOUT_LIMIT`、`UNTRACKED_NUMSTAT_LIMIT` 和有界 diff 上下文。
 
 ## UI 约束
