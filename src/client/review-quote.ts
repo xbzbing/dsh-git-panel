@@ -161,35 +161,75 @@ export function reviewRangeHas(range: ReviewLineRange | null, side: ReviewSide, 
  */
 export const REVIEW_CONTEXT_LINES = 3
 
-/**
- * The window of a hunk a range quotes: the picked lines plus
- * {@link REVIEW_CONTEXT_LINES} on each side, with a header rebuilt from the
- * line numbers that window covers.
- */
-function hunkWindow(hunk: ReviewHunk, range: ReviewLineRange): string {
-  const body = hunk.lines
-  // The number each body line occupies, and the counters where it starts. A
-  // `\` line occupies none: it annotates the line before it.
+/** A hunk's body numbered: the counters each line starts at on either side. */
+interface NumberedHunk {
+  readonly hunk: ReviewHunk
+  readonly oldBefore: readonly number[]
+  readonly newBefore: readonly number[]
+}
+
+function numberHunk(hunk: ReviewHunk): NumberedHunk {
+  // A `\` line occupies no number: it annotates the line before it.
   const oldBefore: number[] = []
   const newBefore: number[] = []
   let oldNo = hunk.oldStart
   let newNo = hunk.newStart
-  for (const line of body) {
+  for (const line of hunk.lines) {
     oldBefore.push(oldNo)
     newBefore.push(newNo)
     const mark = line.charAt(0)
     if (mark === ' ' || mark === '-') oldNo++
     if (mark === ' ' || mark === '+') newNo++
   }
-  const occupies = (line: string): boolean => {
-    const mark = line.charAt(0)
-    return range.side === 'L' ? mark === ' ' || mark === '-' : mark === ' ' || mark === '+'
+  return { hunk, oldBefore, newBefore }
+}
+
+/** Whether a body line holds a number on a side. */
+function occupies(line: string, side: ReviewSide): boolean {
+  const mark = line.charAt(0)
+  return side === 'L' ? mark === ' ' || mark === '-' : mark === ' ' || mark === '+'
+}
+
+/** A hunk as git printed it: its own header, its whole body. */
+function wholeHunk(hunk: ReviewHunk): string {
+  return [`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, ...hunk.lines].join('\n')
+}
+
+/**
+ * Body lines `from..to` of a hunk under a header rebuilt from the numbers they
+ * cover, without the trailing function-context label.
+ */
+function windowText({ hunk, oldBefore, newBefore }: NumberedHunk, from: number, to: number): string {
+  const window = hunk.lines.slice(from, to + 1)
+  let oldCount = 0
+  let newCount = 0
+  for (const line of window) {
+    if (occupies(line, 'L')) oldCount++
+    if (occupies(line, 'R')) newCount++
   }
-  const numbers = range.side === 'L' ? oldBefore : newBefore
+  // An empty side names the line it follows, as git does. A side the whole
+  // hunk leaves empty (a new or deleted file, `@@ -0,0`) already starts at that
+  // line; any other side starts at the line after it.
+  const startOf = (count: number, before: number, hunkLines: number): number =>
+    count > 0 || hunkLines === 0 ? before : before - 1
+  const oldStart = startOf(oldCount, oldBefore[from]!, hunk.oldLines)
+  const newStart = startOf(newCount, newBefore[from]!, hunk.newLines)
+  return [`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`, ...window].join('\n')
+}
+
+/**
+ * The window of a hunk a range quotes: the picked lines plus
+ * {@link REVIEW_CONTEXT_LINES} on each side, with a header rebuilt from the
+ * line numbers that window covers.
+ */
+function hunkWindow(hunk: ReviewHunk, range: ReviewLineRange): string {
+  const numbered = numberHunk(hunk)
+  const body = hunk.lines
+  const numbers = range.side === 'L' ? numbered.oldBefore : numbered.newBefore
   let first = -1
   let last = -1
   for (let i = 0; i < body.length; i++) {
-    if (!occupies(body[i]!)) continue
+    if (!occupies(body[i]!, range.side)) continue
     const no = numbers[i]!
     if (no < range.start || no > range.end) continue
     if (first < 0) first = i
@@ -200,22 +240,8 @@ function hunkWindow(hunk: ReviewHunk, range: ReviewLineRange): string {
   // A range this hunk does not carry, or one whose context already fills it,
   // keeps git's own header: rebuilding it there would only rewrite the numbers
   // the patch already states.
-  if (first < 0 || (from === 0 && to === body.length - 1)) {
-    return [`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, ...body].join('\n')
-  }
-  const window = body.slice(from, to + 1)
-  let oldCount = 0
-  let newCount = 0
-  for (const line of window) {
-    const mark = line.charAt(0)
-    if (mark === ' ' || mark === '-') oldCount++
-    if (mark === ' ' || mark === '+') newCount++
-  }
-  // An empty side names the line it follows, as git does; without the trailing
-  // function-context label either way.
-  const oldStart = oldCount === 0 ? oldBefore[from]! - 1 : oldBefore[from]!
-  const newStart = newCount === 0 ? newBefore[from]! - 1 : newBefore[from]!
-  return [`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`, ...window].join('\n')
+  if (first < 0 || (from === 0 && to === body.length - 1)) return wholeHunk(hunk)
+  return windowText(numbered, from, to)
 }
 
 /**
@@ -297,16 +323,43 @@ export function reviewQuoteSummary(path: string, range: ReviewLineRange, body: s
 }
 
 /**
- * Whether a frozen snippet still describes the diff now on screen: the quoted
- * window (or, for revealed context, the picked lines) still reads the same. An
- * edit elsewhere in the same hunk leaves the quote accurate, so it stays
- * current. A stale comment keeps its frozen snippet and asks the reader to check
- * it instead of re-pointing it at whatever the line numbers hold now.
+ * Whether a frozen snippet still describes the diff now on screen. A hunk
+ * snippet is current while the hunk now covering the range still holds the
+ * quoted window, line for line at the same numbers: an edit elsewhere in the
+ * hunk, or a wider hunk from expanded context, leaves the quote accurate. A code
+ * snippet is current while the picked lines read the same, wherever they are
+ * rendered now. A stale comment keeps its frozen snippet and asks the reader to
+ * check it instead of re-pointing it at whatever the line numbers hold now.
  */
 export function reviewSnippetCurrent(
   snippet: ReviewSnippet, hunks: readonly ReviewHunk[], range: ReviewLineRange,
   lineText: (side: ReviewSide, line: number) => string | undefined,
 ): boolean {
-  const now = reviewSnippet(hunks, range, lineText)
-  return now !== null && now.kind === snippet.kind && now.text === snippet.text
+  if (snippet.kind === 'code') {
+    const lines: string[] = []
+    for (let line = range.start; line <= range.end; line++) {
+      const text = lineText(range.side, line)
+      if (text === undefined) return false
+      lines.push(text)
+    }
+    return lines.join('\n') === snippet.text
+  }
+  const at = reviewHunkIndex(hunks, range.side, range.start)
+  if (at < 0) return false
+  const hunk = hunks[at]!
+  if (wholeHunk(hunk) === snippet.text) return true
+  const header = HUNK_HEADER.exec(snippet.text)
+  if (header === null) return false
+  const size = snippet.text.split('\n').length - 1
+  if (size < 1 || size > hunk.lines.length) return false
+  // The window's first line on the range's side carries the header's start, so
+  // only the few offsets where that counter matches can hold it.
+  const start = Number(range.side === 'L' ? header[1] : header[3])
+  const numbered = numberHunk(hunk)
+  const before = range.side === 'L' ? numbered.oldBefore : numbered.newBefore
+  for (let from = 0; from + size <= hunk.lines.length; from++) {
+    if (before[from] !== start) continue
+    if (windowText(numbered, from, from + size - 1) === snippet.text) return true
+  }
+  return false
 }

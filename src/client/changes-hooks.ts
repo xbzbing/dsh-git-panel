@@ -59,9 +59,15 @@ export function useChangesData(
 
   const showDiff = useCallback((path: string, base: 'worktree' | 'staged', expand = false): void => {
     const target: DiffTarget = { path, base, expand, version: ++version.current }
+    const previous = selection.current
     selection.current = target
     setDiffPath(target)
-    setDiffData(null)
+    // Expanding or collapsing the context of the same file keeps its diff on
+    // screen until the new text arrives: the DiffView stays mounted, and so
+    // does a line comment being written on it (ADR-0038). Opening a file,
+    // the same one included, starts from the loading state.
+    const sameFile = previous !== null && previous.path === path && previous.base === base
+    if (!sameFile || previous.expand === expand) setDiffData(null)
   }, [])
 
   return { stashes, diffPath, diffData, expanded: diffPath?.expand ?? false, showDiff }

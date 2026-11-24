@@ -192,10 +192,15 @@ function RevDiffOverlay(props: {
   const setView = (next: 'diff' | 'file'): void => setViewSlot({ key: versionKey, view: next })
   const version = useFileVersion(remote, sessionId, versionTarget, view === 'file')
   const seq = useRef(0)
+  // The file and revision whose diff is on screen. Expanding the context of the
+  // same pair keeps that diff until the new text arrives: the DiffView stays
+  // mounted, and so does a line comment being written on it (ADR-0038).
+  const shown = useRef<{ readonly path: string; readonly rev: string } | null>(null)
 
   useEffect(() => {
     const id = ++seq.current
-    setData(null)
+    if (shown.current === null || shown.current.path !== path || shown.current.rev !== rev) setData(null)
+    shown.current = { path, rev }
     setError(false)
     void remote.query({
       sessionId,
@@ -206,7 +211,7 @@ function RevDiffOverlay(props: {
     }).then((res) => {
       if (seq.current !== id) return
       const diff = queryAs(res, 'diff')
-      if (diff === null) { setError(true); return }
+      if (diff === null) { setData(null); setError(true); return }
       setData({ text: diff.text, newLines: diff.newLines, truncated: diff.truncated })
     })
   }, [remote, sessionId, path, rev, expanded])

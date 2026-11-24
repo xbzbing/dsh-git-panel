@@ -360,6 +360,8 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   const [fileDiffMode, setFileDiffMode] = useState<DiffMode>(defaultDiffView)
   const [fileDiffExpanded, setFileDiffExpanded] = useState(false)
   const fileDiffSeq = useRef(0)
+  // The open target, readable inside openFileDiff without waiting for a render.
+  const fileDiffOpen = useRef<{ readonly path: string; readonly hash: string; readonly expand: boolean } | null>(null)
   const selectedHash = useRef<string | null>(null)
   const detailCache = useRef(new Map<string, CommitDetail>())
 
@@ -397,6 +399,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     setDetailError(false)
     // Selecting a different commit drops any open file-diff overlay.
     fileDiffSeq.current += 1
+    fileDiffOpen.current = null
     setFileDiff(null)
     setFileDiffData(null)
     setFileDiffError(false)
@@ -417,19 +420,27 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
 
   const openFileDiff = useCallback(async (path: string, hash: string, shortHash: string, expand = false) => {
     const seq = ++fileDiffSeq.current
+    const previous = fileDiffOpen.current
+    fileDiffOpen.current = { path, hash, expand }
     setFileDiff({ path, hash, shortHash })
-    setFileDiffData(null)
+    // Expanding or collapsing the context of the same file keeps its diff on
+    // screen until the new text arrives: the DiffView stays mounted, and so
+    // does a line comment being written on it (ADR-0038). Opening a file,
+    // the same one included, starts from the loading state.
+    const sameFile = previous !== null && previous.path === path && previous.hash === hash
+    if (!sameFile || previous.expand === expand) setFileDiffData(null)
     setFileDiffError(false)
     setFileDiffExpanded(expand)
     const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash, ...(expand ? { context: DIFF_EXPAND_CONTEXT } : {}) } })
     if (seq !== fileDiffSeq.current) return
     const diff = queryAs(res, 'diff')
     if (diff !== null) setFileDiffData({ text: diff.text, newLines: diff.newLines, truncated: diff.truncated })
-    else setFileDiffError(true)
+    else { setFileDiffData(null); setFileDiffError(true) }
   }, [remote, sessionId])
 
   const closeFileDiff = useCallback(() => {
     fileDiffSeq.current += 1
+    fileDiffOpen.current = null
     setFileDiff(null)
     setFileDiffData(null)
     setFileDiffError(false)
