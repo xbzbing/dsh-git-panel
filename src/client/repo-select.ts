@@ -84,8 +84,11 @@ export function hasRepoPick(sessionId: string): boolean {
 }
 
 /** Point a session at another repository; '' records a deliberate pick of the
- * workspace root (the reset of the selection itself, but not of the intent). */
-export function selectRepo(sessionId: string, repo: string): void {
+ * workspace root (the reset of the selection itself, but not of the intent).
+ * `persist: false` keeps the pick in memory only: an automatic pick (the panel
+ * choosing a session's first sub-repository) is not the user's intent, and
+ * writing it would pin every later load to a choice nobody made. */
+export function selectRepo(sessionId: string, repo: string, options: { readonly persist?: boolean } = {}): void {
   hydrate(sessionId)
   if (repo === '') {
     selections.delete(sessionId)
@@ -94,7 +97,7 @@ export function selectRepo(sessionId: string, repo: string): void {
     rootPicks.delete(sessionId)
     selections.set(sessionId, repo)
   }
-  persistRepo(sessionId)
+  if (options.persist !== false) persistRepo(sessionId)
   notifySelection()
 }
 

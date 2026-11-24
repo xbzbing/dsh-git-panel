@@ -185,3 +185,16 @@ test('a failed sample forgets the pick only on a refusal git answered', async ()
   assert.equal(sampleVerdict({ code: 'timeout' }), 'keep')
   assert.equal(sampleVerdict({ code: 'transport' }), 'keep')
 })
+
+test('the panel picking a first sub-repository is not the user\'s choice', async () => {
+  // A files-only session auto-picks its first sub-repository. That convenience
+  // must not become intent: the record stays empty, so the next load derives
+  // the pick again instead of pinning a choice nobody made.
+  const before = await fresh()
+  before.selectRepo('auto', 'site', { persist: false })
+  assert.equal(before.selectedRepo('auto'), 'site', 'the pick holds in memory')
+  assert.equal(before.hasRepoPick('auto'), true, 'this module load knows about it')
+  const after = await fresh()
+  assert.equal(after.selectedRepo('auto'), '', 'nothing was written for the next load')
+  assert.equal(after.hasRepoPick('auto'), false)
+})

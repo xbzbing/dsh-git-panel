@@ -47,13 +47,15 @@ page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()
 /**
  * Load the harness and mount the panel. `refuse` answers every snapshot tagged
  * `site` with that failure; `repos` / `worktrees` shape the repo-list reply.
- * `pick` clicks that row once the panel settled.
+ * `steps` drives the page once it settled, in order: `{ pick }` clicks that
+ * switcher row, `{ tab }` selects a tab, `{ root }` picks that file-root menu
+ * entry (the files tab is selected first).
  */
-async function load({ refuse = null, repos = [WORKSPACE_REPO, NESTED_REPO], worktrees = 'ok', pick = null } = {}) {
+async function load({ refuse = null, repos = [WORKSPACE_REPO, NESTED_REPO], worktrees = 'ok', steps = [] } = {}) {
   await page.goto(harness)
   await page.addScriptTag({ path: resolve(DIR, 'client.js') })
   await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
-  return page.evaluate(async ({ snap, refuse, repos, worktrees, pick, key }) => {
+  return page.evaluate(async ({ snap, refuse, repos, worktrees, steps, key }) => {
     const { connection } = window.createGitPanelMock(snap)
     const tags = []
     const mockCall = connection.rpc.call
@@ -97,14 +99,47 @@ async function load({ refuse = null, repos = [WORKSPACE_REPO, NESTED_REPO], work
     }
     const rows = () => [...document.querySelectorAll('.gp-panel .gp-repolist__item')]
     const nameOf = (node) => (node.querySelector('.gp-repolist__name')?.textContent ?? '').replace(/\u200e/g, '').trim()
-    await until(() => document.querySelectorAll('.gp-panel .gp-tabbar__tabs [role="tab"]').length === 3 && rows().length > 0)
-    await wait(250)
-    if (pick !== null) {
-      const row = rows().find((node) => nameOf(node) === pick)
-      if (!row) return { error: 'no row ' + pick }
-      row.click()
-      await until(() => tags.includes(pick))
+    const tabNodes = () => [...document.querySelectorAll('.gp-panel .gp-tabbar__tabs [role="tab"]')]
+    const labelOf = (node) => (node.querySelector('.gp-tab__label') || node).textContent.trim()
+    const clickTab = async (label) => {
+      const node = tabNodes().find((n) => labelOf(n) === label)
+      if (!node) return 'no tab ' + label + ' in ' + tabNodes().map(labelOf).join('|')
+      node.click()
       await wait(250)
+      return null
+    }
+    const pickRow = async (name) => {
+      const row = rows().find((node) => nameOf(node) === name)
+      if (!row) return 'no row ' + name + ' in ' + rows().map(nameOf).join('|')
+      row.click()
+      await wait(350)
+      return null
+    }
+    // The file browser's root dropdown: the trigger names the current root and
+    // the menu lists the project root plus every checkout.
+    const clickRoot = async (name) => {
+      const trigger = document.querySelector('.gp-panel .gp-files__status-path')
+      if (trigger === null) return 'no browse-root trigger'
+      if (trigger.getAttribute('aria-expanded') !== 'true') {
+        trigger.click()
+        await wait(200)
+      }
+      const menu = document.querySelector('.gp-panel .gp-files__rootmenu')
+      const items = menu === null ? [] : [...menu.querySelectorAll('.gp-files__rootmenu__item')]
+      const item = items.find((node) => (node.querySelector('.gp-files__rootmenu__name')?.textContent ?? '').trim() === name)
+      if (!item) return 'no root ' + name + ' in ' + items.map((n) => (n.querySelector('.gp-files__rootmenu__name')?.textContent ?? '').trim()).join('|')
+      item.click()
+      await wait(350)
+      return null
+    }
+    await until(() => tabNodes().length === 3 && rows().length > 0)
+    await wait(250)
+    for (const step of steps) {
+      const failure = step.pick !== undefined ? await pickRow(step.pick)
+        : step.tab !== undefined ? await clickTab(step.tab)
+          : step.root !== undefined ? await clickRoot(step.root)
+            : 'unknown step ' + JSON.stringify(step)
+      if (failure !== null) return { error: failure }
     }
     const active = rows().find((node) => node.classList.contains('gp-repolist__item--active'))
     const raw = sessionStorage.getItem(key)
@@ -113,7 +148,7 @@ async function load({ refuse = null, repos = [WORKSPACE_REPO, NESTED_REPO], work
       active: active ? nameOf(active) : null,
       record: raw === null ? null : (JSON.parse(raw).sessions ?? {})['sess-1'] ?? null,
     }
-  }, { snap: SNAP, refuse, repos, worktrees, pick, key: KEY })
+  }, { snap: SNAP, refuse, repos, worktrees, steps, key: KEY })
 }
 
 const failures = []
@@ -129,7 +164,7 @@ async function phase(name, fn) {
 
 try {
   await phase('a pick writes the tab record', async () => {
-    const out = await load({ pick: 'site' })
+    const out = await load({ steps: [{ pick: 'site' }] })
     assert.equal(out.error, undefined, out.error)
     assert.equal(out.tags[0], '', 'a fresh tab starts on the workspace checkout')
     assert.equal(out.active, 'site')
@@ -173,6 +208,65 @@ try {
     assert.equal(out.tags[0], '')
     assert.equal(out.tags.includes('site'), false)
     assert.equal(out.active, 'fixture-repo')
+  })
+
+  // ── the list's own verdict (not the sample's) drives the repair ──────────
+  await phase('a pick is written again for the list-verdict phases', async () => {
+    const out = await load({ steps: [{ pick: 'site' }] })
+    assert.equal(out.error, undefined, out.error)
+    assert.equal(out.record?.repo, 'site')
+  })
+
+  await phase('a row git reports as stale falls back and deletes the record', async () => {
+    const out = await load({ repos: [WORKSPACE_REPO, { ...NESTED_REPO, disabled: 'stale' }] })
+    assert.equal(out.error, undefined, out.error)
+    assert.equal(out.tags[0], 'site', 'the restored pick is sampled first')
+    assert.equal(out.tags.at(-1), '', 'the list repair returns to the workspace checkout')
+    assert.equal(out.record?.repo, undefined, 'a stale row is definitive')
+  })
+
+  await phase('a missing row falls back for this load but keeps the record', async () => {
+    const picked = await load({ steps: [{ pick: 'site' }] })
+    assert.equal(picked.record?.repo, 'site')
+    // Worktrees answered, so the row is missing rather than unreported: the
+    // ceiling can cut a row too, so the sample decides, not the list.
+    const out = await load({ repos: [WORKSPACE_REPO] })
+    assert.equal(out.error, undefined, out.error)
+    assert.equal(out.tags[0], 'site')
+    assert.equal(out.tags.at(-1), '', 'the panel returns to the workspace checkout')
+    assert.equal(out.record?.repo, 'site', 'the pick survives for the next load')
+  })
+
+  await phase('the kept record is restored by the next load', async () => {
+    const out = await load()
+    assert.equal(out.error, undefined, out.error)
+    assert.equal(out.tags[0], 'site')
+    assert.equal(out.active, 'site')
+  })
+
+  // ── the file browser's own pin, repaired the same way ───────────────────
+  await phase('a pinned file root is written with the repository pick', async () => {
+    const out = await load({ steps: [{ tab: 'tab.files' }, { root: 'site' }] })
+    assert.equal(out.error, undefined, out.error)
+    assert.equal(out.record?.files?.mode, 'pin', JSON.stringify(out.record))
+    assert.equal(out.record?.files?.path, 'site')
+    assert.equal(out.record?.repo, 'site', 'picking a checkout root switches Git too')
+  })
+
+  await phase('a stale row deletes the file-root pin but keeps the repository pick', async () => {
+    // Back on the workspace checkout first: the stale row must repair the pin
+    // on its own, without the repository pick taking the blame.
+    const pinned = await load({
+      steps: [{ tab: 'tab.files' }, { root: 'site' }, { tab: 'tab.overview' }, { pick: 'fixture-repo' }],
+    })
+    assert.equal(pinned.error, undefined, pinned.error)
+    assert.equal(pinned.record?.rootPick, true, JSON.stringify(pinned.record))
+    assert.equal(pinned.record?.files?.path, 'site')
+
+    const out = await load({ repos: [WORKSPACE_REPO, { ...NESTED_REPO, disabled: 'stale' }] })
+    assert.equal(out.error, undefined, out.error)
+    assert.equal(out.record?.files, undefined, 'the pin is forgotten')
+    assert.equal(out.record?.rootPick, true, 'the deliberate root pick stays')
   })
 
   await phase('no page errors', async () => {

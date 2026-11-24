@@ -348,9 +348,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // why, so the switch reads as one step rather than a collapse and a rebuild.
   // The current view is the reference point the completion effect compares
   // against.
-  const switchRepo = (next: string): boolean => {
+  const switchRepo = (next: string, persist = true): boolean => {
     if (!hasSession(sessionId) || next === repo) return false
-    selectRepo(sessionId, next)
+    selectRepo(sessionId, next, persist ? {} : { persist: false })
     // Hand the controller the new checkout in this same event rather than from
     // an effect: effects run after paint, and the first paint after the pick
     // already shows the next repository's name in the tab bar, so a write
@@ -368,8 +368,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     return true
   }
 
-  const chooseRepo = (next: string): void => {
-    if (!hasSession(sessionId) || !switchRepo(next)) return
+  const chooseRepo = (next: string, persist = true): void => {
+    if (!hasSession(sessionId) || !switchRepo(next, persist)) return
     // By default a pick leaves the block open: the rows stay where the pointer
     // left them, so switching again is one click. `collapseReposOnPick` folds it
     // instead, handing the column back to the branch tree. Both docked copies
@@ -852,7 +852,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     const target = repoList.find((choice) => choice.path !== '' && choice.disabled === undefined)
     if (target === undefined) return
     autoPickedSession.current = sessionId
-    chooseRepo(target.path)
+    // A convenience pick, not the user's: it stays in memory, so a reload
+    // re-derives it from the list instead of pinning it as intent.
+    chooseRepo(target.path, false)
     // chooseRepo only reads state this effect already guards on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, repoListReady, filesOnly, view, repo, repoList])
