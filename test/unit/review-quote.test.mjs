@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   parseReviewHunks, reviewHunkIndex, pickReviewLine, reviewRangeHas, reviewSnippet, reviewRangeLabel,
-  formatReviewQuote, nextReviewIndex, reviewQuoteSummary, reviewSnippetCurrent,
+  formatReviewQuote, nextReviewIndex, reviewQuoteSummary, reviewSnippetState,
 } from '../../lib/testkit.mjs'
 
 const DIFF = [
@@ -207,10 +207,10 @@ test('the composer chip shows the file name and range, titled by the path', () =
 test('a refreshed diff keeps a comment current only while its hunk reads the same', () => {
   const range = { side: 'R', anchor: 2, start: 2, end: 2 }
   const snippet = reviewSnippet(hunks, range, () => undefined)
-  assert.equal(reviewSnippetCurrent(snippet, hunks, range, () => undefined), true)
+  assert.equal(reviewSnippetState(snippet, hunks, range, () => undefined), 'current')
   const changed = parseReviewHunks(DIFF.replace('+new 2', '+newer 2'))
-  assert.equal(reviewSnippetCurrent(snippet, changed, range, () => undefined), false)
-  assert.equal(reviewSnippetCurrent(snippet, [], range, () => undefined), false, 'the hunk is gone')
+  assert.equal(reviewSnippetState(snippet, changed, range, () => undefined), 'changed')
+  assert.equal(reviewSnippetState(snippet, [], range, () => undefined), 'hidden', 'the hunk is gone and the line is not rendered')
 })
 
 test('a side the whole hunk leaves empty keeps its own start in a window', () => {
@@ -233,23 +233,58 @@ test('expanded context keeps a comment current while the quoted window reads the
   assert.equal(snippet.text.split('\n')[0], '@@ -1,3 +1,4 @@', 'the whole small hunk, under git\'s header')
   const tail = Array.from({ length: 7 }, (_, i) => ` t${i + 5}`)
   const wide = parseReviewHunks(['@@ -1,10 +1,11 @@', ' a1', '+b2', ' c3', ' d4', ...tail].join('\n'))
-  assert.equal(reviewSnippetCurrent(snippet, wide, range, () => undefined), true, 'a wider hunk still holds the window')
+  assert.equal(reviewSnippetState(snippet, wide, range, () => undefined), 'current', 'a wider hunk still holds the window')
   const edited = parseReviewHunks(['@@ -1,10 +1,11 @@', ' a1', '+b2', ' c3-edited', ' d4', ...tail].join('\n'))
-  assert.equal(reviewSnippetCurrent(snippet, edited, range, () => undefined), false, 'a quoted context line changed')
+  assert.equal(reviewSnippetState(snippet, edited, range, () => undefined), 'changed', 'a quoted context line changed')
   const shifted = parseReviewHunks(['@@ -1,11 +1,12 @@', ' z0', ' a1', '+b2', ' c3', ' d4', ...tail].join('\n'))
-  assert.equal(reviewSnippetCurrent(snippet, shifted, { ...range, anchor: 3, start: 3, end: 3 }, () => undefined), false, 'the same text at other numbers')
+  assert.equal(reviewSnippetState(snippet, shifted, { ...range, anchor: 3, start: 3, end: 3 }, () => undefined), 'changed', 'the same text at other numbers')
 
   // A rebuilt window survives the hunk growing around it, too.
   const long = parseReviewHunks(['@@ -1,20 +1,20 @@', ...Array.from({ length: 20 }, (_, i) => ` line ${i + 1}`)].join('\n'))
   const mid = { side: 'R', anchor: 10, start: 10, end: 10 }
   const frozen = reviewSnippet(long, mid, () => undefined)
   const longer = parseReviewHunks(['@@ -1,40 +1,40 @@', ...Array.from({ length: 40 }, (_, i) => ` line ${i + 1}`)].join('\n'))
-  assert.equal(reviewSnippetCurrent(frozen, longer, mid, () => undefined), true)
+  assert.equal(reviewSnippetState(frozen, longer, mid, () => undefined), 'current')
 
   // Revealed context compares the picked lines wherever they are rendered now.
   const code = { kind: 'code', text: 'const ten = 10' }
   const at10 = { side: 'R', anchor: 10, start: 10, end: 10 }
-  assert.equal(reviewSnippetCurrent(code, longer, at10, (side, line) => (side === 'R' && line === 10 ? 'const ten = 10' : undefined)), true)
-  assert.equal(reviewSnippetCurrent(code, longer, at10, () => 'other'), false)
-  assert.equal(reviewSnippetCurrent(code, longer, at10, () => undefined), false, 'no longer rendered')
+  assert.equal(reviewSnippetState(code, longer, at10, (side, line) => (side === 'R' && line === 10 ? 'const ten = 10' : undefined)), 'current')
+  assert.equal(reviewSnippetState(code, longer, at10, () => 'other'), 'changed')
+  assert.equal(reviewSnippetState(code, longer, at10, () => undefined), 'hidden', 'no longer rendered')
+})
+
+test('collapsing the context keeps a comment current, or says its lines are not shown', () => {
+  // Expanded: one hunk spans the file. Collapsed: git's three context lines.
+  const file = Array.from({ length: 30 }, (_, i) => `l${i + 1}`)
+  const expanded = parseReviewHunks(['@@ -1,30 +1,31 @@', ...file.slice(0, 15).map((l) => ` ${l}`), '+added', ...file.slice(15).map((l) => ` ${l}`)].join('\n'))
+  const collapsed = parseReviewHunks(['@@ -13,6 +13,7 @@', ' l13', ' l14', ' l15', '+added', ' l16', ' l17', ' l18'].join('\n'))
+  const text = (side, line) => (side === 'R' && line >= 1 && line <= 31 ? (line <= 15 ? `l${line}` : line === 16 ? 'added' : `l${line - 1}`) : undefined)
+
+  // Next to the change: the narrower hunk still holds the picked line, and the
+  // frozen context it no longer spans is not compared.
+  const near = { side: 'R', anchor: 18, start: 18, end: 18 }
+  const nearQuote = reviewSnippet(expanded, near, () => undefined)
+  assert.equal(nearQuote.text.split('\n')[0], '@@ -15,6 +15,7 @@')
+  assert.equal(reviewSnippetState(nearQuote, collapsed, near, () => undefined), 'current')
+  const edited = parseReviewHunks(['@@ -13,6 +13,7 @@', ' l13', ' l14', ' l15', '+added', ' l16', ' l17-edited', ' l18'].join('\n'))
+  assert.equal(reviewSnippetState(nearQuote, edited, near, () => undefined), 'changed', 'a frozen line the hunk spans still counts')
+
+  // Far from it: the line falls into a collapsed gap. Not rendered is not
+  // changed; rendered again (the gap revealed) it compares by text.
+  const far = { side: 'R', anchor: 5, start: 5, end: 5 }
+  const farQuote = reviewSnippet(expanded, far, () => undefined)
+  assert.equal(reviewSnippetState(farQuote, collapsed, far, () => undefined), 'hidden')
+  assert.equal(reviewSnippetState(farQuote, collapsed, far, text), 'current')
+  assert.equal(reviewSnippetState(farQuote, collapsed, far, () => 'other'), 'changed')
+
+  // A range the narrower hunk only half covers is compared by text, too.
+  const across = { side: 'R', anchor: 10, start: 10, end: 14 }
+  const acrossQuote = reviewSnippet(expanded, across, () => undefined)
+  assert.equal(reviewSnippetState(acrossQuote, collapsed, across, () => undefined), 'hidden')
+  assert.equal(reviewSnippetState(acrossQuote, collapsed, across, text), 'current')
+
+  // The other side moving under the same new-side text is a change.
+  const shiftedOld = parseReviewHunks(['@@ -14,6 +13,7 @@', ' l13', ' l14', ' l15', '+added', ' l16', ' l17', ' l18'].join('\n'))
+  assert.equal(reviewSnippetState(nearQuote, shiftedOld, near, () => undefined), 'changed')
 })

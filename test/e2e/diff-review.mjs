@@ -316,27 +316,53 @@ await page.evaluate(() => { window.__fixture.diffText = null })
 
 // Expanding the context keeps the diff mounted: the comment being written, its
 // text and its pick survive, and a wider hunk around the same lines is not
-// "changed code".
+// "changed code". The collapsed diff ends in a gap (the file has six lines), so
+// the "expanded to the cap" notice would be wrong until the expanded text lands.
+await page.evaluate(() => {
+  const head = ['diff --git a/a.txt b/a.txt', '--- a/a.txt', '+++ b/a.txt']
+  window.__fixture.diffFullText = [...head, '@@ -1 +1,2 @@', ' line1', '+line2'].join('\n')
+  window.__fixture.diffFullNewLines = 6
+  window.__fixture.diffContextText = [...head, '@@ -1,5 +1,6 @@', ' line1', '+line2', ' line3', ' line4', ' line5', ' line6'].join('\n')
+  window.__fixture.holdContextDiff = true
+})
 await page.locator('.gp-changes__refresh').click()
 await page.waitForFunction(() => !(document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line2-edited'))
-await page.evaluate(() => {
-  window.__fixture.diffContextText = [
-    'diff --git a/a.txt b/a.txt', '--- a/a.txt', '+++ b/a.txt', '@@ -1,5 +1,6 @@',
-    ' line1', '+line2', ' line3', ' line4', ' line5', ' line6',
-  ].join('\n')
-})
+const cappedShown = () => page.evaluate(() => (document.querySelector('.gp-diff__wrap')?.textContent || '').includes('文件较大'))
 await page.locator(gutter('R', 2)).click()
 await page.locator('.gp-review__input').fill('Half written.')
 await page.locator('.gp-diff__expand').click()
+await page.waitForFunction(() => typeof window.__fixture.releaseContextDiff === 'function')
+assert.equal(await page.locator('.gp-review__input').inputValue(), 'Half written.', 'the form stays while the expanded text loads')
+assert.equal(await cappedShown(), false, 'no "expanded to the cap" notice over the collapsed text')
+await page.evaluate(() => { window.__fixture.holdContextDiff = false; window.__fixture.releaseContextDiff() })
 await page.waitForFunction(() => (document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line6'))
 assert.equal(await page.locator('.gp-review').count(), 1, 'expanding the context keeps the form')
 assert.equal(await page.locator('.gp-review__input').inputValue(), 'Half written.', 'and its text')
 assert.equal(await page.locator('.gp-review__stale').count(), 0, 'a wider hunk is not changed code')
 assert.equal(await page.locator('.gp-diff-no--sel').count(), 1, 'the pick stays tinted')
+// Collapsing again keeps the form too. A line next to the change stays in the
+// narrower hunk and stays current; one that falls into the gap is "not shown",
+// not "changed", and is current again once the context comes back.
+await page.locator('.gp-diff__expand').click()
+await page.waitForFunction(() => !(document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line6'))
+assert.equal(await page.locator('.gp-review__input').inputValue(), 'Half written.', 'collapsing keeps the text')
+assert.equal(await page.locator('.gp-review__stale').count(), 0, 'a line the narrower hunk keeps stays current')
+await page.locator('.gp-diff__expand').click()
+await page.waitForFunction(() => (document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line6'))
+await page.locator(gutter('R', 5)).click()
+await page.locator('.gp-diff__expand').click()
+await page.waitForFunction(() => !(document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line6'))
+assert.equal(await page.locator('.gp-review').count(), 1, 'a line collapsed out of view keeps the form')
+assert.match(await page.locator('.gp-review__stale').innerText(), /不在当前显示的差异里/, 'it says the line is not shown')
+assert.doesNotMatch(await page.locator('.gp-review__stale').innerText(), /代码已经变化/, 'not that the code changed')
+await page.locator('.gp-diff__expand').click()
+await page.waitForFunction(() => (document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line6'))
+assert.equal(await page.locator('.gp-review__stale').count(), 0, 'back in view, it is current again')
 await page.locator('.gp-review__input').press('Escape')
 await page.locator('.gp-diff__expand').click()
 await page.waitForFunction(() => !(document.querySelector('.gp-diff__wrap')?.textContent || '').includes('line6'))
-await page.evaluate(() => { window.__fixture.diffContextText = null })
+await page.evaluate(() => { window.__fixture.diffContextText = null; window.__fixture.diffFullText = null })
+await page.locator('.gp-changes__refresh').click()
 
 // The commit file-diff dialog closes on any Escape that reaches the document;
 // a composing one stays with the form, and the dialog with it.
