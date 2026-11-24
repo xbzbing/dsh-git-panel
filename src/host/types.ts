@@ -524,8 +524,14 @@ export type GitErrorCode =
   | 'not-ff'
   // A push was rejected by the remote (non-fast-forward: the remote advanced).
   | 'push-rejected'
-  // The expected upstream ref changed before a destructive remote deletion.
+  // The expected upstream ref changed between the probe and the destructive
+  // remote deletion (the lease/CAS recheck). The finish has already integrated
+  // and pushed, so the result is `flow-partial`.
   | 'upstream-changed'
+  // A flow finish found the remote upstream holding commits the local flow
+  // branch does not contain (ahead or diverged): deleting it would drop them,
+  // so the finish refuses before writing anything.
+  | 'upstream-ahead'
   // A network git command failed on authentication (no usable credentials;
   // GIT_TERMINAL_PROMPT=0 makes an interactive prompt fail fast instead).
   | 'auth-failed'
@@ -616,9 +622,14 @@ export type GitErrorCode =
   // snapshot (another terminal, another panel). The button was rendered for a
   // branch without one; replacing a deliberate upstream silently would lose it.
   | 'has-upstream'
-  // set-upstream re-checked the same-named remote-tracking branch and it is
-  // gone: the snapshot that offered the action is stale. Nothing was changed.
+  // A remote ref the action needs no longer exists: the same-named
+  // remote-tracking branch behind set-upstream disappeared. Nothing was
+  // changed.
   | 'upstream-missing'
+  // A flow finish resolved the branch's configured upstream, but that branch
+  // is not on the server any more. The local branch still tracks it, so the
+  // finish refuses instead of guessing; nothing was changed.
+  | 'flow-upstream-missing'
   // AI commit-message suggestion endpoint.
   | 'empty-diff'
   | 'llm-unavailable'

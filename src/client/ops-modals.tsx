@@ -32,6 +32,9 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'not-ff': return t('error.notFastForward')
     case 'push-rejected': return t('error.pushRejected')
     case 'upstream-changed': return t('error.upstreamChanged')
+    // A flow finish refused before writing: the remote upstream holds commits
+    // the local flow branch does not have, so deleting it would drop them.
+    case 'upstream-ahead': return t('error.upstreamAhead')
     case 'auth-failed': return t('error.authFailed')
     case 'conflict': return t('error.conflict')
     case 'revert-conflict': return t('error.revertConflict')
@@ -85,6 +88,9 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // The remote-tracking ref that justified the action disappeared: refresh
     // will recompute which remote write (if any) still applies.
     case 'upstream-missing': return t('error.upstreamMissing')
+    // A flow finish resolved an upstream that no longer exists on the server;
+    // refreshing cannot restore it, so the copy names the way out.
+    case 'flow-upstream-missing': return t('error.flowUpstreamMissing')
     // `pull-merge` found nothing to merge: no tracking config, or the resolved
     // upstream is not a branch ref. Nothing was changed.
     case 'no-upstream': return t('error.noUpstream')

@@ -137,7 +137,7 @@ A release or hotfix finish follows these steps:
 4. Push the long-lived branches when selected.
 5. Delete the remote and local flow branches when selected.
 
-The tag identifies the release or hotfix. Finish push includes the new annotated tag and every long-lived branch moved by the operation. Remote deletion uses the expected OID with a lease, so a remote branch that advanced is preserved and the finish is refused.
+The tag identifies the release or hotfix. Finish push includes the new annotated tag and every long-lived branch moved by the operation. Remote deletion uses the expected OID with a lease. Before deleting, the finish checks whether the remote branch has commits the local branch lacks: a local branch that is ahead completes normally (every remote commit is already local), while a remote that is ahead or diverged is refused and kept, so sync it before finishing.
 
 ## Confirmation
 
