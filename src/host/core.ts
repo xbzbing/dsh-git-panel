@@ -590,6 +590,10 @@ export async function resolveWorkspace(
           // Only a definitive refusal is remembered: an unanswered read would
           // otherwise refuse the row for a whole window on no evidence.
           if (!certified.ok && fresh !== null) deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
+          // The client keeps a remembered pick through the same distinction.
+          if (!certified.ok && fresh === null) {
+            return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd, unverified: true } } }
+          }
         }
         if (!certified.ok) return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
         start = certified.dir
@@ -635,14 +639,17 @@ export async function resolveWorkspace(
  * newline form is the fallback there. Any other failure — git missing,
  * unexpected output — returns no rows at all: the caller then lists only what
  * the filesystem scan finds, which is exactly a workspace without worktrees.
+ * `answered` is false then (and when the records could not be certified), so
+ * the list can say that a missing row is not evidence of a removed checkout.
  */
 async function workspaceWorktrees(
   deps: SnapshotDeps,
   cwd: string,
   root: string,
-): Promise<readonly WorktreeCheckout[]> {
+): Promise<{ readonly rows: readonly WorktreeCheckout[]; readonly answered: boolean }> {
   const infos = await readWorktreeInfos(deps, root)
-  if (infos === null || infos.length === 0) return []
+  if (infos === null) return { rows: [], answered: false }
+  if (infos.length === 0) return { rows: [], answered: true }
   // Rows outside the cwd are selectable exactly when the door will admit them,
   // so the list asks the same question the door asks (ADR-0035). A cwd whose
   // records all sit inside it needs no certification at all.
@@ -650,7 +657,8 @@ async function workspaceWorktrees(
   const checkouts = escapes ? await certifiedCheckouts(deps, cwd, { infos }) : []
   // "git did not answer" is not "nothing is certified": assume nothing is, so
   // the rows say unchoosable instead of promising a switch that would fail.
-  return worktreeCheckouts(deps.fs, cwd, root, infos, (checkouts ?? []).map((entry) => entry.root))
+  const rows = await worktreeCheckouts(deps.fs, cwd, root, infos, (checkouts ?? []).map((entry) => entry.root))
+  return { rows, answered: checkouts !== null }
 }
 
 /**
@@ -801,7 +809,13 @@ export async function listSessionRepos(
   const cwd = await deps.fs.realpath(resolved.cwd).catch(() => resolved.cwd)
   const repos: GitRepoEntry[] = []
   const workspace = await resolveWorkspace(deps, sessionId)
-  const worktrees = workspace.ok && detectCheckouts ? await workspaceWorktrees(deps, cwd, workspace.root) : []
+  const probe = workspace.ok && detectCheckouts ? await workspaceWorktrees(deps, cwd, workspace.root) : undefined
+  const worktrees = probe?.rows ?? []
+  // A cwd git could not place (missing, timed out, cancelled) may still own
+  // worktrees the probe never got to list; "not a repository" is an answer.
+  const worktreesAnswered = probe !== undefined
+    ? probe.answered
+    : workspace.ok || !detectCheckouts || workspace.failure.error.code === 'not-a-git-repo'
   const linked = worktrees.filter((w) => w.path !== '').sort(bySelectabilityThenPath)
   const own = worktrees.find((w) => w.path === '')
   if (workspace.ok) {
@@ -908,7 +922,15 @@ export async function listSessionRepos(
       }
     }
   }
-  return { ok: true, value: { cwd, repos, ...(recognition !== undefined ? { codeWorkspace: recognition } : {}) } }
+  return {
+    ok: true,
+    value: {
+      cwd,
+      repos,
+      worktrees: worktreesAnswered ? 'ok' : 'failed',
+      ...(recognition !== undefined ? { codeWorkspace: recognition } : {}),
+    },
+  }
 }
 
 /** Run one git command; a spawn-level failure returns { failure }.

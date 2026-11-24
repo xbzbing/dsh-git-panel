@@ -114,8 +114,11 @@ export type GitFailure =
   | { readonly code: 'not-a-git-repo'; readonly cwd?: string; readonly showInputPill?: boolean }
   // A repository selector (GitRepoEntry.path) that no longer resolves: outside
   // the cwd, deleted, not a work-tree top, or bare. The client re-lists the
-  // repositories and falls back to the workspace one.
-  | { readonly code: 'invalid-repo'; readonly cwd?: string }
+  // repositories and falls back to the workspace one. `unverified` marks a
+  // refusal git never answered (the worktree records could not be read), so
+  // the selector may still exist: the client falls back for now but keeps the
+  // remembered pick. Absent = a definitive refusal (and on older hosts).
+  | { readonly code: 'invalid-repo'; readonly cwd?: string; readonly unverified?: true }
   // git not installed / not on PATH: the spawn itself failed, so neither the
   // work-tree root nor repo membership can be learned from git. `cwd` carries
   // the session directory (so the browser can still file-browse it); `isGitRepo`
@@ -749,6 +752,12 @@ export interface GitRepoList {
    * `CODE_WORKSPACE_MAX_ROOTS` (50) certified roots on top of it — they are not
    * probed by that scan, so they are not counted against its cap. */
   readonly repos: readonly GitRepoEntry[]
+  /** Whether the worktree probe answered. `failed` = git could not list or
+   * certify the repository's checkouts, so a checkout missing from `repos` (or
+   * marked `uncertified`) may still exist and must not be read as gone. `ok`
+   * also covers a probe that did not run because the setting turned it off or
+   * the cwd belongs to no repository. Absent on older hosts. */
+  readonly worktrees?: 'ok' | 'failed'
   /**
    * Recognition state of the session's `.code-workspace` file (ADR-0030,
    * ADR-0035). Absent when the setting is `off` and the cwd holds no candidate
@@ -1088,7 +1097,7 @@ export type GitQueryResult =
     readonly failures: readonly ModelCatalogFailure[]
   }
   // Repository discovery (see GitRepoList).
-  | ({ readonly kind: 'repo-list'; readonly cwd: string; readonly repos: readonly GitRepoEntry[] } & Pick<GitRepoList, 'codeWorkspace'>)
+  | ({ readonly kind: 'repo-list'; readonly cwd: string; readonly repos: readonly GitRepoEntry[] } & Pick<GitRepoList, 'codeWorkspace' | 'worktrees'>)
   // File-browser directory listing (one level). `truncated` is set when the
   // entry count was capped.
   | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }

@@ -959,7 +959,11 @@ test('a cancelled worktree read is not remembered as "no worktrees"', async () =
       return inner(argv, opts)
     },
   }
-  assert.equal((await resolveWorkspace(deps, SID, '../wt-outside')).ok, false, 'this request has no answer')
+  const unanswered = await resolveWorkspace(deps, SID, '../wt-outside')
+  assert.equal(unanswered.ok, false, 'this request has no answer')
+  // The refusal says it is not evidence, so the client keeps a remembered pick.
+  assert.equal(unanswered.failure.error.code, 'invalid-repo')
+  assert.equal(unanswered.failure.error.unverified, true)
   // The next request runs git again: a cancelled read is "unknown", not "the
   // repository has no worktrees", and caching it would refuse every such row
   // for a whole window.
@@ -999,4 +1003,38 @@ test('a path reused by another repository is refused inside the window', async (
   // records: the cached entry is re-verified, not trusted because the string
   // matches.
   assert.equal((await resolveWorkspace(deps, SID, '../wt')).ok, false)
+})
+
+test('a refusal git answered is definitive: no unverified mark', async () => {
+  const deps = cachedDepsAt(wtRepo)
+  const refused = await resolveWorkspace(deps, SID, 'no-such-checkout')
+  assert.equal(refused.ok, false)
+  assert.equal(refused.failure.error.code, 'invalid-repo')
+  assert.equal(refused.failure.error.unverified, undefined)
+  const snap = await snapshotForSession(deps, DEFAULT_CONFIG, SID, { repo: 'no-such-checkout' })
+  assert.equal(snap.ok, false)
+  assert.equal(snap.error.unverified, undefined)
+})
+
+test('repo-list says whether the worktree probe answered', async () => {
+  const deps = cachedDepsAt(wtRepo)
+  assert.equal((await listSessionRepos(deps, SID, true, undefined, 'off')).value.worktrees, 'ok')
+  // The probe switched off is a definitive "no worktree rows", not a failure.
+  assert.equal((await listSessionRepos(deps, SID, false, undefined, 'off')).value.worktrees, 'ok')
+
+  const inner = deps.run.run.bind(deps.run)
+  deps.run = {
+    run: async (argv, opts) => {
+      if (argv[1] === 'worktree' && argv[2] === 'list') {
+        return { exitCode: null, stdout: '', stderr: '', cancelled: false, timedOut: true }
+      }
+      return inner(argv, opts)
+    },
+  }
+  const listed = (await listSessionRepos(deps, SID, true, undefined, 'off')).value
+  assert.equal(listed.worktrees, 'failed', 'a timed-out probe cannot prove a checkout is gone')
+  assert.equal(listed.repos.some((entry) => entry.path === '../wt-outside'), false, 'the row is missing for now')
+
+  // A cwd outside any repository is an answer: no worktrees to miss.
+  assert.equal((await listSessionRepos(depsAt(ws), SID, true, undefined, 'off')).value.worktrees, 'ok')
 })
