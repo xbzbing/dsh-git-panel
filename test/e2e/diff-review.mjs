@@ -65,6 +65,13 @@ async function mount({ composer, forge, draft = true, size = [960, 720] }) {
     // The composer: a draft that grows by each accepted quote (blockquoted, as
     // the platform's clipboard projection writes it), and a switch to refuse.
     window.__review = { quotes: [], draft: 'Please look at these:\n', refuse: false, focus: 0, opened: [] }
+    // The composer's keyboard ownership: insertQuote focuses it for real, so
+    // "an added comment leaves focus with the composer" can be observed instead
+    // of only counting calls.
+    const composerEl = document.createElement('textarea')
+    composerEl.id = 'composer-fixture'
+    composerEl.style.cssText = 'position:fixed;left:-9999px;top:0;width:8px;height:8px'
+    document.body.appendChild(composerEl)
     const input = {
       insertQuote: (text, summary) => {
         if (window.__review.refuse) return false
@@ -72,7 +79,7 @@ async function mount({ composer, forge, draft = true, size = [960, 720] }) {
         window.__review.draft += text.split('\n').map((l) => `> ${l}`).join('\n') + '\n'
         return true
       },
-      focus: () => { window.__review.focus += 1 },
+      focus: () => { window.__review.focus += 1; composerEl.focus() },
       ...(draft ? { state: { getSnapshot: () => ({ draft: window.__review.draft }) } } : {}),
     }
     const scope = { get: (key) => (key === 'conversation' ? { input: { for: () => input } } : undefined) }
@@ -194,7 +201,8 @@ assert.equal(first.text, [
 assert.deepEqual(first.summary, { label: 'a.txt R1\u20132', title: 'a.txt', detail: 'R1\u20132', body: 'Reuse the existing helper.' })
 assert.equal(await page.locator('.gp-review').count(), 0, 'an accepted comment closes the form')
 assert.equal(await page.locator('.gp-diff-no--sel').count(), 0, 'and clears the pick')
-assert.ok(await page.evaluate(() => window.__review.focus) >= 1, 'the composer takes the keyboard')
+assert.ok(await page.evaluate(() => window.__review.focus) >= 1, 'the composer is asked to take the keyboard')
+assert.equal(await page.evaluate(() => document.activeElement?.id), 'composer-fixture', 'an added comment leaves focus with the composer, not the gutter')
 
 // The next comment numbers on from the draft (Ctrl/⌘+Enter adds).
 await page.locator(gutter('L', 1)).click()
@@ -220,6 +228,18 @@ assert.equal(await page.locator('.gp-review').count(), 0, 'Escape closes the for
 assert.ok(await page.locator('[class*="gp-diff-row"]').count() > 0, 'the diff stays')
 assert.equal(await focusedGutter(page), 'R2', 'focus goes back to the gutter the form was opened from')
 
+// Escape during IME composition cancels the candidate list, not the form.
+await page.locator(gutter('R', 2)).click()
+await page.locator('.gp-review__input').fill('组合中的评论')
+await page.locator('.gp-review__input').evaluate((el) => {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }))
+})
+assert.equal(await page.locator('.gp-review').count(), 1, 'a composing Escape does not close the form')
+assert.equal(await page.locator('.gp-review__input').inputValue(), '组合中的评论', 'the text survives the IME cancel')
+await page.locator('.gp-review__input').press('Escape')
+assert.equal(await page.locator('.gp-review').count(), 0, 'a plain Escape still closes it')
+assert.equal(await focusedGutter(page), 'R2', 'and returns focus to the gutter')
+
 // With focus on a button of the form, Escape still closes the form.
 await page.locator(gutter('R', 2)).click()
 await page.locator('.gp-review__actions .gp-btn:not(.gp-btn--primary)').focus()
@@ -231,9 +251,11 @@ assert.equal(await focusedGutter(page), 'R2')
 // and Shift+Enter grows the range.
 assert.equal(await page.locator('.gp-diff-no--pick[tabindex="0"]').count(), 1, 'one gutter takes Tab')
 assert.equal(await page.locator(gutter('R', 2)).getAttribute('role'), 'button')
+assert.equal(await page.locator(gutter('R', 2)).getAttribute('aria-label'), 'R2', 'a gutter names its side and line for the screen reader')
 await page.locator(gutter('R', 1)).focus()
 await page.keyboard.press('ArrowDown')
 assert.equal(await focusedGutter(page), 'R2', 'ArrowDown moves to the next line of the side')
+assert.equal(await page.locator('.gp-diff-no--pick[tabindex="0"]').getAttribute('data-line'), '2', 'the Tab stop follows the focused gutter')
 await page.keyboard.press('Enter')
 assert.match(await page.locator('.gp-review__title').innerText(), /R2$/, 'Enter picks the focused line')
 assert.equal(await page.locator(gutter('R', 2)).getAttribute('tabindex'), '0', 'the anchor becomes the tab stop')
@@ -313,6 +335,50 @@ assert.deepEqual(
   'an unreadable draft numbers on from the comments this panel added',
 )
 await compact.close()
+
+// ── a long diff: the Tab stop starts inside the viewport ──────────────────
+const LONG = (() => {
+  const body = []
+  for (let i = 1; i <= 60; i++) body.push(` line-${i}`)
+  return [
+    'diff --git a/a.txt b/a.txt', '--- a/a.txt', '+++ b/a.txt', '@@ -1,60 +1,61 @@',
+    ...body, '+line-61',
+  ].join('\n')
+})()
+const long = await mount({ composer: true, forge: false })
+await long.evaluate((text) => {
+  window.__fixture.diffFullText = text
+  window.__fixture.diffFullNewLines = 61
+}, LONG)
+await long.locator('.gp-changes__refresh').click()
+await long.waitForFunction(() => (document.querySelector('.gp-diff__wrap')?.textContent || '').includes('@@ -1,60 +1,61 @@'))
+// Scroll into the middle: the window now also mounts the overscan band above
+// the viewport, which must not be where Tab lands.
+await long.evaluate(() => { document.querySelector('.gp-diff__scroll').scrollTop = 520 })
+await long.waitForTimeout(300)
+const stopInfo = await long.evaluate(() => {
+  const stop = document.querySelector('.gp-diff-no--pick[tabindex="0"]')
+  const scroll = document.querySelector('.gp-diff__scroll')
+  const g = stop.getBoundingClientRect()
+  const s = scroll.getBoundingClientRect()
+  // At least partly on screen: the viewport may start in the middle of a row.
+  return { count: document.querySelectorAll('.gp-diff-no--pick[tabindex="0"]').length, line: Number(stop.dataset.line), inView: g.bottom > s.top + 1 && g.top < s.bottom - 1 }
+})
+assert.equal(stopInfo.count, 1, 'still one Tab stop')
+assert.equal(stopInfo.inView, true, `the first Tab stop is on screen (line ${stopInfo.line})`)
+assert.ok(stopInfo.line > 5, 'and not in the overscan band above the viewport')
+// Cancel returns the keyboard to the picked line, still on screen.
+await long.locator('.gp-diff-no--pick[tabindex="0"]').click()
+await long.locator('.gp-review__input').press('Escape')
+const back = await long.evaluate(() => {
+  const el = document.activeElement
+  const scroll = document.querySelector('.gp-diff__scroll')
+  const g = el.getBoundingClientRect()
+  const s = scroll.getBoundingClientRect()
+  return { isGutter: el.classList.contains('gp-diff-no--pick'), line: Number(el.dataset.line), inView: g.bottom > s.top + 1 && g.top < s.bottom - 1 }
+})
+assert.deepEqual(back, { isGutter: true, line: stopInfo.line, inView: true }, 'cancel returns focus to the picked line, on screen')
+await long.close()
 
 // ── without a composer or the bundle ──────────────────────────────────────
 const bare = await mount({ composer: false, forge: false })
