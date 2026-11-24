@@ -51,6 +51,16 @@ function tagExists(dir, name) {
   }
 }
 
+/** True when a bare remote still holds `refs/heads/<name>`. */
+function remoteBranchExists(remote, name) {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`], { cwd: remote, stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
 function clean(dir) {
   return out(dir, ['status', '--porcelain']) === ''
 }
@@ -738,6 +748,108 @@ test('flow-finish refuses deleting an upstream that advanced remotely', async ()
     rmSync(dir, { recursive: true, force: true })
     rmSync(remote, { recursive: true, force: true })
     rmSync(collaborator, { recursive: true, force: true })
+  }
+})
+
+
+test('flow-finish deletes a remote upstream that is behind the local flow branch', async () => {
+  const dir = await freshRepo('gp-flow-local-ahead-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-local-ahead-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    const started = await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/local-ahead', base: 'develop', pushRemote: 'origin' })
+    assert.equal(started.ok, true, JSON.stringify(started))
+    writeFileSync(join(dir, 'local.txt'), 'local\n')
+    await runGit(dir, ['add', 'local.txt'])
+    await runGit(dir, ['commit', '-qm', 'local work'])
+    const localTip = out(dir, ['rev-parse', 'feature/local-ahead'])
+    assert.notEqual(out(remote, ['rev-parse', 'refs/heads/feature/local-ahead']), localTip, 'the local branch is ahead of its upstream')
+
+    const finished = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/local-ahead', target: 'develop',
+      strategy: 'merge', message: 'finish local ahead', deleteBranch: true, deleteRemote: true, pushRemote: 'origin',
+    })
+    assert.equal(finished.ok, true, JSON.stringify(finished))
+    assert.equal(remoteBranchExists(remote, 'feature/local-ahead'), false, 'the behind upstream was deleted')
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/develop']), out(dir, ['rev-parse', 'develop']), 'the merged develop was pushed')
+    assert.doesNotThrow(() => out(dir, ['merge-base', '--is-ancestor', localTip, 'develop']), 'the integration contains the local commits')
+    assert.equal(branchExists(dir, 'feature/local-ahead'), false, 'the local flow branch was deleted')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  }
+})
+
+
+test('flow-finish refuses deleting a remote upstream that diverged from the local branch', async () => {
+  const dir = await freshRepo('gp-flow-diverged-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-diverged-bare-'))
+  const collaborator = mkdtempSync(join(tmpdir(), 'gp-flow-diverged-collab-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/diverged', base: 'develop', pushRemote: 'origin' })
+    writeFileSync(join(dir, 'local.txt'), 'local\n')
+    await runGit(dir, ['add', 'local.txt'])
+    await runGit(dir, ['commit', '-qm', 'local work'])
+
+    await runGit(collaborator, ['clone', '-q', remote, '.'])
+    await runGit(collaborator, ['config', 'user.email', 'collab@t.co'])
+    await runGit(collaborator, ['config', 'user.name', 'Collaborator'])
+    await runGit(collaborator, ['checkout', '-q', '-B', 'feature/diverged', 'origin/feature/diverged'])
+    writeFileSync(join(collaborator, 'collaborator.txt'), 'remote\n')
+    await runGit(collaborator, ['add', 'collaborator.txt'])
+    await runGit(collaborator, ['commit', '-qm', 'remote work'])
+    await runGit(collaborator, ['push', '-q', 'origin', 'feature/diverged'])
+
+    const developBefore = out(dir, ['rev-parse', 'develop'])
+    const finished = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/diverged', target: 'develop',
+      strategy: 'merge', message: 'finish diverged', deleteBranch: true, deleteRemote: true,
+    })
+    assert.equal(finished.ok, false, JSON.stringify(finished))
+    assert.equal(finished.error.code, 'upstream-changed', JSON.stringify(finished))
+    assert.equal(out(dir, ['rev-parse', 'develop']), developBefore, 'the target did not move')
+    assert.ok(branchExists(dir, 'feature/diverged'), 'the local flow branch remains available')
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/feature/diverged']), out(collaborator, ['rev-parse', 'HEAD']), 'the diverged remote branch remains intact')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+    rmSync(collaborator, { recursive: true, force: true })
+  }
+})
+
+
+test('flow-finish deletes a local branch whose upstream is behind the merge', async () => {
+  const dir = await freshRepo('gp-flow-keep-remote-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-keep-remote-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/keep-remote', base: 'develop', pushRemote: 'origin' })
+    writeFileSync(join(dir, 'local.txt'), 'local\n')
+    await runGit(dir, ['add', 'local.txt'])
+    await runGit(dir, ['commit', '-qm', 'local work'])
+    const remoteTip = out(remote, ['rev-parse', 'refs/heads/feature/keep-remote'])
+
+    const finished = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/keep-remote', target: 'develop',
+      strategy: 'merge', message: 'finish keep remote', deleteBranch: true, deleteRemote: false, pushRemote: 'origin',
+    })
+    assert.equal(finished.ok, true, JSON.stringify(finished))
+    assert.equal(branchExists(dir, 'feature/keep-remote'), false, 'the merged local branch was deleted')
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/feature/keep-remote']), remoteTip, 'the kept upstream is untouched')
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/develop']), out(dir, ['rev-parse', 'develop']), 'the merged develop was pushed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
   }
 })
 

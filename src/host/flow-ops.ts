@@ -584,10 +584,26 @@ async function finishFlow(
     if (!isSafeBranchName(upstream.upstream.branch)) return fail('invalid-name', `unsafe upstream branch: ${upstream.upstream.branch}`)
     const localFlowOid = await localRefOid(deps, root, `refs/heads/${action.branch}`, 'flow-flow-oid')
     if (!localFlowOid.ok) return localFlowOid
+    if (localFlowOid.oid === null) return fail('not-found', `flow branch not found: ${action.branch}`)
     const remoteOid = await remoteBranchOid(deps, root, upstream.upstream.remote, upstream.upstream.branch)
     if (!remoteOid.ok) return remoteOid
-    if (remoteOid.oid === null || localFlowOid.oid === null || remoteOid.oid !== localFlowOid.oid) {
-      return fail('upstream-changed', `remote upstream changed: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
+    if (remoteOid.oid === null) {
+      return fail('upstream-missing', `remote upstream not found: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
+    }
+    // Deleting the remote branch drops whatever only that ref holds, so the
+    // rule is containment, not equality: the remote tip must be an ancestor of
+    // the local flow branch. A branch that has local commits the remote does
+    // not have is exactly the state a finish normally cleans up, and deleting
+    // it loses nothing. A remote tip outside the local branch (ahead or
+    // diverged) still refuses.
+    const remoteInLocal = await raw(
+      deps, root,
+      ['git', 'merge-base', '--is-ancestor', remoteOid.oid, `refs/heads/${action.branch}`],
+      'flow-remote-ancestor',
+    )
+    if (!remoteInLocal.ok) return remoteInLocal
+    if (remoteInLocal.exitCode !== 0) {
+      return fail('upstream-changed', `remote upstream has commits missing locally: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
     }
     expectedRemoteOid = remoteOid.oid
   }
@@ -729,8 +745,27 @@ async function finishFlow(
   }
   if (deleteBranch) {
     const removed = await git(deps, root, ['git', 'branch', forceDelete ? '-D' : '-d', '--end-of-options', action.branch], 'flow-branch-delete')
-    if (!removed.ok) return partial(removed)
-    output = removed.stdout
+    if (removed.ok) {
+      output = removed.stdout
+    } else if (forceDelete) {
+      return partial(removed)
+    } else {
+      // `-d` also refuses a branch that is not merged into its upstream, which
+      // says nothing about this finish: the upstream may simply be behind,
+      // because the cleanup either keeps it or deletes it after this step.
+      // Force the delete only after proving HEAD contains the branch tip, so
+      // no commit can be lost; otherwise git's safe refusal stands.
+      const mergedIntoHead = await raw(
+        deps, root,
+        ['git', 'merge-base', '--is-ancestor', `refs/heads/${action.branch}`, 'HEAD'],
+        'flow-branch-merged',
+      )
+      if (!mergedIntoHead.ok) return partial(mergedIntoHead)
+      if (mergedIntoHead.exitCode !== 0) return partial(removed)
+      const forced = await git(deps, root, ['git', 'branch', '-D', '--end-of-options', action.branch], 'flow-branch-delete-forced')
+      if (!forced.ok) return partial(forced)
+      output = forced.stdout
+    }
   }
   return snapshotResult(deps, config, request, output.trim(), 'flow-partial')
 }
