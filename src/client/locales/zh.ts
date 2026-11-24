@@ -589,6 +589,7 @@ export const zh = {
   'error.noBranch': '当前不在任何分支上（游离 HEAD 或尚无提交），无法发布分支或设置上游：请先切到分支并完成一次提交',
   'error.hasUpstream': '当前分支已有上游分支，请刷新后再试',
   'error.upstreamMissing': '远端同名分支已不存在，请刷新后再试',
+  'error.flowUpstreamMissing': '远端上游分支已不存在；请取消勾选「删除远端分支」后再完成，或先把分支推回远端',
   'error.noUpstream': '当前分支没有上游分支，无法同步',
   'error.operationInProgress': '仓库正处于合并、变基或拣选中，请先完成或中止该操作',
   'error.notEditable': '该文件不支持编辑',

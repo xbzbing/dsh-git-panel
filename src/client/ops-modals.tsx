@@ -88,6 +88,9 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // The remote-tracking ref that justified the action disappeared: refresh
     // will recompute which remote write (if any) still applies.
     case 'upstream-missing': return t('error.upstreamMissing')
+    // A flow finish resolved an upstream that no longer exists on the server;
+    // refreshing cannot restore it, so the copy names the way out.
+    case 'flow-upstream-missing': return t('error.flowUpstreamMissing')
     // `pull-merge` found nothing to merge: no tracking config, or the resolved
     // upstream is not a branch ref. Nothing was changed.
     case 'no-upstream': return t('error.noUpstream')

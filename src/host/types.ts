@@ -623,10 +623,13 @@ export type GitErrorCode =
   // branch without one; replacing a deliberate upstream silently would lose it.
   | 'has-upstream'
   // A remote ref the action needs no longer exists: the same-named
-  // remote-tracking branch behind set-upstream disappeared, or a flow finish
-  // found the upstream branch already deleted on the server. Nothing was
+  // remote-tracking branch behind set-upstream disappeared. Nothing was
   // changed.
   | 'upstream-missing'
+  // A flow finish resolved the branch's configured upstream, but that branch
+  // is not on the server any more. The local branch still tracks it, so the
+  // finish refuses instead of guessing; nothing was changed.
+  | 'flow-upstream-missing'
   // AI commit-message suggestion endpoint.
   | 'empty-diff'
   | 'llm-unavailable'

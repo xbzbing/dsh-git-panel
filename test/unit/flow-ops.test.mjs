@@ -733,6 +733,9 @@ test('flow-finish refuses deleting an upstream that advanced remotely', async ()
     await runGit(collaborator, ['add', 'collaborator.txt'])
     await runGit(collaborator, ['commit', '-qm', 'feature B'])
     await runGit(collaborator, ['push', '-q', 'origin', 'feature/advanced'])
+    // Fetch the remote tip so the local object database has it: otherwise the
+    // unfetched-object probe refuses first and the ancestor rule never runs.
+    await runGit(dir, ['fetch', '-q', 'origin'])
 
     const developBefore = out(dir, ['rev-parse', 'develop'])
     const finished = await run(dir, {
@@ -806,6 +809,9 @@ test('flow-finish refuses deleting a remote upstream that diverged from the loca
     await runGit(collaborator, ['add', 'collaborator.txt'])
     await runGit(collaborator, ['commit', '-qm', 'remote work'])
     await runGit(collaborator, ['push', '-q', 'origin', 'feature/diverged'])
+    // Fetch the remote tip so the divergence is compared locally; an unfetched
+    // tip would stop at the object probe instead.
+    await runGit(dir, ['fetch', '-q', 'origin'])
 
     const developBefore = out(dir, ['rev-parse', 'develop'])
     const finished = await run(dir, {
@@ -848,9 +854,62 @@ test('flow-finish refuses deleting an upstream that no longer exists remotely', 
       strategy: 'merge', message: 'finish gone', deleteBranch: true, deleteRemote: true,
     })
     assert.equal(finished.ok, false, JSON.stringify(finished))
-    assert.equal(finished.error.code, 'upstream-missing', JSON.stringify(finished))
+    assert.equal(finished.error.code, 'flow-upstream-missing', JSON.stringify(finished))
     assert.equal(out(dir, ['rev-parse', 'develop']), developBefore, 'the target did not move')
     assert.ok(branchExists(dir, 'feature/gone'), 'the local flow branch remains available')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  }
+})
+
+
+test('flow-finish reports upstream-changed when the remote moves before the delete', async () => {
+  const dir = await freshRepo('gp-flow-lease-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-lease-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/lease', base: 'develop', pushRemote: 'origin' })
+    writeFileSync(join(dir, 'local.txt'), 'local\n')
+    await runGit(dir, ['add', 'local.txt'])
+    await runGit(dir, ['commit', '-qm', 'local work'])
+    const localTip = out(dir, ['rev-parse', 'feature/lease'])
+
+    // The finish reads the upstream twice: once in the precheck and once right
+    // before deleting it. The second read reports a moved ref, which is the
+    // lease/CAS race the finish must report as `flow-partial`.
+    const base = gitRunner()
+    let probes = 0
+    const runner = {
+      run: async (argv, options) => {
+        if (argv[1] === 'ls-remote' && argv[argv.length - 1] === 'refs/heads/feature/lease') {
+          probes += 1
+          if (probes === 2) {
+            return { exitCode: 0, stdout: `${'f'.repeat(40)}\trefs/heads/feature/lease\n`, stderr: '', cancelled: false, timedOut: false }
+          }
+        }
+        return base.run(argv, options)
+      },
+    }
+    const finished = await runFlowAction(depsAt(dir, runner), DEFAULT_CONFIG, {
+      sessionId: SID,
+      action: {
+        kind: 'flow-finish', flow: 'feature', branch: 'feature/lease', target: 'develop',
+        strategy: 'merge', message: 'finish lease', deleteBranch: true, deleteRemote: true, pushRemote: 'origin',
+      },
+    })
+    assert.equal(finished.ok, false, JSON.stringify(finished))
+    // The integration already ran, so the code is the honest `flow-partial`;
+    // the reason names the lease race.
+    assert.equal(finished.error.code, 'flow-partial', JSON.stringify(finished))
+    assert.match(finished.error.message ?? '', /remote upstream changed/)
+    assert.doesNotThrow(() => out(dir, ['merge-base', '--is-ancestor', localTip, 'develop']), 'the integration completed before the race')
+    assert.equal(out(remote, ['rev-parse', 'refs/heads/develop']), out(dir, ['rev-parse', 'develop']), 'the merged develop was pushed')
+    assert.ok(branchExists(dir, 'feature/lease'), 'the local branch is kept after a partial finish')
+    assert.ok(remoteBranchExists(remote, 'feature/lease'), 'the remote branch is kept after a partial finish')
   } finally {
     rmSync(dir, { recursive: true, force: true })
     rmSync(remote, { recursive: true, force: true })

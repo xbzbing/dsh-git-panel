@@ -1,5 +1,6 @@
 /** `dbGitPanel` namespace dictionary: French. Keys mirror `zh` in ../locales.ts. */
 import type { GitKey } from './zh.js'
+
 export const fr: Record<GitKey, string> = {
   // Git Flow
   'flow.button': 'Git Flow',
@@ -559,13 +560,13 @@ export const fr: Record<GitKey, string> = {
   'error.invalidName': 'Nom invalide',
   'error.notFastForward': 'Le local et le distant ont divergé — un tirage en avance rapide est impossible ; fusionnez ou rebasez manuellement',
   'error.pushRejected': 'Envoi refusé : le distant a de nouveaux commits — lancez « Vérifier la synchronisation » et tirez d’abord, puis envoyez',
-
   'error.upstreamChanged': 'La branche distante a changé pendant l’opération et a été conservée. Actualisez-la et vérifiez-la',
   'error.upstreamAhead': 'La branche distante contient des commits absents en local (elle est en avance ou divergente) et a été conservée. Synchronisez-la avant de terminer',
   'error.authFailed': 'Échec de l’authentification : aucun identifiant git utilisable (HTTPS nécessite un credential helper, SSH une clé). Envoyez une première fois en ligne de commande pour les mettre en cache',
   'error.noBranch': 'HEAD n’est sur aucune branche (détachée, ou aucun commit encore) ; il n’y a donc pas de branche à publier ni à relier à un amont : basculez sur une branche et validez d’abord',
   'error.hasUpstream': 'La branche actuelle a déjà un amont ; actualisez et réessayez',
   'error.upstreamMissing': 'La branche distante du même nom n’existe plus ; actualisez et réessayez',
+  'error.flowUpstreamMissing': 'La branche distante de suivi n’existe plus ; décochez « Supprimer la branche distante » et terminez à nouveau, ou repoussez la branche vers le dépôt distant',
   'error.noUpstream': 'La branche courante n’a pas d’amont avec lequel se synchroniser',
   'error.operationInProgress': 'Une fusion, un rebase ou un cherry-pick est déjà en cours ; terminez-le ou annulez-le d’abord',
   'error.notEditable': 'Ce fichier ne peut pas être modifié',

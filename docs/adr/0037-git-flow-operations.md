@@ -1,6 +1,6 @@
 # ADR-0037：Git Flow 按分支名约定执行，写操作复用 run 端点
 
-- 状态：Accepted（2026-11-17；2026-11-18 修订：release 与 hotfix 一样先合入主分支、打标签，再合并回 `develop`；2026-11-19 修订：start 默认推送新分支，finish feature 可链式开始 release、默认推送该 release，finish 一律先弹步骤确认，开始与完成在途时显示加载遮罩；2026-11-20 补充产品、交互、技术文档和当前实现差异）
+- 状态：Accepted（2026-11-17；2026-11-18 修订：release 与 hotfix 一样先合入主分支、打标签，再合并回 `develop`；2026-11-19 修订：start 默认推送新分支，finish feature 可链式开始 release、默认推送该 release，finish 一律先弹步骤确认，开始与完成在途时显示加载遮罩；2026-11-20 补充产品、交互、技术文档和当前实现差异；2026-11-24 修订：删远端由「相等」改为「远端 tip 是本地 flow 分支祖先」的包含关系判定，merge / rebase 下 `-d` 因上游落后拒绝时经祖先证明补 `-D`，预检错误码拆为 `upstream-ahead`，`upstream-changed` 只留 lease 复检）
 - 相关：`src/host/flow-ops.ts`、`src/host/types.ts`（`flow-*` action、`capabilities.flow`、`flow-partial`）、`src/host/index.ts`（run 端点分流）、`src/client/flow.ts`、`src/client/flow-dialogs.tsx`、`src/client/OverviewTab.tsx`、ADR-0005、ADR-0006、ADR-0007
 
 ## Context
@@ -45,7 +45,7 @@ finish 的本地前置条件在第一次写之前判定：flow / 分支前缀一
 
 ### 4. 清理动作沿用既有安全策略
 
-- 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`，并以预检的真实远端 OID 使用 `--force-with-lease`；没有上游、远端分支已不存在或远端分支包含本地没有的提交（领先 / 分叉）时 host 拒绝，但允许删除落后于本地的远端分支——这些提交都已经在本地 flow 分支里。完成对话框在有上游时默认勾选（预览同时画出远端删除，取消勾选即保留），没有上游时该项禁用并说明原因。勾选时点击「完成」不会直接提交，而是在步骤确认里增加「删除远端分支」一行、服务器删除不可撤销的警告与必须勾选的确认项；确认项的勾选是按钮唯一解锁方式，关闭确认（Escape / 取消）只回到完成表单并保留已填内容。这与行菜单 `RemoteBranchDeleteConfirm` 的「ack 是唯一解锁方式」是同一契约，因此「删除远端分支必须勾选确认」的不变量在 Git Flow 路径上仍然成立；默认值可以保持勾选，因为它只是意图，不是授权。
+- 删远端分支：解析该分支的**上游**（`%(upstream)` + 配置的 remote 名，最长前缀匹配，与 `branch-delete-remote` 同一规则），删除目标固定为 `refs/heads/<upstream-branch>`，并以预检的真实远端 OID 使用 `--force-with-lease`；没有上游、远端分支已不存在（`flow-upstream-missing`）或远端分支包含本地没有的提交（领先 / 分叉，`upstream-ahead`）时 host 拒绝，但允许删除落后于本地的远端分支——这些提交都已经在本地 flow 分支里；删除前的 lease 复检发现远端已变动时报 `upstream-changed` 并返回 `flow-partial`。完成对话框在有上游时默认勾选（预览同时画出远端删除，取消勾选即保留），没有上游时该项禁用并说明原因。勾选时点击「完成」不会直接提交，而是在步骤确认里增加「删除远端分支」一行、服务器删除不可撤销的警告与必须勾选的确认项；确认项的勾选是按钮唯一解锁方式，关闭确认（Escape / 取消）只回到完成表单并保留已填内容。这与行菜单 `RemoteBranchDeleteConfirm` 的「ack 是唯一解锁方式」是同一契约，因此「删除远端分支必须勾选确认」的不变量在 Git Flow 路径上仍然成立；默认值可以保持勾选，因为它只是意图，不是授权。
 - 删本地分支：默认 `git branch -d`。squash 集成后分支不在 target 的祖先链上，`-d` 必然失败，因此 `-D` 只在该策略被选中**且**对话框里额外勾选强制删除后才会发送。merge / rebase 集成后 `-d` 仍可能因为**上游落后**而拒绝（`not yet merged to <upstream>, even though it is merged to HEAD`），这不是未合并；host 在 `-d` 失败后先证明 branch tip 已在 HEAD 的祖先链上，再补一次 `-D`，证明不了就保留 `-d` 的拒绝。host 也拒绝 merge / rebase 携带 `forceDelete: true`，以及没有 `deleteBranch` 的 `forceDelete`。
 - 推送：一次推送本次移动的长期分支和 release / hotfix 的本次 tag（feature 只有 `develop`，release / hotfix 是主分支、`develop` 与 tag），从不 force；远端缺少的分支由这次推送创建，预览将其标为新增。remote 名必须出现在 `git remote` 里。链式 release 的推送是另一条命令（`git push -u`），默认勾选，取消勾选即只在本地创建。
 - `flow-integrate`（整合开发）只允许在 `feature/*` 上，`git merge develop` 冲突时 `merge --abort`，与 `branch-merge` 同一契约。

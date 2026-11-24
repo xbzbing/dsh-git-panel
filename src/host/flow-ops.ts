@@ -610,7 +610,7 @@ async function finishFlow(
     const remoteOid = await remoteBranchOid(deps, root, upstream.upstream.remote, upstream.upstream.branch)
     if (!remoteOid.ok) return remoteOid
     if (remoteOid.oid === null) {
-      return fail('upstream-missing', `remote upstream not found: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
+      return fail('flow-upstream-missing', `remote upstream not found: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
     }
     // A tip that was never fetched cannot be compared with `merge-base`: it is
     // the "remote has commits we do not have" case, not a git failure.
