@@ -190,6 +190,8 @@ test('code outside every hunk is fenced as plain code, and the fence outgrows qu
 
 test('numbering continues after the comments already in the draft, quoted or not', () => {
   assert.equal(nextReviewIndex(undefined), 1)
+  assert.equal(nextReviewIndex(undefined, 2), 3, 'an unreadable draft numbers on from what this panel added')
+  assert.equal(nextReviewIndex('## User Comment 4\n', 9), 5, 'a readable draft decides')
   assert.equal(nextReviewIndex(''), 1)
   assert.equal(nextReviewIndex('> ## User Comment 2\n> File: a\n\nmore\n> ## User Comment 7\n'), 8)
   assert.equal(nextReviewIndex('## User Comment 4\nFile: a'), 5)

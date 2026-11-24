@@ -6,8 +6,12 @@
  * range inside one hunk; the comment bar sits below the scroller (the windowed
  * rows never move); the quote text and the composer chip; numbering continues
  * after comments already in the draft; a refusing composer keeps the comment;
- * Escape closes the form, not what surrounds it; the review-tab button opens
- * the session's local changes at the file and is absent without the bundle.
+ * Escape closes the form wherever its focus is, not what surrounds it, and
+ * hands the keyboard back to the gutter; the gutters work from the keyboard
+ * through one tab stop; a refreshed diff that moved the code marks the comment
+ * stale and keeps its frozen quote; an unreadable draft still numbers on; the
+ * review-tab button opens the session's local changes at the file, fits the
+ * compact toolbar, and is absent without the bundle.
  *
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
@@ -45,8 +49,9 @@ const SNAP = {
 const browser = await chromium.launch()
 const errors = []
 
-/** Mount the panel with an optional composer and an optional review bundle. */
-async function mount({ composer, forge }) {
+/** Mount the panel with an optional composer (whose draft may be unreadable)
+ * and an optional review bundle, in a panel box of the given size. */
+async function mount({ composer, forge, draft = true, size = [960, 720] }) {
   const page = await browser.newPage({ viewport: { width: 1100, height: 800 } })
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
@@ -54,8 +59,9 @@ async function mount({ composer, forge }) {
   await page.addStyleTag({ content: THEME })
   await page.addScriptTag({ path: resolve(E2E, 'mock-rpc.mjs') })
   await page.addScriptTag({ path: resolve(E2E, 'client.js') })
-  await page.evaluate(async ({ snap, composer, forge }) => {
-    const { connection } = window.createGitPanelMock(snap)
+  await page.evaluate(async ({ snap, composer, forge, draft, size }) => {
+    const { connection, fixture } = window.createGitPanelMock(snap)
+    window.__fixture = fixture
     // The composer: a draft that grows by each accepted quote (blockquoted, as
     // the platform's clipboard projection writes it), and a switch to refuse.
     window.__review = { quotes: [], draft: 'Please look at these:\n', refuse: false, focus: 0, opened: [] }
@@ -67,7 +73,7 @@ async function mount({ composer, forge }) {
         return true
       },
       focus: () => { window.__review.focus += 1 },
-      state: { getSnapshot: () => ({ draft: window.__review.draft }) },
+      ...(draft ? { state: { getSnapshot: () => ({ draft: window.__review.draft }) } } : {}),
     }
     const scope = { get: (key) => (key === 'conversation' ? { input: { for: () => input } } : undefined) }
     const services = {
@@ -94,17 +100,22 @@ async function mount({ composer, forge }) {
     window.__getLoaded().apply(ctx)
     await new Promise((r) => setTimeout(r, 500))
     const panelHost = document.getElementById('panel')
-    panelHost.style.width = '960px'
-    panelHost.style.height = '720px'
+    panelHost.style.width = `${size[0]}px`
+    panelHost.style.height = `${size[1]}px`
     window.ReactDOM.createRoot(panelHost).render(registered['conversation.view'].component({ sessionId: 'sess-1' }))
     await new Promise((r) => setTimeout(r, 700))
     document.querySelector('.gp-changes .gp-file-row')?.click()
     await new Promise((r) => setTimeout(r, 600))
-  }, { snap: SNAP, composer, forge })
+  }, { snap: SNAP, composer, forge, draft, size })
   return page
 }
 
 const gutter = (side, line) => `.gp-diff-no--pick[data-side="${side}"][data-line="${line}"]`
+/** The focused gutter as `R2`, or null when focus is elsewhere. */
+const focusedGutter = (p) => p.evaluate(() => {
+  const el = document.activeElement
+  return el?.classList.contains('gp-diff-no--pick') ? `${el.dataset.side}${el.dataset.line}` : null
+})
 
 // ── with a composer and the review bundle ─────────────────────────────────
 const page = await mount({ composer: true, forge: true })
@@ -203,10 +214,36 @@ assert.equal(await page.locator('.gp-review__input').inputValue(), 'Kept on fail
 assert.equal(await page.evaluate(() => window.__review.quotes.length), 2, 'nothing was written')
 await page.evaluate(() => { window.__review.refuse = false })
 
-// Escape closes the form only.
+// Escape closes the form only, and the keyboard returns to the picked gutter.
 await page.locator('.gp-review__input').press('Escape')
 assert.equal(await page.locator('.gp-review').count(), 0, 'Escape closes the form')
 assert.ok(await page.locator('[class*="gp-diff-row"]').count() > 0, 'the diff stays')
+assert.equal(await focusedGutter(page), 'R2', 'focus goes back to the gutter the form was opened from')
+
+// With focus on a button of the form, Escape still closes the form.
+await page.locator(gutter('R', 2)).click()
+await page.locator('.gp-review__actions .gp-btn:not(.gp-btn--primary)').focus()
+await page.keyboard.press('Escape')
+assert.equal(await page.locator('.gp-review').count(), 0, 'Escape from a form button closes the form')
+assert.equal(await focusedGutter(page), 'R2')
+
+// The gutters from the keyboard: one tab stop, arrows walk a side, Enter picks
+// and Shift+Enter grows the range.
+assert.equal(await page.locator('.gp-diff-no--pick[tabindex="0"]').count(), 1, 'one gutter takes Tab')
+assert.equal(await page.locator(gutter('R', 2)).getAttribute('role'), 'button')
+await page.locator(gutter('R', 1)).focus()
+await page.keyboard.press('ArrowDown')
+assert.equal(await focusedGutter(page), 'R2', 'ArrowDown moves to the next line of the side')
+await page.keyboard.press('Enter')
+assert.match(await page.locator('.gp-review__title').innerText(), /R2$/, 'Enter picks the focused line')
+assert.equal(await page.locator(gutter('R', 2)).getAttribute('tabindex'), '0', 'the anchor becomes the tab stop')
+await page.locator(gutter('R', 2)).focus()
+await page.keyboard.press('ArrowUp')
+assert.equal(await focusedGutter(page), 'R1')
+await page.keyboard.press('Shift+Enter')
+assert.match(await page.locator('.gp-review__title').innerText(), /R1\u20132$/, 'Shift+Enter grows the range')
+await page.locator('.gp-review__input').press('Escape')
+assert.equal(await focusedGutter(page), 'R2', 'focus returns to the anchor')
 
 // Inside the enlarged card (a capture-phase Escape owner) the form still wins
 // the first Escape, and the card takes the second.
@@ -216,8 +253,31 @@ await page.locator(gutter('R', 2)).click()
 await page.locator('.gp-review__input').press('Escape')
 assert.equal(await page.locator('.gp-review').count(), 0, 'the first Escape closes the form')
 assert.equal(await page.locator('.gp-diff--card').count(), 1, 'and leaves the card open')
+// The same from a button of the form: the card does not take the key.
+await page.locator(gutter('R', 2)).click()
+await page.locator('.gp-review__actions .gp-btn:not(.gp-btn--primary)').focus()
+await page.keyboard.press('Escape')
+assert.equal(await page.locator('.gp-review').count(), 0, 'Escape from a form button closes the form in the card')
+assert.equal(await page.locator('.gp-diff--card').count(), 1, 'and leaves the card open')
 await page.keyboard.press('Escape')
 assert.equal(await page.locator('.gp-diff--card').count(), 0, 'the next Escape closes the card')
+
+// A refresh that changes the picked line marks the comment stale: no tint, a
+// notice, and the quote is still the code the reader saw.
+await page.locator(gutter('R', 2)).click()
+await page.locator('.gp-review__input').fill('About the line I saw.')
+await page.evaluate(() => { window.__fixture.diffText = 'line2-edited' })
+await page.locator('.gp-changes__refresh').click()
+await page.waitForFunction(() => document.querySelector('.gp-diff__wrap')?.textContent.includes('line2-edited'))
+assert.equal(await page.locator('.gp-review__stale').count(), 1, 'the stale notice shows')
+assert.equal(await page.locator('.gp-diff-no--sel').count(), 0, 'the moved range is not tinted')
+assert.equal(await page.locator('.gp-review__input').inputValue(), 'About the line I saw.', 'the text survives the refresh')
+const quotesBefore = await page.evaluate(() => window.__review.quotes.length)
+await add.click()
+const staleQuote = await page.evaluate(() => window.__review.quotes.at(-1))
+assert.equal(await page.evaluate(() => window.__review.quotes.length), quotesBefore + 1, 'a stale comment can still be added')
+assert.ok(staleQuote.text.includes('\n+line2\n') && !staleQuote.text.includes('line2-edited'), 'the quote keeps the frozen snippet')
+await page.evaluate(() => { window.__fixture.diffText = null })
 
 // The review-tab entry opens the session's local changes at this file.
 const reviewBtn = page.locator('.gp-diff__review-btn')
@@ -228,6 +288,31 @@ assert.deepEqual(await page.evaluate(() => window.__review.opened), [
   { target: { sessionId: 'sess-1', source: { kind: 'local' } }, params: { path: 'a.txt' } },
 ])
 await page.close()
+
+// ── compact, with a composer whose draft cannot be read ─────────────────
+const compact = await mount({ composer: true, forge: true, draft: false, size: [360, 480] })
+const controls = await compact.evaluate(() => {
+  const row = document.querySelector('.gp-diff__toolbar-row--controls')
+  if (row === null) return null
+  const box = row.getBoundingClientRect()
+  return {
+    hasReview: row.querySelector('.gp-diff__review-btn') !== null,
+    fits: row.scrollWidth <= row.clientWidth
+      && [...row.children].every((c) => { const r = c.getBoundingClientRect(); return r.left >= box.left - 1 && r.right <= box.right + 1 }),
+  }
+})
+assert.deepEqual(controls, { hasReview: true, fits: true }, 'the compact control row carries the review entry without overflowing')
+for (const n of [1, 2]) {
+  await compact.locator(gutter('R', 2)).click()
+  await compact.locator('.gp-review__input').fill(`Comment ${n}.`)
+  await compact.locator('.gp-review__actions .gp-btn--primary').click()
+}
+assert.deepEqual(
+  await compact.evaluate(() => window.__review.quotes.map((q) => q.text.split('\n')[0])),
+  ['## User Comment 1', '## User Comment 2'],
+  'an unreadable draft numbers on from the comments this panel added',
+)
+await compact.close()
 
 // ── without a composer or the bundle ──────────────────────────────────────
 const bare = await mount({ composer: false, forge: false })
