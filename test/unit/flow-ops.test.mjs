@@ -740,7 +740,7 @@ test('flow-finish refuses deleting an upstream that advanced remotely', async ()
       strategy: 'merge', message: 'finish advanced', deleteBranch: true, deleteRemote: true,
     })
     assert.equal(finished.ok, false, JSON.stringify(finished))
-    assert.equal(finished.error.code, 'upstream-changed', JSON.stringify(finished))
+    assert.equal(finished.error.code, 'upstream-ahead', JSON.stringify(finished))
     assert.equal(out(dir, ['rev-parse', 'develop']), developBefore, 'the target did not move')
     assert.ok(branchExists(dir, 'feature/advanced'), 'the local flow branch remains available')
     assert.equal(out(remote, ['rev-parse', 'refs/heads/feature/advanced']), out(collaborator, ['rev-parse', 'HEAD']), 'the advanced remote branch remains intact')
@@ -813,7 +813,7 @@ test('flow-finish refuses deleting a remote upstream that diverged from the loca
       strategy: 'merge', message: 'finish diverged', deleteBranch: true, deleteRemote: true,
     })
     assert.equal(finished.ok, false, JSON.stringify(finished))
-    assert.equal(finished.error.code, 'upstream-changed', JSON.stringify(finished))
+    assert.equal(finished.error.code, 'upstream-ahead', JSON.stringify(finished))
     assert.equal(out(dir, ['rev-parse', 'develop']), developBefore, 'the target did not move')
     assert.ok(branchExists(dir, 'feature/diverged'), 'the local flow branch remains available')
     assert.equal(out(remote, ['rev-parse', 'refs/heads/feature/diverged']), out(collaborator, ['rev-parse', 'HEAD']), 'the diverged remote branch remains intact')
@@ -821,6 +821,39 @@ test('flow-finish refuses deleting a remote upstream that diverged from the loca
     rmSync(dir, { recursive: true, force: true })
     rmSync(remote, { recursive: true, force: true })
     rmSync(collaborator, { recursive: true, force: true })
+  }
+})
+
+
+test('flow-finish refuses deleting an upstream that no longer exists remotely', async () => {
+  const dir = await freshRepo('gp-flow-upstream-gone-')
+  const remote = mkdtempSync(join(tmpdir(), 'gp-flow-upstream-gone-bare-'))
+  try {
+    await runGit(remote, ['init', '-q', '--bare'])
+    await withDevelop(dir)
+    await runGit(dir, ['remote', 'add', 'origin', remote])
+    await runGit(dir, ['push', '-q', 'origin', 'main', 'develop'])
+    await run(dir, { kind: 'flow-start', flow: 'feature', branch: 'feature/gone', base: 'develop', pushRemote: 'origin' })
+    writeFileSync(join(dir, 'local.txt'), 'local\n')
+    await runGit(dir, ['add', 'local.txt'])
+    await runGit(dir, ['commit', '-qm', 'local work'])
+    // Delete the remote branch behind the checkout's back. The branch's
+    // tracking config survives, so the finish still resolves the upstream it
+    // was asked to delete and must refuse instead of guessing.
+    await runGit(dir, ['push', '-q', 'origin', '--delete', 'feature/gone'])
+
+    const developBefore = out(dir, ['rev-parse', 'develop'])
+    const finished = await run(dir, {
+      kind: 'flow-finish', flow: 'feature', branch: 'feature/gone', target: 'develop',
+      strategy: 'merge', message: 'finish gone', deleteBranch: true, deleteRemote: true,
+    })
+    assert.equal(finished.ok, false, JSON.stringify(finished))
+    assert.equal(finished.error.code, 'upstream-missing', JSON.stringify(finished))
+    assert.equal(out(dir, ['rev-parse', 'develop']), developBefore, 'the target did not move')
+    assert.ok(branchExists(dir, 'feature/gone'), 'the local flow branch remains available')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
   }
 })
 

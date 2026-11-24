@@ -32,6 +32,9 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'not-ff': return t('error.notFastForward')
     case 'push-rejected': return t('error.pushRejected')
     case 'upstream-changed': return t('error.upstreamChanged')
+    // A flow finish refused before writing: the remote upstream holds commits
+    // the local flow branch does not have, so deleting it would drop them.
+    case 'upstream-ahead': return t('error.upstreamAhead')
     case 'auth-failed': return t('error.authFailed')
     case 'conflict': return t('error.conflict')
     case 'revert-conflict': return t('error.revertConflict')

@@ -1,6 +1,5 @@
 /** `dbGitPanel` namespace dictionary: German. Keys mirror `zh` in ../locales.ts. */
 import type { GitKey } from './zh.js'
-
 export const de: Record<GitKey, string> = {
   // Git Flow
   'flow.button': 'Git Flow',
@@ -560,7 +559,9 @@ export const de: Record<GitKey, string> = {
   'error.invalidName': 'Ungültiger Name',
   'error.notFastForward': 'Lokal und Remote sind divergiert – ein Fast-Forward-Pull ist nicht möglich; führe manuell einen Merge oder Rebase aus',
   'error.pushRejected': 'Push abgelehnt: Das Remote hat neue Commits – führe zuerst „Synchronisierung prüfen“ und einen Pull aus, dann pushe',
-'error.upstreamChanged': 'Der Remote-Branch enthält Commits, die lokal fehlen (er ist voraus oder divergiert) und bleibt erhalten. Synchronisiere ihn, bevor du abschließt',
+
+  'error.upstreamChanged': 'Der Remote-Branch wurde während der Operation geändert und bleibt erhalten. Aktualisiere und prüfe ihn',
+  'error.upstreamAhead': 'Der Remote-Branch enthält Commits, die lokal fehlen (er ist voraus oder divergiert) und bleibt erhalten. Synchronisiere ihn, bevor du abschließt',
   'error.authFailed': 'Authentifizierung fehlgeschlagen: keine nutzbaren git-Anmeldedaten (HTTPS braucht einen Credential Helper, SSH einen Schlüssel). Pushe einmal über die Befehlszeile, um sie zu speichern',
   'error.noBranch': 'HEAD steht auf keinem Branch (losgelöst oder noch keine Commits), daher gibt es keinen Branch zum Veröffentlichen oder für einen Upstream: Wechsle zu einem Branch und committe zuerst',
   'error.hasUpstream': 'Der aktuelle Branch hat bereits einen Upstream; aktualisiere und versuche es erneut',

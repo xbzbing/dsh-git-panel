@@ -166,6 +166,31 @@ async function remoteBranchOid(
   return { ok: true, oid }
 }
 
+/** True when the commit object exists in this repository. A remote tip read
+ * with `ls-remote` may not have been fetched yet; that is "the remote has
+ * commits we do not have", not a git failure, so it is probed separately from
+ * `isAncestor` (whose `merge-base` would exit 128 on an unknown object). */
+async function hasCommit(
+  deps: SnapshotDeps, root: string, oid: string, label: string,
+): Promise<{ readonly ok: true; readonly exists: boolean } | Failure> {
+  const outcome = await raw(deps, root, ['git', 'rev-parse', '--verify', '--quiet', '--end-of-options', `${oid}^{commit}`], label)
+  if (!outcome.ok) return outcome
+  return { ok: true, exists: outcome.exitCode === 0 }
+}
+
+/** `git merge-base --is-ancestor`: exit 0 means ancestor, exit 1 means it is
+ * not, and anything else is a real git failure (missing object, corrupt repo)
+ * that must not be reported as a divergence. */
+async function isAncestor(
+  deps: SnapshotDeps, root: string, ancestor: string, descendant: string, label: string,
+): Promise<{ readonly ok: true; readonly ancestor: boolean } | Failure> {
+  const outcome = await raw(deps, root, ['git', 'merge-base', '--is-ancestor', ancestor, descendant], label)
+  if (!outcome.ok) return outcome
+  if (outcome.exitCode === 0) return { ok: true, ancestor: true }
+  if (outcome.exitCode === 1) return { ok: true, ancestor: false }
+  return fail('git-error', outcome.stderr.trim() || `git merge-base --is-ancestor failed: ${label}`)
+}
+
 async function pushBranchPreflight(
   deps: SnapshotDeps, root: string, remote: string, branch: string,
 ): Promise<Failure | null> {
@@ -175,22 +200,19 @@ async function pushBranchPreflight(
   const localOid = await localRefOid(deps, root, `refs/heads/${branch}`, 'flow-push-local-ref')
   if (!localOid.ok) return localOid
   if (localOid.oid === null || localOid.oid === remoteOid.oid) return null
-  const localAncestorsRemote = await raw(
-    deps, root,
-    ['git', 'merge-base', '--is-ancestor', `refs/heads/${branch}`, remoteOid.oid],
-    'flow-push-remote-ahead',
-  )
-  if (!localAncestorsRemote.ok) return localAncestorsRemote
-  if (localAncestorsRemote.exitCode === 0) {
+  const remoteKnown = await hasCommit(deps, root, remoteOid.oid, 'flow-push-remote-object')
+  if (!remoteKnown.ok) return remoteKnown
+  if (!remoteKnown.exists) {
+    return fail('push-rejected', `remote branch is ahead or diverged: ${remote}/${branch}`)
+  }
+  const localInRemote = await isAncestor(deps, root, `refs/heads/${branch}`, remoteOid.oid, 'flow-push-remote-ahead')
+  if (!localInRemote.ok) return localInRemote
+  if (localInRemote.ancestor) {
     return fail('push-rejected', `remote branch is ahead: ${remote}/${branch}`)
   }
-  const remoteAncestorsLocal = await raw(
-    deps, root,
-    ['git', 'merge-base', '--is-ancestor', remoteOid.oid, `refs/heads/${branch}`],
-    'flow-push-diverged',
-  )
-  if (!remoteAncestorsLocal.ok) return remoteAncestorsLocal
-  if (remoteAncestorsLocal.exitCode !== 0) {
+  const remoteInLocal = await isAncestor(deps, root, remoteOid.oid, `refs/heads/${branch}`, 'flow-push-diverged')
+  if (!remoteInLocal.ok) return remoteInLocal
+  if (!remoteInLocal.ancestor) {
     return fail('push-rejected', `remote branch has diverged: ${remote}/${branch}`)
   }
   return null
@@ -590,20 +612,25 @@ async function finishFlow(
     if (remoteOid.oid === null) {
       return fail('upstream-missing', `remote upstream not found: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
     }
+    // A tip that was never fetched cannot be compared with `merge-base`: it is
+    // the "remote has commits we do not have" case, not a git failure.
+    const remoteKnown = await hasCommit(deps, root, remoteOid.oid, 'flow-remote-object')
+    if (!remoteKnown.ok) return remoteKnown
+    if (!remoteKnown.exists) {
+      return fail('upstream-ahead', `remote upstream has commits missing locally: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
+    }
     // Deleting the remote branch drops whatever only that ref holds, so the
     // rule is containment, not equality: the remote tip must be an ancestor of
     // the local flow branch. A branch that has local commits the remote does
     // not have is exactly the state a finish normally cleans up, and deleting
     // it loses nothing. A remote tip outside the local branch (ahead or
     // diverged) still refuses.
-    const remoteInLocal = await raw(
-      deps, root,
-      ['git', 'merge-base', '--is-ancestor', remoteOid.oid, `refs/heads/${action.branch}`],
-      'flow-remote-ancestor',
+    const remoteInLocal = await isAncestor(
+      deps, root, remoteOid.oid, `refs/heads/${action.branch}`, 'flow-remote-ancestor',
     )
     if (!remoteInLocal.ok) return remoteInLocal
-    if (remoteInLocal.exitCode !== 0) {
-      return fail('upstream-changed', `remote upstream has commits missing locally: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
+    if (!remoteInLocal.ancestor) {
+      return fail('upstream-ahead', `remote upstream has commits missing locally: ${upstream.upstream.remote}/${upstream.upstream.branch}`)
     }
     expectedRemoteOid = remoteOid.oid
   }
@@ -675,10 +702,10 @@ async function finishFlow(
     const toDevelop = await checkout(deps, root, DEVELOP)
     if (toDevelop !== null) return partial(toDevelop)
     const alreadyBackMerged = resumeIntegrated
-      ? await raw(deps, root, ['git', 'merge-base', '--is-ancestor', `refs/heads/${action.target}`, `refs/heads/${DEVELOP}`], 'flow-back-merge-state')
+      ? await isAncestor(deps, root, `refs/heads/${action.target}`, `refs/heads/${DEVELOP}`, 'flow-back-merge-state')
       : null
     if (alreadyBackMerged !== null && !alreadyBackMerged.ok) return partial(alreadyBackMerged)
-    const merged = alreadyBackMerged !== null && alreadyBackMerged.exitCode === 0
+    const merged = alreadyBackMerged !== null && alreadyBackMerged.ancestor
       ? null
       : await git(deps, root, ['git', 'merge', '--no-ff', '-m', message, '--end-of-options', `refs/heads/${action.target}`], 'flow-develop-merge')
     if (merged !== null && !merged.ok) {
@@ -755,13 +782,11 @@ async function finishFlow(
       // because the cleanup either keeps it or deletes it after this step.
       // Force the delete only after proving HEAD contains the branch tip, so
       // no commit can be lost; otherwise git's safe refusal stands.
-      const mergedIntoHead = await raw(
-        deps, root,
-        ['git', 'merge-base', '--is-ancestor', `refs/heads/${action.branch}`, 'HEAD'],
-        'flow-branch-merged',
+      const mergedIntoHead = await isAncestor(
+        deps, root, `refs/heads/${action.branch}`, 'HEAD', 'flow-branch-merged',
       )
       if (!mergedIntoHead.ok) return partial(mergedIntoHead)
-      if (mergedIntoHead.exitCode !== 0) return partial(removed)
+      if (!mergedIntoHead.ancestor) return partial(removed)
       const forced = await git(deps, root, ['git', 'branch', '-D', '--end-of-options', action.branch], 'flow-branch-delete-forced')
       if (!forced.ok) return partial(forced)
       output = forced.stdout

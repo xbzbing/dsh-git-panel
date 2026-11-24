@@ -1,6 +1,5 @@
 /** `dbGitPanel` namespace dictionary: English. Keys mirror `zh` in ./zh.ts. */
 import type { GitKey } from './zh.js'
-
 export const en: Record<GitKey, string> = {
   // Git Flow (branch-name convention; Feature / Hotfix / Release stay English)
   'flow.button': 'Git Flow',
@@ -559,7 +558,9 @@ export const en: Record<GitKey, string> = {
   'error.invalidName': 'Invalid name',
   'error.notFastForward': 'Local and remote have diverged — a fast-forward pull is not possible; merge or rebase manually',
   'error.pushRejected': 'Push rejected: the remote has new commits — run “Check sync” and pull first, then push',
-'error.upstreamChanged': 'The remote branch has commits the local branch lacks (it is ahead or diverged); it was preserved. Sync it before finishing',
+
+  'error.upstreamChanged': 'The remote branch changed while this operation was running; it was preserved. Refresh and inspect it',
+  'error.upstreamAhead': 'The remote branch has commits the local branch lacks (it is ahead or diverged); it was preserved. Sync the remote before finishing',
   'error.authFailed': 'Authentication failed: no usable git credentials (HTTPS needs a credential helper, SSH needs a key). Push once from the command line first to cache them',
   'error.noBranch': 'HEAD is not on a branch (detached, or no commits yet), so there is no branch to publish or attach an upstream to: switch to a branch and commit first',
   'error.hasUpstream': 'This branch already has an upstream; refresh and try again',

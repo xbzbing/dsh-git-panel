@@ -12,7 +12,7 @@ Git Flow 是分支名约定，不是一段可移植的 git 配置：`develop` �
 - **不做 `git flow` CLI 依赖**：它要求 extra config（`gitflow.*`）与已安装的脚本；面板只读仓库里已有的分支名，行为要对同一仓库的终端用户可解释。
 - **一次 finish 是多步写操作**：切分支 → 合并 / squash / rebase → 打标签 → 合并回 `develop` → 删远端 / 删本地 → 推送。`GitAction` 的 `planAction` 只表达“一条 argv 序列”，无法表达“先探测再决定、失败后回滚”。
 - **不能给共享工作区留下中间状态**：同一个 checkout 可能被 dsh AI 或终端同时使用；冲突必须立刻中止，而不是把仓库留在 merge / rebase 中间态。
-- **安全不变量必须延续**：argv 数组、名字先校验、push 不 force、`-D` 需明确勾选、cwd 锁仓库根。
+- **安全不变量必须延续**：argv 数组、名字先校验、push 不 force、`-D` 需显式授权（squash 勾选，或 merge / rebase 下经祖先证明成立）、cwd 锁仓库根。
 - **旧 host 兼容**：新 client 不能向没有这些 action 的 host 发送 `flow-*`。
 
 ## Decision
