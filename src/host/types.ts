@@ -115,9 +115,12 @@ export type GitFailure =
   // A repository selector (GitRepoEntry.path) that no longer resolves: outside
   // the cwd, deleted, not a work-tree top, or bare. The client re-lists the
   // repositories and falls back to the workspace one. `unverified` marks a
-  // refusal git never answered (the worktree records could not be read), so
-  // the selector may still exist: the client falls back for now but keeps the
-  // remembered pick. Absent = a definitive refusal (and on older hosts).
+  // refusal a door that could have admitted the selector never answered (the
+  // worktree records could not be read, or the `.code-workspace` allow-list
+  // could not be built), so the selector may still exist: the client falls
+  // back for now but keeps the remembered pick. A selector that resolves to no
+  // directory outside the cwd is always definitive. Absent = a definitive
+  // refusal (and on older hosts).
   | { readonly code: 'invalid-repo'; readonly cwd?: string; readonly unverified?: true }
   // git not installed / not on PATH: the spawn itself failed, so neither the
   // work-tree root nor repo membership can be learned from git. `cwd` carries
@@ -753,10 +756,12 @@ export interface GitRepoList {
    * probed by that scan, so they are not counted against its cap. */
   readonly repos: readonly GitRepoEntry[]
   /** Whether the worktree probe answered. `failed` = git could not list or
-   * certify the repository's checkouts, so a checkout missing from `repos` (or
-   * marked `uncertified`) may still exist and must not be read as gone. `ok`
-   * also covers a probe that did not run because the setting turned it off or
-   * the cwd belongs to no repository. Absent on older hosts. */
+   * certify the repository's checkouts, or could not resolve the workspace
+   * repository itself (timeout, cancelled, git missing) while the probe was
+   * on, so a checkout missing from `repos` (or marked `uncertified`) may still
+   * exist and must not be read as gone. `ok` also covers a probe that did not
+   * run because the setting turned it off or the cwd belongs to no repository.
+   * Absent on older hosts. */
   readonly worktrees?: 'ok' | 'failed'
   /**
    * Recognition state of the session's `.code-workspace` file (ADR-0030,

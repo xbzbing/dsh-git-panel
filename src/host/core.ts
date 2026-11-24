@@ -472,12 +472,20 @@ export async function resolveBrowseRoot(
  * null when git cannot answer. Used to confirm that a `.code-workspace` folder
  * really is a work-tree top. */
 async function gitToplevel(deps: SnapshotDeps, dir: string): Promise<string | null> {
+  const probe = await probeToplevel(deps, dir)
+  if (probe === null || probe === false) return null
+  return await deps.fs.realpath(probe).catch(() => probe)
+}
+
+/** `git rev-parse --show-toplevel` in `dir`: the raw top, false when git
+ * answered that `dir` is in no work tree, null when git itself could not
+ * answer (missing, cancelled, timed out). */
+async function probeToplevel(deps: SnapshotDeps, dir: string): Promise<string | false | null> {
   const probe = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], dir, 'toplevel', deps.signal)
   if ('failure' in probe) return null
-  if (probe.run.cancelled || probe.run.timedOut || probe.run.exitCode !== 0) return null
-  const out = probe.run.stdout.trim()
-  if (out === '') return null
-  return await deps.fs.realpath(out).catch(() => out)
+  if (probe.run.cancelled || probe.run.timedOut) return null
+  const out = probe.run.exitCode === 0 ? probe.run.stdout.trim() : ''
+  return out === '' ? false : out
 }
 
 /** External repository roots the session's `.code-workspace` file certifies. */
@@ -500,13 +508,47 @@ export async function sessionExternalRoots(
  * (ADR-0035) speaks for the cwd's own repository, so its refusal is evidence
  * only where there is one; in a plain directory (the hub layout) there are no
  * worktree records, and "could not read them" is not "unknown". Null = git
- * itself could not answer.
+ * itself could not answer. The default repository's own resolution is cached
+ * per cwd and is normally in by now, so git only runs when it is not.
  */
 async function cwdHasRepository(deps: SnapshotDeps, cwd: string): Promise<boolean | null> {
-  const run = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], cwd, 'toplevel', deps.signal)
-  if ('failure' in run) return null
-  if (run.run.cancelled || run.run.timedOut) return null
-  return run.run.exitCode === 0 && run.run.stdout.trim() !== ''
+  const key = rootCacheKey(cwd, '')
+  if (deps.rootCache?.get(key) !== undefined) return true
+  const negAt = deps.rootNegCache?.get(key)
+  if (negAt !== undefined && Date.now() < negAt) return false
+  const probe = await probeToplevel(deps, cwd)
+  return probe === null ? null : probe !== false
+}
+
+/**
+ * Whether a selector every door refused is gone for good ('definitive': the
+ * refusal may be cached and the client forgets the pick) or only went
+ * unanswered ('unverified'). A refusal is unverified only where a door that
+ * could have admitted the selector did not get to answer:
+ *
+ * - The outer doors only ever admit an existing directory outside the cwd, so
+ *   a selector that resolves to nothing, or back inside the cwd (`repoDirFor`
+ *   already refused it), is refused by every door no matter what they read.
+ * - The workspace-file door (ADR-0030) only takes outward selectors, so its
+ *   allow-list matters only for those; it could not be built when the setting
+ *   names a missing or unreadable file, or several candidates leave it open.
+ * - The certified door (ADR-0035) did not answer when the fresh worktree read
+ *   failed, unless the cwd belongs to no repository and the door has nothing to
+ *   read. Its check comes last: it may cost a git run.
+ */
+async function refusalKind(
+  deps: SnapshotDeps,
+  cwd: string,
+  rel: string,
+  allowListUnknown: boolean,
+  certifiedAnswered: boolean,
+): Promise<'definitive' | 'unverified'> {
+  const origin = await deps.fs.realpath(cwd).catch(() => cwd)
+  const target = await deps.fs.realpath(resolve(origin, rel)).catch(() => null)
+  if (target === null || isWithin(origin, target)) return 'definitive'
+  if (allowListUnknown && isOutwardSelector(rel)) return 'unverified'
+  if (certifiedAnswered) return 'definitive'
+  return (await cwdHasRepository(deps, cwd)) === false ? 'definitive' : 'unverified'
 }
 
 /** The session's cwd: the live session header first, then the persisted one. */
@@ -598,6 +640,7 @@ export async function resolveWorkspace(
         let certified = checkouts === null
           ? { ok: false as const }
           : await repoDirCertified(deps.fs, cwd, rel, checkouts.map((entry) => entry.root))
+        let certifiedAnswered = checkouts !== null
         if (!certified.ok) {
           // Either the row was created after this window's records were read
           // (`git worktree add` from a terminal, or the row itself arriving one
@@ -607,21 +650,19 @@ export async function resolveWorkspace(
           certified = fresh === null
             ? { ok: false as const }
             : await repoDirCertified(deps.fs, cwd, rel, fresh.map((entry) => entry.root))
-          // A read that never happened only means "unknown" where the door
-          // could have spoken: a cwd that belongs to no repository has no
-          // worktree records to miss, so the same silence there is an answer.
-          const doorSettled = fresh !== null || (await cwdHasRepository(deps, cwd)) === false
-          // Only a definitive refusal is remembered: an unanswered read, or one
-          // whose external allow-list could not be built, would otherwise
-          // refuse the row for a whole window on no evidence.
-          const settled = doorSettled && !allowListUnknown
-          if (!certified.ok && settled) deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
-          // The client keeps a remembered pick through the same distinction.
-          if (!certified.ok && !settled) {
+          certifiedAnswered = fresh !== null
+        }
+        if (!certified.ok) {
+          // Only a definitive refusal is remembered, here and by the client: an
+          // unanswered door would otherwise refuse the row for a whole window,
+          // and retire the tab's remembered pick, on no evidence.
+          const kind = await refusalKind(deps, cwd, rel, allowListUnknown, certifiedAnswered)
+          if (kind === 'unverified') {
             return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd, unverified: true } } }
           }
+          deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
+          return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
         }
-        if (!certified.ok) return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
         start = certified.dir
       }
     }
@@ -1025,6 +1066,8 @@ async function detectGitRepo(deps: SnapshotDeps, cwd: string): Promise<boolean> 
  * the run/query endpoints return. `GitFailure` already carries only endpoint
  * codes, so no membership test is needed (the previous per-endpoint ternary
  * that re-listed every code was always true — dead). `detail` becomes message.
+ * `invalid-repo.unverified` is not carried: only the snapshot's failure is a
+ * verdict on a remembered pick, a run/query refusal never retires one.
  */
 export function mapWorkspaceFailure(
   failure: GitSnapshotResult & { ok: false },
