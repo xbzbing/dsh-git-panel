@@ -432,7 +432,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     setFileDiff({ path, hash, shortHash })
     // Switching the context of the open file keeps its diff on screen until
     // the new text arrives: the DiffView stays mounted, and so does a line
-    // comment being written on it (ADR-0038). Opening a file, the same one
+    // comment being written on it (ADR-0039). Opening a file, the same one
     // included, starts from the loading state.
     const sameFile = previous !== null && previous.path === path && previous.hash === hash
     if (!(contextOnly && sameFile)) setFileDiffData(null)

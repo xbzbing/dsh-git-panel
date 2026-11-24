@@ -76,7 +76,7 @@ const RUNNERS = [
   // exact wire action, the squash forced-delete acknowledgement, and a refusal
   // (or an in-flight submit) staying inside the open dialog.
   'flow-dialogs',
-  // Diff line comments into the composer (issue #123, ADR-0038): picking, the
+  // Diff line comments into the composer (issue #123, ADR-0039): picking, the
   // quote text and numbering, refusal and Escape, and the "Local changes"
   // review-tab entry with its gates.
   'diff-review',
@@ -90,6 +90,10 @@ const RUNNERS = [
   // The tab bar's repository switcher: a workspace with nested checkouts must
   // route every request through the picked one (issue #83).
   'repo-switcher',
+  // The pick survives a reload of the page (and so a hot reload of the bundle):
+  // the first sample is already tagged, and only a definitive refusal deletes
+  // the tab's record (ADR-0038).
+  'repo-pick-persist',
   // The workspace-file offer (issue #125): the hint row in the switcher, the
   // browser notice that carries it when no Git pane exists, and the one-click
   // enable whose write is followed by a fresh repo-list.

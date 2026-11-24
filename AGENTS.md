@@ -32,7 +32,7 @@
 - 编辑规则单源在 `types.ts`：白名单、`.env` / `.env.*`、2 MiB、UTF-8 往返、只读检查、`baseSha256` 比对写；写入使用同目录 `wx` 临时文件再 rename，失败清理临时文件。详见 ADR-0024。
 - push 不得 force；严格领先时提供普通 push，分叉时只提供一次确认的合并式同步（host 的 `pull-merge` 做 fetch + merge 上游，客户端成功后再普通 push，见 ADR-0036）；`pull-ff` 仍只允许 `--ff-only`，rebase 不默认；不直接检出远程引用；远程链接必须去除内嵌凭据。删远端分支只经配置的 remote 解析（远端名可含 `/`），目标固定为 `refs/heads/<branch>`，不得按短名或同名标签猜测。
 - discard、reset、stash-drop、删标签、删本地分支（未合并时的强制 `-D` 需在确认框里再次勾选）、删远端分支（必须勾选确认；Git Flow 完成在点击「完成」后总要先确认步骤，删除远端还必须在同一确认里勾选）、合并分支、拣选提交和带贮藏的切换必须二次确认。合并 / 拣选冲突由 host 自动 `git merge --abort` / `git cherry-pick --abort` 恢复操作前状态，中止失败分别报 `merge-stuck` / `pick-stuck`（空拣选取消为 `pick-empty`）。未跟踪条目若本身是嵌套仓库或子模块必须拒绝，并报告批量删除中的部分失败。
-- Git Flow 的 action（`flow-start` / `flow-finish` / `flow-integrate`）复用 `run` 端点，由 `flow-ops.ts` 在 `planAction` 之前执行；`planAction` 必须显式拒绝它们。finish 要求工作区干净，flow 与分支前缀由 host 复核，release / hotfix 的标签是 annotated；第一次集成冲突回滚到发起 checkout（`merge-conflict` / `merge-stuck`），之后的步骤失败报 `flow-partial`。`-D` 只用于 squash 集成且对话框额外勾选，push 不 force，删远端只认该分支解析出的上游。快照 `capabilities.flow` 缺失时 client 不显示入口。详见 ADR-0037。
+- Git Flow 的 action（`flow-start` / `flow-finish` / `flow-integrate`）复用 `run` 端点，由 `flow-ops.ts` 在 `planAction` 之前执行；`planAction` 必须显式拒绝它们。finish 要求工作区干净，flow 与分支前缀由 host 复核，release / hotfix 的标签是 annotated；第一次集成冲突回滚到发起 checkout（`merge-conflict` / `merge-stuck`），之后的步骤失败报 `flow-partial`。squash 的 `-D` 需对话框额外勾选；merge / rebase 下若 `-d` 因上游落后拒绝，host 先证明 branch tip 已在 HEAD 祖先链上再 `-D`，证明不了保留拒绝。push 不 force，删远端只认该分支解析出的上游，且远端必须是本地 flow 分支的祖先（本地领先可删，远端领先或分叉拒绝）。快照 `capabilities.flow` 缺失时 client 不显示入口。详见 ADR-0037。
 - HTML 预览遵守 ADR-0015、ADR-0020：交互预览使用 `blob:` iframe，不用 `srcdoc`，不授予 `allow-same-origin`；静态模式才使用受限 `srcdoc`。大内联脚本先确认，等待可停止。
 
 ## 数据流约束
@@ -44,6 +44,7 @@
 - RPC 有传输层 `{ ok, value }` 和业务层 `{ ok, value|error }` 两层信封，必须分别判断。
 - 写操作经 `onAction` 回灌快照；标签操作用本地失效信号。切换仓库时旧视图可回放，请求必须带新仓库标签，`.gp-body` 在途时 inert。
 - 新快照到达后修剪已消失的选择项；选择键只能经 `selection-keys.ts` 构造和解析。
+- 仓库选择与文件浏览根的标签页记录（`sessionStorage`）只经 `repo-select.ts`（其存储层是 `pick-store.ts`）读写，组件不得直接访问；只有用户的显式选择新增或覆盖记录（修复只会删掉其中一部分），面板自动挑的第一个子仓库只写内存；面板的仓库列表按会话归属，切换会话后要等新会话自己的列表才修复或自动选库。修复按 `listVerdict` / `sampleVerdict` 分级：只有确定的否决（不带 `unverified` 的 `invalid-repo`、`stale` 行）才删记录，`worktrees: 'failed'` 的列表不修剪。见 ADR-0038。
 - merge 提交的文件列表、统计和 diff 统一使用 first-parent。截断、降级和未跟踪折叠必须保留标记并显示提示；大仓库遵守 `STATS_FANOUT_LIMIT`、`UNTRACKED_NUMSTAT_LIMIT` 和有界 diff 上下文。
 
 ## UI 约束
@@ -56,7 +57,7 @@
 - 长列表使用 `virtual-list.ts` + `use-viewport.ts`；memo props 不在 render 中新建对象；高亮使用 `highlight-cache.ts`。
 - 提交差异弹窗的只读「文件」视图复用 `CodePreview` 的两档渲染（≤ 2000 行且 ≤ 1 MiB 才 wrap 全量挂载，超过转 nowrap 虚拟窗口）；不得为了 Ctrl/⌘+A 全量挂载或放大 diff 上下文。`CodePreview` 的 Ctrl/⌘+A 只作用于聚焦的代码区域；虚拟档只选已挂载行，必须显示 `files.selectAllPartial` 提示。
 - 提交差异弹窗（commit 与 compare 两个入口共用 `renderFileDiffModal`）的文件视图与「复制变更后的文件内容」共用 `file-version`（按 diff 的 base 读**该 base 下的新侧**版本，严格小于 10 MiB）；禁止从 DOM、`diffData.text` 或 `file-content`（工作区版本）拼全文。`tooLarge`/`binary`/`absent` 是终态，可禁用复制并把原因写进 label；读错误不是终态，必须留一次重试。
-- 差异行内评论（ADR-0038）：引用文本的标题与字段必须与平台「本地变更」页签的 `formatReviewComment` 一致（local 来源只多一行 `Repository:`；commit / rev 来源另补 `Commit:` / `Base:`），但 hunk 只引选中行前后各 3 行并按窗口重算 `@@` 头（`REVIEW_CONTEXT_LINES`），不得照抄整段 hunk，编号只经 `nextReviewIndex` 读草稿，读不到时用本面板在该会话已加入的条数续号；评论框放在 `.gp-diff__scroll` 之下，不得插进虚拟窗口的行之间；传给 `DiffView` 的 `review` 必须 memo（按 source 字段）。「本地变更」入口只对默认仓库（`repo === ''`）显示，`forgeChanges` 只做结构探测，不进 `dsh.client.inject`。组合态（`isComposing`）的 Escape 归输入法：评论框不关，但必须 `stopPropagation`，否则放大卡片与提交差异 / 版本比较弹窗会跟着关。三个入口只在工具栏切换同一文件的上下文时（`showDiff` / `openFileDiff` 的 `contextOnly`、比较弹窗的 `expanded`）保留旧 diff 数据，这条路径上不得清空，否则 `DiffView` 卸载、评论丢失；传给 `DiffView` 的 `expanded` 是当前文本的展开状态，不是工具栏的待生效状态。
+- 差异行内评论（ADR-0039）：引用文本的标题与字段必须与平台「本地变更」页签的 `formatReviewComment` 一致（local 来源只多一行 `Repository:`；commit / rev 来源另补 `Commit:` / `Base:`），但 hunk 只引选中行前后各 3 行并按窗口重算 `@@` 头（`REVIEW_CONTEXT_LINES`），不得照抄整段 hunk，编号只经 `nextReviewIndex` 读草稿，读不到时用本面板在该会话已加入的条数续号；评论框放在 `.gp-diff__scroll` 之下，不得插进虚拟窗口的行之间；传给 `DiffView` 的 `review` 必须 memo（按 source 字段）。「本地变更」入口只对默认仓库（`repo === ''`）显示，`forgeChanges` 只做结构探测，不进 `dsh.client.inject`。组合态（`isComposing`）的 Escape 归输入法：评论框不关，但必须 `stopPropagation`，否则放大卡片与提交差异 / 版本比较弹窗会跟着关。三个入口只在工具栏切换同一文件的上下文时（`showDiff` / `openFileDiff` 的 `contextOnly`、比较弹窗的 `expanded`）保留旧 diff 数据，这条路径上不得清空，否则 `DiffView` 卸载、评论丢失；传给 `DiffView` 的 `expanded` 是当前文本的展开状态，不是工具栏的待生效状态。
 - row slider 是唯一选中底色：宿主滚动容器必须 `position: relative`，行的 active 状态只改文字色；虚拟窗口和字号 zoom 必须纳入量测。详见 `test/e2e/row-slider.mjs`。
 - 右键菜单的目标值在手势时捕获（thunk），owner 解析前必须复核 sessionId / repo / browse root（仓库行自带检出，只要求 root 非空）；菜单项不改选中与 row slider；破坏性项只打开既有确认框；菜单打开期间不显示指针锚定的浮层（提交 hover 卡片先收起，再由 `contextMenus.active` 门控）。详见 ADR-0028。
 - 折叠滚动区用 `grid 1fr/0fr` 时，折叠层为 flex 列，列表 `flex: 1 1 auto; min-height: 0`。

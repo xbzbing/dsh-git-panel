@@ -114,8 +114,14 @@ export type GitFailure =
   | { readonly code: 'not-a-git-repo'; readonly cwd?: string; readonly showInputPill?: boolean }
   // A repository selector (GitRepoEntry.path) that no longer resolves: outside
   // the cwd, deleted, not a work-tree top, or bare. The client re-lists the
-  // repositories and falls back to the workspace one.
-  | { readonly code: 'invalid-repo'; readonly cwd?: string }
+  // repositories and falls back to the workspace one. `unverified` marks a
+  // refusal a door that could have admitted the selector never answered (the
+  // worktree records could not be read, or the `.code-workspace` allow-list
+  // could not be built), so the selector may still exist: the client falls
+  // back for now but keeps the remembered pick. A selector that resolves to no
+  // directory outside the cwd is always definitive. Absent = a definitive
+  // refusal (and on older hosts).
+  | { readonly code: 'invalid-repo'; readonly cwd?: string; readonly unverified?: true }
   // git not installed / not on PATH: the spawn itself failed, so neither the
   // work-tree root nor repo membership can be learned from git. `cwd` carries
   // the session directory (so the browser can still file-browse it); `isGitRepo`
@@ -524,8 +530,14 @@ export type GitErrorCode =
   | 'not-ff'
   // A push was rejected by the remote (non-fast-forward: the remote advanced).
   | 'push-rejected'
-  // The expected upstream ref changed before a destructive remote deletion.
+  // The expected upstream ref changed between the probe and the destructive
+  // remote deletion (the lease/CAS recheck). The finish has already integrated
+  // and pushed, so the result is `flow-partial`.
   | 'upstream-changed'
+  // A flow finish found the remote upstream holding commits the local flow
+  // branch does not contain (ahead or diverged): deleting it would drop them,
+  // so the finish refuses before writing anything.
+  | 'upstream-ahead'
   // A network git command failed on authentication (no usable credentials;
   // GIT_TERMINAL_PROMPT=0 makes an interactive prompt fail fast instead).
   | 'auth-failed'
@@ -616,9 +628,14 @@ export type GitErrorCode =
   // snapshot (another terminal, another panel). The button was rendered for a
   // branch without one; replacing a deliberate upstream silently would lose it.
   | 'has-upstream'
-  // set-upstream re-checked the same-named remote-tracking branch and it is
-  // gone: the snapshot that offered the action is stale. Nothing was changed.
+  // A remote ref the action needs no longer exists: the same-named
+  // remote-tracking branch behind set-upstream disappeared. Nothing was
+  // changed.
   | 'upstream-missing'
+  // A flow finish resolved the branch's configured upstream, but that branch
+  // is not on the server any more. The local branch still tracks it, so the
+  // finish refuses instead of guessing; nothing was changed.
+  | 'flow-upstream-missing'
   // AI commit-message suggestion endpoint.
   | 'empty-diff'
   | 'llm-unavailable'
@@ -738,6 +755,14 @@ export interface GitRepoList {
    * `CODE_WORKSPACE_MAX_ROOTS` (50) certified roots on top of it — they are not
    * probed by that scan, so they are not counted against its cap. */
   readonly repos: readonly GitRepoEntry[]
+  /** Whether the worktree probe answered. `failed` = git could not list or
+   * certify the repository's checkouts, or could not resolve the workspace
+   * repository itself (timeout, cancelled, git missing) while the probe was
+   * on, so a checkout missing from `repos` (or marked `uncertified`) may still
+   * exist and must not be read as gone. `ok` also covers a probe that did not
+   * run because the setting turned it off or the cwd belongs to no repository.
+   * Absent on older hosts. */
+  readonly worktrees?: 'ok' | 'failed'
   /**
    * Recognition state of the session's `.code-workspace` file (ADR-0030,
    * ADR-0035). Absent when the setting is `off` and the cwd holds no candidate
@@ -1077,7 +1102,7 @@ export type GitQueryResult =
     readonly failures: readonly ModelCatalogFailure[]
   }
   // Repository discovery (see GitRepoList).
-  | ({ readonly kind: 'repo-list'; readonly cwd: string; readonly repos: readonly GitRepoEntry[] } & Pick<GitRepoList, 'codeWorkspace'>)
+  | ({ readonly kind: 'repo-list'; readonly cwd: string; readonly repos: readonly GitRepoEntry[] } & Pick<GitRepoList, 'codeWorkspace' | 'worktrees'>)
   // File-browser directory listing (one level). `truncated` is set when the
   // entry count was capped.
   | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }

@@ -127,7 +127,7 @@ export const CSS = `
 }
 .gp-diff-no--pick:focus{outline:none}
 .gp-diff-no--pick:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-/* Diff line comments (ADR-0038): the picked range keeps its add/del tint and
+/* Diff line comments (ADR-0039): the picked range keeps its add/del tint and
  * takes a business-colored layer above it, so a picked deletion still reads as
  * a deletion. */
 .gp-diff-no--sel,.gp-diff-no--sel:hover{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}

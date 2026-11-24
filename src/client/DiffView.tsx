@@ -88,7 +88,7 @@ interface DiffViewProps {
    * context at -U, so the text alone is ambiguous at the file end). Required:
    * a caller that omits it would silently lose the trailing expand control. */
   readonly newLines: number
-  /** Line comments into the composer (ADR-0038). Absent: the gutters stay
+  /** Line comments into the composer (ADR-0039). Absent: the gutters stay
    * plain numbers. Must be a stable object — this component is memoized. */
   readonly review?: DiffReview
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string

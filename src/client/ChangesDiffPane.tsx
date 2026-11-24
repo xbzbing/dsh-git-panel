@@ -53,7 +53,7 @@ interface ChangesDiffPaneProps {
   readonly onToggleExpand: () => void
   /** Compact only: drill back from the diff to the change list. */
   readonly onBackToList: () => void
-  /** Line comments into the composer (ADR-0038). */
+  /** Line comments into the composer (ADR-0039). */
   readonly review?: DiffReview
   /** Open the platform's "Local changes" review tab at this file. */
   readonly onOpenReviewView?: (path: string) => void
@@ -123,7 +123,7 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
           onClick: () => card.toggle(),
         }, h(cardOpen ? ExitFullscreenIcon : FullscreenIcon, { size: 14 }))
         // The platform's own review tab for the session checkout: the same file,
-        // with its comment records and code-host actions (ADR-0038). It wears
+        // with its comment records and code-host actions (ADR-0039). It wears
         // that tab's glyph, so the button reads as "open Local changes"; a shell
         // without the glyph has no such tab either, the quote glyph is a guard.
         const reviewBtn = onOpenReviewView === undefined ? null : h('button', {

@@ -1,5 +1,5 @@
 /**
- * Diff line comments (ADR-0038): hunk parsing, the picking rules, the quote
+ * Diff line comments (ADR-0039): hunk parsing, the picking rules, the quote
  * text and its numbering. The quote shape mirrors the platform's
  * local-changes review tab heading for heading, so these assertions pin the
  * exact text an agent receives.

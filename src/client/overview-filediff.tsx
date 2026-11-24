@@ -64,7 +64,7 @@ export interface FileDiffModalCbs {
   compact: boolean
   /** Read-only file view + copy. Absent keeps the dialog diff-only. */
   version?: FileVersionModal
-  /** Line comments into the composer (ADR-0038); memoized by the caller. */
+  /** Line comments into the composer (ADR-0039); memoized by the caller. */
   review?: DiffReview
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }

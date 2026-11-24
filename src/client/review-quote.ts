@@ -1,5 +1,5 @@
 /**
- * Diff line comments quoted into the composer (issue #123, ADR-0038).
+ * Diff line comments quoted into the composer (issue #123, ADR-0039).
  *
  * A reader picks consecutive lines on one side of a diff, writes a comment and
  * adds it to the session's composer as one atomic quote; nothing is sent until

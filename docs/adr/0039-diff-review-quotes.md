@@ -1,4 +1,4 @@
-# ADR-0038：差异行内评论以引用写入输入框，格式对齐平台「本地变更」页签
+# ADR-0039：差异行内评论以引用写入输入框，格式对齐平台「本地变更」页签
 
 - 状态：Accepted（2026-11-23）
 - 相关：issue #123、ADR-0016、ADR-0028、`src/client/review-quote.ts`、`src/client/DiffReviewBar.tsx`、`src/client/review-view.ts`、`src/client/quote.ts`、`src/client/menu-proxy.ts`

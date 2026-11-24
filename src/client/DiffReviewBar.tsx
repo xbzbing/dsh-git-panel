@@ -1,5 +1,5 @@
 /**
- * Diff line comments (issue #123, ADR-0038): the picking state behind the
+ * Diff line comments (issue #123, ADR-0039): the picking state behind the
  * gutters and the comment bar under the diff.
  *
  * The bar sits below the scroller, not between rows: the diff body is a

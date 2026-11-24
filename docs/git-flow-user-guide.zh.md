@@ -137,7 +137,7 @@ Squash 后 branch 不在 develop 的祖先链上。如果要删除本地 branch�
 4. 根据选择推送长期 branch。
 5. 根据选择删除远端和本地 flow branch。
 
-Release / Hotfix 的 tag 是发布识别的一部分。finish push 会同时推送本次移动的长期 branch 和新建的 annotated tag。远端删除使用 expected OID 与 lease 保护，远端 branch 发生推进时会拒绝删除。
+Release / Hotfix 的 tag 是发布识别的一部分。finish push 会同时推送本次移动的长期 branch 和新建的 annotated tag。远端删除使用 expected OID 与 lease 保护。删除前会检查远端 branch 是否包含本地没有的提交：本地领先（提交都在本地）可以正常完成，远端领先或与本地分叉时拒绝删除并保留远端 branch，请先同步再完成。
 
 ## 完成确认
 

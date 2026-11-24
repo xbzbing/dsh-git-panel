@@ -49,7 +49,7 @@ export interface CompareHostProps {
    * the user already chose (compact folds split into unified, as everywhere). */
   readonly defaultDiffView: DiffMode
   readonly onClose: () => void
-  /** Diff line comments into the composer (ADR-0038). */
+  /** Diff line comments into the composer (ADR-0039). */
   readonly review?: ReviewHost
   /** The panel's browse-root-relative root label, for the overlay title. */
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
@@ -196,7 +196,7 @@ function RevDiffOverlay(props: {
   const seq = useRef(0)
   // The file and revision whose diff is on screen. Expanding the context of the
   // same pair keeps that diff until the new text arrives: the DiffView stays
-  // mounted, and so does a line comment being written on it (ADR-0038).
+  // mounted, and so does a line comment being written on it (ADR-0039).
   const shown = useRef<{ readonly path: string; readonly rev: string } | null>(null)
 
   useEffect(() => {

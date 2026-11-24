@@ -12,7 +12,7 @@
  * That tab reads the session's own checkout and nothing else, so the entry is
  * offered only for the panel's default repository (the one holding the session
  * cwd). A nested checkout, a worktree or an external root keeps this plugin's
- * own diff comments instead (ADR-0038).
+ * own diff comments instead (ADR-0039).
  */
 import type { ClientCtx } from './rpc.js'
 

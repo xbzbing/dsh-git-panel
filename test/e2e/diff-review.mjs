@@ -1,5 +1,5 @@
 /**
- * Diff line comments into the composer (issue #123, ADR-0038), and the entry
+ * Diff line comments into the composer (issue #123, ADR-0039), and the entry
  * into the platform's "Local changes" review tab.
  *
  * Pins: line numbers pick lines only when a composer exists; Shift grows the

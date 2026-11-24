@@ -124,7 +124,7 @@ interface OverviewProps {
   /** The panel's quote run (composer first, clipboard fallback) — the commit
    * row's menu entry uses it; the tab has no composer of its own. */
   readonly onQuote?: (text: string) => void
-  /** Diff line comments into the composer (ADR-0038); absent without one. */
+  /** Diff line comments into the composer (ADR-0039); absent without one. */
   readonly review?: ReviewHost
   /** Turns the Git Flow entries off from the About dialog. Absent when the
    * settings form is unreachable, which also hides that button. */

@@ -75,10 +75,10 @@ interface ChangesTabProps {
   /** Docked repository list above the change list; the panel withholds it in
    * the compact layout, which keeps the list in the overview's branch filter. */
   readonly repositories?: RepositoriesHost
-  /** Diff line comments into the composer (ADR-0038); absent without one. */
+  /** Diff line comments into the composer (ADR-0039); absent without one. */
   readonly review?: ReviewHost
   /** Open the platform's "Local changes" review tab at a file; absent when it
-   * cannot show this checkout (ADR-0038). */
+   * cannot show this checkout (ADR-0039). */
   readonly onOpenReviewView?: (path: string) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
