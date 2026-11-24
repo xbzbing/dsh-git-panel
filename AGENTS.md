@@ -56,7 +56,7 @@
 - 长列表使用 `virtual-list.ts` + `use-viewport.ts`；memo props 不在 render 中新建对象；高亮使用 `highlight-cache.ts`。
 - 提交差异弹窗的只读「文件」视图复用 `CodePreview` 的两档渲染（≤ 2000 行且 ≤ 1 MiB 才 wrap 全量挂载，超过转 nowrap 虚拟窗口）；不得为了 Ctrl/⌘+A 全量挂载或放大 diff 上下文。`CodePreview` 的 Ctrl/⌘+A 只作用于聚焦的代码区域；虚拟档只选已挂载行，必须显示 `files.selectAllPartial` 提示。
 - 提交差异弹窗（commit 与 compare 两个入口共用 `renderFileDiffModal`）的文件视图与「复制变更后的文件内容」共用 `file-version`（按 diff 的 base 读**该 base 下的新侧**版本，严格小于 10 MiB）；禁止从 DOM、`diffData.text` 或 `file-content`（工作区版本）拼全文。`tooLarge`/`binary`/`absent` 是终态，可禁用复制并把原因写进 label；读错误不是终态，必须留一次重试。
-- 差异行内评论（ADR-0038）：引用文本的标题与字段必须与平台「本地变更」页签的 `formatReviewComment` 一致（本插件只多一行 `Repository:`），但 hunk 只引选中行前后各 3 行并按窗口重算 `@@` 头（`REVIEW_CONTEXT_LINES`），不得照抄整段 hunk，编号只经 `nextReviewIndex` 读草稿；评论框放在 `.gp-diff__scroll` 之下，不得插进虚拟窗口的行之间；传给 `DiffView` 的 `review` 必须 memo（按 source 字段）。「本地变更」入口只对默认仓库（`repo === ''`）显示，`forgeChanges` 只做结构探测，不进 `dsh.client.inject`。
+- 差异行内评论（ADR-0038）：引用文本的标题与字段必须与平台「本地变更」页签的 `formatReviewComment` 一致（local 来源只多一行 `Repository:`；commit / rev 来源另补 `Commit:` / `Base:`），但 hunk 只引选中行前后各 3 行并按窗口重算 `@@` 头（`REVIEW_CONTEXT_LINES`），不得照抄整段 hunk，编号只经 `nextReviewIndex` 读草稿，读不到时用本面板在该会话已加入的条数续号；评论框放在 `.gp-diff__scroll` 之下，不得插进虚拟窗口的行之间；传给 `DiffView` 的 `review` 必须 memo（按 source 字段）。「本地变更」入口只对默认仓库（`repo === ''`）显示，`forgeChanges` 只做结构探测，不进 `dsh.client.inject`。
 - row slider 是唯一选中底色：宿主滚动容器必须 `position: relative`，行的 active 状态只改文字色；虚拟窗口和字号 zoom 必须纳入量测。详见 `test/e2e/row-slider.mjs`。
 - 右键菜单的目标值在手势时捕获（thunk），owner 解析前必须复核 sessionId / repo / browse root（仓库行自带检出，只要求 root 非空）；菜单项不改选中与 row slider；破坏性项只打开既有确认框；菜单打开期间不显示指针锚定的浮层（提交 hover 卡片先收起，再由 `contextMenus.active` 门控）。详见 ADR-0028。
 - 折叠滚动区用 `grid 1fr/0fr` 时，折叠层为 flex 列，列表 `flex: 1 1 auto; min-height: 0`。
