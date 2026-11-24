@@ -83,10 +83,58 @@ test('range membership is per side', () => {
   assert.equal(reviewRangeHas(null, 'R', 3), false)
 })
 
-test('a range inside a hunk quotes the whole hunk without the function label', () => {
-  const snippet = reviewSnippet(hunks, { side: 'R', anchor: 2, start: 2, end: 3 }, () => undefined)
+test('a range quotes its lines with three context lines and a rebuilt header', () => {
+  // A whole hunk is wider than the quote: a comment on line 4 of a 20-line
+  // hunk drags three lines on each side, not the section the change rewrote.
+  const wide = parseReviewHunks([
+    '@@ -1,20 +1,20 @@',
+    ...Array.from({ length: 20 }, (_, i) => ` line ${i + 1}`),
+  ].join('\n'))
+  const snippet = reviewSnippet(wide, { side: 'R', anchor: 10, start: 10, end: 10 }, () => undefined)
   assert.equal(snippet.kind, 'hunk')
-  assert.equal(snippet.text, ['@@ -1,4 +1,5 @@', ' line 1', '-old 2', '+new 2', '+new 3', ' line 4', ' line 5'].join('\n'))
+  assert.equal(snippet.text.split('\n').length, 8, 'header + three lines + pick + three lines')
+  assert.equal(snippet.text.split('\n')[0], '@@ -7,7 +7,7 @@')
+  assert.match(snippet.text, /^@@ -7,7 \+7,7 @@\n line 7\n line 8\n line 9\n line 10\n line 11\n line 12\n line 13$/)
+
+  // Neither edge of the hunk can overrun: a pick near its start keeps what exists.
+  const head = reviewSnippet(wide, { side: 'R', anchor: 2, start: 2, end: 2 }, () => undefined)
+  assert.equal(head.text.split('\n')[0], '@@ -1,5 +1,5 @@')
+
+  // Deleted lines count on their own side, so a pick on new-side text keeps the
+  // old side's numbers straight.
+  const narrow = reviewSnippet(hunks, { side: 'R', anchor: 2, start: 2, end: 3 }, () => undefined)
+  assert.equal(narrow.kind, 'hunk')
+  assert.equal(narrow.text, ['@@ -1,4 +1,5 @@', ' line 1', '-old 2', '+new 2', '+new 3', ' line 4', ' line 5'].join('\n'))
+})
+
+test('a window of pure additions names the line it follows on the untouched side', () => {
+  const adds = parseReviewHunks([
+    '@@ -2,2 +2,9 @@',
+    ' ctx a',
+    '+x1',
+    '+x2',
+    '+x3',
+    '+x4',
+    '+x5',
+    '+x6',
+    '+x7',
+    ' ctx b',
+  ].join('\n'))
+  // Seven additions in a row: the window holds no old-side line, so the old
+  // side is written the way git writes it — the line the additions follow.
+  const snippet = reviewSnippet(adds, { side: 'R', anchor: 6, start: 6, end: 6 }, () => undefined)
+  const [header, ...body] = snippet.text.split('\n')
+  assert.equal(header, '@@ -2,0 +3,7 @@')
+  assert.equal(body.length, 7)
+  assert.ok(body.every((line) => line.startsWith('+')), 'only the additions it picked around')
+})
+
+test('a range this hunk does not actually carry keeps the whole hunk', () => {
+  // A header git would not print: old lines promised, none in the body.
+  const broken = parseReviewHunks(['@@ -1,2 +1,3 @@', '+a', '+b', '+c'].join('\n'))
+  assert.equal(reviewHunkIndex(broken, 'L', 1), 0, 'the header still claims old lines')
+  const snippet = reviewSnippet(broken, { side: 'L', anchor: 1, start: 1, end: 1 }, () => undefined)
+  assert.equal(snippet.text, ['@@ -1,2 +1,3 @@', '+a', '+b', '+c'].join('\n'))
 })
 
 test('revealed context quotes the picked line as code, and an unknown line quotes nothing', () => {

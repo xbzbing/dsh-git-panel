@@ -11,6 +11,11 @@
  * plugin adds a `Repository` line: its diffs can come from a checkout other
  * than the session cwd.
  *
+ * One deliberate difference: the platform quotes the whole hunk it displays,
+ * always three context lines around the change; this panel can reveal far more
+ * context (and a rewritten section is one hunk), so the quote keeps only the
+ * picked lines and {@link REVIEW_CONTEXT_LINES} beside them.
+ *
  * Pure: no DOM, no React. The diff text is the source of truth for hunks; the
  * rendered rows only supply the text of lines picked outside every hunk
  * (revealed context), which carry a plain `Code` block instead of a hunk.
@@ -150,23 +155,82 @@ export function reviewRangeHas(range: ReviewLineRange | null, side: ReviewSide, 
 }
 
 /**
+ * Context lines a quoted hunk keeps on either side of the picked range — the
+ * same three lines `git diff` prints, so a comment on one line does not drag a
+ * whole rewritten section into the draft.
+ */
+export const REVIEW_CONTEXT_LINES = 3
+
+/**
+ * The window of a hunk a range quotes: the picked lines plus
+ * {@link REVIEW_CONTEXT_LINES} on each side, with a header rebuilt from the
+ * line numbers that window covers.
+ */
+function hunkWindow(hunk: ReviewHunk, range: ReviewLineRange): string {
+  const body = hunk.lines
+  // The number each body line occupies, and the counters where it starts. A
+  // `\` line occupies none: it annotates the line before it.
+  const oldBefore: number[] = []
+  const newBefore: number[] = []
+  let oldNo = hunk.oldStart
+  let newNo = hunk.newStart
+  for (const line of body) {
+    oldBefore.push(oldNo)
+    newBefore.push(newNo)
+    const mark = line.charAt(0)
+    if (mark === ' ' || mark === '-') oldNo++
+    if (mark === ' ' || mark === '+') newNo++
+  }
+  const occupies = (line: string): boolean => {
+    const mark = line.charAt(0)
+    return range.side === 'L' ? mark === ' ' || mark === '-' : mark === ' ' || mark === '+'
+  }
+  const numbers = range.side === 'L' ? oldBefore : newBefore
+  let first = -1
+  let last = -1
+  for (let i = 0; i < body.length; i++) {
+    if (!occupies(body[i]!)) continue
+    const no = numbers[i]!
+    if (no < range.start || no > range.end) continue
+    if (first < 0) first = i
+    last = i
+  }
+  const from = first < 0 ? 0 : Math.max(0, first - REVIEW_CONTEXT_LINES)
+  const to = last < 0 ? body.length - 1 : Math.min(body.length - 1, last + REVIEW_CONTEXT_LINES)
+  // A range this hunk does not carry, or one whose context already fills it,
+  // keeps git's own header: rebuilding it there would only rewrite the numbers
+  // the patch already states.
+  if (first < 0 || (from === 0 && to === body.length - 1)) {
+    return [`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, ...body].join('\n')
+  }
+  const window = body.slice(from, to + 1)
+  let oldCount = 0
+  let newCount = 0
+  for (const line of window) {
+    const mark = line.charAt(0)
+    if (mark === ' ' || mark === '-') oldCount++
+    if (mark === ' ' || mark === '+') newCount++
+  }
+  // An empty side names the line it follows, as git does; without the trailing
+  // function-context label either way.
+  const oldStart = oldCount === 0 ? oldBefore[from]! - 1 : oldBefore[from]!
+  const newStart = newCount === 0 ? newBefore[from]! - 1 : newBefore[from]!
+  return [`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`, ...window].join('\n')
+}
+
+/**
  * Freeze the snippet a range quotes.
  * @param lineText - the rendered text of a line of the range's side, or
  *   undefined when it is not on screen (only consulted outside every hunk).
- * @returns the hunk in patch form, the picked lines as plain code, or null when
- *   neither is available.
+ * @returns the picked lines and their nearby context in patch form, the picked
+ *   lines alone as plain code, or null when neither is available.
  */
 export function reviewSnippet(
   hunks: readonly ReviewHunk[], range: ReviewLineRange,
   lineText: (side: ReviewSide, line: number) => string | undefined,
 ): ReviewSnippet | null {
   const at = reviewHunkIndex(hunks, range.side, range.start)
-  if (at >= 0) {
-    const hunk = hunks[at]!
-    // The header is rebuilt from git's own numbers (an empty side keeps the
-    // line it follows), without the trailing function-context label.
-    return { kind: 'hunk', text: [`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, ...hunk.lines].join('\n') }
-  }
+  if (at >= 0) return { kind: 'hunk', text: hunkWindow(hunks[at]!, range) }
   const lines: string[] = []
   for (let line = range.start; line <= range.end; line++) {
     const text = lineText(range.side, line)
@@ -231,9 +295,10 @@ export function reviewQuoteSummary(path: string, range: ReviewLineRange, body: s
 }
 
 /**
- * Whether a frozen snippet still describes the diff now on screen: the same
- * hunk text is still there (or, for revealed context, the range still reads the
- * same). A stale comment keeps its frozen snippet and asks the reader to check
+ * Whether a frozen snippet still describes the diff now on screen: the quoted
+ * window (or, for revealed context, the picked lines) still reads the same. An
+ * edit elsewhere in the same hunk leaves the quote accurate, so it stays
+ * current. A stale comment keeps its frozen snippet and asks the reader to check
  * it instead of re-pointing it at whatever the line numbers hold now.
  */
 export function reviewSnippetCurrent(
