@@ -8,7 +8,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import './_tmp-ceiling.mjs'
 import { linkOrSkip } from './_fs-helpers.mjs'
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, sep } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
@@ -964,6 +964,13 @@ test('a cancelled worktree read is not remembered as "no worktrees"', async () =
   // The refusal says it is not evidence, so the client keeps a remembered pick.
   assert.equal(unanswered.failure.error.code, 'invalid-repo')
   assert.equal(unanswered.failure.error.unverified, true)
+  // The same mark has to survive the endpoint the client actually calls: the
+  // snapshot is what the panel reads, not `resolveWorkspace`.
+  cancels = 2
+  const sample = await snapshotForSession(deps, DEFAULT_CONFIG, SID, { repo: '../wt-outside' })
+  assert.equal(sample.ok, false)
+  assert.equal(sample.error.code, 'invalid-repo')
+  assert.equal(sample.error.unverified, true, 'the wire carries the distinction')
   // The next request runs git again: a cancelled read is "unknown", not "the
   // repository has no worktrees", and caching it would refuse every such row
   // for a whole window.
@@ -1037,4 +1044,54 @@ test('repo-list says whether the worktree probe answered', async () => {
 
   // A cwd outside any repository is an answer: no worktrees to miss.
   assert.equal((await listSessionRepos(depsAt(ws), SID, true, undefined, 'off')).value.worktrees, 'ok')
+})
+
+test('a workspace file that cannot be read leaves the refusal unverified', async () => {
+  // The half of the refusal the worktree door cannot speak for: a folder only
+  // the `.code-workspace` allow-list admits is refused while that file is
+  // unreadable, but the folder is still there — the client must only fall back
+  // for this load, not forget the pick.
+  const file = join(hub, 'hub.code-workspace')
+  const good = readFileSync(file, 'utf8')
+  const deps = { ...depsAt(hub), rootNegCache: new Map() }
+  try {
+    writeFileSync(file, '{ not json')
+    const broken = await resolveWorkspace(deps, SID, '../outer', 'auto')
+    assert.equal(broken.ok, false)
+    assert.equal(broken.failure.error.code, 'invalid-repo')
+    assert.equal(broken.failure.error.unverified, true, 'the allow-list could not be built')
+    // No negative cache either: the next request after the repair resolves,
+    // where a definitive refusal would have poisoned the window.
+    writeFileSync(file, good)
+    const repaired = await resolveWorkspace(deps, SID, '../outer', 'auto')
+    assert.equal(repaired.ok, true, 'the refusal was not remembered')
+
+    // A named file that is not there is the same shape of answer: the setting
+    // names it, so the file may come back (renamed, restored) at any time.
+    const missing = await resolveWorkspace({ ...depsAt(hub), rootNegCache: new Map() }, SID, '../outer', 'typo.code-workspace')
+    assert.equal(missing.ok, false)
+    assert.equal(missing.failure.error.unverified, true)
+
+    // Several candidates and no choice is equally "we could not build it".
+    const second = join(hub, 'second.code-workspace')
+    writeFileSync(second, JSON.stringify({ folders: [] }))
+    try {
+      const ambiguous = await resolveWorkspace({ ...depsAt(hub), rootNegCache: new Map() }, SID, '../outer', 'auto')
+      assert.equal(ambiguous.ok, false)
+      assert.equal(ambiguous.failure.error.unverified, true)
+    } finally {
+      rmSync(second, { force: true })
+    }
+  } finally {
+    writeFileSync(file, good)
+  }
+})
+
+test('a workspace file that parses and omits the folder is a definitive refusal', async () => {
+  // The allow-list was built and the folder is not in it: the user edited the
+  // file, so the pick really is gone — forgetting it is the right repair.
+  const listed = await resolveWorkspace({ ...depsAt(hub), rootNegCache: new Map() }, SID, '../other', 'auto')
+  assert.equal(listed.ok, false)
+  assert.equal(listed.failure.error.code, 'invalid-repo')
+  assert.equal(listed.failure.error.unverified, undefined)
 })

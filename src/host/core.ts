@@ -495,6 +495,20 @@ export async function sessionExternalRoots(
   )
 }
 
+/**
+ * Whether the session's cwd belongs to a repository at all. The certified door
+ * (ADR-0035) speaks for the cwd's own repository, so its refusal is evidence
+ * only where there is one; in a plain directory (the hub layout) there are no
+ * worktree records, and "could not read them" is not "unknown". Null = git
+ * itself could not answer.
+ */
+async function cwdHasRepository(deps: SnapshotDeps, cwd: string): Promise<boolean | null> {
+  const run = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], cwd, 'toplevel', deps.signal)
+  if ('failure' in run) return null
+  if (run.run.cancelled || run.run.timedOut) return null
+  return run.run.exitCode === 0 && run.run.stdout.trim() !== ''
+}
+
 /** The session's cwd: the live session header first, then the persisted one. */
 export async function resolveSessionCwd(
   deps: SnapshotDeps,
@@ -572,6 +586,12 @@ export async function resolveWorkspace(
     else {
       const external = await sessionExternalRoots(deps, cwd, codeWorkspace)
       const admitted = await repoDirExternal(deps.fs, cwd, rel, external.roots.map((root) => root.root))
+      // The allow-list the workspace file would build is unavailable when the
+      // setting names a file that is missing, unreadable (or still being
+      // written), or when several candidates leave the choice open. A folder
+      // that file certifies may still exist, so a refusal then is not evidence
+      // that the selector is gone - only that this door could not answer.
+      const allowListUnknown = external.state === 'missing' || external.state === 'invalid' || external.state === 'ambiguous'
       if (admitted.ok) start = admitted.dir
       else {
         const checkouts = await certifiedCheckouts(deps, cwd)
@@ -587,11 +607,17 @@ export async function resolveWorkspace(
           certified = fresh === null
             ? { ok: false as const }
             : await repoDirCertified(deps.fs, cwd, rel, fresh.map((entry) => entry.root))
-          // Only a definitive refusal is remembered: an unanswered read would
-          // otherwise refuse the row for a whole window on no evidence.
-          if (!certified.ok && fresh !== null) deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
+          // A read that never happened only means "unknown" where the door
+          // could have spoken: a cwd that belongs to no repository has no
+          // worktree records to miss, so the same silence there is an answer.
+          const doorSettled = fresh !== null || (await cwdHasRepository(deps, cwd)) === false
+          // Only a definitive refusal is remembered: an unanswered read, or one
+          // whose external allow-list could not be built, would otherwise
+          // refuse the row for a whole window on no evidence.
+          const settled = doorSettled && !allowListUnknown
+          if (!certified.ok && settled) deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
           // The client keeps a remembered pick through the same distinction.
-          if (!certified.ok && fresh === null) {
+          if (!certified.ok && !settled) {
             return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd, unverified: true } } }
           }
         }
