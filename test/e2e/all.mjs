@@ -88,7 +88,7 @@ const RUNNERS = [
   'repo-switcher',
   // The pick survives a reload of the page (and so a hot reload of the bundle):
   // the first sample is already tagged, and only a definitive refusal deletes
-  // the tab's record (ADR-0039).
+  // the tab's record (ADR-0038).
   'repo-pick-persist',
   // The workspace-file offer (issue #125): the hint row in the switcher, the
   // browser notice that carries it when no Git pane exists, and the one-click

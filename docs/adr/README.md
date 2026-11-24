@@ -53,6 +53,7 @@
 | [ADR-0035](0035-code-workspace-discoverability.md) | 工作区文件的可发现性与 cwd 外 worktree 的可选性 | 安全 |
 | [ADR-0036](0036-diverged-merge-sync.md) | 分叉状态的合并式同步（fetch + merge 上游 + 普通 push） | 安全 |
 | [ADR-0037](0037-git-flow-operations.md) | Git Flow 按分支名约定执行，写操作复用 run 端点 | 安全 |
+| [ADR-0038](0038-repo-pick-tab-persistence.md) | 仓库选择按标签页持久化，只在确定的否决时删除 | 数据流 |
 
 ## 有效期
 
