@@ -233,3 +233,33 @@ export function filesRootRows(projectRoot: string, choices: readonly RepoChoice[
   }
   return rows
 }
+
+/** What a repair does with a remembered pick: `keep` it, fall back for this
+ * module load only (`drop`), or `forget` the stored pick as well. */
+export type PickVerdict = 'keep' | 'drop' | 'forget'
+
+/**
+ * The list's verdict on a remembered selector. A selectable row keeps it. A
+ * row git reports as `stale` (its directory is gone) is definitive. A row that
+ * is missing or cannot be chosen otherwise only drops it: a missing row can be
+ * one the list ceiling cut, or a setting that hides it for now, and the
+ * sample's own answer decides whether the selector still resolves.
+ */
+export function listVerdict(repos: readonly GitRepoEntry[], selector: string): PickVerdict {
+  const row = repos.find((entry) => entry.path === selector)
+  if (row === undefined) return 'drop'
+  if (row.disabled === undefined) return 'keep'
+  return row.disabled === 'stale' ? 'forget' : 'drop'
+}
+
+/**
+ * A failed sample's verdict on the selected repository. Only a refusal git
+ * answered forgets the pick; an `unverified` refusal (git could not read the
+ * worktree records) and a missing git fall back without deleting it. Every
+ * other failure (timeout, cancel, transport) says nothing about the selector.
+ */
+export function sampleVerdict(error: { readonly code: string; readonly unverified?: true }): PickVerdict {
+  if (error.code === 'invalid-repo') return error.unverified === true ? 'drop' : 'forget'
+  if (error.code === 'git-unavailable') return 'drop'
+  return 'keep'
+}

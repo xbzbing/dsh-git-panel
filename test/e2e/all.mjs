@@ -86,6 +86,10 @@ const RUNNERS = [
   // The tab bar's repository switcher: a workspace with nested checkouts must
   // route every request through the picked one (issue #83).
   'repo-switcher',
+  // The pick survives a reload of the page (and so a hot reload of the bundle):
+  // the first sample is already tagged, and only a definitive refusal deletes
+  // the tab's record (ADR-0039).
+  'repo-pick-persist',
   // The workspace-file offer (issue #125): the hint row in the switcher, the
   // browser notice that carries it when no Git pane exists, and the one-click
   // enable whose write is followed by a fresh repo-list.

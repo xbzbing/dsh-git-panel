@@ -21,7 +21,7 @@ import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } f
 import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
-import { filesRootRows, gitRepoForFilesRoot, repoChoices } from './repo-list.js'
+import { filesRootRows, gitRepoForFilesRoot, listVerdict, repoChoices, sampleVerdict } from './repo-list.js'
 import { CommitIcon, DiffIcon, FilesIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
@@ -252,6 +252,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // previous session's repository for one render.
   const [repos, setRepos] = useState<readonly GitRepoEntry[]>([])
   const [repoListReady, setRepoListReady] = useState(false)
+  // Whether the list's worktree probe answered: a row missing from a list git
+  // could not complete is no evidence that its checkout is gone.
+  const [repoProbeFailed, setRepoProbeFailed] = useState(false)
   // Recognition state of the session's `.code-workspace` file: the switcher
   // turns `available` into an offer to switch the feature on (ADR-0035).
   const [repoWorkspace, setRepoWorkspace] = useState<GitRepoList['codeWorkspace']>()
@@ -283,6 +286,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   useEffect(() => {
     setRepos([])
     setRepoListReady(false)
+    setRepoProbeFailed(false)
     setRepoCwd(null)
     // The recognition state describes one cwd, so it must not survive the
     // switch either: the next session would show this session's file offer
@@ -331,10 +335,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // repository. Unlike chooseRepo this keeps the current page: the reset is a
   // repair of the selection, not a navigation, and the page was never the
   // problem. It also skips the dim-in-place switch — there is no next tree to
-  // wait for, the default one is already resolved.
-  const dropRepo = (): void => {
+  // wait for, the default one is already resolved. Only a definitive answer
+  // (`forget`) deletes the tab's stored pick; any other repair holds for this
+  // module load, and the next one tries the pick again.
+  const dropRepo = (forget: boolean): void => {
     if (!hasSession(sessionId)) return
-    clearRepoPick(sessionId)
+    clearRepoPick(sessionId, { forget })
   }
 
   // Point the panel at another checkout without navigating. The panes keep the
@@ -472,6 +478,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       setRepos(Array.isArray(listed.repos) ? listed.repos : [])
       setRepoCwd(typeof listed.cwd === 'string' && listed.cwd !== '' ? listed.cwd : null)
       setRepoWorkspace(listed.codeWorkspace)
+      // An older host omits the field: its list is taken as complete, as before.
+      setRepoProbeFailed(listed.worktrees === 'failed')
       setRepoListReady(true)
     })()
     return () => { alive = false }
@@ -486,15 +494,20 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   }, [remote, sessionId, queryVisible, detectCheckouts, repoLimit, repoListEpoch])
 
   // A remembered pick that disappeared from the scan (the directory is gone, or
-  // it stopped being a repository) falls back to the default one. Waiting for a
-  // finished scan is what keeps a fresh mount from retiring the pick the user
-  // made in an earlier session before the answer is even in.
+  // it stopped being a repository) or can no longer be chosen falls back to the
+  // default one. Waiting for a finished scan is what keeps a fresh mount from
+  // retiring the pick before the answer is even in, and a list whose worktree
+  // probe failed retires nothing. Only a row git reports as `stale` forgets the
+  // stored pick: a missing row can also be one the list ceiling cut, and the
+  // sample's own verdict settles the rest.
   useEffect(() => {
-    if (!repoListReady || repo === '' || repos.some((entry) => entry.path === repo)) return
-    dropRepo()
+    if (!repoListReady || repoProbeFailed || repo === '') return
+    const verdict = listVerdict(repos, repo)
+    if (verdict === 'keep') return
+    dropRepo(verdict === 'forget')
     // dropRepo only calls setters and the module-level selection store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoListReady, repos, repo])
+  }, [repoListReady, repoProbeFailed, repos, repo])
 
   // The browser's own pin gets the same repair: a pinned checkout that left the
   // list (probe switched off, directory gone) or can no longer be chosen
@@ -502,23 +515,25 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // dropdown would vanish with the root while the tree stayed on the old one.
   const pinnedRoot = sessionId === undefined ? undefined : pinnedFilesRoot(sessionId)
   useEffect(() => {
-    if (!repoListReady || sessionId === undefined || pinnedRoot === undefined) return
-    if (repos.some((entry) => entry.path === pinnedRoot && entry.disabled === undefined)) return
-    clearFilesRootPin(sessionId)
+    if (!repoListReady || repoProbeFailed || sessionId === undefined || pinnedRoot === undefined) return
+    const verdict = listVerdict(repos, pinnedRoot)
+    if (verdict === 'keep') return
+    clearFilesRootPin(sessionId, { forget: verdict === 'forget' })
     setFilesRootBump((n) => n + 1)
-  }, [repoListReady, repos, pinnedRoot, sessionId])
+  }, [repoListReady, repoProbeFailed, repos, pinnedRoot, sessionId])
 
   // A sample that rejects the pick is the other half of the same repair: the
   // selector stopped resolving (directory gone, no longer a work-tree top) or
   // nothing can verify it at all (git missing). Without this the panel would
-  // keep the failure on screen with no way back.
-  const repoRejected = view.state === 'error' && (view.error.code === 'invalid-repo' || view.error.code === 'git-unavailable')
+  // keep the failure on screen with no way back. A refusal git answered forgets
+  // the stored pick; an unverified one, or git missing, only falls back for now.
+  const repoRejected = view.state === 'error' ? sampleVerdict(view.error) : 'keep'
   useEffect(() => {
-    if (!hasSession(sessionId) || repo === '' || !repoRejected) return
+    if (!hasSession(sessionId) || repo === '' || repoRejected === 'keep') return
     // The published view can still belong to the previous pick while a switch is
     // in flight; only the sample of the selected repository may reject it.
     if (controllerFor(sessionId).getRepo() !== repo) return
-    dropRepo()
+    dropRepo(repoRejected === 'forget')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoRejected, repo, sessionId])
 
