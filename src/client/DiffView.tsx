@@ -12,7 +12,7 @@ import { languageForPath, useCodeHighlighter, type CodeHighlighter, type Highlig
 import { splitHighlightSpans } from './code-spans.js'
 import { memoizeHighlighter } from './highlight-cache.js'
 import { isCodeWorkspacePath } from './edit-buffer.js'
-import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
+import { buildTops, findWindowRange, lowerBound, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
 import { ImageCompare } from './ImageCompare.js'
@@ -24,6 +24,8 @@ import { imageSideLabel } from './menu-paths.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import type { GitKey } from './locales.js'
 import type { DiffBase, DiffMode } from './views/diff/diff-types.js'
+import { ReviewBar, useDiffReview, type DiffReview, type ReviewPicking } from './DiffReviewBar.js'
+import { reviewRangeHas, type ReviewSide } from './review-quote.js'
 
 /** unified = single inline column; split = side-by-side; before/after show one
  * side's full content. */
@@ -72,8 +74,10 @@ interface DiffViewProps {
   readonly commit?: string
   /** The revision a `base: 'rev'` comparison reads its old side from. */
   readonly rev?: string
-  /** True while the toolbar's "expand all" is engaged. Only then can hidden
-   * context be a surprise, so only then does the capped notice render. */
+  /** True when `text` was read with "expand all" context. Only then can hidden
+   * context be a surprise, so only then does the capped notice render. Callers
+   * pass the expansion of the text on screen, not the toolbar's pending one:
+   * a context switch keeps the old text until the new one arrives. */
   readonly expanded?: boolean
   /** The host flagged the diff text as truncated (the runner dropped the head
    * of its output at the cap): surviving hunks stay readable, but the header and
@@ -84,10 +88,13 @@ interface DiffViewProps {
    * context at -U, so the text alone is ambiguous at the file end). Required:
    * a caller that omits it would silently lose the trailing expand control. */
   readonly newLines: number
+  /** Line comments into the composer (ADR-0039). Absent: the gutters stay
+   * plain numbers. Must be a stable object — this component is memoized. */
+  readonly review?: DiffReview
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-export const DiffView = memo(function DiffView({ visible = true, text, mode, path, remote, sessionId, base, commit, rev, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
+export const DiffView = memo(function DiffView({ visible = true, text, mode, path, remote, sessionId, base, commit, rev, expanded, truncated, newLines, review, t }: DiffViewProps): JSX.Element {
   const dismissedNotices = useDismissedNotices()
   const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
@@ -114,6 +121,28 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     setRows((prev) => retargetTrailingGap(prev, newLines) ?? baseRows)
   }, [text, newLines, baseRows])
   const expand = useGapExpander(setRows, remote, sessionId, path, base, commit, text, newLines)
+  const reviewState = useDiffReview(review, text, rows, path)
+  const picking = reviewState.picking
+  const reviewAnchor = reviewState.draft?.range ?? null
+  const clearReview = reviewState.clear
+  // The gutter that last had focus: the roving Tab stop follows the reader.
+  const [stopKey, setStopKey] = useState<string | null>(null)
+  useEffect(() => { setStopKey(null) }, [path, review])
+  // Closing the form from inside it (Cancel, Escape) hands the keyboard back to
+  // the gutter it was opened from, so the reader keeps their place instead of
+  // dropping to <body>; a gutter only mounted above the viewport (the overscan
+  // band) is scrolled in rather than left focused out of sight. An added
+  // comment leaves focus alone: the composer has already taken it.
+  const closeReview = useCallback((): void => {
+    const wrap = containerRef.current
+    const inForm = wrap?.querySelector('.gp-review')?.contains(document.activeElement) === true
+    clearReview()
+    if (!inForm || wrap === null) return
+    const target = (reviewAnchor === null ? null : wrap.querySelector<HTMLElement>(gutterSelector(reviewAnchor.side, reviewAnchor.anchor)))
+      ?? wrap.querySelector<HTMLElement>('.gp-diff-no--pick[tabindex="0"]')
+      ?? wrap.querySelector<HTMLElement>('.gp-diff-no--pick')
+    target?.focus()
+  }, [clearReview, reviewAnchor])
 
   // An SVG is both an image (rendered old/new comparison) and text (a source
   // diff). It gets a render/source toggle, defaulting to the rendered view;
@@ -339,6 +368,37 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   const leadPad = spacer('lead', tops[windowFirst]!)
   const tailPad = spacer('tail', tops[count]! - tops[windowLast]!)
 
+  // One gutter takes Tab (a roving tab stop), so a keyboard reader enters the
+  // numbers once instead of tabbing through every line. The stop follows the
+  // last gutter focused; before anything is focused it is the picked range's
+  // anchor, and failing that the first numbered line of the *viewport* — the
+  // window reaches above it (overscan), and seeding there would scroll the diff
+  // backwards on the first Tab.
+  const gutters: GutterPicking | null = ((): GutterPicking | null => {
+    if (picking === null) return null
+    const anchor = picking.range === null ? null : gutterKey(picking.range.side, picking.range.anchor)
+    // The mounted window starts an overscan band above the viewport; the row the
+    // reader actually sees first is the one at the scroll offset.
+    const viewportTopRow = lowerBound(tops, Math.max(0, viewport.top - bodyOffset))
+    const mounted = new Set<string>()
+    let viewportFirstKey: string | null = null
+    const visit = (index: number, side: ReviewSide, no: number | null): void => {
+      if (no === null) return
+      const key = gutterKey(side, no)
+      mounted.add(key)
+      if (viewportFirstKey === null && index >= viewportTopRow) viewportFirstKey = key
+    }
+    for (let i = windowFirst; i < windowLast; i++) {
+      if (numbered !== null) { visit(i, mode === 'before' ? 'L' : 'R', numbered[i]!.no); continue }
+      const row = (unified ?? rows)[i]!
+      if (row.kind === 'hunk' || row.kind === 'gap') continue
+      visit(i, 'L', row.leftNo)
+      visit(i, 'R', row.rightNo)
+    }
+    const stop = [stopKey, anchor, viewportFirstKey].find((key) => key !== null && mounted.has(key)) ?? null
+    return { ...picking, stop, onFocus: setStopKey }
+  })()
+
   // Text diff (regular files, and an SVG in 'source' mode). Each mode renders
   // only [windowFirst, windowLast) of its own row list.
   const body = ((): JSX.Element => {
@@ -347,8 +407,10 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
       const lines: Array<JSX.Element | null> = [leadPad]
       for (let i = windowFirst; i < windowLast; i++) {
         const line = numbered[i]!
-        lines.push(h('div', { key: `n${i}`, className: 'gp-diff-no' }, line.no ?? ''))
-        lines.push(codeCell('gp-diff-cell', `c${i}`, line.text, hlCached, find, i))
+        const side: ReviewSide = mode === 'before' ? 'L' : 'R'
+        const sel = reviewRangeHas(picking?.range ?? null, side, line.no)
+        lines.push(gutterCell(`n${i}`, line.no, side, gutters, sel))
+        lines.push(codeCell(`gp-diff-cell${sel ? ' gp-diff-cell--sel' : ''}`, `c${i}`, line.text, hlCached, find, i))
       }
       lines.push(tailPad)
       return h('div', { className: 'gp-diff__single', ref: bodyRef }, lines)
@@ -356,14 +418,14 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     if (unified !== null) {
       const out: Array<JSX.Element | null> = [leadPad]
       for (let i = windowFirst; i < windowLast; i++) {
-        out.push(...renderUnifiedRow(unified[i]!, i, hlCached, expand, find, t))
+        out.push(...renderUnifiedRow(unified[i]!, i, hlCached, expand, find, t, gutters))
       }
       out.push(tailPad)
       return h('div', { className: 'gp-diff__unified', ref: bodyRef }, out)
     }
     const out: Array<JSX.Element | null> = [leadPad]
     for (let i = windowFirst; i < windowLast; i++) {
-      out.push(...renderRow(rows[i]!, i, hlCached, expand, find, t))
+      out.push(...renderRow(rows[i]!, i, hlCached, expand, find, t, gutters))
     }
     out.push(tailPad)
     return h('div', { className: 'gp-diff__side', ref: bodyRef }, out)
@@ -374,11 +436,12 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     onChange: setQuery, onToggleCase: () => setCaseSensitive((c) => !c),
     onStep: step, onClose: () => setFindOpen(false), t,
   }) : null
-  // The toolbar asked for a full expansion but hidden context remains → say so,
-  // and drop the notice the moment the last gap is consumed. Reading the parsed
-  // rows rather than the requested context size is what makes it exact: git can
-  // cover a whole file at 2000 lines of context when nearby edits merge their
-  // hunks, and can leave a gap short of 4000 lines when a hunk hugs one file edge.
+  // The text on screen was read with a full expansion but hidden context
+  // remains → say so, and drop the notice the moment the last gap is consumed.
+  // Reading the parsed rows rather than the requested context size is what
+  // makes it exact: git can cover a whole file at 2000 lines of context when
+  // nearby edits merge their hunks, and can leave a gap short of 4000 lines
+  // when a hunk hugs one file edge.
   const capped = expanded === true && rows.some((r) => r.kind === 'gap')
   const truncatedText = t('diff.truncated')
   const cappedText = t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT })
@@ -403,6 +466,9 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
       ? h(NoticeBar, { key: 'expand-failed', text: failedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(noticeKey(failedText)) })
       : null,
     h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl, style: { '--gp-gutter-w': gutterW } }, body),
+    review !== undefined && path !== undefined && reviewState.draft !== null
+      ? h(ReviewBar, { key: 'review', review, path, draft: reviewState.draft, stale: reviewState.stale, onDone: closeReview, t })
+      : null,
   ])
   return svg ? svgFrame(svgView, setSvgView, wrapped, t) : wrapped
 })
@@ -540,9 +606,61 @@ function afterLines(rows: readonly SideRow[]): NumberedLine[] {
   return rows.filter((r) => r.rightText !== null).map((r) => ({ no: r.rightNo, text: r.rightText as string }))
 }
 
+/** The picking state plus the one gutter that takes Tab ({@link gutterKey}). */
+interface GutterPicking extends ReviewPicking {
+  readonly stop: string | null
+  /** The stop follows the gutter that last had focus. */
+  readonly onFocus: (key: string) => void
+}
+
+/** A gutter's identity within one diff: its side and line. */
+function gutterKey(side: ReviewSide, line: number): string {
+  return `${side}${line}`
+}
+
+function gutterSelector(side: ReviewSide, line: number): string {
+  return `.gp-diff-no--pick[data-side="${side}"][data-line="${line}"]`
+}
+
+/** Move focus to the next (or previous) picking gutter of the same side, in
+ * document order; the browser scrolls it into view, and the window follows. */
+function stepGutter(from: HTMLElement, side: ReviewSide, delta: 1 | -1): void {
+  const scroll = from.closest('.gp-diff__scroll')
+  if (scroll === null) return
+  const all = [...scroll.querySelectorAll<HTMLElement>(`.gp-diff-no--pick[data-side="${side}"]`)]
+  all[all.indexOf(from) + delta]?.focus()
+}
+
+/**
+ * A line-number cell. With comments on, a numbered cell picks its line (Shift
+ * grows the range) by click, Enter or Space, and ArrowUp / ArrowDown walk the
+ * same side; the cell stays a plain grid cell so the row geometry and its
+ * measurement are the same with comments on or off.
+ */
+function gutterCell(key: string, no: number | null, side: ReviewSide, picking: GutterPicking | null, selected: boolean): JSX.Element {
+  if (picking === null || no === null) return h('div', { key, className: 'gp-diff-no' }, no ?? '')
+  return h('div', {
+    key, className: `gp-diff-no gp-diff-no--pick${selected ? ' gp-diff-no--sel' : ''}`,
+    'data-side': side, 'data-line': no,
+    role: 'button', tabIndex: picking.stop === gutterKey(side, no) ? 0 : -1,
+    'aria-label': gutterKey(side, no), 'aria-current': selected ? 'true' : undefined,
+    onFocus: () => picking.onFocus(gutterKey(side, no)),
+    onClick: (e: { shiftKey: boolean; preventDefault: () => void }) => {
+      // Shift+click would otherwise extend the page's text selection too.
+      if (e.shiftKey) e.preventDefault()
+      picking.pick(side, no, e.shiftKey)
+    },
+    onKeyDown: (e: { key: string; shiftKey: boolean; currentTarget: HTMLElement; preventDefault: () => void }) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picking.pick(side, no, e.shiftKey) }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); stepGutter(e.currentTarget, side, e.key === 'ArrowDown' ? 1 : -1) }
+    },
+  }, no)
+}
+
 function renderRow(
   row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
+  picking: GutterPicking | null = null,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' }, 'data-r': i }, row.text ?? '')]
@@ -550,8 +668,10 @@ function renderRow(
   if (row.kind === 'gap') {
     return [renderGap(row.gap!, i, expand, t)]
   }
-  const leftCls = row.kind === 'del' || row.kind === 'mod' ? 'gp-diff-row--del' : ''
-  const rightCls = row.kind === 'add' || row.kind === 'mod' ? 'gp-diff-row--add' : ''
+  const leftSel = reviewRangeHas(picking?.range ?? null, 'L', row.leftNo)
+  const rightSel = reviewRangeHas(picking?.range ?? null, 'R', row.rightNo)
+  const leftCls = `${row.kind === 'del' || row.kind === 'mod' ? 'gp-diff-row--del' : ''}${leftSel ? ' gp-diff-cell--sel' : ''}`
+  const rightCls = `${row.kind === 'add' || row.kind === 'mod' ? 'gp-diff-row--add' : ''}${rightSel ? ' gp-diff-cell--sel' : ''}`
   const leftCell = row.leftText === null
     ? h('div', { key: `l${i}`, className: `gp-diff-cell ${leftCls}` })
     : row.kind === 'mod' && row.leftWord !== undefined
@@ -563,9 +683,9 @@ function renderRow(
       ? wordCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', hl, find, i)
       : codeCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, hl, find, i)
   return [
-    h('div', { key: `ln${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
+    gutterCell(`ln${i}`, row.leftNo, 'L', picking, leftSel),
     leftCell,
-    h('div', { key: `rn${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),
+    gutterCell(`rn${i}`, row.rightNo, 'R', picking, rightSel),
     rightCell,
   ]
 }
@@ -578,6 +698,7 @@ function renderRow(
 function renderUnifiedRow(
   row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
+  picking: GutterPicking | null = null,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
     return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' }, 'data-r': i }, row.text ?? '')]
@@ -587,7 +708,9 @@ function renderUnifiedRow(
   }
   const isDel = row.kind === 'del'
   const isAdd = row.kind === 'add'
-  const rowCls = isAdd ? 'gp-diff-row--add' : isDel ? 'gp-diff-row--del' : ''
+  const oldSel = reviewRangeHas(picking?.range ?? null, 'L', row.leftNo)
+  const newSel = reviewRangeHas(picking?.range ?? null, 'R', row.rightNo)
+  const rowCls = `${isAdd ? 'gp-diff-row--add' : isDel ? 'gp-diff-row--del' : ''}${oldSel || newSel ? ' gp-diff-cell--sel' : ''}`
   const sign = isAdd ? '+' : isDel ? '\u2212' : '\u00a0'
   const content = row.rightText ?? row.leftText ?? ''
   const wordRange = isAdd ? row.rightWord : isDel ? row.leftWord : undefined
@@ -597,8 +720,8 @@ function renderUnifiedRow(
     ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, hl, find, i)
     : codeCell(codeCls, `c${i}`, content, hl, find, i)
   return [
-    h('div', { key: `ol${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
-    h('div', { key: `nl${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),
+    gutterCell(`ol${i}`, row.leftNo, 'L', picking, oldSel),
+    gutterCell(`nl${i}`, row.rightNo, 'R', picking, newSel),
     h('div', { key: `sg${i}`, className: `gp-diff-uni__sign ${rowCls}` }, sign),
     code,
   ]

@@ -19,12 +19,18 @@ export function useChangesData(
   stashes: readonly StashEntry[]
   diffPath: DiffTarget | null
   diffData: GitDiffPayload | null
+  /** Whether the context is expanded for the next diff (the toolbar's state). */
   expanded: boolean
-  showDiff: (path: string, base: 'worktree' | 'staged', expand?: boolean) => void
+  /** Whether `diffData` was read with expanded context: the text on screen
+   * lags `expanded` while a context switch loads. */
+  diffExpanded: boolean
+  /** Open a file's diff; `contextOnly` switches the context of the open file
+   * and keeps its diff on screen until the new text arrives. */
+  showDiff: (path: string, base: 'worktree' | 'staged', expand?: boolean, contextOnly?: boolean) => void
 } {
   const [stashes, setStashes] = useState<readonly StashEntry[]>([])
   const [diffPath, setDiffPath] = useState<DiffTarget | null>(null)
-  const [diffData, setDiffData] = useState<GitDiffPayload | null>(null)
+  const [loaded, setLoaded] = useState<{ readonly data: GitDiffPayload; readonly expand: boolean } | null>(null)
   const selection = useRef<DiffTarget | null>(null)
   const version = useRef(0)
   useVisibleRequest([sessionId, ...queryKey], visible, async (isCurrent) => {
@@ -40,7 +46,7 @@ export function useChangesData(
     if (diffPath === null || stillThere) return
     selection.current = null
     setDiffPath(null)
-    setDiffData(null)
+    setLoaded(null)
   }, [diffPath, stillThere])
 
   // Each open changes version: identical parameters still reload cleared data.
@@ -54,15 +60,24 @@ export function useChangesData(
     })
     if (!isCurrent() || selection.current !== target) return
     const result = queryAs(res, 'diff')
-    setDiffData(result !== null ? { text: result.text, newLines: result.newLines, truncated: result.truncated } : { text: '', newLines: 0 })
-  }, () => setDiffData({ text: '', newLines: 0 }))
+    setLoaded({ data: result !== null ? { text: result.text, newLines: result.newLines, truncated: result.truncated } : { text: '', newLines: 0 }, expand: target.expand })
+  }, () => setLoaded({ data: { text: '', newLines: 0 }, expand: selection.current?.expand ?? false }))
 
-  const showDiff = useCallback((path: string, base: 'worktree' | 'staged', expand = false): void => {
+  const showDiff = useCallback((path: string, base: 'worktree' | 'staged', expand = false, contextOnly = false): void => {
     const target: DiffTarget = { path, base, expand, version: ++version.current }
+    const previous = selection.current
     selection.current = target
     setDiffPath(target)
-    setDiffData(null)
+    // Switching the context of the open file keeps its diff on screen until
+    // the new text arrives: the DiffView stays mounted, and so does a line
+    // comment being written on it (ADR-0039). Opening a file, the same one
+    // included, starts from the loading state.
+    const sameFile = previous !== null && previous.path === path && previous.base === base
+    if (!(contextOnly && sameFile)) setLoaded(null)
   }, [])
 
-  return { stashes, diffPath, diffData, expanded: diffPath?.expand ?? false, showDiff }
+  return {
+    stashes, diffPath, diffData: loaded?.data ?? null, expanded: diffPath?.expand ?? false,
+    diffExpanded: loaded?.expand ?? false, showDiff,
+  }
 }

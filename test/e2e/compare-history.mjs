@@ -369,7 +369,7 @@ assert.ok(!oldHostOffered.includes('compare-ref'), 'no ref comparison on a host 
 assert.ok(!oldHostOffered.includes('compare-revision'), 'no revision comparison either')
 assert.ok(!oldHostOffered.includes('show-history'), 'no file history either')
 
-assert.ok(oldHostOffered.includes('quote-path'), 'the browser entries stay')
+assert.ok(oldHostOffered.includes('reference.file/addToChat'), 'the composer entry stays')
 await oldPage.close()
 
 assert.deepEqual(errors, [], 'no page errors')

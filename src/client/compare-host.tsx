@@ -22,6 +22,7 @@ import { useFileVersion } from './use-file-version.js'
 import { DIFF_EXPAND_CONTEXT } from './types.js'
 import { ComparePicker } from './compare-flow.js'
 import { loadCompareCandidates, revisionCandidates, type CompareRef } from './compare-refs.js'
+import { diffReviewOf, type ReviewHost } from './DiffReviewBar.js'
 
 /** The history page size of the revisions picker; its cap is the picker's own
  * "load more" affordance rather than an unbounded walk. */
@@ -48,12 +49,14 @@ export interface CompareHostProps {
    * the user already chose (compact folds split into unified, as everywhere). */
   readonly defaultDiffView: DiffMode
   readonly onClose: () => void
+  /** Diff line comments into the composer (ADR-0039). */
+  readonly review?: ReviewHost
   /** The panel's browse-root-relative root label, for the overlay title. */
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
 /** One mounted comparison flow: picker → revision diff overlay. */
-export function CompareHost({ remote, sessionId, request, compact, defaultDiffView, onClose, t }: CompareHostProps): JSX.Element | null {
+export function CompareHost({ remote, sessionId, request, compact, defaultDiffView, onClose, review, t }: CompareHostProps): JSX.Element | null {
   const [picked, setPicked] = useState<{ rev: string; label: string } | null>(null)
   const [candidates, setCandidates] = useState<readonly CompareRef[] | null>(null)
   const [commits, setCommits] = useState<readonly GraphCommit[] | null>(null)
@@ -152,6 +155,7 @@ export function CompareHost({ remote, sessionId, request, compact, defaultDiffVi
         key: 'overlay', remote, sessionId, path: request.path, rev: picked.rev, label: picked.label,
         compact, defaultMode: compact && defaultDiffView === 'split' ? 'unified' : defaultDiffView,
         onClose: () => setPicked(null), t,
+        ...(review === undefined ? {} : { review }),
       }),
   ])
 }
@@ -166,10 +170,15 @@ function RevDiffOverlay(props: {
   readonly compact: boolean
   readonly defaultMode: DiffMode
   readonly onClose: () => void
+  readonly review?: ReviewHost
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }): JSX.Element | null {
-  const { remote, sessionId, path, rev, label, compact, defaultMode, onClose, t } = props
+  const { remote, sessionId, path, rev, label, compact, defaultMode, onClose, review, t } = props
+  // The comparison's old side is the picked revision; the quote names it.
+  const revReview = useMemo(() => diffReviewOf(review, { kind: 'rev', rev }), [review, rev])
   const [data, setData] = useState<GitDiffPayload | null>(null)
+  // The expansion `data` was read with; lags `expanded` while a switch loads.
+  const [dataExpanded, setDataExpanded] = useState(false)
   const [error, setError] = useState(false)
   const [mode, setMode] = useState<DiffMode>(defaultMode)
   const [expanded, setExpanded] = useState(false)
@@ -185,10 +194,15 @@ function RevDiffOverlay(props: {
   const setView = (next: 'diff' | 'file'): void => setViewSlot({ key: versionKey, view: next })
   const version = useFileVersion(remote, sessionId, versionTarget, view === 'file')
   const seq = useRef(0)
+  // The file and revision whose diff is on screen. Expanding the context of the
+  // same pair keeps that diff until the new text arrives: the DiffView stays
+  // mounted, and so does a line comment being written on it (ADR-0039).
+  const shown = useRef<{ readonly path: string; readonly rev: string } | null>(null)
 
   useEffect(() => {
     const id = ++seq.current
-    setData(null)
+    if (shown.current === null || shown.current.path !== path || shown.current.rev !== rev) setData(null)
+    shown.current = { path, rev }
     setError(false)
     void remote.query({
       sessionId,
@@ -199,8 +213,9 @@ function RevDiffOverlay(props: {
     }).then((res) => {
       if (seq.current !== id) return
       const diff = queryAs(res, 'diff')
-      if (diff === null) { setError(true); return }
+      if (diff === null) { setData(null); setError(true); return }
       setData({ text: diff.text, newLines: diff.newLines, truncated: diff.truncated })
+      setDataExpanded(expanded)
     })
   }, [remote, sessionId, path, rev, expanded])
 
@@ -211,8 +226,9 @@ function RevDiffOverlay(props: {
   }, [onClose])
 
   return renderFileDiffModal({ path, rev, label }, {
-    visible: true, data, error, mode, onMode: setMode, expanded, onExpand: setExpanded,
+    visible: true, data, error, mode, onMode: setMode, expanded, dataExpanded, onExpand: setExpanded,
     onClose, pathFeedback: copy.feedback, onCopyPath: copy.copy, remote, sessionId, compact, t,
+    ...(revReview === undefined ? {} : { review: revReview }),
     version: {
       view,
       onView: setView,

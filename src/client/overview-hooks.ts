@@ -341,8 +341,14 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   fileDiffError: boolean
   fileDiffMode: DiffMode
   setFileDiffMode: (m: DiffMode) => void
+  /** Whether the context is expanded for the next diff (the toolbar's state). */
   fileDiffExpanded: boolean
-  openFileDiff: (path: string, hash: string, shortHash: string, expand?: boolean) => void
+  /** Whether `fileDiffData` was read with expanded context: the text on screen
+   * lags `fileDiffExpanded` while a context switch loads. */
+  fileDiffDataExpanded: boolean
+  /** Open a file of a commit; `contextOnly` switches the context of the open
+   * file and keeps its diff on screen until the new text arrives. */
+  openFileDiff: (path: string, hash: string, shortHash: string, expand?: boolean, contextOnly?: boolean) => void
   /** Open the "compare with a revision" overlay: `<rev>` (old side) against the
    * work tree. `label` names the old side in the header. */
   closeFileDiff: () => void
@@ -359,7 +365,10 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
   const [fileDiffError, setFileDiffError] = useState(false)
   const [fileDiffMode, setFileDiffMode] = useState<DiffMode>(defaultDiffView)
   const [fileDiffExpanded, setFileDiffExpanded] = useState(false)
+  const [fileDiffDataExpanded, setFileDiffDataExpanded] = useState(false)
   const fileDiffSeq = useRef(0)
+  // The open target, readable inside openFileDiff without waiting for a render.
+  const fileDiffOpen = useRef<{ readonly path: string; readonly hash: string } | null>(null)
   const selectedHash = useRef<string | null>(null)
   const detailCache = useRef(new Map<string, CommitDetail>())
 
@@ -397,6 +406,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     setDetailError(false)
     // Selecting a different commit drops any open file-diff overlay.
     fileDiffSeq.current += 1
+    fileDiffOpen.current = null
     setFileDiff(null)
     setFileDiffData(null)
     setFileDiffError(false)
@@ -415,21 +425,31 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     }
   }, [remote, sessionId, putDetail])
 
-  const openFileDiff = useCallback(async (path: string, hash: string, shortHash: string, expand = false) => {
+  const openFileDiff = useCallback(async (path: string, hash: string, shortHash: string, expand = false, contextOnly = false) => {
     const seq = ++fileDiffSeq.current
+    const previous = fileDiffOpen.current
+    fileDiffOpen.current = { path, hash }
     setFileDiff({ path, hash, shortHash })
-    setFileDiffData(null)
+    // Switching the context of the open file keeps its diff on screen until
+    // the new text arrives: the DiffView stays mounted, and so does a line
+    // comment being written on it (ADR-0039). Opening a file, the same one
+    // included, starts from the loading state.
+    const sameFile = previous !== null && previous.path === path && previous.hash === hash
+    if (!(contextOnly && sameFile)) setFileDiffData(null)
     setFileDiffError(false)
     setFileDiffExpanded(expand)
     const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash, ...(expand ? { context: DIFF_EXPAND_CONTEXT } : {}) } })
     if (seq !== fileDiffSeq.current) return
     const diff = queryAs(res, 'diff')
-    if (diff !== null) setFileDiffData({ text: diff.text, newLines: diff.newLines, truncated: diff.truncated })
-    else setFileDiffError(true)
+    if (diff !== null) {
+      setFileDiffData({ text: diff.text, newLines: diff.newLines, truncated: diff.truncated })
+      setFileDiffDataExpanded(expand)
+    } else { setFileDiffData(null); setFileDiffError(true) }
   }, [remote, sessionId])
 
   const closeFileDiff = useCallback(() => {
     fileDiffSeq.current += 1
+    fileDiffOpen.current = null
     setFileDiff(null)
     setFileDiffData(null)
     setFileDiffError(false)
@@ -495,7 +515,7 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
 
   return {
     selected, detail, detailError, select, resyncSelected, clearSelection,
-    fileDiff, fileDiffData, fileDiffError, fileDiffMode, setFileDiffMode, fileDiffExpanded, openFileDiff, closeFileDiff,
+    fileDiff, fileDiffData, fileDiffError, fileDiffMode, setFileDiffMode, fileDiffExpanded, fileDiffDataExpanded, openFileDiff, closeFileDiff,
     hover, hoverBody, onHoverEnter, onHoverLeave,
   }
 }

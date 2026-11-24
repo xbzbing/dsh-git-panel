@@ -21,10 +21,21 @@ interface SessionScopeFace {
   get(key: string): unknown
 }
 
+/** The composer's display of a quote instead of its text (the platform's
+ * `QuoteSummary`, dsh 0.2.3+). An older composer ignores the argument. */
+export interface QuoteSummary {
+  readonly label: string
+  readonly title: string
+  readonly detail?: string
+  readonly body: string
+}
+
 /** The composer's quote entry point, as far as this plugin uses it. */
 interface InputQuoteFace {
-  readonly insertQuote: (text: string) => boolean
+  readonly insertQuote: (text: string, summary?: QuoteSummary) => boolean
   readonly focus: () => void
+  /** The draft store; read only to number review comments (optional). */
+  readonly state?: { getSnapshot(): { readonly draft?: unknown } }
 }
 
 /** The conversation service's input registry. */
@@ -43,28 +54,36 @@ function isQuoteFace(value: unknown): value is InputQuoteFace {
   return typeof face.insertQuote === 'function' && typeof face.focus === 'function'
 }
 
+/** The session's composer, or undefined when any hop is missing. Throws only
+ * what the platform throws for an unretained scope; callers catch. */
+function composerOf(ctx: ClientCtx, sessionId: string): InputQuoteFace | undefined {
+  const sessions = ctx.get('sessions') as SessionsFace | undefined
+  if (sessions === undefined || typeof sessions.scope !== 'function') return undefined
+  const scope = sessions.scope(sessionId)
+  if (scope === undefined || typeof scope.get !== 'function') return undefined
+  const conversation = scope.get('conversation') as ConversationFace | undefined
+  const resolver = conversation?.input
+  if (resolver === undefined || typeof resolver.for !== 'function') return undefined
+  const input = resolver.for(scope)
+  return isQuoteFace(input) ? input : undefined
+}
+
 /**
  * Insert one quote into a session's composer.
  * @param ctx - client context (the services are read per call; they may arrive
  *   after this plugin).
  * @param sessionId - the session whose composer should take the text.
  * @param text - non-blank quote text.
+ * @param summary - optional composer display (file, range, comment).
  * @returns whether the composer accepted it — false means "nothing was
  *   written", never "maybe".
  */
-export function insertSessionQuote(ctx: ClientCtx, sessionId: string | undefined, text: string): boolean {
+export function insertSessionQuote(ctx: ClientCtx, sessionId: string | undefined, text: string, summary?: QuoteSummary): boolean {
   if (sessionId === undefined || sessionId === '' || text.trim() === '') return false
-  const sessions = ctx.get('sessions') as SessionsFace | undefined
-  if (sessions === undefined || typeof sessions.scope !== 'function') return false
   try {
-    const scope = sessions.scope(sessionId)
-    if (scope === undefined || typeof scope.get !== 'function') return false
-    const conversation = scope.get('conversation') as ConversationFace | undefined
-    const resolver = conversation?.input
-    if (resolver === undefined || typeof resolver.for !== 'function') return false
-    const input = resolver.for(scope)
-    if (!isQuoteFace(input)) return false
-    if (!input.insertQuote(text)) return false
+    const input = composerOf(ctx, sessionId)
+    if (input === undefined) return false
+    if (!(summary === undefined ? input.insertQuote(text) : input.insertQuote(text, summary))) return false
     // The platform's own insertQuote focuses the composer when it succeeds; the
     // call is repeated here because the face is declared structurally and an
     // older or stricter implementation may not — and an unfocused draft reads as
@@ -96,6 +115,24 @@ export function quoteAvailable(ctx: ClientCtx, sessionId: string | undefined): b
     return conversation?.input !== undefined && typeof conversation.input.for === 'function'
   } catch {
     return false
+  }
+}
+
+/**
+ * The session's current draft text (chips expanded to their clipboard form),
+ * or undefined when the composer or its store cannot be read.
+ * @param ctx - client context.
+ * @param sessionId - the session to read.
+ */
+export function sessionDraft(ctx: ClientCtx, sessionId: string | undefined): string | undefined {
+  if (sessionId === undefined || sessionId === '') return undefined
+  try {
+    const store = composerOf(ctx, sessionId)?.state
+    if (store === undefined || typeof store.getSnapshot !== 'function') return undefined
+    const draft = store.getSnapshot().draft
+    return typeof draft === 'string' ? draft : undefined
+  } catch {
+    return undefined
   }
 }
 

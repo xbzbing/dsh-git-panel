@@ -9,7 +9,7 @@
  */
 import { MENU_KIND, isTreeTarget, type GitMenuValue, type ImageTargetValue, type MenuKind, type MenuOwner } from './menu-owners.js'
 import { DIRECTORY_VIEWS, FILE_VIEWS, IMAGE_VIEWS, platformActions } from './menu-proxy.js'
-import { directoryMenuActions, fileMenuActions, type MenuCallbacks, type MenuEnv } from './menu-actions.js'
+import { directoryMenuActions, fileBorrowedActions, fileMenuActions, type MenuCallbacks, type MenuEnv } from './menu-actions.js'
 import { branchMenuActions, commitMenuActions, type OverviewMenuCommands, type OverviewMenuFacts } from './overview-menu.js'
 import { changeMenuActions, changeDirMenuActions, stashMenuActions, type ChangesMenuCommands, type ChangesMenuFacts } from './changes-menu.js'
 import { repoRowMenuActions, type ReposMenuCommands, type ReposMenuFacts } from './repos-menu.js'
@@ -150,7 +150,9 @@ export async function borrowedActionsFor(
   if (kind === MENU_KIND.directory) {
     return platformActions(menus, target('directory', value, path), DIRECTORY_VIEWS, signal)
   }
-  return platformActions(menus, target('file', value, path), FILE_VIEWS, signal)
+  const platform = await platformActions(menus, target('file', value, path), FILE_VIEWS, signal)
+  if (signal.aborted) return []
+  return fileBorrowedActions(value, { ...options.env(), callbacks: options.callbacks() }, platform)
 }
 
 /**

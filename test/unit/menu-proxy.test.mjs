@@ -49,7 +49,9 @@ test('platformActions keeps the whitelisted ids and drops the rest', async () =>
 test('the file whitelist never carries "open in sidebar"', () => {
   assert.ok(!FILE_VIEWS.includes('open-in-app.file/sidebar'))
   // Every kept id belongs to a contribution the platform registers for `file`.
-  for (const id of FILE_VIEWS) assert.match(id, /^(?:open-in-app\.file|file-actions\.file)\//)
+  for (const id of FILE_VIEWS) assert.match(id, /^(?:open-in-app\.file|file-actions\.file|reference\.file)\//)
+  // The platform's "Add to chat" (dsh 0.2.3+) is borrowed, not reimplemented.
+  assert.ok(FILE_VIEWS.includes('reference.file/addToChat'))
   for (const id of DIRECTORY_VIEWS) assert.match(id, /^open-in-app\.directory\//)
   for (const id of IMAGE_VIEWS) assert.match(id, /^file-actions\.image\//)
 })

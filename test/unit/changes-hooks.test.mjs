@@ -139,3 +139,34 @@ test('a successful visible tick updates stash even if the worktree contents are 
   assert.equal(remote.calls.length, 2)
   h.unmount()
 })
+
+test('toggling the context of the open file keeps its diff until the new text arrives', async (t) => {
+  const gate = deferred()
+  let diffs = 0
+  const remote = remoteFixture((q) => q.kind === 'diff'
+    ? (++diffs === 2 ? gate.promise : diff('plain-' + diffs))
+    : { ok: true, value: { kind: 'stash-list', entries: [] } })
+  const h = mount(() => useChangesData(remote, 's', initial, true, fail, [1]))
+  t.after(() => h.unmount())
+  h.value.showDiff('a.txt', 'worktree'); await h.settle()
+  assert.equal(h.value.diffData.text, 'plain-1')
+  // The DiffView (and a comment written on it) stays mounted meanwhile.
+  h.value.showDiff('a.txt', 'worktree', true, true); await h.settle()
+  assert.equal(diffs, 2)
+  assert.equal(h.value.expanded, true)
+  assert.equal(h.value.diffData.text, 'plain-1', 'the old text stays while the expanded one loads')
+  assert.equal(h.value.diffExpanded, false, 'and is reported as read without expanded context')
+  gate.resolve(diff('expanded')); await h.settle()
+  assert.equal(h.value.diffData.text, 'expanded')
+  assert.equal(h.value.diffExpanded, true)
+  // Opening the same file again, expanded or not, starts from loading.
+  h.value.showDiff('a.txt', 'worktree'); h.rerender()
+  assert.equal(h.value.diffData, null, 'a reopen from the expanded state clears')
+  await h.settle()
+  h.value.showDiff('a.txt', 'worktree'); h.rerender()
+  assert.equal(h.value.diffData, null, 'a reopen from the collapsed state clears')
+  await h.settle()
+  // A context switch names the open file; another one starts from loading.
+  h.value.showDiff('a.txt', 'staged', true, true); h.rerender()
+  assert.equal(h.value.diffData, null)
+})
