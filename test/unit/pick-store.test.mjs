@@ -21,9 +21,21 @@ class MemoryStorage {
 let generation = 0
 const fresh = () => import(`../../lib/testkit.mjs?load=${generation++}`)
 
+/** Install `store` as the global. A data property defined outright, not an
+ * assignment: a Node that ships Web Storage defines the global as a getter. */
+function useStorage(store) {
+  Object.defineProperty(globalThis, 'sessionStorage', { value: store, configurable: true, writable: true })
+}
+
 beforeEach(() => {
-  globalThis.sessionStorage = new MemoryStorage()
+  useStorage(new MemoryStorage())
 })
+
+/** The raw stored records, for assertions on what the tab keeps. */
+function stored() {
+  const raw = globalThis.sessionStorage.getItem('dbGitPanel.picks')
+  return raw === null ? {} : JSON.parse(raw).sessions
+}
 
 test('parsing treats anything malformed or of another version as nothing remembered', async () => {
   const { parsePicks, PICKS_VERSION } = await fresh()
@@ -134,7 +146,7 @@ test('a restored file root made under another follow setting is dropped', async 
   kept.syncFilesFollowConfig(true, 300)
   kept.pickFilesRoot('stay', 'api')
   const next = await fresh()
-  next.pinnedFilesRoot('stay')
+  next.pinnedFilesRoot('stay') // the first lookup reads the record in
   assert.equal(next.syncFilesFollowConfig(true, 400), false, 'the same setting confirms the pick')
   assert.equal(next.pinnedFilesRoot('stay'), 'api')
 })
@@ -151,16 +163,129 @@ test('a config flip clears every stored file root but no repository pick', async
 })
 
 test('a store that throws degrades to memory', async () => {
-  globalThis.sessionStorage = {
+  useStorage({
     getItem() { throw new Error('blocked') },
     setItem() { throw new Error('quota') },
     removeItem() { throw new Error('blocked') },
-  }
+  })
   const kit = await fresh()
   kit.selectRepo('blocked', 'site')
   assert.equal(kit.selectedRepo('blocked'), 'site')
   kit.clearRepoPick('blocked', { forget: true })
   assert.equal(kit.selectedRepo('blocked'), '')
+})
+
+test('a global whose very read throws degrades to memory', async () => {
+  // Where storage is blocked outright, touching `sessionStorage` throws.
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    get() { throw new Error('SecurityError') },
+    configurable: true,
+  })
+  const kit = await fresh()
+  kit.selectRepo('denied', 'site')
+  kit.pickFilesRoot('denied', 'api')
+  assert.equal(kit.selectedRepo('denied'), 'site')
+  assert.equal(kit.pinnedFilesRoot('denied'), 'api')
+})
+
+test('a selector longer than any path is not read back', async () => {
+  const { parsePicks, PICKS_VERSION } = await fresh()
+  const longest = 'p'.repeat(4096)
+  const picks = parsePicks(JSON.stringify({
+    v: PICKS_VERSION,
+    sessions: {
+      fits: { repo: longest, at: 1 },
+      over: { repo: longest + 'p', at: 1 },
+      pinOver: { files: { mode: 'pin', path: longest + 'p' }, at: 1 },
+    },
+  }))
+  assert.equal(picks.get('fits')?.repo, longest)
+  assert.equal(picks.has('over'), false)
+  assert.equal(picks.has('pinOver'), false)
+})
+
+test('only a changed record takes a new eviction time, and a repair keeps the old one', async () => {
+  const { PICKS_VERSION } = await fresh()
+  globalThis.sessionStorage.setItem('dbGitPanel.picks', JSON.stringify({
+    v: PICKS_VERSION,
+    sessions: {
+      a: { repo: 'x', files: { mode: 'pin', path: 'p' }, follow: false, at: 10 },
+      b: { repo: 'y', at: 20 },
+    },
+  }))
+  const kit = await fresh()
+  kit.syncFilesFollowConfig(false, 1)
+  kit.selectRepo('b', 'y')
+  assert.equal(stored().b.at, 20, 'the same pick again is no write')
+  assert.equal(kit.syncFilesFollowConfig(true, 2), true, 'a config flip')
+  assert.deepEqual(stored().a, { repo: 'x', at: 10 }, 'the files part goes, the time stays')
+  assert.equal(stored().b.at, 20)
+  kit.selectRepo('b', 'z')
+  assert.notEqual(stored().b.at, 20, 'a new pick is the newest')
+})
+
+test('a file root picked before any sample is bound to the first setting seen', async () => {
+  // A files-only session never gets a ready sample, so its pick is made with
+  // the follow config unknown. The first sample stamps it, so a flip seen by a
+  // later load still retires it.
+  const before = await fresh()
+  before.pickFilesRoot('unstamped', 'api')
+  assert.equal(stored().unstamped.follow, undefined, 'nothing to record yet')
+  before.syncFilesFollowConfig(true, 100)
+  assert.equal(stored().unstamped.follow, true, 'the first sample binds it')
+  const after = await fresh()
+  assert.equal(after.pinnedFilesRoot('unstamped'), 'api')
+  assert.equal(after.syncFilesFollowConfig(false, 200), true, 'the setting flipped while nothing watched')
+  assert.equal(after.pinnedFilesRoot('unstamped'), undefined)
+
+  // A record without the value, read where the setting is already known, is
+  // bound on the spot.
+  const { PICKS_VERSION } = after
+  globalThis.sessionStorage.setItem('dbGitPanel.picks', JSON.stringify({
+    v: PICKS_VERSION,
+    sessions: { legacy: { files: { mode: 'pin', path: 'p' }, at: 5 } },
+  }))
+  const known = await fresh()
+  known.syncFilesFollowConfig(true, 300)
+  assert.equal(known.pinnedFilesRoot('legacy'), 'p')
+  assert.equal(stored().legacy.follow, true)
+})
+
+test('every file-root change the store makes is broadcast', async () => {
+  // Two mounted panels share the store; a repair one of them applies has to
+  // reach the other one's render, not only the caller's.
+  const kit = await fresh()
+  let heard = 0
+  const stop = kit.subscribeRepoSelection(() => { heard += 1 })
+  const at = () => kit.filesRootVersion()
+  let version = at()
+  for (const [label, act] of [
+    ['a pick', () => kit.pickFilesRoot('b', 'api')],
+    ['a repair', () => kit.clearFilesRootPin('b')],
+    ['the follow row', () => kit.resumeFilesRootFollow('b')],
+    ['a config flip', () => { kit.syncFilesFollowConfig(false, 1); kit.syncFilesFollowConfig(true, 2) }],
+  ]) {
+    const was = heard
+    act()
+    assert.ok(heard > was, label + ' notifies')
+    assert.ok(at() > version, label + ' moves the version')
+    version = at()
+  }
+  stop()
+
+  // A restored pick the first sample retires is a change the second panel has
+  // to see as well: its own sync call comes back false (same sample).
+  const restored = await fresh()
+  restored.syncFilesFollowConfig(false, 1)
+  restored.pickFilesRoot('r', 'api')
+  const reloaded = await fresh()
+  reloaded.pinnedFilesRoot('r')
+  let told = 0
+  const off = reloaded.subscribeRepoSelection(() => { told += 1 })
+  assert.equal(reloaded.syncFilesFollowConfig(true, 5), true)
+  assert.equal(told > 0, true, 'the drop is broadcast')
+  assert.equal(reloaded.syncFilesFollowConfig(true, 5), false, 'the other panel reads the same sample')
+  off()
 })
 
 test('the list keeps, drops or forgets a remembered selector', async () => {
@@ -186,10 +311,10 @@ test('a failed sample forgets the pick only on a refusal git answered', async ()
   assert.equal(sampleVerdict({ code: 'transport' }), 'keep')
 })
 
-test('the panel picking a first sub-repository is not the user\'s choice', async () => {
-  // A files-only session auto-picks its first sub-repository. That convenience
-  // must not become intent: the record stays empty, so the next load derives
-  // the pick again instead of pinning a choice nobody made.
+test('a pick made with persist: false holds in memory only', async () => {
+  // The store half of the files-only auto-pick (the panel side is pinned by the
+  // repo-pick-persist e2e): a convenience pick must not become intent, so the
+  // record stays empty and the next load derives the pick again.
   const before = await fresh()
   before.selectRepo('auto', 'site', { persist: false })
   assert.equal(before.selectedRepo('auto'), 'site', 'the pick holds in memory')

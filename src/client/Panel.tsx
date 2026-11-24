@@ -38,7 +38,7 @@ import { discardUnsavedEdit, hasUnsavedEdit } from './edit-store.js'
 import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
-import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
+import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, filesRootVersion, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
 import { PanelMenuContext } from './menu-context.js'
 import { PanelRootContext } from './panel-root.js'
 import { usePanelMenu } from './use-panel-menu.js'
@@ -238,9 +238,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   useEffect(() => {
     if (view.state !== 'ready' || view.stale !== true) setStaleNoticeClosed(false)
   }, [view])
-  // Manual file-root picks live in the module store (repo-select.ts); this
-  // state exists only to re-render the panes when one changes.
-  const [, setFilesRootBump] = useState(0)
   // A repository switch that would move the file browser away from an unsaved
   // edit waits here for the user's answer.
   const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null)
@@ -251,7 +248,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // a session switch derive the new session's pick instead of showing the
   // previous session's repository for one render.
   const [repos, setRepos] = useState<readonly GitRepoEntry[]>([])
-  const [repoListReady, setRepoListReady] = useState(false)
+  // The session whose scan `repos` holds. The list reset below runs in the same
+  // commit as every effect that reads the list, so a session switch would hand
+  // those effects the previous session's answer for one pass; owning the list
+  // by session id is what keeps it from judging (or auto-picking for) the next
+  // session before that session's own scan is in.
+  const [repoListSession, setRepoListSession] = useState<string | undefined>(undefined)
+  const repoListReady = sessionId !== undefined && repoListSession === sessionId
   // Whether the list's worktree probe answered: a row missing from a list git
   // could not complete is no evidence that its checkout is gone.
   const [repoProbeFailed, setRepoProbeFailed] = useState(false)
@@ -279,13 +282,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     subscribeRepoSelection,
     () => (sessionId === undefined ? '' : selectedRepo(sessionId)),
   )
+  // File-root picks live in the same store and are broadcast the same way: a
+  // repair or a config flip one panel applies re-renders the other copy too.
+  useSyncExternalStore(subscribeRepoSelection, filesRootVersion)
   // The list belongs to one session's cwd: drop it when the session changes so
   // the switcher cannot offer the previous workspace's repositories. The ready
   // flag separates "no answer yet" from "an answer with no repositories" — only
   // the latter may retire a remembered pick.
   useEffect(() => {
     setRepos([])
-    setRepoListReady(false)
+    setRepoListSession(undefined)
     setRepoProbeFailed(false)
     setRepoCwd(null)
     // The recognition state describes one cwd, so it must not survive the
@@ -350,7 +356,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // against.
   const switchRepo = (next: string, persist = true): boolean => {
     if (!hasSession(sessionId) || next === repo) return false
-    selectRepo(sessionId, next, persist ? {} : { persist: false })
+    selectRepo(sessionId, next, { persist })
     // Hand the controller the new checkout in this same event rather than from
     // an effect: effects run after paint, and the first paint after the pick
     // already shows the next repository's name in the tab bar, so a write
@@ -420,12 +426,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // the setting that was in force when they were made. The detection lives in
   // the module store, keyed on sample age, so a cold mount or a second panel
   // instance reading the value for the first time is not mistaken for a flip.
-  // The bump re-renders the panes off the store.
+  // The store broadcasts any override it drops.
   const readyFollow = view.state === 'ready' ? view.snapshot.filesFollowRepo ?? false : null
   const readyAt = view.state === 'ready' ? view.snapshot.checkedAt : null
   useEffect(() => {
     if (readyFollow === null || readyAt === null) return
-    if (syncFilesFollowConfig(readyFollow, readyAt)) setFilesRootBump((n) => n + 1)
+    syncFilesFollowConfig(readyFollow, readyAt)
   }, [readyFollow, readyAt])
   // The browser runs under its own selector — an explicit root pick → the
   // follow opt-in → the config default (off: the project root, on: the
@@ -459,7 +465,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     if (sessionId === undefined) return
     if (selector === null) resumeFilesRootFollow(sessionId)
     else pickFilesRoot(sessionId, selector)
-    setFilesRootBump((n) => n + 1)
     const gitTarget = gitRepoForFilesRoot(selector, repos)
     if (gitTarget !== null) switchRepo(gitTarget)
   }
@@ -480,7 +485,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       setRepoWorkspace(listed.codeWorkspace)
       // An older host omits the field: its list is taken as complete, as before.
       setRepoProbeFailed(listed.worktrees === 'failed')
-      setRepoListReady(true)
+      setRepoListSession(sessionId)
     })()
     return () => { alive = false }
     // The scan answers "which repositories does this cwd offer". Neither the pick
@@ -519,7 +524,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     const verdict = listVerdict(repos, pinnedRoot)
     if (verdict === 'keep') return
     clearFilesRootPin(sessionId, { forget: verdict === 'forget' })
-    setFilesRootBump((n) => n + 1)
   }, [repoListReady, repoProbeFailed, repos, pinnedRoot, sessionId])
 
   // A sample that rejects the pick is the other half of the same repair: the

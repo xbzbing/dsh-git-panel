@@ -33,6 +33,11 @@ const loaded = new Set<string>()
  * config no sample of this module has confirmed yet (see syncFilesFollowConfig). */
 const unconfirmedFollow = new Map<string, boolean>()
 
+/** Sessions whose stored file-root pick carries no follow value: it was made
+ * before any sample of this module read the config. The first sample stamps
+ * it with the value in force, so a later flip can still retire it. */
+const unstampedFollow = new Set<string>()
+
 /** Move a session's stored record into memory, once. No notification: a read
  * only fills in what the store already held before the module reloaded. */
 function hydrate(sessionId: string): void {
@@ -45,11 +50,23 @@ function hydrate(sessionId: string): void {
   if (record.files === undefined) return
   if (record.follow !== undefined && followConfig !== undefined && record.follow !== followConfig.value) {
     // The picks belong to a setting that is no longer in force.
-    updatePicks([sessionId], withoutFiles)
+    updatePicks([sessionId], withoutFiles, { touch: false })
     return
   }
   applyFilesPick(sessionId, record.files)
-  if (record.follow !== undefined && followConfig === undefined) unconfirmedFollow.set(sessionId, record.follow)
+  if (record.follow !== undefined) {
+    if (followConfig === undefined) unconfirmedFollow.set(sessionId, record.follow)
+  } else if (followConfig !== undefined) stampFollow([sessionId], followConfig.value)
+  else unstampedFollow.add(sessionId)
+}
+
+/** Record the follow config a session's file-root pick now belongs to. */
+function stampFollow(ids: readonly string[], follow: boolean): void {
+  updatePicks(ids, (record) => {
+    if (record === undefined) return undefined
+    const { at: _at, ...rest } = record
+    return rest.files === undefined ? rest : { ...rest, follow }
+  }, { touch: false })
 }
 
 function withoutFiles(record: PickRecord | undefined): Omit<PickRecord, 'at'> | undefined {
@@ -152,6 +169,7 @@ function applyFilesPick(sessionId: string, pick: FilesPick): void {
  * with the follow config it was made under. */
 function persistFiles(sessionId: string): void {
   unconfirmedFollow.delete(sessionId)
+  unstampedFollow.delete(sessionId)
   const pin = filesPicks.get(sessionId)
   const files: FilesPick | undefined = pin !== undefined
     ? { mode: 'pin', path: pin }
@@ -159,10 +177,25 @@ function persistFiles(sessionId: string): void {
       ? { mode: 'root' }
       : filesFollowPicks.has(sessionId) ? { mode: 'follow' } : undefined
   const follow = followConfig?.value
+  if (files !== undefined && follow === undefined) unstampedFollow.add(sessionId)
   updatePicks([sessionId], (record) => {
     const rest = withoutFiles(record) ?? {}
     return files === undefined ? rest : { ...rest, files, ...(follow !== undefined ? { follow } : {}) }
   })
+}
+
+/** Bumped on every file-root change the store makes on its own (a repair, a
+ * config flip) or on a panel's behalf, so every mounted copy re-renders. */
+let filesVersion = 0
+
+/** The file-root state's version, for `useSyncExternalStore`. */
+export function filesRootVersion(): number {
+  return filesVersion
+}
+
+function notifyFiles(): void {
+  filesVersion += 1
+  notifySelection()
 }
 
 /** The selector file-browser requests run under: an explicit choice first (a
@@ -202,6 +235,7 @@ export function pickFilesRoot(sessionId: string, path: string): void {
     filesPicks.set(sessionId, path)
   }
   persistFiles(sessionId)
+  notifyFiles()
 }
 
 /** The checkout a session's browser is pinned to, when it picked one. */
@@ -218,6 +252,7 @@ export function clearFilesRootPin(sessionId: string, options: { readonly forget?
   hydrate(sessionId)
   filesPicks.delete(sessionId)
   if (options.forget === true) persistFiles(sessionId)
+  notifyFiles()
 }
 
 /** Choose the follow row: the browser tracks the switched repository again —
@@ -228,6 +263,7 @@ export function resumeFilesRootFollow(sessionId: string): void {
   filesRootPicks.delete(sessionId)
   filesFollowPicks.add(sessionId)
   persistFiles(sessionId)
+  notifyFiles()
 }
 
 /** Drop every session's override: flipping the follow config re-arms the
@@ -237,7 +273,9 @@ export function resetFilesRootPicks(): void {
   filesRootPicks.clear()
   filesFollowPicks.clear()
   unconfirmedFollow.clear()
-  updatePicks('all', withoutFiles)
+  unstampedFollow.clear()
+  updatePicks('all', withoutFiles, { touch: false })
+  notifyFiles()
 }
 
 /** Drop one session's file-root override, in memory and in its record. */
@@ -245,7 +283,8 @@ function dropFilesPick(sessionId: string): void {
   filesPicks.delete(sessionId)
   filesRootPicks.delete(sessionId)
   filesFollowPicks.delete(sessionId)
-  updatePicks([sessionId], withoutFiles)
+  unstampedFollow.delete(sessionId)
+  updatePicks([sessionId], withoutFiles, { touch: false })
 }
 
 /** The follow config as last read off a ready sample, with that sample's
@@ -276,6 +315,10 @@ export function syncFilesFollowConfig(value: boolean, checkedAt: number): boolea
     resetFilesRootPicks()
     return true
   }
+  if (unstampedFollow.size > 0) {
+    stampFollow([...unstampedFollow], value)
+    unstampedFollow.clear()
+  }
   let dropped = false
   for (const [sessionId, recorded] of unconfirmedFollow) {
     if (recorded === value) continue
@@ -283,6 +326,7 @@ export function syncFilesFollowConfig(value: boolean, checkedAt: number): boolea
     dropped = true
   }
   unconfirmedFollow.clear()
+  if (dropped) notifyFiles()
   return dropped
 }
 

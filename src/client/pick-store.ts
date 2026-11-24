@@ -7,8 +7,10 @@
  * The record is intent, not fact: every value is a selector the host resolves
  * again on the next request through its own doors, so nothing read back here
  * is trusted as a path. `sessionStorage` keeps it to the tab that made the
- * pick: a new tab or a restarted browser starts from the default checkout, so
- * a write cannot land in a checkout the user no longer expects. Any storage
+ * pick: a blank new tab or a restarted browser starts from the default
+ * checkout, so a write cannot land in a checkout the user no longer expects (a
+ * duplicated tab, or one opened from this one, starts from a copy and then
+ * writes its own). Any storage
  * failure (blocked, full, absent in tests) degrades to memory only.
  */
 import { NS } from './namespace.js'
@@ -116,15 +118,29 @@ export function readPick(sessionId: string): PickRecord | undefined {
   }
 }
 
+function sameRecord(a: PickRecord, b: Omit<PickRecord, 'at'>): boolean {
+  const fa = a.files
+  const fb = b.files
+  const sameFiles = fa === undefined || fb === undefined
+    ? fa === fb
+    : fa.mode === fb.mode && (fa.mode !== 'pin' || (fb.mode === 'pin' && fa.path === fb.path))
+  return a.repo === b.repo && a.rootPick === b.rootPick && a.follow === b.follow && sameFiles
+}
+
 /**
  * Rewrite the records `update` touches. The stored value is read again on every
  * write rather than cached, so two panels of the tab (or a reloaded module)
  * never write back a stale copy of each other's sessions. `update` returns the
  * next record, or undefined to delete it.
+ *
+ * `at` orders eviction by the user's last pick, so only a record that changed
+ * takes the current time, and `touch: false` keeps it even then: a repair or
+ * a config flip rewriting every record is not a pick in any of them.
  */
 export function updatePicks(
   sessionIds: readonly string[] | 'all',
   update: (record: PickRecord | undefined) => Omit<PickRecord, 'at'> | undefined,
+  options: { readonly touch?: boolean } = {},
 ): void {
   const store = storage()
   if (store === undefined) return
@@ -133,9 +149,12 @@ export function updatePicks(
     const ids = sessionIds === 'all' ? [...picks.keys()] : sessionIds
     const now = Date.now()
     for (const id of ids) {
-      const next = update(picks.get(id))
+      const prev = picks.get(id)
+      const next = update(prev)
       if (next === undefined || (next.repo === undefined && next.rootPick === undefined && next.files === undefined)) picks.delete(id)
-      else picks.set(id, { ...next, at: now })
+      else if (prev === undefined || !sameRecord(prev, next)) {
+        picks.set(id, { ...next, at: prev !== undefined && options.touch === false ? prev.at : now })
+      }
     }
     if (picks.size === 0) store.removeItem(PICKS_KEY)
     else store.setItem(PICKS_KEY, serializePicks(picks))
