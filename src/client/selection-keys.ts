@@ -99,6 +99,35 @@ export function pickUnstageTargets(keys: Iterable<string>): readonly string[] {
   return [...splitBySide(keys).s].sort()
 }
 
+export interface CommitTargets {
+  /**
+   * Bare paths to hand to `commit`; undefined commits everything staged. Both
+   * sides of a path land here: picking the working-tree row means "this file",
+   * and the host stages the working tree before committing it.
+   */
+  readonly paths: readonly string[] | undefined
+  /**
+   * Paths picked on the index side only (`:s` with no `:w` pick of the same
+   * path). They must not be staged again: the index already holds exactly the
+   * hunks the user chose, and `git add` would fold the unstaged ones in.
+   */
+  readonly indexOnly: readonly string[]
+}
+
+/**
+ * Commit scope from the checked rows. A staged-only pick commits what is in the
+ * index; a working-tree pick (or both sides) hands the path to the host, which
+ * stages it first. Keys with no known side are ignored, like the batch actions.
+ */
+export function commitTargets(keys: Iterable<string>): CommitTargets {
+  const { w: worktree, s: staged } = splitBySide(keys)
+  const paths = [...new Set([...worktree, ...staged])].sort()
+  return {
+    paths: paths.length === 0 ? undefined : paths,
+    indexOnly: [...staged].filter((path) => !worktree.has(path)).sort(),
+  }
+}
+
 /** Tri-state of one group's rows against the current selection. */
 export type GroupPickState = 'none' | 'partial' | 'all'
 

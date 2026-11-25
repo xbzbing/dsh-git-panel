@@ -4,7 +4,9 @@
  */
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { IconChevronDownOutlineRegular, Menu, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { useChangesData } from './changes-hooks.js'
 import { useCopyFeedback } from './copy-feedback.js'
@@ -25,7 +27,7 @@ import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange, VIEWPORT_FALLBACK, VOVERSCAN } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { useRowSlider } from './row-slider.js'
-import { changeKey, pathOfKey, pickDiscardTargets, pickStageTargets, sideOf, toggleGroupKeys } from './selection-keys.js'
+import { changeKey, commitTargets, pathOfKey, pickDiscardTargets, pickStageTargets, toggleGroupKeys } from './selection-keys.js'
 import type { ChangesMenuCommands, ChangesMenuFacts } from './changes-menu.js'
 import type { PanelMenu } from './menu-bindings.js'
 import { MENU_KIND } from './menu-owners.js'
@@ -35,6 +37,10 @@ import { ChangesToolbar } from './ChangesToolbar.js'
 import { PublishModal } from './PublishModal.js'
 import { SetUpstreamModal } from './SetUpstreamModal.js'
 import { canPush, canSetUpstream, canSync } from './push-policy.js'
+import { pushSkipReason, runCommitPush, type CommitPushSkip } from './commit-push.js'
+import { isCommitShortcut, ownsTypedText } from './commit-shortcut.js'
+import { commitModeFor, rememberCommitMode, type CommitMode } from './commit-mode.js'
+import { hasOverlay } from './dialog-focus.js'
 import { SyncConfirmModal } from './SyncConfirmModal.js'
 import { ChangesDiffPane } from './ChangesDiffPane.js'
 import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
@@ -96,6 +102,27 @@ const byPath = (a: GitChange, b: GitChange): number => a.path.localeCompare(b.pa
 // snapshot effect that would disarm it, so without a deadline an armed button
 // would wait indefinitely for a stray click.
 const DISCARD_ARM_MS = 4000
+
+/** Why the push half of the split button was skipped → the sentence shown under
+ * the commit box. The reason text is a full sentence, so the prefix stays one
+ * template for both the skipped and the rejected push. */
+const PUSH_SKIP_KEYS: Record<CommitPushSkip, GitKey> = {
+  amend: 'commit.skipAmend',
+  behind: 'commit.skipBehind',
+  'no-upstream': 'commit.skipNoUpstream',
+  detached: 'commit.skipDetached',
+  unborn: 'commit.skipUnborn',
+  switched: 'commit.skipSwitched',
+}
+
+/** The split button's accelerator, named with the platform's primary modifier.
+ * The handler below accepts both modifiers, so a remote desktop, an external
+ * PC keyboard or a non-macOS browser still fires it. `code` is what the handler
+ * matches: Option+K types "˚" on macOS, so the character key alone would never
+ * match there. */
+const SHORTCUT_PRIMARY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? '⌘' : 'Ctrl'
+const SHORTCUT_KEYS: readonly string[] = [SHORTCUT_PRIMARY, '+', SHORTCUT_PRIMARY === '⌘' ? '⌥' : 'Alt', '+', 'K']
+const SHORTCUT_ARIA = SHORTCUT_PRIMARY === '⌘' ? 'Meta+Alt+K' : 'Control+Alt+K'
 
 export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickRef,  remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, onSetChangesView, compact, stacked, cramped, repositories, review, onOpenReviewView, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
@@ -186,6 +213,18 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // this too: folding then unmounts the field being typed in, which closes the
   // keyboard and rebounds the panel into the full editor — nothing can be typed.
   const [msgFocused, setMsgFocused] = useState(false)
+  // Split commit button (issue #152): the primary action and the caret share
+  // one session-scoped mode (`commit-mode.ts`), so the next click is predictable
+  // and the menu check mark is the same fact. `chainPhase` names the half that
+  // is running; `chainInFlight` closes the double-press window before React
+  // paints `busy`.
+  const [commitMode, setCommitMode] = useState<CommitMode>(() => commitModeFor(sessionId))
+  const [commitMenuOpen, setCommitMenuOpen] = useState(false)
+  const [chainPhase, setChainPhase] = useState<'commit' | 'push' | null>(null)
+  const chainInFlight = useRef(false)
+  useEffect(() => { setCommitMode(commitModeFor(sessionId)) }, [sessionId])
+  // A write in flight owns the button: no menu can stay open over it.
+  useEffect(() => { if (busy) setCommitMenuOpen(false) }, [busy])
   // Stash stack (queried on demand), its collapse state, the push dialog, and
   // the drop-confirm target index.
   const [stashClosed, setStashClosed] = useState(true)
@@ -305,9 +344,16 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     })
   }, [snapshot])
 
-  // Collapsed directories belong to one checkout: another repository has its
-  // own tree, and a stale path would hide a directory the reader never folded.
-  useEffect(() => { setCollapsedDirs(new Set()) }, [snapshot.root])
+  // Collapsed directories, the inline error and the notice belong to one
+  // checkout: another repository has its own tree, and its own state. A commit
+  // notice such as "behind the remote by 2" is a fact about the repository that
+  // produced it — left in place it reads as the newly selected repository's
+  // state. The error (an earlier action's failure) has the same lifetime.
+  useEffect(() => {
+    setCollapsedDirs(new Set())
+    setError(null)
+    setNotice(null)
+  }, [snapshot.root])
 
   // Prefill amend message from the last commit when the box is toggled on empty.
   useEffect(() => {
@@ -477,32 +523,95 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     }
   }
 
-  const commit = async (): Promise<void> => {
-    const text = message.trim()
-    if (text === '' && !amend) { setError(t('error.emptyMessage')); return }
-    // Selection keys carry a :s/:w side suffix; commit works on bare paths. A
-    // path picked only on its staged side means "commit what is staged": staging
-    // it again would fold the unstaged hunks into the commit and undo a partial
-    // `git add -p`, so those paths are handed to the host as indexOnly. A
-    // working-tree pick (or both sides) covers the whole file either way.
-    const sides = new Map<string, { staged: boolean; worktree: boolean }>()
-    for (const key of selected) {
-      const path = pathOfKey(key)
-      const entry = sides.get(path) ?? { staged: false, worktree: false }
-      if (sideOf(key) === 's') entry.staged = true
-      else entry.worktree = true
-      sides.set(path, entry)
-    }
-    const paths = sides.size > 0 ? [...sides.keys()] : undefined
-    const indexOnly = [...sides].filter(([, s]) => s.staged && !s.worktree).map(([path]) => path)
-    const ok = await run({
+  // The commit scope comes from the checked rows (`commitTargets` owns the
+  // :s/:w split); both the plain button and the chain write the same action, so
+  // a staged-only pick is never re-staged and a working-tree pick still covers
+  // the whole file.
+  const buildCommitAction = (text: string): GitAction => {
+    const targets = commitTargets(selected)
+    return {
       kind: 'commit',
       message: text,
-      ...(paths ? { paths } : {}),
-      ...(indexOnly.length > 0 ? { indexOnly } : {}),
+      ...(targets.paths === undefined ? {} : { paths: targets.paths }),
+      ...(targets.indexOnly.length === 0 ? {} : { indexOnly: targets.indexOnly }),
       ...(amend ? { amend: true } : {}),
-    })
-    if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false); foldEditor() }
+    }
+  }
+  const finishCommit = (): void => {
+    setMessage('')
+    setSelected(new Set())
+    setAmend(false)
+    setAmendPrefilled(false)
+    foldEditor()
+  }
+  const skipReasonText = (skip: CommitPushSkip, behind: number): string => t(PUSH_SKIP_KEYS[skip], { n: behind })
+
+  // Commit through the mode the split button is armed with. `commit-push` hands
+  // both halves to `runCommitPush`: the commit half always lands, the push half
+  // runs only against the fresh snapshot, and a skipped or rejected push is
+  // reported above the box without unwinding the commit. A rejection is an
+  // error (red); a deliberate skip is a neutral notice, because the menu already
+  // said this branch cannot push right now. The mode is a preference; the
+  // click's outcome never changes it.
+  const commit = async (mode: CommitMode): Promise<void> => {
+    // The shortcut calls this directly, so it repeats the two locks the button's
+    // disabled state carries: a write in flight, and the AI rewriting the field.
+    if (chainInFlight.current || busy || suggesting) return
+    const text = message.trim()
+    if (text === '' && !amend) { setError(t('error.emptyMessage')); return }
+    const action = buildCommitAction(text)
+    if (mode === 'commit') {
+      const ok = await run(action)
+      if (ok) finishCommit()
+      return
+    }
+    chainInFlight.current = true
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    setChainPhase('commit')
+    try {
+      const result = await runCommitPush(onAction, action, snapshot, { amend, onPhase: setChainPhase }, t('error.generic'))
+      if (result.committed) finishCommit()
+      if (result.error !== undefined) {
+        // The commit half's own error stands alone; a failed push gets the
+        // "commit already landed" sentence in front of it.
+        setError(result.committed ? t('commit.pushPartial', { reason: result.error }) : result.error)
+      } else if (result.skip !== undefined) {
+        // Expected outcome, not a failure: `setNotice`, so the "commit landed"
+        // sentence is not painted in the error color.
+        setNotice(t('commit.pushPartial', { reason: skipReasonText(result.skip, result.behind ?? 0) }))
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('error.generic'))
+    } finally {
+      chainInFlight.current = false
+      setBusy(false)
+      setChainPhase(null)
+    }
+  }
+
+  // ⌘⌥K / Ctrl+Alt+K always means commit and push, whatever the split button is
+  // armed with (IDEA's Commit-and-Push accelerator). Scoped to this tab's
+  // subtree, but three things inside it must not trigger a write: an overlay
+  // that owns Escape (a portaled dialog keeps its React parent here, so its
+  // keydown still bubbles to this handler even though the DOM node sits on
+  // body); an element that takes typed text (the diff review comment); and a
+  // held key (see `isCommitShortcut`). The commit message is the one field the
+  // accelerator is meant for. The caret menu is not a layer that owns keys: its
+  // row advertises this very chord, so pressing it there still commits and
+  // pushes, and the menu closes with the busy state.
+  const onCommitShortcut = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (!isCommitShortcut({
+      ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey,
+      repeat: event.repeat, altGraph: event.getModifierState('AltGraph'),
+      code: event.code, key: event.key,
+    })) return
+    if (hasOverlay()) return
+    const target = event.target instanceof Element ? event.target : null
+    if (target !== null && !target.classList.contains('gp-commitbox__msg') && ownsTypedText(target)) return
+    event.preventDefault()
+    void commit('commit-push')
   }
 
   // Stash: push the current changes (optional message), then apply / pop / drop
@@ -648,6 +757,63 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   const commitDisabled = busy || suggesting || draft === ''
   // Generating needs changes to read; both AI entries share the rule.
   const suggestDisabled = busy || suggesting || snapshot.changes.length === 0
+  // The caret stays available while the draft is empty: it configures the next
+  // click rather than performing one, so it only yields to a write in flight.
+  const caretDisabled = busy || suggesting
+  const commitMenuItems: MenuEntry[] = [
+    { id: 'commit', label: t('commit.commit') },
+    { id: 'commit-push', label: t('commit.commitPush'), shortcut: { keys: SHORTCUT_KEYS, aria: SHORTCUT_ARIA } },
+  ]
+  // The push half cannot fast-forward right now: say so in the menu (a read-only
+  // label row), because arming `commit-push` here would still only commit.
+  const pushHint: MenuEntry[] | null = pushSkipReason(snapshot, amend) === null
+    ? null
+    : [{ type: 'label', id: 'commit-push-hint', text: t('commit.menuNoPush') }]
+  const commitMenu = h(Menu, {
+    key: 'commit-menu',
+    open: commitMenuOpen,
+    onClose: () => setCommitMenuOpen(false),
+    items: commitMenuItems,
+    selectedId: commitMode,
+    selection: 'check',
+    onSelect: (id: string) => {
+      setCommitMenuOpen(false)
+      if (id !== 'commit' && id !== 'commit-push') return
+      setCommitMode(id)
+      rememberCommitMode(sessionId, id)
+    },
+    // Opens upward: the commit box sits at the panel's bottom edge.
+    side: 'top',
+    align: 'end',
+    portal: true,
+    autoFocus: true,
+    className: 'gp-commit-split__caretwrap',
+    ...(pushHint === null ? {} : { footer: pushHint }),
+    anchor: h('button', {
+      key: 'caret', type: 'button', className: 'gp-btn gp-btn--primary gp-commit-split__caret',
+      'aria-haspopup': 'menu', 'aria-expanded': commitMenuOpen,
+      'aria-label': t('commit.chooseAction'), title: t('commit.chooseAction'),
+      disabled: caretDisabled,
+      onClick: () => setCommitMenuOpen((v) => !v),
+    }, h(IconChevronDownOutlineRegular, { key: 'chev', size: 12 })),
+  })
+  // One control in both layouts: the editor row and the folded bar render the
+  // same split (only one of them is mounted at a time), so the caret cannot
+  // disappear with the fold. `extraClass` carries the bar's test/CSS hook.
+  const commitSplit = (extraClass: string): JSX.Element => h('div', { key: 'commit', className: 'gp-commit-split' }, [
+    h('button', {
+      key: 'main', type: 'button',
+      className: `gp-btn gp-btn--primary gp-commit-split__main${extraClass === '' ? '' : ` ${extraClass}`}`,
+      disabled: commitDisabled,
+      ...(commitMode === 'commit-push' ? { title: t('commit.commitPushTip') } : {}),
+      onClick: () => void commit(commitMode),
+    }, chainPhase === 'commit'
+      ? t('commit.committing')
+      : chainPhase === 'push'
+        ? t('status.pushing')
+        : t(commitMode === 'commit-push' ? 'commit.commitPush' : 'commit.commit')),
+    commitMenu,
+  ])
   const commitEditor = h('div', { key: 'box', className: 'gp-commitbox', ref: commitBoxRef }, [
     h('div', {
       key: 'msg',
@@ -688,7 +854,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
             title: t('commit.suggest'),
           }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')])
           : null,
-        h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: commitDisabled, onClick: () => void commit() }, t('commit.commit')),
+        commitSplit(''),
         cramped
           ? h('button', {
             key: 'fold', type: 'button', className: 'gp-icon-btn gp-commitbox__fold',
@@ -726,11 +892,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
           onClick: () => { setCommitOpen(true); void suggest() },
         }, [h(SparkleIcon, { key: 'ic', size: 13 }), t('commit.ai')])
         : null,
-      h('button', {
-        key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary gp-commitbar__commit',
-        disabled: commitDisabled,
-        onClick: () => void commit(),
-      }, t('commit.commit')),
+      commitSplit('gp-commitbar__commit'),
     ])
 
   const collapsedNotice = t('changes.untrackedCollapsed')
@@ -1047,7 +1209,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // diff below — picking a row swaps the diff in place, nothing drills. The
   // full commit editor stays (stacked is tall, so it is not cramped).
   if (stacked) {
-    return h('div', { className: 'gp-changes gp-changes--stacked' }, [
+    return h('div', { className: 'gp-changes gp-changes--stacked', onKeyDown: onCommitShortcut }, [
       ...modals,
       tipNode,
       h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${split.pct}%` }, ...inertAttr(diffCard.visible) }, leftChildren),
@@ -1062,7 +1224,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
 
   // Compact: a single column drilling from the change list into the diff.
   if (compact) {
-    return h('div', { className: 'gp-changes gp-changes--compact' }, [
+    return h('div', { className: 'gp-changes gp-changes--compact', onKeyDown: onCommitShortcut }, [
       ...modals,
       tipNode,
       pane === 'diff'
@@ -1071,7 +1233,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     ])
   }
 
-  return h('div', { className: 'gp-changes' }, [
+  return h('div', { className: 'gp-changes', onKeyDown: onCommitShortcut }, [
     ...modals,
     tipNode,
     // left

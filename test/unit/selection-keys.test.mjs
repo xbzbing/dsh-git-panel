@@ -17,7 +17,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { changeKey, sideOf, pathOfKey, pickDiscardTargets, pickStageTargets, groupPickState, toggleGroupKeys } from '../../lib/testkit.mjs'
+import { changeKey, sideOf, pathOfKey, commitTargets, pickDiscardTargets, pickStageTargets, groupPickState, toggleGroupKeys } from '../../lib/testkit.mjs'
 
 // The two spellings that used to live at the call sites, kept verbatim so the
 // refactor stays pinned to the behaviour it replaced. They are a lock on the
@@ -289,4 +289,28 @@ test('toggleGroupKeys round-trips all→none on the group alone', () => {
 test('toggleGroupKeys is empty-safe', () => {
   const next = toggleGroupKeys(new Set(['z.txt:w']), [])
   assert.deepEqual([...next], ['z.txt:w'], 'an empty group changes nothing')
+})
+
+test('commitTargets keeps a working-tree pick and hands it to the host', () => {
+  const targets = commitTargets(['a.txt:w', 'b.txt:w'])
+  assert.deepEqual(targets.paths, ['a.txt', 'b.txt'])
+  assert.deepEqual(targets.indexOnly, [], 'staging the file again is what a working-tree pick asks for')
+})
+
+test('commitTargets commits an index-only pick without re-staging it', () => {
+  const targets = commitTargets(['a.txt:s'])
+  assert.deepEqual(targets.paths, ['a.txt'])
+  assert.deepEqual(targets.indexOnly, ['a.txt'], 'a partial git add -p must survive the commit')
+})
+
+test('commitTargets treats a path picked on both sides as a working-tree pick', () => {
+  const targets = commitTargets(['a.txt:s', 'a.txt:w'])
+  assert.deepEqual(targets.paths, ['a.txt'], 'one path, not two')
+  assert.deepEqual(targets.indexOnly, [], 'both sides means the whole file')
+})
+
+test('commitTargets is undefined for an empty selection (commit everything staged)', () => {
+  assert.equal(commitTargets([]).paths, undefined)
+  assert.deepEqual(commitTargets([]).indexOnly, [])
+  assert.deepEqual(commitTargets(['junk', 'a.txt:w']).paths, ['a.txt'], 'keys without a known side are ignored')
 })

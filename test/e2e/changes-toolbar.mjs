@@ -652,7 +652,8 @@ async function nothingToCommitScenario() {
     window.__gpFixture.runFailure = { kind: 'commit', code: 'nothing-to-commit' }
   })
   await page.locator('.gp-commitbox__msg').fill('docs: probe')
-  await page.locator('.gp-commitbox .gp-btn--primary').click()
+  // The split control's action half (the caret beside it is primary-styled too).
+  await page.locator('.gp-commit-split__main').click()
   await page.locator('.gp-feedback--dismissible').waitFor()
   assert.equal(
     await page.locator('.gp-feedback__text').textContent(),

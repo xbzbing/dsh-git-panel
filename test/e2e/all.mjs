@@ -34,6 +34,9 @@ const RUNNERS = [
   // run2 / run4 are scenario modules now, merged into run and run3.
   'run', 'run3', 'run5',
   'branch-tree-review', 'filtered-graph', 'graph-filter-transition',
+  // The split commit button (issue #152): the caret menu, the session-scoped
+  // choice, the accelerator and the commit/push chain's skip-and-report paths.
+  'commit-split',
   // Search scopes, capability negotiation, deferred responses and responsive geometry.
   'history-path-search',
   // The date track follows the locale's labels: Chinese must lose the fixed

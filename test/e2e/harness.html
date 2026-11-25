@@ -180,13 +180,26 @@
           return window.React.createElement('button', {
             key: item.id, type: 'button', role: 'menuitem',
             className: selected ? 'dsh-menu-item dsh-menu-item--selected' : 'dsh-menu-item',
-            'aria-checked': selected, disabled: item.disabled === true,
+            // The real Menu marks the selected row with this class and a check
+            // glyph, not aria-checked (that attribute belongs to Switch). The
+            // stub exposes the selection as aria-checked so an e2e can read
+            // `selectedId`; `aria-keyshortcuts` mirrors the platform's real
+            // announcement of a row's shortcut.
+            'aria-checked': selected, 'aria-keyshortcuts': item.shortcut?.aria,
+            disabled: item.disabled === true,
             onClick: function () {
               if (props.onSelect) props.onSelect(item.id);
               if (props.autoFocus) refocus();
             },
           }, item.label);
-        })) : null;
+        }).concat((props.footer || []).map(function (entry) {
+          // Read-only footer rows (the real Menu renders them as headings); the
+          // commit split uses one to explain why a push would be skipped.
+          if (entry.type === 'separator') return window.React.createElement('div', { key: entry.id, role: 'separator' });
+          return window.React.createElement('div', {
+            key: entry.id, className: 'dsh-menu-label', 'data-menu-label': '', role: 'presentation',
+          }, entry.text);
+        }))) : null;
         // Positional children, not an array: no key warnings from a wrapper.
         // Mirror the real primitive: its wrapper carries the caller's className
         // (gp-filter / gp-search-scope), which the panel's CSS styles.
