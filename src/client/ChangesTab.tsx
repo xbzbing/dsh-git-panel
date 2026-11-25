@@ -214,7 +214,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // keyboard and rebounds the panel into the full editor — nothing can be typed.
   const [msgFocused, setMsgFocused] = useState(false)
   // Split commit button (issue #152): the primary action and the caret share
-  // one session-scoped mode (`commit-mode.ts`), so the next click is predictable
+  // one tab-scoped mode (`commit-mode.ts`), so the next click is predictable
   // and the menu check mark is the same fact. `chainPhase` names the half that
   // is running; `chainInFlight` closes the double-press window before React
   // paints `busy`.
