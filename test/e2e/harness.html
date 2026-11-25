@@ -186,7 +186,14 @@
               if (props.autoFocus) refocus();
             },
           }, item.label);
-        })) : null;
+        }).concat((props.footer || []).map(function (entry) {
+          // Read-only footer rows (the real Menu renders them as headings); the
+          // commit split uses one to explain why a push would be skipped.
+          if (entry.type === 'separator') return window.React.createElement('div', { key: entry.id, role: 'separator' });
+          return window.React.createElement('div', {
+            key: entry.id, className: 'dsh-menu-label', 'data-menu-label': '', role: 'presentation',
+          }, entry.text);
+        }))) : null;
         // Positional children, not an array: no key warnings from a wrapper.
         // Mirror the real primitive: its wrapper carries the caller's className
         // (gp-filter / gp-search-scope), which the panel's CSS styles.
