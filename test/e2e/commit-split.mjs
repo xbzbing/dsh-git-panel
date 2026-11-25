@@ -336,6 +336,55 @@ async function menuState(page) {
   await page.close()
 }
 
+/* ── 13. the accelerator is alive from non-text controls, dead in a menu ── */
+{
+  // The Amend checkbox is an `input`, but it takes no typed text: a click
+  // focuses it, and the accelerator must still work there (it used to be
+  // swallowed by a blanket `closest('input')` guard).
+  // `ahead: 2` keeps the amend of an unpushed tip pushable (amend of a
+  // published tip is the deliberate skip scenario above).
+  const page = await openPanel({ ...CLEAN, ahead: 2 })
+  await page.locator('.gp-commitbox__amend input').check()
+  await page.locator('.gp-commitbox__msg').fill('fix: amend from the checkbox')
+  await page.locator('.gp-commitbox__amend input').press('Control+Alt+KeyK')
+  await page.waitForFunction(() => window.__gpFixture.actions.length === 2)
+  assert.deepEqual(await actions(page), ['commit', 'push'], 'the checkbox focus does not swallow the accelerator')
+  assert.equal(await page.evaluate(() => window.__gpFixture.actions[0].amend), true, 'the checkbox state rides along')
+  await page.close()
+}
+{
+  // The caret menu is not an overlay that owns keys, and the row it shows for
+  // "提交并推送" advertises this very chord: pressing it there commits and
+  // pushes, then the menu closes with the busy state. AGENTS states this.
+  const page = await openPanel(CLEAN)
+  await page.locator('.gp-commitbox__msg').fill('feat: from the open menu')
+  await openMenu(page)
+  await page.keyboard.press('Control+Alt+KeyK')
+  await page.waitForFunction(() => window.__gpFixture.actions.length === 2)
+  await flush(page)
+  assert.deepEqual(await actions(page), ['commit', 'push'])
+  assert.equal(await page.locator('[data-menu-surface]').count(), 0, 'the chain closes the menu')
+  await page.close()
+}
+
+/* ── 14. a commit notice belongs to the repository that produced it ──────── */
+{
+  const page = await openPanel({ ...CLEAN, behind: 2 })
+  await openMenu(page)
+  await menuItems(page).nth(1).click()
+  await flush(page)
+  await page.locator('.gp-commitbox__msg').fill('feat: behind')
+  await page.locator('.gp-commit-split__main').click()
+  await page.waitForFunction(() => document.querySelector('.gp-notice__text')?.textContent?.includes('落后远程'))
+  // The panel now serves a different checkout; the notice was a fact about
+  // the old one and must not read as the new repository's state.
+  await page.evaluate(() => { window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, root: 'other-repo', behind: 0 } })
+  await page.locator('.gp-changes__refresh').click()
+  await page.waitForFunction(() => !document.querySelector('.gp-notice'))
+  assert.equal(await page.locator('.gp-notice__text').count(), 0, 'the skip notice does not follow the repository switch')
+  await page.close()
+}
+
 assert.deepEqual(consoleErrors, [], 'zero console errors')
 await browser.close()
 console.log('commit-split: ok')
