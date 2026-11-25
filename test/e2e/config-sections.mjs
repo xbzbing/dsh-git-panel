@@ -150,7 +150,7 @@ try {
   const titled = m.filter((s) => s.fieldTitle !== null)
   assert.ok(titled.length >= 2)
   for (const s of titled) assert.deepEqual(s.fieldTitle, { size: 14, weight: 500 }, 'field titles are 14px/500, below the section title')
-  assert.deepEqual(m.map((s) => s.fieldCount), [4, 5, 6, 5], 'field groups per section (basic carries the Git Flow switch, repositories the workspace-file and list-ceiling rows)')
+  assert.deepEqual(m.map((s) => s.fieldCount), [4, 5, 6, 6], 'field groups per section (basic carries the Git Flow switch, repositories the session-follow, workspace-file and list-ceiling rows)')
 
   // The package-folding row is a real setting, not just a count. This harness
   // binds the locale to the raw key on purpose (the CSS assertions below must
@@ -199,6 +199,29 @@ try {
   await page.waitForTimeout(120)
   const flowWrite = await page.evaluate(() => (window.__cfgWrites ?? []).filter(([name]) => name === 'flowEnabled').at(-1)?.[1] ?? null)
   assert.equal(flowWrite, false, 'switching it off writes flowEnabled: false')
+
+  // The session-follow switch (ADR-0041) lives in the repositories section: on
+  // by default, its own key and hint, and it writes its own config field.
+  const sessionFollowRow = await page.evaluate(() => {
+    const body = document.getElementById('gp-cfg-sec-repos')
+    const row = [...body.querySelectorAll('.gp-cfg__row')]
+      .find((r) => r.querySelector('.gp-cfg__text')?.textContent?.trim() === 'cfg.followSessionToggle')
+    if (row === undefined) return null
+    const field = row.closest('.gp-cfg__field')
+    return {
+      checked: row.querySelector('input[role="switch"]').checked,
+      hint: (field?.querySelector('.gp-cfg__hint')?.textContent ?? '').trim(),
+    }
+  })
+  assert.deepEqual(sessionFollowRow, { checked: true, hint: 'cfg.followSessionHint' }, 'the repositories section carries the session-follow switch, on by default')
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#gp-cfg-sec-repos .gp-cfg__row')]
+      .find((r) => r.querySelector('.gp-cfg__text')?.textContent?.trim() === 'cfg.followSessionToggle')
+    row?.querySelector('input[role="switch"]')?.click()
+  })
+  await page.waitForTimeout(120)
+  const sessionFollowWrite = await page.evaluate(() => (window.__cfgWrites ?? []).filter(([name]) => name === 'followSessionCheckout').at(-1)?.[1] ?? null)
+  assert.equal(sessionFollowWrite, false, 'switching it off writes followSessionCheckout: false')
 
   // The list ceiling is a real numeric row, seeded from the host default and
   // clamped at the shared bounds before the write: the host enforces the same

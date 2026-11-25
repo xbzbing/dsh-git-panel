@@ -215,6 +215,10 @@ export interface GitSnapshot {
   /** Whether the repository list probes worktrees and nested repositories
    * (user preference). Absent on older hosts. */
   readonly detectCheckouts?: boolean
+  /** Whether the panel follows the session's live working directory into
+   * another checkout of its own repository (user preference). Absent on older
+   * hosts → off, the manual switching those hosts shipped with. */
+  readonly followSessionCheckout?: boolean
   /** Ceiling for the repository list (user preference, REPO_LIMITS). Business
    * state like `detectCheckouts`: the client re-answers the list when it
    * changes. Absent on older hosts → the client keeps the last list. */

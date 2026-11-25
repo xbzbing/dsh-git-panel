@@ -88,6 +88,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pendingFont, setPendingFont] = useState<FontDelta | null>(null)
   const [pendingSuggest, setPendingSuggest] = useState<boolean | null>(null)
   const [pendingDetect, setPendingDetect] = useState<boolean | null>(null)
+  const [pendingSessionFollow, setPendingSessionFollow] = useState<boolean | null>(null)
   const [pendingFollow, setPendingFollow] = useState<boolean | null>(null)
   const [pendingFold, setPendingFold] = useState<boolean | null>(null)
   const [pendingEdit, setPendingEdit] = useState<boolean | null>(null)
@@ -163,6 +164,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     ?? (snap?.value?.fontDelta === -1 || snap?.value?.fontDelta === 1 ? (snap.value.fontDelta as FontDelta) : 0)
   const suggestEnabled = pendingSuggest ?? (typeof snap?.value?.suggestEnabled === 'boolean' ? (snap.value.suggestEnabled as boolean) : true)
   const detectCheckouts = pendingDetect ?? (typeof snap?.value?.detectCheckouts === 'boolean' ? (snap.value.detectCheckouts as boolean) : true)
+  const followSessionCheckout = pendingSessionFollow ?? (typeof snap?.value?.followSessionCheckout === 'boolean' ? (snap.value.followSessionCheckout as boolean) : true)
   const filesFollowRepo = pendingFollow ?? (typeof snap?.value?.filesFollowRepo === 'boolean' ? (snap.value.filesFollowRepo as boolean) : false)
   const collapseReposOnPick = pendingFold ?? (typeof snap?.value?.collapseReposOnPick === 'boolean' ? (snap.value.collapseReposOnPick as boolean) : false)
   const allowFileEdit = pendingEdit ?? (typeof snap?.value?.allowFileEdit === 'boolean' ? (snap.value.allowFileEdit as boolean) : true)
@@ -305,6 +307,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const toggleDetect = (next: boolean): Promise<void> => {
     setPendingDetect(next)
     return commitField('detectCheckouts', next, () => setPendingDetect(null))
+  }
+
+  const toggleSessionFollow = (next: boolean): Promise<void> => {
+    setPendingSessionFollow(next)
+    return commitField('followSessionCheckout', next, () => setPendingSessionFollow(null))
   }
 
   const toggleFilesFollow = (next: boolean): Promise<void> => {
@@ -825,6 +832,17 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.detectToggle')),
       ]),
       h('p', { key: 'dethint', className: 'gp-cfg__hint' }, t('cfg.detectHint')),
+    ]),
+    field('sessionfollow', [
+      h('label', { key: 'sfrow', className: 'gp-cfg__row' }, [
+        h('input', {
+          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+          checked: followSessionCheckout, disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleSessionFollow(e.currentTarget.checked) },
+        }),
+        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.followSessionToggle')),
+      ]),
+      h('p', { key: 'sfhint', className: 'gp-cfg__hint' }, t('cfg.followSessionHint')),
     ]),
     field('repolimit', [
       h('div', { key: 'repolimit', className: 'gp-cfg__numrow' }, [

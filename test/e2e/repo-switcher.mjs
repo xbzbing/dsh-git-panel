@@ -27,6 +27,13 @@
  * flip (delivered by the next polled sample) re-arms the new default. The
  * coupling is one-way: a root pick that lands on a checkout switches Git too.
  *
+ * The session-follow scenarios mount the platform's `workingDirectory`
+ * projection: entering a worktree of the session's own repository moves the
+ * panel there without a pick or a stored record, leaving follows back, a
+ * manual pick made in between holds until the next move, and foreign roots are
+ * never followed. The switch is host config: off keeps the manual behaviour,
+ * and a list that predates the worktree is re-read once before giving up.
+ *
  * Fully isolated — a local file:// harness, no dsh server, no touch of any
  * running instance. Requires the e2e fixtures (run test/e2e/setup.mjs first,
  * or `npm run test:e2e` which chains it).
@@ -47,6 +54,9 @@ const SNAP = {
   remote: null, lastCommit: null, changes: [],
   stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
+  // The host default: the session-follow scenarios mount a `useProjection`
+  // stub and drive it; every other mount passes no hook, so the field is inert.
+  followSessionCheckout: true,
 }
 
 const WORKSPACE_REPO = { path: '', root: 'fixture-repo', name: 'fixture-repo', kind: 'workspace' }
@@ -97,20 +107,38 @@ async function mount(repos, action, options = {}) {
     ? true
     : typeof options.snapshotFails === 'string' ? options.snapshotFails : false
   const snap = options.dirty === true
-    ? { ...SNAP, dirty: true, modified: 2, changes: [{ path: 'a.txt', status: 'M', side: 'worktree' }] }
-    : SNAP
+    ? { ...SNAP, ...options.snapshot, dirty: true, modified: 2, changes: [{ path: 'a.txt', status: 'M', side: 'worktree' }] }
+    : { ...SNAP, ...options.snapshot }
   // A non-zero poll makes fresh snapshots arrive on their own — the way the
   // config form's resync delivers a flipped switch to the panel.
   const polled = options.pollMs === undefined ? snap : { ...snap, refreshIntervalMs: options.pollMs }
   const snapUsed = options.foldOnPick === true ? { ...polled, collapseReposOnPick: true } : polled
   const scene = options.scene || 'scene'
   const expectedTabs = options.expectedTabs ?? 3
-  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn, expectedTabs }) => {
+  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn, expectedTabs, projectionStart, initialRepos }) => {
     const React = window.React
     const origWarn = console.warn.bind(console)
     console.warn = (...args) => origWarn('[' + scene + ']', ...args)
     const { fixture, connection } = window.createGitPanelMock(snap)
-    fixture.repos = listed
+    fixture.repos = initialRepos ?? listed
+    // The repository list a later refetch reads: a worktree the first scan did
+    // not know about (created in this session) shows up here.
+    window.__gpRepos = (rows) => { fixture.repos = rows }
+    // The platform's `workingDirectory` projection, as the slot hands it to the
+    // panel: a live value `enter_worktree` / `exit_worktree` rewrite in place.
+    // The page drives it; the hook re-renders the panel like the real slot does.
+    const projection = { value: projectionStart ?? null, listeners: new Set() }
+    window.__gpProjection = (directory) => {
+      projection.value = directory
+      for (const listener of [...projection.listeners]) listener()
+    }
+    const useProjection = (key) => {
+      if (key !== 'workingDirectory') return undefined
+      return React.useSyncExternalStore(
+        (listener) => { projection.listeners.add(listener); return () => { projection.listeners.delete(listener) } },
+        () => projection.value,
+      )
+    }
     // Follow-mode fixtures (files-follow-Git): `taggedRoot` answers every
     // tagged snapshot with the repository's own root the way the host resolves
     // it, and while follow is active the flag rides every reply — a flip is
@@ -182,7 +210,7 @@ async function mount(repos, action, options = {}) {
     // `component(props)` returns the mounted element; wrapping it in another
     // createElement would hand React the element object as a component type.
     window.ReactDOM.createRoot(document.getElementById('panel'))
-      .render(view.component({ sessionId: 'sess-1' }))
+      .render(view.component({ sessionId: 'sess-1', ...(projectionStart === undefined ? {} : { useProjection }) }))
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     // Wait for the shell to commit its expected tabs instead of sleeping a
     // fixed half second per scenario; the short settle afterwards covers the
@@ -385,6 +413,106 @@ async function mount(repos, action, options = {}) {
       switching: switchingNow(),
       // The requests sent before any pick: the root sample must never be tagged.
       rootCalls: calls.slice(),
+    }
+    if (action === 'follow-session' || action === 'follow-off' || action === 'follow-missing') {
+      // The platform moved the session: the live `workingDirectory` projection
+      // changes and the panel follows into another checkout of the same
+      // repository — no pick on the wire, nothing written to the tab's pick
+      // store, and never into a foreign root (ADR-0041).
+      if (activeTabLabel() !== 'tab.overview') {
+        clickTab('tab.overview')
+        await wait(300)
+      }
+      await expandRepos()
+      const scoped = (list) => list.filter((call) => call.kind !== 'repo-list')
+      const tags = (from) => calls.slice(from).filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo ?? '')
+      const rowStates = () => listRows().map((row) => (row.active ? '*' : '') + row.name)
+      const stored = () => sessionStorage.getItem('dbGitPanel.picks')
+      const until = async (predicate, ms = 2500) => {
+        const started = Date.now()
+        while (!predicate() && Date.now() - started < ms) await wait(40)
+        return predicate()
+      }
+      observed.followInitial = { rows: rowStates(), stored: stored(), head: headInfo() }
+
+      if (action === 'follow-off') {
+        // The setting is off: the panel stays the manual switcher it shipped as.
+        const mark = calls.length
+        window.__gpProjection('fixture-repo/.agents/worktrees/feat/sidebar')
+        await wait(900)
+        observed.followOff = {
+          rows: rowStates(),
+          tags: tags(mark),
+          repoLists: calls.slice(mark).filter((call) => call.kind === 'repo-list').length,
+          stored: stored(),
+        }
+        return { observed, calls }
+      }
+
+      if (action === 'follow-missing') {
+        // The scan predates the worktree: the follow asks one fresh list, finds
+        // the row it now carries, and switches. No stored pick is written.
+        window.__gpRepos(listed)
+        const mark = calls.length
+        window.__gpProjection('fixture-repo/.agents/worktrees/feat/sidebar')
+        await until(() => listRows().some((row) => row.name === 'sidebar' && row.active))
+        await until(() => !switchingNow())
+        observed.followMissing = {
+          rows: rowStates(),
+          repoLists: calls.slice(mark).filter((call) => call.kind === 'repo-list').length,
+          tags: tags(mark),
+          stored: stored(),
+        }
+        return { observed, calls }
+      }
+
+      // Enter the linked worktree (the `.agents/worktrees` pool inside the
+      // checkout): the projection moves, the panel follows.
+      let mark = calls.length
+      window.__gpProjection('fixture-repo/.agents/worktrees/feat/sidebar')
+      await until(() => listRows().some((row) => row.name === 'sidebar' && row.active))
+      await until(() => !switchingNow())
+      await wait(200)
+      observed.followEnter = {
+        rows: rowStates(),
+        tags: tags(mark),
+        scopedRepos: scoped(calls.slice(mark)).map((call) => call.repo ?? ''),
+        stored: stored(),
+        head: headInfo(),
+        switching: switchingNow(),
+        activeTab: activeTabLabel(),
+      }
+
+      // A manual pick made after the automatic switch is the user's: the
+      // unchanged projection does not pull the panel back.
+      mark = calls.length
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      observed.followManual = { rows: rowStates(), tags: tags(mark), stored: stored() }
+
+      // Leaving the worktree is the same signal: the panel returns to the
+      // workspace checkout, and the manual pick gives way to the session.
+      mark = calls.length
+      window.__gpProjection('fixture-repo')
+      await until(() => listRows().some((row) => row.name === 'fixture-repo' && row.active))
+      await until(() => !switchingNow())
+      await wait(200)
+      observed.followExit = { rows: rowStates(), tags: tags(mark), stored: stored() }
+
+      // An unrelated nested repository is not the session's own family: the
+      // panel stays where it is.
+      mark = calls.length
+      window.__gpProjection('fixture-repo/site')
+      await wait(700)
+      observed.followForeign = { rows: rowStates(), tags: tags(mark) }
+
+      // A directory no row covers is not followed either, and does not leave a
+      // tab waiting for a sample.
+      mark = calls.length
+      window.__gpProjection('/elsewhere')
+      await wait(700)
+      observed.followOutside = { rows: rowStates(), tags: tags(mark), switching: switchingNow() }
+      return { observed, calls }
     }
     if (action === 'switch' && observed.tabs.includes('tab.overview') && activeTabLabel() !== 'tab.overview') {
       // A dirty checkout opens on Changes; the list lives in the overview.
@@ -999,7 +1127,7 @@ async function mount(repos, action, options = {}) {
       observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
     }
     return { observed, calls }
-  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip', expectedTabs })
+  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip', expectedTabs, projectionStart: options.projectionStart, initialRepos: options.initialRepos })
   // A row's hover tip needs a real pointer, so the probe runs after the page
   // script finished and before the page goes away; failures stay out of the
   // scene's own try/catch.
@@ -1622,6 +1750,87 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('head-icon observation: ' + JSON.stringify({ observed: out.observed, errors }))
+    failures.push(error)
+  }
+}
+
+// 18. The session moves into a worktree of its own repository: the live
+// `workingDirectory` projection follows, with no pick written and no stored
+// record; leaving follows back; a manual pick in between holds until the next
+// move; foreign checkouts and uncovered directories are never followed.
+{
+  const { out, errors } = await mount(MIXED_FAMILY, 'follow-session', { projectionStart: 'fixture-repo', scene: 'S18' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    const atRoot = ['*fixture-repo', 'sidebar', 'spike', 'gone', 'site', 'web (apps/web)']
+    assert.deepEqual(seen.followInitial.rows, atRoot, 'the session starts in its own checkout')
+    assert.equal(seen.followInitial.stored, null, 'nothing was picked yet')
+    assert.deepEqual(seen.followEnter.rows, ['fixture-repo', '*sidebar', 'spike', 'gone', 'site', 'web (apps/web)'], 'the panel followed the session into the worktree')
+    assert.equal(seen.followEnter.switching, false, 'the follow switch completes')
+    assert.equal(seen.followEnter.activeTab, 'tab.overview', 'following keeps the page')
+    assert.ok(seen.followEnter.tags.length > 0, 'the followed checkout was sampled: ' + JSON.stringify(seen.followEnter.tags))
+    assert.ok(seen.followEnter.tags.every((tag) => tag === '.agents/worktrees/feat/sidebar'), 'every sample is tagged with the worktree: ' + JSON.stringify(seen.followEnter.tags))
+    assert.ok(seen.followEnter.scopedRepos.every((repo) => repo === '.agents/worktrees/feat/sidebar'), 'every repository-scoped request carries it: ' + JSON.stringify(seen.followEnter.scopedRepos))
+    assert.equal(seen.followEnter.stored, null, 'the automatic switch records no pick: ' + String(seen.followEnter.stored))
+    assert.deepEqual(seen.followManual.rows, ['fixture-repo', 'sidebar', 'spike', 'gone', '*site', 'web (apps/web)'], 'a manual pick after the switch holds')
+    assert.match(String(seen.followManual.stored), /"repo":"site"/, 'and is persisted as the user\'s choice: ' + String(seen.followManual.stored))
+    assert.deepEqual(seen.followExit.rows, atRoot, 'leaving the worktree follows back to the workspace checkout')
+    assert.ok(seen.followExit.tags.length > 0, 'the return sampled the workspace: ' + JSON.stringify(seen.followExit.tags))
+    assert.ok(seen.followExit.tags.every((tag) => tag === ''), 'and every sample is untagged: ' + JSON.stringify(seen.followExit.tags))
+    assert.deepEqual(seen.followForeign.rows, atRoot, 'an unrelated nested repository is not followed')
+    assert.deepEqual(seen.followForeign.tags, [], 'and nothing is sampled for it: ' + JSON.stringify(seen.followForeign))
+    assert.deepEqual(seen.followOutside.rows, atRoot, 'a directory no row covers is not followed either')
+    assert.deepEqual(seen.followOutside.tags, [], 'and requests no sample: ' + JSON.stringify(seen.followOutside))
+    assert.equal(seen.followOutside.switching, false, 'nor leaves a switch hanging')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('follow-session observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 19. The follow switch off: the projection still moves, the panel does not —
+// no sample, no list refetch, no stored pick.
+{
+  const { out, errors } = await mount(MIXED_FAMILY, 'follow-off', {
+    projectionStart: 'fixture-repo',
+    snapshot: { followSessionCheckout: false },
+    scene: 'S19',
+  })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.deepEqual(seen.followOff.rows, ['*fixture-repo', 'sidebar', 'spike', 'gone', 'site', 'web (apps/web)'], 'with the switch off the panel stays on the checkout in use')
+    assert.deepEqual(seen.followOff.tags, [], 'and requests no sample: ' + JSON.stringify(seen.followOff.tags))
+    assert.equal(seen.followOff.repoLists, 0, 'and does not re-scan the workspace for a row it will not use')
+    assert.equal(seen.followOff.stored, null, 'nothing is recorded')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('follow-off observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 20. The scan predates the worktree (created during the session): the follow
+// asks for one fresh list, finds the row, switches, and stores nothing.
+{
+  const { out, errors } = await mount(MIXED_FAMILY, 'follow-missing', {
+    projectionStart: 'fixture-repo',
+    initialRepos: [WT_WORKSPACE, NESTED_REPO],
+    scene: 'S20',
+  })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.deepEqual(seen.followInitial.rows, ['*fixture-repo', 'site'], 'the first scan knows only the checkouts that existed')
+    assert.deepEqual(seen.followMissing.rows, ['fixture-repo', '*sidebar', 'spike', 'gone', 'site', 'web (apps/web)'], 'the refreshed list supplies the worktree and the panel follows it')
+    assert.equal(seen.followMissing.repoLists, 1, 'exactly one fresh scan: ' + JSON.stringify(seen.followMissing))
+    assert.ok(seen.followMissing.tags.length > 0 && seen.followMissing.tags.every((tag) => tag === '.agents/worktrees/feat/sidebar'), 'the new row is sampled: ' + JSON.stringify(seen.followMissing.tags))
+    assert.equal(seen.followMissing.stored, null, 'and still records no pick')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('follow-missing observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }

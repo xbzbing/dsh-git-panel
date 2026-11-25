@@ -118,6 +118,21 @@ export function selectRepo(sessionId: string, repo: string, options: { readonly 
   notifySelection()
 }
 
+/**
+ * Point a session at a checkout the panel followed automatically (the session's
+ * working directory moved into another checkout of its own repository). The
+ * selection changes in memory only and records no intent: `selectRepo` records
+ * even a `persist: false` pick of `''` as a deliberate root pick, which would
+ * make a later mount mistake an automatic return for the user's choice. A
+ * manual pick still wins and is persisted through `selectRepo`.
+ */
+export function followRepo(sessionId: string, repo: string): void {
+  hydrate(sessionId)
+  if (repo === '') selections.delete(sessionId)
+  else selections.set(sessionId, repo)
+  notifySelection()
+}
+
 /** Drop any pick without recording intent: the repair path (a pick the host
  * can no longer resolve) must not read as "the user chose the root". By
  * default only this module load falls back; `forget` also deletes the stored

@@ -657,6 +657,8 @@ export const en: Record<GitKey, string> = {
   'cfg.repoLimitHint': 'How many repositories one list may return (10–100); roots certified by a .code-workspace file do not count against it. Larger lists make the picker and its polling slower.',
   'cfg.filesFollowToggle': 'Files browser follows Git switches',
   'cfg.filesFollowHint': 'This is the per-session default: on, the browser moves with the repository switch; off, it parks at the project root. The status-bar address keeps its root picker whenever several candidate roots exist, so any session can override the default on the spot (a manual pick sticks until you choose Follow Git switches again or change this setting — changing it resets every session to the new default). Picking a repository\'s root there switches the Git overview and changes to that repository too. Saved changes apply immediately.',
+  'cfg.followSessionToggle': 'Follow the session into worktrees',
+  'cfg.followSessionHint': 'On, when the session working directory moves into another checkout of its own repository (for example enter_worktree into .agents/worktrees/<branch>), the panel switches to that checkout and back on exit. Only checkouts of the same repository are followed; unrelated repositories and .code-workspace roots stay manual. Automatic switches are not stored as the tab repository pick. Saved changes apply immediately.',
   'cfg.foldOnPickToggle': 'Collapse the list after switching repositories',
   'cfg.foldOnPickHint': 'On, picking a repository folds the repository list and gives the space back to the branch tree; off, the list stays open for quick switching and only its head line folds it. Saved changes apply immediately.',
   'cfg.cwTitle': 'Workspace file',

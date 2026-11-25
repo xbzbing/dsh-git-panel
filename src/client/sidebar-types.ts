@@ -10,6 +10,7 @@
  */
 import type { ComponentType, JSX } from 'react'
 import type { IconProps } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { UseProjection } from './follow-checkout.js'
 
 /**
  * How strongly a type wants an address it recognizes. `extension` — a type
@@ -108,6 +109,8 @@ export interface SidebarRightTabBodyProps {
   readonly t: (key: string, params?: Record<string, string | number>) => string
   /** Render a slot's content from inside a body. */
   readonly renderSlot?: (name: string, props?: Record<string, unknown>) => JSX.Element | null
+  /** The seat's standard projection hook, forwarded to the panel. */
+  readonly useProjection?: UseProjection
 }
 
 /** The props a sidebar tab title receives from its keyed seat. */

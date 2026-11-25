@@ -131,6 +131,7 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const(1).description('较大'),
     ]).default(0).volatile().description('面板字号'),
     detectCheckouts: Schema.boolean().default(true).volatile().description('探测 worktree 和子仓库（关闭后存储库列表只保留工作区主仓库；当前目录不是仓库时列表为空）'),
+    followSessionCheckout: Schema.boolean().default(true).volatile().description('跟随会话进入 worktree：会话的工作目录移动到本仓库的另一个检出时，Git 面板自动切换过去（只跟随同一仓库的检出，不跟随无关仓库或工作区外的根）'),
     repoLimit: Schema.number().default(DEFAULT_CONFIG.repoLimit).volatile().description('存储库数量上限（10–100；.code-workspace 认证的外部根另算，数量越多列表渲染越慢）'),
     filesFollowRepo: Schema.boolean().default(false).volatile().description('文件浏览跟随 Git 仓库切换（关闭时文件浏览停在项目根目录）'),
     collapseReposOnPick: Schema.boolean().default(false).volatile().description('切换存储库后立即收起存储库列表（关闭时列表保持展开，只由标题行收起）'),

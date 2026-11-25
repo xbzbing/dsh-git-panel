@@ -69,6 +69,7 @@ export { normalizeHeadingText, tocIndent, tocEntries, activeTocIndex, tocScrollT
 export { isRelativeAssetReference, resolveAssetPath, packAssets, encodeText, assetDataUrl, createStaticHtmlDocument, looksScriptRendered, packHtmlDocument, hasAssetReferences, withReadyPing, HTML_READY_MESSAGE, STATIC_CSP, MAX_ASSET_BYTES, MAX_TOTAL_BYTES, MAX_ASSETS, HTML_PACK_MAX_BYTES, inlineScriptBytes, isHeavyScriptDocument, HTML_HEAVY_SCRIPT_BYTES } from './html-pack.js'
 export { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, subscribeRepoSelection, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, pinnedFilesRoot, clearFilesRootPin, filesRootVersion, withRepo } from './repo-select.js'
 export { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, repoRowTip, filesRootRows, gitRepoForFilesRoot, listVerdict, sampleVerdict } from './repo-list.js'
+export { checkoutForDirectory } from './follow-checkout.js'
 export { PICKS_KEY, PICKS_MAX, PICKS_VERSION, parsePicks, serializePicks } from './pick-store.js'
 export type { RepoChoice, RepoGroup, RepoGroupKey, FilesRootRow, FilesRootMenu } from './repo-list.js'
 export { rtlPathText } from './rtl-path.js'

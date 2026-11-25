@@ -56,6 +56,7 @@
 | [ADR-0038](0038-repo-pick-tab-persistence.md) | 仓库选择按标签页持久化，只在确定的否决时删除 | 数据流 |
 | [ADR-0039](0039-diff-review-quotes.md) | 差异行内评论以引用写入输入框，格式对齐平台「本地变更」页签 | UI |
 | [ADR-0040](0040-commit-and-push-composition.md) | 提交并推送 = 提交 + 普通 push，不折入需要确认的远程写 | 安全 |
+| [ADR-0041](0041-follow-session-worktree.md) | 跟随会话的实时工作目录，只在同一仓库的检出之间切换 | 数据流 |
 
 ## 有效期
 
