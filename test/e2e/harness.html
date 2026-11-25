@@ -180,7 +180,13 @@
           return window.React.createElement('button', {
             key: item.id, type: 'button', role: 'menuitem',
             className: selected ? 'dsh-menu-item dsh-menu-item--selected' : 'dsh-menu-item',
-            'aria-checked': selected, disabled: item.disabled === true,
+            // The real Menu marks the selected row with this class and a check
+            // glyph, not aria-checked (that attribute belongs to Switch). The
+            // stub exposes the selection as aria-checked so an e2e can read
+            // `selectedId`; `aria-keyshortcuts` mirrors the platform's real
+            // announcement of a row's shortcut.
+            'aria-checked': selected, 'aria-keyshortcuts': item.shortcut?.aria,
+            disabled: item.disabled === true,
             onClick: function () {
               if (props.onSelect) props.onSelect(item.id);
               if (props.autoFocus) refocus();

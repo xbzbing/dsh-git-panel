@@ -3,10 +3,14 @@
  *
  * The primary button records a commit; a 24px caret to its right opens the two
  * choices, and the chosen one is remembered for the session (not the install).
- * The menu must keep the platform's contract (aria-haspopup / aria-expanded /
- * aria-checked, Escape closes and returns focus), and the chain must never push
- * after a failed commit, never push a checkout the commit did not confirm, and
- * never unwind a commit because its push was skipped or rejected.
+ * The caret keeps the contract it owns (aria-haspopup / aria-expanded, Escape
+ * closes and returns focus), the accelerator is announced as aria-keyshortcuts,
+ * and the checked row pins the `selectedId` this plugin passes — the real
+ * platform Menu paints selection with a class and a check glyph, not
+ * aria-checked (that is Switch's attribute), so `menuState().checked` reads the
+ * harness stub, not a platform guarantee. The chain must never push after a
+ * failed commit, never push a checkout the commit did not confirm, and never
+ * unwind a commit because its push was skipped or rejected.
  *
  * Isolated file:// harness, no dsh server. Requires test/e2e/setup.mjs first.
  */
@@ -113,7 +117,9 @@ async function openMenu(page) {
   await flush(page)
 }
 
-/** The two visible states of the split button, plus the menu's checked row. */
+/** The two visible states of the split button, plus the stub's checked row
+ * (see the header: aria-checked is how the harness Menu stub exposes
+ * `selectedId`; the real Menu only paints the class and glyph). */
 async function menuState(page) {
   return page.evaluate(() => ({
     expanded: document.querySelector('.gp-commit-split__caret')?.getAttribute('aria-expanded'),
@@ -136,6 +142,11 @@ async function menuState(page) {
   await openMenu(page)
   assert.equal(await caret.getAttribute('aria-expanded'), 'true')
   assert.equal(await menuItems(page).count(), 2, 'one row per choice')
+  assert.match(
+    (await menuItems(page).nth(1).getAttribute('aria-keyshortcuts')) ?? '',
+    /^(Control|Meta)\+Alt\+K$/,
+    'the accelerator is announced on the row (the platform renders shortcut.aria as aria-keyshortcuts)',
+  )
   assert.deepEqual((await menuState(page)).checked, ['提交'])
   await page.close()
 }
@@ -232,8 +243,10 @@ async function menuState(page) {
   await page.waitForFunction(() => window.__gpFixture.actions.length === 1)
   await flush(page)
   assert.deepEqual(await actions(page), ['commit'], 'no push is attempted')
-  assert.match(await feedback(page), /提交已保存到本地/)
-  assert.match(await feedback(page), /落后远程 2 个提交/)
+  const skipNotice = await page.locator('.gp-notice__text').first().innerText()
+  assert.match(skipNotice, /提交已保存到本地/)
+  assert.match(skipNotice, /落后远程 2 个提交/)
+  assert.equal(await page.locator('.gp-feedback').count(), 0, 'a deliberate skip is not painted as an error')
   assert.equal(await page.locator('.gp-commitbox__msg').inputValue(), '', 'the commit still cleared the box')
   await page.close()
 }
@@ -250,7 +263,7 @@ async function menuState(page) {
   await page.waitForFunction(() => window.__gpFixture.actions.length === 1)
   await flush(page)
   assert.deepEqual(await actions(page), ['commit'])
-  assert.match(await feedback(page), /force push/)
+  assert.match(await page.locator('.gp-notice__text').first().innerText(), /force push/)
   assert.equal(await page.locator('.gp-commitbox__amend input').isChecked(), false, 'the amend flag is consumed with the commit')
   await page.close()
 }
@@ -303,6 +316,23 @@ async function menuState(page) {
   await menuItems(page).nth(1).click()
   await flush(page)
   assert.equal(await page.locator('.gp-commitbar__commit').innerText(), '提交并推送')
+  await page.close()
+}
+
+/* ── 12. the accelerator never fires from behind a confirmation ─────────── */
+{
+  // The confirm dialog is portaled to body, but its React parent is still this
+  // tab's subtree: the synthetic keydown bubbles to the tab's handler. An open
+  // overlay owns the keystroke, so nothing is committed from inside the dialog.
+  const page = await openPanel(CLEAN)
+  await page.locator('.gp-commitbox__msg').fill('feat: guarded')
+  await page.locator('.gp-changes__discard-all').click()
+  await page.locator('.gp-modal-backdrop[data-gp-overlay]').waitFor()
+  await page.locator('.gp-modal--sm .gp-btn--danger').first().focus()
+  await page.keyboard.press('Control+Alt+KeyK')
+  await flush(page)
+  assert.deepEqual(await actions(page), [], 'no commit from inside the dialog')
+  assert.equal(await page.locator('.gp-modal--sm').count(), 1, 'the confirmation stays open')
   await page.close()
 }
 

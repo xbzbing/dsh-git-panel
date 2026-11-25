@@ -8,7 +8,10 @@
  *     switch drops it on purpose);
  *   - an amend of an already-pushed tip must skip with its own reason, while an
  *     amend of an unpushed tip must push normally — the post-amend snapshot
- *     alone reads as "diverged" and cannot tell them apart.
+ *     alone reads as "diverged" and cannot tell them apart;
+ *   - every other reason and its behind count must come from the snapshot the
+ *     commit returned: the commit itself clears `unborn`, so the pre-commit
+ *     state can describe a branch that no longer exists.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -83,23 +86,27 @@ test('a repository switch (no snapshot) stops after the commit', async () => {
   assert.equal(result.skip, 'switched')
 })
 
-test('a pre-commit blocker skips the push without even trying it', async () => {
-  for (const [label, before, expected] of [
-    ['behind', snap({ behind: 2 }), 'behind'],
-    ['no upstream', snap({ hasUpstream: false }), 'no-upstream'],
-    ['detached', snap({ branch: null }), 'detached'],
-    ['unborn', snap({ unborn: true }), 'unborn'],
-  ]) {
+test('the post-commit snapshot names the reason, so a reason the commit cleared is not kept', async () => {
+  // `after` is what the chain reads; `before` only answers the amend question.
+  // The last row is the one that used to lie: an empty repository is `unborn`
+  // before the click and `no-upstream` after the commit it just made, so
+  // "the branch has no commits yet" would contradict the commit on screen.
+  const cases = [
+    ['behind', snap({ behind: 2 }), snap({ behind: 3 }), 'behind', 3],
+    ['no upstream', snap({ hasUpstream: false }), snap({ hasUpstream: false }), 'no-upstream', 0],
+    ['detached', snap({ branch: null }), snap({ branch: null }), 'detached', 0],
+    ['unborn → born', snap({ unborn: true }), snap({ unborn: false, hasUpstream: false }), 'no-upstream', 0],
+  ]
+  for (const [label, before, after, expected, behind] of cases) {
     const calls = []
     const result = await runCommitPush(async (action) => {
       calls.push(action.kind)
-      // The commit reply looks perfectly pushable: only the pre-commit state
-      // carries the reason, so the chain must not second-guess it.
-      return OK(snap({ ahead: 1 }))
+      return OK(after)
     }, COMMIT, before, { amend: false }, 'fallback')
     assert.deepEqual(calls, ['commit'], `${label}: no push`)
     assert.equal(result.committed, true, `${label}: the commit still lands`)
     assert.equal(result.skip, expected, label)
+    assert.equal(result.behind, behind, `${label}: the count matches the snapshot that named the reason`)
   }
 })
 

@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { canPush, canSync, canSetUpstream, canPublish, pushIntent, upstreamCandidates } from '../../lib/testkit.mjs'
+import { canPush, canSync, canSetUpstream, canPublish, pushBlockedReason, pushIntent, upstreamCandidates } from '../../lib/testkit.mjs'
 
 const REMOTE = { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' }
 
@@ -25,6 +25,23 @@ function snap(overrides = {}) {
     ...overrides,
   }
 }
+
+test('pushBlockedReason is the single fast-forward gate canPush derives from', () => {
+  const upstream = { hasUpstream: true }
+  const cases = [
+    [snap({ ...upstream, ahead: 3 }), null, 'anything ahead of a tracked upstream'],
+    [snap({ ...upstream, ahead: 0 }), null, 'being level is not a blocker; the control adds the ahead count the commit will supply'],
+    [snap({ ...upstream, ahead: 2, behind: 1 }), 'behind', 'the upstream moved'],
+    [snap({ branch: null }), 'detached', 'nothing to push'],
+    [snap({ unborn: true, head: null }), 'unborn', 'no commit exists yet'],
+    [snap({ ...upstream, ahead: 2, remote: null }), 'no-upstream', 'the tracking config points at no usable remote'],
+    [snap(), 'no-upstream', 'a local-only branch'],
+  ]
+  for (const [snapshot, reason, note] of cases) {
+    assert.equal(pushBlockedReason(snapshot), reason, note)
+    assert.equal(canPush(snapshot), reason === null && snapshot.ahead > 0, `canPush is "no blocker and something to send" for ${note}`)
+  }
+})
 
 test('a local-only branch with commits and a remote can be published', () => {
   assert.equal(canPublish(snap()), true)
