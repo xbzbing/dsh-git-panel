@@ -411,6 +411,17 @@ export const CSS = `
 .gp-panel[data-layout="compact"] .gp-commitbox__fold:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-commitbox__fold:disabled{opacity:.5;cursor:default}
 .gp-commitbox__actions{margin-left:auto;display:flex;flex-wrap:nowrap;gap:6px}
+/* Split commit button (issue #152): the primary action plus a 24px caret that
+ * opens the two choices. The pair is one flex item, so a wrapping row never
+ * separates the caret from the button it belongs to; both halves take the
+ * primary fill and only the caret carries the divider. The wrapper span is the
+ * platform Menu's (it renders the anchor) and carries our caretwrap class, so
+ * the two halves stay glued instead of inheriting the menu's own layout. */
+.gp-commit-split{display:inline-flex;align-items:stretch;flex:none}
+.gp-commit-split__caretwrap{display:inline-flex;align-items:stretch}
+.gp-commit-split__main{border-top-right-radius:0;border-bottom-right-radius:0;padding-right:6px}
+.gp-commit-split__caret{width:24px;padding:0;justify-content:center;border-top-left-radius:0;border-bottom-left-radius:0;border-left:1px solid color-mix(in srgb,currentColor 34%,transparent)}
+.gp-commit-split__main:focus-visible,.gp-commit-split__caret:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 /* File editor (edit mode of the files preview). The CodeMirror host fills the
  * preview body; its own theme paints the inside from the same alias variables.
  * The status line sits under it in small type. */
