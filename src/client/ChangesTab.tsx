@@ -38,7 +38,9 @@ import { PublishModal } from './PublishModal.js'
 import { SetUpstreamModal } from './SetUpstreamModal.js'
 import { canPush, canSetUpstream, canSync } from './push-policy.js'
 import { pushSkipReason, runCommitPush, type CommitPushSkip } from './commit-push.js'
+import { isCommitShortcut } from './commit-shortcut.js'
 import { commitModeFor, rememberCommitMode, type CommitMode } from './commit-mode.js'
+import { hasOverlay } from './dialog-focus.js'
 import { SyncConfirmModal } from './SyncConfirmModal.js'
 import { ChangesDiffPane } from './ChangesDiffPane.js'
 import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
@@ -540,8 +542,10 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
   // Commit through the mode the split button is armed with. `commit-push` hands
   // both halves to `runCommitPush`: the commit half always lands, the push half
   // runs only against the fresh snapshot, and a skipped or rejected push is
-  // reported above the box without unwinding the commit. The mode is a
-  // preference; the click's outcome never changes it.
+  // reported above the box without unwinding the commit. A rejection is an
+  // error (red); a deliberate skip is a neutral notice, because the menu already
+  // said this branch cannot push right now. The mode is a preference; the
+  // click's outcome never changes it.
   const commit = async (mode: CommitMode): Promise<void> => {
     // The shortcut calls this directly, so it repeats the two locks the button's
     // disabled state carries: a write in flight, and the AI rewriting the field.
@@ -567,7 +571,9 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
         // "commit already landed" sentence in front of it.
         setError(result.committed ? t('commit.pushPartial', { reason: result.error }) : result.error)
       } else if (result.skip !== undefined) {
-        setError(t('commit.pushPartial', { reason: skipReasonText(result.skip, result.behind ?? 0) }))
+        // Expected outcome, not a failure: `setNotice`, so the "commit landed"
+        // sentence is not painted in the error color.
+        setNotice(t('commit.pushPartial', { reason: skipReasonText(result.skip, result.behind ?? 0) }))
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('error.generic'))
@@ -580,11 +586,17 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
 
   // ⌘⌥K / Ctrl+Alt+K always means commit and push, whatever the split button is
   // armed with (IDEA's Commit-and-Push accelerator). Scoped to this tab's
-  // subtree, so another panel or a portaled dialog cannot fire it, and `code` is
-  // layout-independent: Option+K types "˚" on macOS.
+  // subtree, but two things inside it must not trigger a write: a portaled
+  // dialog keeps its React parent here, so its keydown still bubbles to this
+  // handler even though the DOM node sits on body; and a text field owns its
+  // own keystrokes (the diff review comment). The commit message is the one
+  // field the accelerator is meant for.
   const onCommitShortcut = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
-    if (!(event.ctrlKey || event.metaKey) || !event.altKey || event.shiftKey) return
-    if (event.code !== 'KeyK' && event.key.toLowerCase() !== 'k') return
+    if (!isCommitShortcut(event)) return
+    if (hasOverlay()) return
+    const target = event.target
+    const field = target instanceof Element ? target.closest('textarea, input, [contenteditable="true"]') : null
+    if (field !== null && !field.classList.contains('gp-commitbox__msg')) return
     event.preventDefault()
     void commit('commit-push')
   }

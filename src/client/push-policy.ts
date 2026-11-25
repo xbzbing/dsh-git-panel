@@ -1,8 +1,26 @@
 import type { GitRemote, GitSnapshot } from './types.js'
 
+/**
+ * Why this branch cannot fast-forward an ordinary push, or null when nothing
+ * but its own ahead count stands in the way. This is the one place the
+ * preconditions live: `canPush` derives the control's answer from it, and the
+ * commit-and-push chain asks it of the fresh post-commit snapshot. Being level
+ * with the upstream is not a blocker here — `canPush` adds the ahead count the
+ * control needs, while a commit about to land does not have one yet.
+ */
+export type PushBlockReason = 'detached' | 'unborn' | 'no-upstream' | 'behind'
+
+export function pushBlockedReason(snapshot: GitSnapshot): PushBlockReason | null {
+  if (snapshot.branch === null) return 'detached'
+  if (snapshot.unborn === true) return 'unborn'
+  if (snapshot.remote === null || snapshot.hasUpstream !== true) return 'no-upstream'
+  if (snapshot.behind > 0) return 'behind'
+  return null
+}
+
 /** Offer only ordinary pushes from a branch strictly ahead of its upstream. */
 export function canPush(snapshot: GitSnapshot): boolean {
-  return snapshot.hasUpstream === true && snapshot.ahead > 0 && snapshot.behind === 0
+  return pushBlockedReason(snapshot) === null && snapshot.ahead > 0
 }
 
 /**

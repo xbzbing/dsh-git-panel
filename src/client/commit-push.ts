@@ -21,9 +21,10 @@
  */
 import type { GitAction, GitSnapshot } from './types.js'
 import type { ActionReply } from './op-runner.js'
+import { pushBlockedReason, type PushBlockReason } from './push-policy.js'
 
 /** Why the push half could not run. Each maps to one localized sentence. */
-export type CommitPushSkip = 'amend' | 'behind' | 'no-upstream' | 'detached' | 'unborn' | 'switched'
+export type CommitPushSkip = PushBlockReason | 'amend' | 'switched'
 
 export interface CommitPushOptions {
   /** Whether this commit amends HEAD; changes what the pre-commit state means. */
@@ -48,15 +49,14 @@ export interface CommitPushResult {
 
 /**
  * Why the ordinary push cannot run against this snapshot, or null when it can.
- * `amend` matters only while the tip is still published (`ahead === 0`): the
- * amended commit is no longer an ancestor of the upstream, so git would reject
- * the fast-forward and the panel never forces.
+ * The fast-forward preconditions are `pushBlockedReason`'s (one source with the
+ * toolbar); only `amend` is chain-specific: an amended tip that is still
+ * published (`ahead === 0`) is no longer an ancestor of the upstream, so git
+ * would reject the push and the panel never forces.
  */
 export function pushSkipReason(snapshot: GitSnapshot, amend: boolean): CommitPushSkip | null {
-  if (snapshot.branch === null) return 'detached'
-  if (snapshot.unborn) return 'unborn'
-  if (snapshot.remote === null || snapshot.hasUpstream !== true) return 'no-upstream'
-  if (snapshot.behind > 0) return 'behind'
+  const blocked = pushBlockedReason(snapshot)
+  if (blocked !== null) return blocked
   if (amend && snapshot.ahead === 0) return 'amend'
   return null
 }
@@ -64,9 +64,16 @@ export function pushSkipReason(snapshot: GitSnapshot, amend: boolean): CommitPus
 /**
  * Commit, then push when — and only when — the commit landed and the fresh
  * snapshot can still fast-forward. `before` is the snapshot the button was
- * pressed under: it is the only state that can tell an amend of a published
- * commit (skip with its own reason) from an amend of an unpushed one (push is
- * fine), because after the amend both read as "diverged".
+ * pressed under, and it is read for one question only: an amend of a published
+ * commit (skip with its own reason) looks exactly like an amend of an unpushed
+ * one once the commit has landed, because both then read as diverged.
+ *
+ * Every other reason comes from the snapshot the commit returned, never from
+ * `before`: the commit itself changes the state the reason describes. In an
+ * empty repository `before.unborn` is true, yet the commit it just made exists,
+ * so the honest reason is the one that still holds afterwards (`no-upstream`).
+ * Reading `before` first also paired a reason with `after.behind`, which could
+ * name a number from a different snapshot than the reason.
  */
 export async function runCommitPush(
   onAction: (action: GitAction) => Promise<ActionReply>,
@@ -75,14 +82,15 @@ export async function runCommitPush(
   options: CommitPushOptions,
   fallback: string,
 ): Promise<CommitPushResult> {
-  const pre = pushSkipReason(before, options.amend)
+  const amendSkip: CommitPushSkip | null =
+    options.amend && pushSkipReason(before, true) === 'amend' ? 'amend' : null
   options.onPhase?.('commit')
   const committed = await onAction(commitAction)
   if (!committed.ok) return { committed: false, pushed: false, error: committed.error ?? fallback, phase: 'commit' }
   const after = committed.snapshot
   // No snapshot = the repository switched under the write: never chain onto it.
   if (after === undefined) return { committed: true, pushed: false, skip: 'switched' }
-  const skip = pre ?? pushSkipReason(after, false)
+  const skip = amendSkip ?? pushSkipReason(after, false)
   if (skip !== null) return { committed: true, pushed: false, skip, behind: after.behind, snapshot: after }
 
   options.onPhase?.('push')
