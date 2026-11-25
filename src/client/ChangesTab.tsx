@@ -38,7 +38,7 @@ import { PublishModal } from './PublishModal.js'
 import { SetUpstreamModal } from './SetUpstreamModal.js'
 import { canPush, canSetUpstream, canSync } from './push-policy.js'
 import { pushSkipReason, runCommitPush, type CommitPushSkip } from './commit-push.js'
-import { isCommitShortcut } from './commit-shortcut.js'
+import { isCommitShortcut, ownsTypedText } from './commit-shortcut.js'
 import { commitModeFor, rememberCommitMode, type CommitMode } from './commit-mode.js'
 import { hasOverlay } from './dialog-focus.js'
 import { SyncConfirmModal } from './SyncConfirmModal.js'
@@ -344,9 +344,16 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
     })
   }, [snapshot])
 
-  // Collapsed directories belong to one checkout: another repository has its
-  // own tree, and a stale path would hide a directory the reader never folded.
-  useEffect(() => { setCollapsedDirs(new Set()) }, [snapshot.root])
+  // Collapsed directories, the inline error and the notice belong to one
+  // checkout: another repository has its own tree, and its own state. A commit
+  // notice such as "behind the remote by 2" is a fact about the repository that
+  // produced it — left in place it reads as the newly selected repository's
+  // state. The error (an earlier action's failure) has the same lifetime.
+  useEffect(() => {
+    setCollapsedDirs(new Set())
+    setError(null)
+    setNotice(null)
+  }, [snapshot.root])
 
   // Prefill amend message from the last commit when the box is toggled on empty.
   useEffect(() => {
@@ -586,17 +593,23 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
 
   // ⌘⌥K / Ctrl+Alt+K always means commit and push, whatever the split button is
   // armed with (IDEA's Commit-and-Push accelerator). Scoped to this tab's
-  // subtree, but two things inside it must not trigger a write: a portaled
-  // dialog keeps its React parent here, so its keydown still bubbles to this
-  // handler even though the DOM node sits on body; and a text field owns its
-  // own keystrokes (the diff review comment). The commit message is the one
-  // field the accelerator is meant for.
+  // subtree, but three things inside it must not trigger a write: an overlay
+  // that owns Escape (a portaled dialog keeps its React parent here, so its
+  // keydown still bubbles to this handler even though the DOM node sits on
+  // body); an element that takes typed text (the diff review comment); and a
+  // held key (see `isCommitShortcut`). The commit message is the one field the
+  // accelerator is meant for. The caret menu is not a layer that owns keys: its
+  // row advertises this very chord, so pressing it there still commits and
+  // pushes, and the menu closes with the busy state.
   const onCommitShortcut = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
-    if (!isCommitShortcut(event)) return
+    if (!isCommitShortcut({
+      ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey,
+      repeat: event.repeat, altGraph: event.getModifierState('AltGraph'),
+      code: event.code, key: event.key,
+    })) return
     if (hasOverlay()) return
-    const target = event.target
-    const field = target instanceof Element ? target.closest('textarea, input, [contenteditable="true"]') : null
-    if (field !== null && !field.classList.contains('gp-commitbox__msg')) return
+    const target = event.target instanceof Element ? event.target : null
+    if (target !== null && !target.classList.contains('gp-commitbox__msg') && ownsTypedText(target)) return
     event.preventDefault()
     void commit('commit-push')
   }
