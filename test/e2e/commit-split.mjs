@@ -59,12 +59,7 @@ async function flush(page) {
  * Mount the panel against the mock and open the changes tab. `panelHeight` and
  * `phone` drive the cramped fold (the commit editor folds into the bar).
  */
-async function openPanel(snapshot, { panelWidth = 1000, panelHeight = 764, phone = false, folded = false } = {}) {
-  const page = await browser.newPage(phone
-    ? { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } }
-    : { viewport: { width: 1440, height: 900 } })
-  page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
-  page.on('pageerror', (error) => consoleErrors.push('PAGEERROR ' + error.message))
+async function mountPanel(page, snapshot, { panelWidth = 1000, panelHeight = 764, folded = false } = {}) {
   await page.goto(new URL('./harness.html', import.meta.url).href)
   await page.addStyleTag({ content: THEME })
   for (const file of ['client.js', 'mock-rpc.mjs']) await page.addScriptTag({ path: resolve(DIR, file) })
@@ -102,6 +97,16 @@ async function openPanel(snapshot, { panelWidth = 1000, panelHeight = 764, phone
   // A cramped panel starts folded: the editor exists only after the bar is tapped.
   await page.locator(folded ? '.gp-commitbar' : '.gp-commitbox').waitFor()
   await flush(page)
+}
+
+/** A fresh tab, mounted and on the changes tab. */
+async function openPanel(snapshot, { panelWidth = 1000, panelHeight = 764, phone = false, folded = false } = {}) {
+  const page = await browser.newPage(phone
+    ? { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } }
+    : { viewport: { width: 1440, height: 900 } })
+  page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
+  page.on('pageerror', (error) => consoleErrors.push('PAGEERROR ' + error.message))
+  await mountPanel(page, snapshot, { panelWidth, panelHeight, folded })
   return page
 }
 
@@ -382,6 +387,29 @@ async function menuState(page) {
   await page.locator('.gp-changes__refresh').click()
   await page.waitForFunction(() => !document.querySelector('.gp-notice'))
   assert.equal(await page.locator('.gp-notice__text').count(), 0, 'the skip notice does not follow the repository switch')
+  await page.close()
+}
+
+/* ── 15. the choice survives a reload, but a new tab starts clean ────────── */
+{
+  const page = await openPanel(CLEAN)
+  await openMenu(page)
+  await menuItems(page).nth(1).click()
+  await flush(page)
+  assert.equal(await label(page), '提交并推送')
+  // Reload: the tab's `sessionStorage` outlives the document, the bundle's
+  // memory does not. The armed mode must come back, and the button must act.
+  await mountPanel(page, CLEAN)
+  assert.equal(await label(page), '提交并推送', 'a reload comes back to the same choice')
+  await page.locator('.gp-commitbox__msg').fill('feat: after reload')
+  await page.locator('.gp-commit-split__main').click()
+  await page.waitForFunction(() => window.__gpFixture.actions.length === 2)
+  assert.deepEqual(await actions(page), ['commit', 'push'], 'the restored choice still pushes')
+  // A new tab has its own `sessionStorage`: it must never inherit an armed
+  // push from the tab the user was looking at.
+  const other = await openPanel(CLEAN)
+  assert.equal(await label(other), '提交', 'a new tab starts on plain commit')
+  await other.close()
   await page.close()
 }
 
