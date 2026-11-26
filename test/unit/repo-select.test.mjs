@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { subscribeRepoSelection, selectedRepo, selectRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, pinnedFilesRoot, clearFilesRootPin, withRepo } from '../../lib/testkit.mjs'
+import { subscribeRepoSelection, selectedRepo, selectRepo, followRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, pinnedFilesRoot, clearFilesRootPin, withRepo } from '../../lib/testkit.mjs'
 
 /** A remote that records what reached it, keyed by method. */
 function recordingRemote() {
@@ -227,4 +227,12 @@ test('a selection change reaches every subscriber of the shared store', () => {
     clearRepoPick('two-panels')
     clearRepoPick('inside')
   }
+})
+
+test('an automatic follow is a selection but not a pick', () => {
+  followRepo('auto-1', 'site')
+  assert.equal(selectedRepo('auto-1'), 'site')
+  assert.equal(hasRepoPick('auto-1'), false, 'the follow is not the user\'s intent')
+  selectRepo('auto-1', 'web')
+  assert.equal(hasRepoPick('auto-1'), true, 'a manual pick after it is intent')
 })

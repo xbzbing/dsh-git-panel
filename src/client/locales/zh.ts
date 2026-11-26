@@ -683,6 +683,8 @@ export const zh = {
   'cfg.repoLimitHint': '一次列表最多返回多少个仓库（10–100）；.code-workspace 认证的外部根不占这个名额。数量越多，列表渲染与状态轮询越慢。',
   'cfg.filesFollowToggle': '文件浏览跟随 Git 切换',
   'cfg.filesFollowHint': '这是各会话的默认值：开启后文件浏览随仓库切换换根，关闭后默认停在项目根目录。状态栏地址在有多个候选根时始终可下拉，每个会话都能当场改选（手动选根会一直保持，直到选回「跟随 Git 切换」或再次修改本开关——修改会把所有会话重置回新默认）。在下拉里选中某个仓库的根时，Git 总览与变更记录会同步切到该仓库。保存后立即生效。',
+  'cfg.followSessionToggle': '跟随会话进入 worktree',
+  'cfg.followSessionHint': '开启后，会话的工作目录移动到本仓库的另一个检出（例如 enter_worktree 进入 .agents/worktrees/<分支>）时，面板自动切换到那个检出，离开时切回。只跟随同一仓库的检出；无关仓库和 .code-workspace 外部根仍手动切换。自动切换不写入标签页的仓库记录。保存后立即生效。',
   'cfg.foldOnPickToggle': '切换存储库后收起列表',
   'cfg.foldOnPickHint': '开启后，在存储库列表里点选一个仓库会立即收起列表、把位置还给分支树；关闭时列表保持展开，方便连续切换，只由标题行收起。保存后立即生效。',
   'cfg.cwTitle': '工作区文件',

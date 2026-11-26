@@ -178,6 +178,7 @@ function bodyFor(ctx: ClientCtx, t: (key: GitKey) => string): (props: SidebarRig
       host: 'sidebar',
       visible,
       useContextMenu: (props as { useContextMenu?: UseContextMenu }).useContextMenu,
+      useProjection: props.useProjection,
     })
   }
 }

@@ -26,6 +26,10 @@ export interface GitPanelConfig {
   /** Probe worktrees and nested repositories for the repository list. Off →
    * the list is the cwd's own repository alone (none when the cwd is not one). */
   readonly detectCheckouts: boolean
+  /** Follow the session's live working directory into another checkout of its
+   * own repository. Off → the panel stays on the manual switch path (the
+   * behavior before ADR-0041). */
+  readonly followSessionCheckout: boolean
   /** Ceiling for one repository list. Each certified worktree row takes a
    * slot and the nested scan fills the rest; `.code-workspace` roots are
    * explicit rather than detected and sit beyond it (ADR-0030). Range 10–100. */
@@ -86,6 +90,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   maxChanges: 1000,
   refreshIntervalMs: 30000,
   detectCheckouts: true,
+  followSessionCheckout: true,
   repoLimit: REPO_LIMITS.default,
   filesFollowRepo: false,
   collapseReposOnPick: false,
@@ -144,6 +149,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     maxChanges: num(c.maxChanges, DEFAULT_CONFIG.maxChanges),
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
     detectCheckouts: readBool(c.detectCheckouts, DEFAULT_CONFIG.detectCheckouts),
+    followSessionCheckout: readBool(c.followSessionCheckout, DEFAULT_CONFIG.followSessionCheckout),
     repoLimit: clampLimit(c.repoLimit, REPO_LIMITS),
     filesFollowRepo: readBool(c.filesFollowRepo, DEFAULT_CONFIG.filesFollowRepo),
     collapseReposOnPick: readBool(c.collapseReposOnPick, DEFAULT_CONFIG.collapseReposOnPick),
@@ -1302,6 +1308,7 @@ export async function snapshotForSession(
     fontDelta: config.fontDelta,
     suggestEnabled: config.suggestEnabled,
     detectCheckouts: config.detectCheckouts,
+    followSessionCheckout: config.followSessionCheckout,
     repoLimit: config.repoLimit,
     filesFollowRepo: config.filesFollowRepo,
     collapseReposOnPick: config.collapseReposOnPick,

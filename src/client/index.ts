@@ -31,6 +31,7 @@ import { readPlacementFromConfig, watchPlacement } from './placement-config.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
 import type { UseContextMenu } from './menu-types.js'
+import type { UseProjection } from './follow-checkout.js'
 
 /**
  * `plugins.bundle.config` keys: the bundle identity is the install dep key —
@@ -74,8 +75,8 @@ function apply(ctx: ClientCtx): void {
     // Main panel tab beside Chat (0) / Trajectory (10).
     const handle = ctx.slots.inject('conversation.view', () => ctx.slots.register(
       { name: 'conversation.view', id: 'git-panel', order: 30, locale: NS, label: () => t('panel.tab') },
-      (props: { sessionId?: string; useContextMenu?: UseContextMenu }) => h(Panel, {
-        ctx, sessionId: props.sessionId, t, useContextMenu: props.useContextMenu,
+      (props: { sessionId?: string; useContextMenu?: UseContextMenu; useProjection?: UseProjection }) => h(Panel, {
+        ctx, sessionId: props.sessionId, t, useContextMenu: props.useContextMenu, useProjection: props.useProjection,
       }),
     ))
     // The platform returns an idempotent disposer. A non-function means that

@@ -38,7 +38,8 @@ import { discardUnsavedEdit, hasUnsavedEdit } from './edit-store.js'
 import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
-import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, filesRootVersion, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
+import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, filesRootVersion, followRepo, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
+import { planFollow, type FollowPlanState, type UseProjection } from './follow-checkout.js'
 import { PanelMenuContext } from './menu-context.js'
 import { PanelRootContext } from './panel-root.js'
 import { usePanelMenu } from './use-panel-menu.js'
@@ -109,9 +110,19 @@ interface PanelProps {
   /** The slot's injected menu bindings (dsh ≥ 0.2.2-alpha.3); absent on older
    * hosts, where rows keep the native context menu. */
   readonly useContextMenu?: UseContextMenu
+  /** The slot's standard projection hook. Absent on older hosts: the panel
+   * then never follows the session's working directory (manual switching). */
+  readonly useProjection?: UseProjection
 }
 
-export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useContextMenu }: PanelProps): JSX.Element {
+/** A host without the standard projection prop: following stays off. */
+const NO_PROJECTION: UseProjection = () => undefined
+
+/** Per-session bookkeeping for the follow effect (a ref, so a directory that
+ * needs one extra list read is not re-requested on every render). */
+type FollowState = FollowPlanState & { readonly sessionId?: string }
+
+export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useContextMenu, useProjection }: PanelProps): JSX.Element {
   const pageVisible = usePageVisibility()
   const [fontPending, setFontPending] = useState<FontDelta | null>(null)
   // Monotonic token for the latest font write: a slow host set for an older
@@ -148,6 +159,14 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   const cramped = isCramped(layout)
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
+  // The platform's `workingDirectory` projection is the checkout the session
+  // currently works in; enter_worktree / exit_worktree rewrite it in place.
+  // The session header keeps the creation directory, so this live value is the
+  // only signal that the session moved. A host that passes no hook stays on
+  // the manual switch path.
+  const useWorkingDirectory = useProjection ?? NO_PROJECTION
+  const projectedDirectory = useWorkingDirectory('workingDirectory')
+  const sessionDirectory = typeof projectedDirectory === 'string' && projectedDirectory !== '' ? projectedDirectory : null
   // The font stepper writes through the settings form; without it the control
   // would silently no-op, so it is not rendered at all.
   const fontWritable = hasConfigForms(ctx)
@@ -356,10 +375,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // previous sample until the new one lands; the body dims and the tab bar says
   // why, so the switch reads as one step rather than a collapse and a rebuild.
   // The current view is the reference point the completion effect compares
-  // against.
-  const switchRepo = (next: string, persist = true): boolean => {
+  // against. `intent: false` is the automatic follow: the pick stays in memory
+  // and is not recorded as the user's choice (ADR-0041).
+  const switchRepo = (next: string, options: { readonly persist?: boolean; readonly intent?: boolean } = {}): boolean => {
     if (!hasSession(sessionId) || next === repo) return false
-    selectRepo(sessionId, next, { persist })
+    if (options.intent === false) followRepo(sessionId, next)
+    else selectRepo(sessionId, next, { persist: options.persist !== false })
     // Hand the controller the new checkout in this same event rather than from
     // an effect: effects run after paint, and the first paint after the pick
     // already shows the next repository's name in the tab bar, so a write
@@ -378,7 +399,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   }
 
   const chooseRepo = (next: string, persist = true): void => {
-    if (!hasSession(sessionId) || !switchRepo(next, persist)) return
+    if (!hasSession(sessionId) || !switchRepo(next, { persist })) return
     // By default a pick leaves the block open: the rows stay where the pointer
     // left them, so switching again is one click. `collapseReposOnPick` folds it
     // instead, handing the column back to the branch tree. Both docked copies
@@ -415,6 +436,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   const collapseOnPickRef = useRef(false)
   if (view.state === 'ready') collapseOnPickRef.current = view.snapshot.collapseReposOnPick ?? false
   const collapseOnPick = collapseOnPickRef.current
+
+  // Whether the panel follows the session into another checkout of its own
+  // repository. Sticky at the last ready answer; an older host omits the field
+  // → off, which is the manual behaviour those hosts shipped with.
+  const followSessionRef = useRef<boolean | undefined>(undefined)
+  if (view.state === 'ready') followSessionRef.current = view.snapshot.followSessionCheckout === true
+  const followSession = followSessionRef.current === true
+  // No ready sample yet is not "off": the first answer establishes the value
+  // without counting as a flip, so a manual pick can still win the mount.
+  const followSessionKnown = followSessionRef.current !== undefined
 
   // The browser's follow switch rides the snapshot the same way, sticky at the
   // last ready answer (a view dip must not flip it); an older host omits the
@@ -517,6 +548,40 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoListReady, repoProbeFailed, repos, repo])
 
+  // Follow the session into another checkout of its own repository when the
+  // platform moves it: enter_worktree / exit_worktree rewrite the
+  // `workingDirectory` projection, so this reacts to a live value rather than
+  // the 30 s snapshot poll. `planFollow` owns every rule (selectable family
+  // row, one list refetch, pending directory, manual pick priority); this
+  // effect only applies its state and its one side effect. The effect runs
+  // after the repair above, so a pick the host refused cannot clobber the
+  // followed one.
+  const switchRepoRef = useRef(switchRepo)
+  switchRepoRef.current = switchRepo
+  const followState = useRef<FollowState>({ sessionId, enabled: followSession, known: false, cwd: null, pending: null, refetched: null, force: false, manual: null })
+  if (followState.current.sessionId !== sessionId) {
+    followState.current = { sessionId, enabled: followSession, known: false, cwd: null, pending: null, refetched: null, force: false, manual: null }
+  }
+  useEffect(() => {
+    if (sessionId === undefined) return
+    const plan = planFollow({
+      sessionDirectory,
+      repos,
+      repo,
+      followSession,
+      followSessionKnown,
+      hasRepoPick: hasRepoPick(sessionId),
+      repoListReady,
+      repoProbeFailed,
+      state: followState.current,
+    })
+    Object.assign(followState.current, plan.state)
+    if (plan.action.kind === 'refetch') setRepoListEpoch((n) => n + 1)
+    else if (plan.action.kind === 'follow') switchRepoRef.current(plan.action.path, { persist: false, intent: false })
+    // `switchRepo` is read through the ref: it closes over the current view
+    // and selection, and this effect must not re-run on every poll for them.
+  }, [sessionDirectory, repos, repo, sessionId, followSession, followSessionKnown, repoListReady, repoProbeFailed])
+
   // The browser's own pin gets the same repair: a pinned checkout that left the
   // list (probe switched off, directory gone) or can no longer be chosen
   // returns the session to the config default — otherwise the address and its
@@ -538,8 +603,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   useEffect(() => {
     if (!hasSession(sessionId) || repo === '' || repoRejected === 'keep') return
     // The published view can still belong to the previous pick while a switch is
-    // in flight; only the sample of the selected repository may reject it.
-    if (controllerFor(sessionId).getRepo() !== repo) return
+    // in flight, and an automatic follow may already have replaced a refused
+    // pick: only the sample read for the selected repository may reject it.
+    if (controllerFor(sessionId).sampledRepo() !== repo) return
     dropRepo(repoRejected === 'forget')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoRejected, repo, sessionId])
