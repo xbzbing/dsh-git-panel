@@ -278,9 +278,14 @@ function codePoints(s: string, start: number, end: number): number {
   return n
 }
 
+/** JavaScript's `\s` (NBSP, full-width space, ...), shared by the blank-only
+ * and trimmed-share tests so both mean the same thing; a module constant keeps
+ * the allocation out of per-character loops over potentially huge lines. */
+const BLANK = /\s/
+
 /** True when `s[start, end)` holds a non-whitespace character. */
 function hasNonBlank(s: string, start: number, end: number): boolean {
-  for (let k = start; k < end; k++) if (!/\s/.test(s[k]!)) return true
+  for (let k = start; k < end; k++) if (!BLANK.test(s[k]!)) return true
   return false
 }
 
@@ -289,8 +294,8 @@ function hasNonBlank(s: string, start: number, end: number): boolean {
 function changedShare(line: string, start: number, end: number): number {
   let lo = 0
   let hi = line.length
-  while (lo < hi && /\s/.test(line[lo]!)) lo++
-  while (hi > lo && /\s/.test(line[hi - 1]!)) hi--
+  while (lo < hi && BLANK.test(line[lo]!)) lo++
+  while (hi > lo && BLANK.test(line[hi - 1]!)) hi--
   const content = codePoints(line, lo, hi)
   return content === 0 ? 0 : codePoints(line, Math.max(start, lo), Math.min(end, hi)) / content
 }
