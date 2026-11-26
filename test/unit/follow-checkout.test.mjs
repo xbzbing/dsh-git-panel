@@ -108,7 +108,7 @@ test('atCheckoutRoot separates the exact root from a subdirectory', () => {
 
 const SITE = row('site', '/repo/site', { role: 'repo' })
 
-const FOLLOW_READY = { enabled: true, known: true, cwd: null, pending: null, refetched: null, force: false, manual: null, released: null }
+const FOLLOW_READY = { enabled: true, known: true, cwd: null, pending: null, refetched: null, force: false, manual: null, releasedRevision: null }
 
 function plan(overrides = {}) {
   return planFollow({
@@ -118,6 +118,7 @@ function plan(overrides = {}) {
     followSession: true,
     followSessionKnown: true,
     hasRepoPick: false,
+    pickRevision: 0,
     repoListReady: true,
     repoProbeFailed: false,
     state: { ...FOLLOW_READY },
@@ -262,4 +263,43 @@ test('planFollow does not switch to the checkout already selected', () => {
   const decision = plan({ sessionDirectory: MAIN.root, repo: '', repos: [MAIN] })
   assert.deepEqual(decision.action, { kind: 'none' })
   assert.equal(decision.state.pending, null)
+})
+
+test("planFollow does not take a pick the move released as new intent", () => {
+  // The directory moved and released the user's SITE pick: the selection still
+  // names SITE, but nothing was clicked after the move, so the follow resumes.
+  const decision = plan({
+    repo: SITE.path,
+    hasRepoPick: true,
+    pickRevision: 2,
+    state: { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root, releasedRevision: 2 },
+  })
+  assert.deepEqual(decision.action, { kind: "follow", path: LINKED.path })
+  assert.equal(decision.state.manual, null)
+})
+
+test("planFollow takes a later pick of the released row as new intent", () => {
+  // The repair dropped the refused SITE pick and the user clicked SITE again:
+  // the selector is the same, the revision is not.
+  const decision = plan({
+    repo: SITE.path,
+    hasRepoPick: true,
+    pickRevision: 3,
+    state: { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root, releasedRevision: 2 },
+  })
+  assert.deepEqual(decision.action, { kind: "none" })
+  assert.equal(decision.state.manual, SITE.path)
+  assert.equal(decision.state.pending, LINKED.root)
+})
+
+test("planFollow records a re-pick while the released scan is still pending", () => {
+  const decision = plan({
+    repo: SITE.path,
+    hasRepoPick: true,
+    pickRevision: 4,
+    repoListReady: false,
+    state: { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root, releasedRevision: 3 },
+  })
+  assert.deepEqual(decision.action, { kind: "none" })
+  assert.equal(decision.state.manual, SITE.path, "the answer that lands later cannot replay the older intent")
 })

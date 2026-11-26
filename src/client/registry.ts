@@ -94,24 +94,35 @@ const NO_SUBSCRIPTION = (): (() => void) => () => {}
 const NO_REFETCH = (): void => {}
 
 /** Shared discovery/follow lifetime. Updating a directory does not release and
- * reacquire the observer: that would turn each move into another initial scan. */
+ * reacquire the observer: that would turn each move into another initial scan.
+ * The instance is created in an effect, never during render: a render that is
+ * thrown away must not leave a registry entry and three store subscriptions
+ * behind for the rest of the plugin's life. */
 export function useCheckouts(sessionId: string | undefined, active: boolean, directory: string | null, discover: boolean): CheckoutState & {
   readonly refetch: () => void
 } {
   const owner = useRef(Symbol('gp-checkout-observer'))
   const git = sessionId ? controllerFor(sessionId) : undefined
-  let checkout = sessionId ? checkouts.get(sessionId) : undefined
-  if (checkout === undefined && sessionId !== undefined && git !== undefined) {
-    checkout = new CheckoutController(sharedRemote ?? failingRemote(), sessionId, git)
-    checkouts.set(sessionId, checkout)
-  }
-  const state = useSyncExternalStore(checkout?.subscribe ?? NO_SUBSCRIPTION, checkout?.getSnapshot ?? NO_LIST)
+  // One pair per surface: the instance this hook is subscribed to, and the
+  // session it belongs to (a session switch must not read the previous one).
+  const [owned, setOwned] = useState<{ sessionId: string; controller: CheckoutController } | null>(() => {
+    const existing = sessionId === undefined ? undefined : checkouts.get(sessionId)
+    return sessionId === undefined || existing === undefined ? null : { sessionId, controller: existing }
+  })
   useEffect(() => {
-    if (sessionId === undefined || git === undefined || checkout === undefined) return
+    if (sessionId === undefined || git === undefined) return
+    const existing = checkouts.get(sessionId)
+    const instance = existing ?? new CheckoutController(sharedRemote ?? failingRemote(), sessionId, git)
+    if (existing === undefined) checkouts.set(sessionId, instance)
+    // The updater keeps the pair identical when it already is: React bails out
+    // instead of re-rendering, so a repeat effect run is free.
+    setOwned((current) => (current !== null && current.sessionId === sessionId && current.controller === instance ? current : { sessionId, controller: instance }))
     retain(sessionId)
     const token = owner.current
-    return () => { checkout.release(token); release(sessionId, git) }
-  }, [sessionId, git, checkout])
+    return () => { instance.release(token); release(sessionId, git) }
+  }, [sessionId, git])
+  const checkout = owned !== null && owned.sessionId === sessionId ? owned.controller : undefined
+  const state = useSyncExternalStore(checkout?.subscribe ?? NO_SUBSCRIPTION, checkout?.getSnapshot ?? NO_LIST)
   useEffect(() => {
     checkout?.observe(owner.current, active, directory, discover)
   }, [checkout, active, directory, discover])

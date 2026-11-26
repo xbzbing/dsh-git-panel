@@ -6,7 +6,7 @@
 import type { GitController } from './controller.js'
 import { planFollow, type FollowPlanState } from './follow-checkout.js'
 import { listVerdict, sampleVerdict } from './repo-list.js'
-import { clearRepoPick, followRepo, hasRepoPick, selectedRepo, subscribeRepoSelection } from './repo-select.js'
+import { clearRepoPick, followRepo, hasRepoPick, repoPickRevision, selectedRepo, subscribeRepoSelection } from './repo-select.js'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { REPO_LIMITS, type GitRepoList } from './types.js'
 
@@ -46,7 +46,11 @@ export class CheckoutController {
   private known = false
   private configAt = -Infinity
   private configTick: number | null = null
-  private state: FollowPlanState = { enabled: false, known: false, cwd: null, pending: null, refetched: null, force: false, manual: null, released: null }
+  /** Whether a full configuration (as opposed to this instance's defaults) has
+   * been adopted. Only a change seen after that is a flip worth a rescan: the
+   * host already applied its own setting to any scan that ran before. */
+  private configSeen = false
+  private state: FollowPlanState = { enabled: false, known: false, cwd: null, pending: null, refetched: null, force: false, manual: null, releasedRevision: null }
   private abort: AbortController | undefined
   private generation = 0
   private reading = false
@@ -131,7 +135,11 @@ export class CheckoutController {
   }
 
   private applyConfig(config: CheckoutConfig): boolean {
-    const changed = this.detect !== config.detect || this.limit !== config.limit
+    // The first observation adopts the setting; it is not a flip. The host
+    // applies its own config to every scan, so a read that ran before the value
+    // was known is not stale and must not be repeated.
+    const changed = this.configSeen && (this.detect !== config.detect || this.limit !== config.limit)
+    this.configSeen = true
     if (config.at > this.configAt) this.configTick = null
     this.configAt = config.at
     this.detect = config.detect
@@ -171,11 +179,12 @@ export class CheckoutController {
           if (this.disposed || generation !== this.generation || !this.active) return
           const listed = queryAs(result, 'repo-list')
           if (listed === null) return
+          // Spread: the reply carries fields this client does not read yet, and
+          // rebuilding it by hand would silently drop them (src/host/queries.ts).
           this.publish({
+            ...listed,
             repos: Array.isArray(listed.repos) ? listed.repos : [],
             cwd: typeof listed.cwd === 'string' ? listed.cwd : '',
-            codeWorkspace: listed.codeWorkspace,
-            worktrees: listed.worktrees,
           }, true)
         })
         .catch(() => { /* A failed read is not evidence against a remembered pick. */ })
@@ -218,7 +227,8 @@ export class CheckoutController {
         const plan = planFollow({
           sessionDirectory: this.directory, repos: this.snapshot.list?.repos ?? [], repo,
           followSession: this.follow, followSessionKnown: this.known,
-          hasRepoPick: hasRepoPick(this.sessionId), repoListReady: this.active && this.snapshot.ready && !this.reading,
+          hasRepoPick: hasRepoPick(this.sessionId), pickRevision: repoPickRevision(),
+          repoListReady: this.active && this.snapshot.ready && !this.reading,
           repoProbeFailed: this.snapshot.list?.worktrees === 'failed', state: this.state,
         })
         this.state = plan.state

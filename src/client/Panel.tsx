@@ -257,7 +257,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
 
   // One discovery result per session, even with the pill and both panel seats
   // mounted. The visible pill keeps following when this panel is absent.
-  const { list: checkoutList, ready: repoListReady, refetch: refetchRepos } = useSessionCheckouts(sessionId, queryVisible, useProjection)
+  // Two readings of the same list: `listAuthoritative` is the evidence question
+  // (may a repair or a follow trust these rows), while `listAvailable` is the
+  // display question (are there rows to show). A scan in flight makes the rows
+  // non-authoritative without taking the switcher and the root dropdown away.
+  const { list: checkoutList, ready: listAuthoritative, refetch: refetchRepos } = useSessionCheckouts(sessionId, queryVisible, useProjection)
+  const listAvailable = checkoutList !== null
   const repos = checkoutList?.repos ?? EMPTY_REPOS
   const repoProbeFailed = checkoutList?.worktrees === 'failed'
   const repoWorkspace = checkoutList?.codeWorkspace
@@ -292,14 +297,17 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   const repoRemote = useMemo(() => withRepo(remote, repo), [remote, repo])
   // Shared checkout lifecycle aligns the controller in the selection event,
   // so requests never tag a new selector with the previous checkout's sample.
-  const switchRepo = (next: string, options: { readonly persist?: boolean } = {}): boolean => {
+  const switchRepo = (next: string, options: { readonly persist?: boolean; readonly intent?: boolean } = {}): boolean => {
     if (!hasSession(sessionId) || next === repo) return false
-    selectRepo(sessionId, next, { persist: options.persist !== false })
+    selectRepo(sessionId, next, { persist: options.persist !== false, intent: options.intent !== false })
     return true
   }
 
   const chooseRepo = (next: string, persist = true): void => {
-    if (!hasSession(sessionId) || !switchRepo(next, { persist })) return
+    // A pick this panel makes on its own (`persist: false`: the files-only
+    // default pick) is not intent, so it must not release a follow the way a
+    // click on a row does.
+    if (!hasSession(sessionId) || !switchRepo(next, { persist, intent: persist })) return
     // By default a pick leaves the block open: the rows stay where the pointer
     // left them, so switching again is one click. `collapseReposOnPick` folds it
     // instead, handing the column back to the branch tree. Both docked copies
@@ -383,11 +391,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // dropdown would vanish with the root while the tree stayed on the old one.
   const pinnedRoot = sessionId === undefined ? undefined : pinnedFilesRoot(sessionId)
   useEffect(() => {
-    if (!repoListReady || repoProbeFailed || sessionId === undefined || pinnedRoot === undefined) return
+    if (!listAuthoritative || repoProbeFailed || sessionId === undefined || pinnedRoot === undefined) return
     const verdict = listVerdict(repos, pinnedRoot)
     if (verdict === 'keep') return
     clearFilesRootPin(sessionId, { forget: verdict === 'forget' })
-  }, [repoListReady, repoProbeFailed, repos, pinnedRoot, sessionId])
+  }, [listAuthoritative, repoProbeFailed, repos, pinnedRoot, sessionId])
 
   const onAction = async (action: GitAction): Promise<ActionReply> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
@@ -645,7 +653,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // default follows, follow while the default parks). With one candidate the
   // address keeps its plain click-to-copy behaviour.
   const rootPick = sessionId === undefined ? null : filesRootPick(sessionId, filesFollow)
-  const rootRows = projectRoot === null || !repoListReady
+  const rootRows = projectRoot === null || !listAvailable
     ? []
     : filesRootRows(projectRoot, repoList, rootPick)
   const rootMenu = rootRows.length > 1
@@ -726,7 +734,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // rejects from ping-ponging.
   const autoPickedSession = useRef<string | null>(null)
   useEffect(() => {
-    if (!hasSession(sessionId) || !repoListReady || !filesOnly) return
+    if (!hasSession(sessionId) || !listAvailable || !filesOnly) return
     if (view.state !== 'error' || view.error.code !== 'not-a-git-repo') return
     if (repo !== '' || hasRepoPick(sessionId)) return
     if (autoPickedSession.current === sessionId) return
@@ -738,7 +746,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     chooseRepo(target.path, false)
     // chooseRepo only reads state this effect already guards on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, repoListReady, filesOnly, view, repo, repoList])
+  }, [sessionId, listAvailable, filesOnly, view, repo, repoList])
 
   // One shared list block: the overview's branch surface and the changes
   // column both dock it, so collapse state and the choice wiring stay in sync

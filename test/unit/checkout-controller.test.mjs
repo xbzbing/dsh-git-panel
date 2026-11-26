@@ -18,7 +18,7 @@ const ROWS = [MAIN, A, B, SITE]
 const listed = (repos = ROWS, extra = {}) => ({ ok: true, value: { kind: 'repo-list', cwd: MAIN.root, repos, worktrees: 'ok', ...extra } })
 
 /** Deliberately lets an aborted request reply, to test the owner's generation guard. */
-function setup(t, config = {}, { installStorage = true } = {}) {
+function setup(t, config = {}, { installStorage = true, signalReady = true } = {}) {
   const sessionId = `checkout-controller-${++nextId}`
   const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
   const stored = new Map()
@@ -30,7 +30,7 @@ function setup(t, config = {}, { installStorage = true } = {}) {
   if (installStorage) Object.defineProperty(globalThis, 'sessionStorage', { value: storage, configurable: true })
   let snapshot = { root: MAIN.root, changes: [], checkedAt: 1, detectCheckouts: true, repoLimit: 50, followSessionCheckout: true, ...config }
   let view = { state: 'ready', snapshot }
-  let signal = { ready: true, tick: 1, root: snapshot.root, sampledAt: snapshot.checkedAt }
+  let signal = { ready: signalReady, tick: 1, root: snapshot.root, sampledAt: snapshot.checkedAt }
   let repo = ''
   let sampled = ''
   const listeners = new Set()
@@ -304,6 +304,62 @@ test('failed worktree probing neither follows a covering parent nor prunes manua
   assert.equal(f.selected, B.path)
 })
 
+test('adopting the first configuration sample does not repeat the discovery', async (t) => {
+  // A visible panel reads the list before the first snapshot can tell it the host's
+  // detectCheckouts / repoLimit. The host applied its own setting to that scan, so
+  // learning the value afterwards is not a flip and must not scan again.
+  const f = setup(t, { detectCheckouts: false }, { signalReady: false })
+  const panel = Symbol('panel')
+  f.observe(panel, A.root)
+  await drain()
+  assert.equal(f.requests.length, 1, 'discovery starts while the configuration is still unknown')
+  f.config({})
+  await drain()
+  assert.equal(f.requests.length, 1, 'the first observation adopts the value without rescanning')
+  f.config({ detectCheckouts: true })
+  await drain()
+  assert.equal(f.requests.length, 2, 'a genuine change re-answers the list')
+})
+
+test('a pill alone waits for the configuration before its first scan', async (t) => {
+  const f = setup(t, {}, { signalReady: false })
+  const pill = Symbol('pill')
+  f.observe(pill, A.root, true, false)
+  await drain()
+  assert.equal(f.requests.length, 0, 'no follow setting, no scan')
+  f.config({})
+  await drain()
+  assert.equal(f.requests.length, 1, 'the known setting starts exactly one scan')
+  await f.answer(0)
+  assert.equal(f.selected, A.path)
+})
+
+test('a re-pick of the refused row after its repair is new intent', async (t) => {
+  const f = setup(t), pill = Symbol('pill')
+  f.observe(pill, A.root, true, false)
+  await f.answer(0)
+  f.pick(SITE.path)
+  assert.equal(f.git.getRepo(), SITE.path)
+  f.observe(pill, C.root, true, false)
+  await drain()
+  assert.equal(f.requests.length, 2, 'the move releases the pick and asks for the new row')
+  // The host refuses SITE, so the repair drops the selection (no new intent).
+  f.publish({ state: 'error', error: { code: 'invalid-repo' } }, SITE.path)
+  await drain()
+  assert.equal(f.selected, '', 'the refused pick is gone')
+  // The default checkout samples cleanly again: the refusal no longer describes
+  // the published view, so the next click is judged on its own revision.
+  f.config({})
+  await drain()
+  // Clicking the same row again is what the value comparison could not see.
+  f.pick(SITE.path)
+  assert.equal(f.selected, SITE.path)
+  await f.answer(1, [...ROWS, C])
+  assert.equal(f.selected, SITE.path, 'the move\'s answer cannot replay it over the newer click')
+  f.config({}); f.observe(pill, C.root, true, false)
+  assert.equal(f.selected, SITE.path)
+  assert.equal(hasRepoPick(f.sessionId), true)
+})
 test('off to on overrides a restored manual pick even when a pill needed no initial scan', async (t) => {
   const f = setup(t, { followSessionCheckout: false }), pill = Symbol('pill')
   f.storage.setItem(PICKS_KEY, JSON.stringify({ v: 1, sessions: { [f.sessionId]: { repo: SITE.path, at: 1 } } }))

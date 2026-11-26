@@ -110,9 +110,10 @@ export interface FollowPlanState {
    * priority independent of `first` / `pending`, so a pick the host later
    * refuses can release the follow in the same mount. */
   manual: string | null
-  /** The older manual selection released by a directory move. A new pick made
-   * while discovery waits must not be confused with this pre-move intent. */
-  released: string | null
+  /** The pick revision the latest directory move released. A pick carrying a
+   * newer revision was made after the move and is new intent even when it names
+   * the same selector, so a value comparison is not used here. */
+  releasedRevision: number | null
 }
 
 /** What the panel should do after one follow-effect run. */
@@ -129,6 +130,8 @@ export interface FollowPlanInput {
   readonly followSession: boolean
   readonly followSessionKnown: boolean
   readonly hasRepoPick: boolean
+  /** The revision of the latest deliberate pick (`repoPickRevision`). */
+  readonly pickRevision: number
   readonly repoListReady: boolean
   readonly repoProbeFailed: boolean
   readonly state: FollowPlanState
@@ -169,7 +172,7 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
     state.pending = null
     state.refetched = null
     state.force = input.followSession
-    state.released = null
+    state.releasedRevision = null
   }
   if (!input.followSession) return none
   const directory = input.sessionDirectory
@@ -182,16 +185,16 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
     state.pending = directory
     state.refetched = null
     state.manual = null
-    state.released = !first && input.hasRepoPick ? input.repo : null
+    state.releasedRevision = !first && input.hasRepoPick ? input.pickRevision : null
   }
-  // A different post-move pick is new intent, even if a subsequent click
-  // returns to the selector released by the move.
-  if (input.hasRepoPick && state.released !== null && state.released !== input.repo) state.released = null
+  // A pick the move released is not new intent; a later one is, even when it
+  // names the same selector (the user re-picked after the repair dropped it).
+  const freshPick = input.hasRepoPick && (state.releasedRevision === null || input.pickRevision > state.releasedRevision)
   // Directory and manual-pick bookkeeping stays live during discovery. Only
   // row evidence/actions wait, so a later scan cannot replay an older move
   // over a pick made after the most recent directory change.
   if (!input.repoListReady) {
-    if (!state.force && input.hasRepoPick && state.released !== input.repo && (first || !changed)) state.manual = input.repo
+    if (!state.force && freshPick && (first || !changed)) state.manual = input.repo
     return none
   }
   const target = checkoutForDirectory(directory, input.repos)
@@ -200,7 +203,7 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
   // refetch in flight must not switch it away) and every later run on the same
   // directory. `manual` is what carries it: the pick keeps priority even after
   // the first run, and a host refusal releases it by clearing the selection.
-  const manualWins = !state.force && input.hasRepoPick && state.released !== input.repo &&
+  const manualWins = !state.force && freshPick &&
     (first || !changed || state.manual === input.repo) &&
     (input.repoProbeFailed || input.repos.some((entry) => entry.path === input.repo && entry.disabled === undefined)) &&
     (target === undefined || target.path !== input.repo)
