@@ -64,6 +64,26 @@ export function repoChoices(repos: readonly GitRepoEntry[]): readonly RepoChoice
   }))
 }
 
+/**
+ * The row a files-only panel opens on its own: the first selectable
+ * sub-repository. Only a ready list is evidence — rows of a scan still in
+ * flight may name a checkout that has just left the work tree, and the session
+ * gets a single attempt — so readiness is part of the decision instead of a
+ * caller-side guard, and an attempt that failed is not retried from the same
+ * rows.
+ *
+ * @param choices Rows of the list in force.
+ * @param ready Whether that list is the current successful read.
+ * @param attempted Whether this session already spent its one attempt.
+ * @returns The selector to switch to, or null when the panel must wait or has
+ * nothing to pick.
+ */
+export function autoPickRepo(choices: readonly RepoChoice[], ready: boolean, attempted: boolean): string | null {
+  if (!ready || attempted) return null
+  const target = choices.find((choice) => choice.path !== '' && choice.disabled === undefined)
+  return target === undefined ? null : target.path
+}
+
 /** Which group a choice belongs to: `own` is the repository family the session
  * cwd itself sits in (its main checkout and worktrees), `foreign` is
  * everything else the workspace offers. */

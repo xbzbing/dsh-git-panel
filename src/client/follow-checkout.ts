@@ -92,7 +92,7 @@ export function atCheckoutRoot(directory: string | null | undefined, row: GitRep
   return typeof directory === 'string' && directory !== '' && samePath(normalize(directory), normalize(row.root))
 }
 
-/** The follow effect's mutable bookkeeping, one record per mounted panel. */
+/** Mutable follow bookkeeping, one record per session's checkout lifecycle. */
 export interface FollowPlanState {
   /** Whether the setting was on at the last run. */
   enabled: boolean
@@ -110,6 +110,10 @@ export interface FollowPlanState {
    * priority independent of `first` / `pending`, so a pick the host later
    * refuses can release the follow in the same mount. */
   manual: string | null
+  /** The pick revision the latest directory move released. A pick carrying a
+   * newer revision was made after the move and is new intent even when it names
+   * the same selector, so a value comparison is not used here. */
+  releasedRevision: number | null
 }
 
 /** What the panel should do after one follow-effect run. */
@@ -126,6 +130,10 @@ export interface FollowPlanInput {
   readonly followSession: boolean
   readonly followSessionKnown: boolean
   readonly hasRepoPick: boolean
+  /** The revision of this session's latest deliberate pick
+   * (`repoPickRevision`); per session, so another session's click is not seen
+   * as new intent here. */
+  readonly pickRevision: number
   readonly repoListReady: boolean
   readonly repoProbeFailed: boolean
   readonly state: FollowPlanState
@@ -138,8 +146,8 @@ export interface FollowPlan {
 }
 
 /**
- * Decide what the follow effect does for one render. Pure: the panel copies
- * `state` back into its ref and performs `action`; every branch that needs a
+ * Decide one follow step. Pure: the checkout lifecycle keeps the returned
+ * `state` and performs `action`; every branch that needs a
  * user-visible delay (the one list refetch, a pending directory) is explicit
  * here, so the rules are unit-tested without a renderer.
  *
@@ -166,11 +174,11 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
     state.pending = null
     state.refetched = null
     state.force = input.followSession
+    state.releasedRevision = null
   }
   if (!input.followSession) return none
   const directory = input.sessionDirectory
   if (directory === null) return none
-  if (!input.repoListReady) return none
   const first = state.cwd === null
   const changed = state.cwd !== directory
   if (!changed && state.pending !== directory) return none
@@ -179,6 +187,17 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
     state.pending = directory
     state.refetched = null
     state.manual = null
+    state.releasedRevision = !first && input.hasRepoPick ? input.pickRevision : null
+  }
+  // A pick the move released is not new intent; a later one is, even when it
+  // names the same selector (the user re-picked after the repair dropped it).
+  const freshPick = input.hasRepoPick && (state.releasedRevision === null || input.pickRevision > state.releasedRevision)
+  // Directory and manual-pick bookkeeping stays live during discovery. Only
+  // row evidence/actions wait, so a later scan cannot replay an older move
+  // over a pick made after the most recent directory change.
+  if (!input.repoListReady) {
+    if (!state.force && freshPick && (first || !changed)) state.manual = input.repo
+    return none
   }
   const target = checkoutForDirectory(directory, input.repos)
   const exact = target !== undefined && atCheckoutRoot(directory, target)
@@ -186,7 +205,7 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
   // refetch in flight must not switch it away) and every later run on the same
   // directory. `manual` is what carries it: the pick keeps priority even after
   // the first run, and a host refusal releases it by clearing the selection.
-  const manualWins = !state.force && input.hasRepoPick &&
+  const manualWins = !state.force && freshPick &&
     (first || !changed || state.manual === input.repo) &&
     (input.repoProbeFailed || input.repos.some((entry) => entry.path === input.repo && entry.disabled === undefined)) &&
     (target === undefined || target.path !== input.repo)

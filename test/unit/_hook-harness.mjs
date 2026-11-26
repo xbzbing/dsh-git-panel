@@ -66,6 +66,23 @@ export function mount(hook, options = {}) {
     useCallback(fn, deps) {
       return dispatcher.useMemo(() => fn, deps)
     },
+    useSyncExternalStore(subscribe, getSnapshot) {
+      const [, changed] = dispatcher.useState(0)
+      const baseline = getSnapshot()
+      dispatcher.useEffect(() => {
+        let current = baseline
+        const check = () => {
+          const next = getSnapshot()
+          if (Object.is(current, next)) return
+          current = next
+          changed((n) => n + 1)
+        }
+        const stop = subscribe(check)
+        check()
+        return stop
+      }, [subscribe, getSnapshot])
+      return baseline
+    },
     useEffect(effect, deps) {
       const i = index++
       const prev = slots[i]

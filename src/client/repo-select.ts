@@ -35,6 +35,22 @@ const rootPicks = new Set<string>()
  * next lookup reading the record back. */
 const loaded = new Set<string>()
 
+/** How many deliberate picks each session has recorded. A value alone cannot
+ * tell two picks of the same selector apart, so the follow logic compares this
+ * number instead: a pick made after a directory move is new intent even when it
+ * names the row the move released. Follows and repairs never advance it.
+ *
+ * The count is per session, not per module: the follow state that remembers
+ * "the revision this move released" is per session too, and the selection
+ * listeners are one broadcast. A module-wide count would let another session's
+ * click look like new intent here and take this session's follow away. */
+const pickRevisions = new Map<string, number>()
+
+/** The revision of the session's latest deliberate pick. */
+export function repoPickRevision(sessionId: string): number {
+  return pickRevisions.get(sessionId) ?? 0
+}
+
 /** Sessions whose file-root pick came back from a record made under a follow
  * config no sample of this module has confirmed yet (see syncFilesFollowConfig). */
 const unconfirmedFollow = new Map<string, boolean>()
@@ -114,10 +130,13 @@ export function hasRepoPick(sessionId: string): boolean {
  * workspace root (the reset of the selection itself, but not of the intent).
  * `persist: false` keeps the pick in memory only: an automatic pick (the panel
  * choosing a session's first sub-repository) is not the user's intent, and
- * writing it would pin every later load to a choice nobody made. */
-export function selectRepo(sessionId: string, repo: string, options: { readonly persist?: boolean } = {}): void {
+ * writing it would pin every later load to a choice nobody made.
+ * `intent: false` says the same thing to the follow logic: the pick must not
+ * release a follow the way a click does. */
+export function selectRepo(sessionId: string, repo: string, options: { readonly persist?: boolean; readonly intent?: boolean } = {}): void {
   hydrate(sessionId)
   autoSelections.delete(sessionId)
+  if (options.intent !== false) pickRevisions.set(sessionId, repoPickRevision(sessionId) + 1)
   if (repo === '') {
     selections.delete(sessionId)
     rootPicks.add(sessionId)

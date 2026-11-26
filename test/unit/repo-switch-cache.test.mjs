@@ -141,7 +141,7 @@ test('freshness is measured on this client clock, not the host checkedAt', async
 
   const fresh = h.controller.setRepo('')
   assert.equal(rootOf(h.controller), '/ws', 'a sample received just now is replayed, however early the host clock reads')
-  assert.equal(h.controller.showsRepo(''), true)
+  assert.equal(h.controller.sampledRepo(), '', 'the published view was read from the replayed checkout')
   await fresh
 })
 
@@ -156,7 +156,7 @@ test('a replayed sample does not start the sub-queries; the calibrating one does
   reply.current = deferred()
   const back = h.controller.setRepo('')
   assert.equal(rootOf(h.controller), '/ws', 'the page turns on the replayed sample')
-  assert.equal(h.controller.showsRepo(''), true)
+  assert.equal(h.controller.sampledRepo(), '', 'the replay is published for the new checkout')
   const replayed = h.controller.getQuerySignal()
   assert.equal(replayed.tick, before.tick, 'the replay does not advance the query tick')
   assert.equal(replayed.ready, false, 'queries wait for the calibrating sample')
@@ -181,7 +181,7 @@ test('a resync drops every remembered sample', async (t) => {
 
   const back = h.controller.setRepo('')
   assert.equal(rootOf(h.controller), '/ws/site', 'no replay after a resync')
-  assert.equal(h.controller.showsRepo(''), false)
+  assert.equal(h.controller.sampledRepo(), 'site', 'the published view still belongs to the checkout being left')
   await back
   assert.equal(rootOf(h.controller), '/ws')
 })

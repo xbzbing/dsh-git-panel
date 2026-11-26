@@ -38,6 +38,7 @@
 ## 数据流约束
 
 - pill、总览、变更记录和统计条共用同一个 controller 快照；组件不得各自发起 snapshot。
+- 每 session 只有一个共享检出生命周期，统一持有 `repo-list`、跟随状态、选择修复与 controller 对齐；pill 与多个 Panel 只提供投影 / 可见性输入并订阅，不各自扫描或执行跟随。pill 单独挂载时也能跟随，无需先打开 Panel；同一轮扫描单飞，切换会话 / 配置后的旧答复不得修复或跟随新状态。
 - 工作区文件的识别状态（`repo-list` 的 `codeWorkspace`）只提示、不生效：`off` 时 cwd 里有候选才下发 `available`，切换器与（cwd 不是仓库时的）文件浏览通知条各渲染一处，用户点一次才写 `codeWorkspace`。写的是插件级设置，写后必须重取 `repo-list`（ADR-0035）。
 - 业务摘要和刷新信号分离：`stateFingerprint` 相同也不能阻止 query tick；查询 key 使用结构化 tuple，只在请求入口序列化，不以 snapshot 对象引用或 `checkedAt` 触发 effect。
 - 查询按需、可见性门控且防竞态；旧数据保留到新数据成功，隐藏页签不启动自动查询或后续分页。
