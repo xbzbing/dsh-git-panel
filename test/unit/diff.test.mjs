@@ -119,6 +119,107 @@ test('flattenToUnified passes context/add/del/hunk/gap rows through', () => {
   assert.ok(uni.some((r) => r.kind === 'add' && r.rightText === 'new31'))
 })
 
+// Issue #156: a multi-line rewrite used to alternate `-` / `+` lines because
+// each positional pair split on its own. A change block now reads as git
+// printed it — the whole old block, then the whole new block.
+test('flattenToUnified emits a change block as all deletions, then all additions', () => {
+  const src = `diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -1,6 +1,7 @@
+ keep
+-o1
+-o2
+-o3
++n1
++n2
++n3
++n4
+ mid
+-o5
++n6
+`
+  const uni = flattenToUnified(buildSideBySide(src, 7)).filter((r) => r.kind !== 'gap')
+  const shape = uni.map((r) => r.kind === 'hunk' ? '@' : r.kind === 'context' ? ` ${r.leftText}`
+    : r.kind === 'del' ? `-${r.leftText}` : `+${r.rightText}`)
+  assert.deepEqual(shape, ['@', ' keep', '-o1', '-o2', '-o3', '+n1', '+n2', '+n3', '+n4', ' mid', '-o5', '+n6'],
+    'context ends a block; inside a block every deletion precedes every addition')
+  // Line numbers stay monotonic per side across the regrouping.
+  const left = uni.filter((r) => r.leftNo !== null && r.kind !== 'context').map((r) => r.leftNo)
+  const right = uni.filter((r) => r.rightNo !== null && r.kind !== 'context').map((r) => r.rightNo)
+  assert.deepEqual(left, [2, 3, 4, 6])
+  assert.deepEqual(right, [2, 3, 4, 5, 7])
+})
+
+test('flattenToUnified keeps a deletion-heavy block in old-line order', () => {
+  const src = `diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -1,4 +1,2 @@
+-a1
+-a2
+-a3
+-a4
++b1
++b2
+`
+  const uni = flattenToUnified(buildSideBySide(src, 2))
+  const body = uni.filter((r) => r.kind === 'del' || r.kind === 'add')
+  assert.deepEqual(body.map((r) => r.leftText ?? r.rightText), ['a1', 'a2', 'a3', 'a4', 'b1', 'b2'])
+})
+
+test('intraLineDiff drops emphasis when only indentation is shared', () => {
+  // The screenshot in #156: two unrelated lines at the same depth.
+  assert.equal(intraLineDiff("    for (const [label, before, expected] of [", "    // `after` is what the chain reads; `before` only answers the amend question."), null)
+  assert.equal(intraLineDiff('\tfoo()\t', '\tbar\t'), null, 'trailing whitespace is not common ground either')
+})
+
+test('intraLineDiff drops emphasis when the changed middle swamps both lines', () => {
+  const a = "test('a pre-commit blocker skips the push without even trying it', async () => {"
+  const b = "test('the post-commit snapshot names the reason, so a reason the commit cleared is not kept', async () => {"
+  assert.equal(intraLineDiff(a, b), null, 'sharing only `test(` and the tail is not an edit')
+})
+
+test('intraLineDiff applies the 60% boundary to content, not edge whitespace', () => {
+  assert.ok(intraLineDiff('abXYZ', 'abUVW'), 'exactly 60% still highlights')
+  assert.equal(intraLineDiff('aXYZ', 'aUVW'), null, '75% on both sides is suppressed')
+  assert.ok(intraLineDiff('abXYZ  ', 'abUVW\t\t'), 'different trailing whitespace does not inflate the changed share')
+  assert.ok(intraLineDiff('  abXYZ', '  abUVW'), 'shared indentation does not inflate the content length')
+  assert.equal(intraLineDiff('    aXYZ', '    aUVW'), null)
+  assert.equal(intraLineDiff('', ''), null)
+  assert.equal(intraLineDiff(' \t', '\t '), null)
+  assert.equal(intraLineDiff('😀XYZ', '😀UVW'), null, 'one shared emoji counts as one code point, not two units')
+  const emoji = intraLineDiff('😀😀XYZ', '😀😀UVW')
+  assert.deepEqual(emoji, { left: [4, 7], right: [4, 7] }, '60% uses code points while span coordinates stay UTF-16')
+})
+
+test('flattenToUnified flushes additions at every structural boundary and EOF', () => {
+  const mod = (n) => ({ kind: 'mod', leftNo: n, rightNo: n, leftText: `old${n}`, rightText: `new${n}`, leftWord: [3, 4], rightWord: [3, 4] })
+  for (const kind of ['context', 'hunk', 'gap', 'meta']) {
+    const barrier = { kind, leftNo: null, rightNo: null, leftText: null, rightText: null }
+    const rows = [mod(1), mod(2), barrier, mod(3), mod(4)]
+    const uni = flattenToUnified(rows)
+    assert.deepEqual(uni.map((r) => r.kind), ['del', 'del', 'add', 'add', kind, 'del', 'del', 'add', 'add'])
+    assert.equal(uni[4], barrier, 'structural rows pass through unchanged')
+    assert.deepEqual(uni[0].leftWord, [3, 4])
+    assert.deepEqual(uni[3].rightWord, [3, 4])
+    assert.deepEqual(uni[8].rightWord, [3, 4], 'the final block keeps word ranges too')
+  }
+})
+
+test('intraLineDiff keeps emphasis when one side stays mostly intact', () => {
+  // A pure insertion changes most of the new line but none of the old one.
+  const r = intraLineDiff('call()', 'call(alpha, beta, gamma, delta)')
+  assert.ok(r)
+  assert.deepEqual(r.left, [5, 5])
+  assert.equal('call(alpha, beta, gamma, delta)'.slice(...r.right), 'alpha, beta, gamma, delta')
+  // A token edit in an indented line still highlights past the indentation.
+  const old = "    ['behind', snap({ behind: 2 }), 'behind'],"
+  const t = intraLineDiff(old, "    ['behind', snap({ behind: 3 }), 'behind'],")
+  assert.ok(t)
+  assert.equal(old.slice(...t.left), '2')
+})
+
 const GAPPED = `diff --git a/f.txt b/f.txt
 index 1111111..2222222 100644
 --- a/f.txt
