@@ -39,7 +39,7 @@ import { NoticeBar } from './notice.js'
 import { VersionBar } from './version-bar.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, filesRootVersion, followRepo, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, subscribeRepoSelection, syncFilesFollowConfig, withRepo } from './repo-select.js'
-import { atCheckoutRoot, checkoutForDirectory, type UseProjection } from './follow-checkout.js'
+import { planFollow, type FollowPlanState, type UseProjection } from './follow-checkout.js'
 import { PanelMenuContext } from './menu-context.js'
 import { PanelRootContext } from './panel-root.js'
 import { usePanelMenu } from './use-panel-menu.js'
@@ -120,21 +120,7 @@ const NO_PROJECTION: UseProjection = () => undefined
 
 /** Per-session bookkeeping for the follow effect (a ref, so a directory that
  * needs one extra list read is not re-requested on every render). */
-interface FollowState {
-  readonly sessionId?: string
-  /** Whether the setting was on at the last run: a flip re-arms the follow for
-   * the directory the session is already in. */
-  enabled: boolean
-  /** Whether `enabled` was read from a ready sample for this session. The first
-   * sample of a mount is not a flip: a manual pick still wins it. */
-  known: boolean
-  cwd: string | null
-  pending: string | null
-  refetched: string | null
-  /** The setting was just turned on: follow the current directory even when a
-   * manual pick would otherwise win a mount. */
-  force: boolean
-}
+type FollowState = FollowPlanState & { readonly sessionId?: string }
 
 export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useContextMenu, useProjection }: PanelProps): JSX.Element {
   const pageVisible = usePageVisibility()
@@ -565,89 +551,33 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // Follow the session into another checkout of its own repository when the
   // platform moves it: enter_worktree / exit_worktree rewrite the
   // `workingDirectory` projection, so this reacts to a live value rather than
-  // the 30 s snapshot poll. Only a selectable row of the session's own family
-  // qualifies (ADR-0041). A directory below a plausible row that no row names
-  // asks for one fresh list first — a worktree created during the session is a
-  // new checkout under the main root, and following the enclosing row would
-  // show the wrong tree. After that read the best covering row is followed (a
-  // session created in a checkout subdirectory), unless the worktree probe
-  // failed: an incomplete list is no evidence of a parent. The effect runs
+  // the 30 s snapshot poll. `planFollow` owns every rule (selectable family
+  // row, one list refetch, pending directory, manual pick priority); this
+  // effect only applies its state and its one side effect. The effect runs
   // after the repair above, so a pick the host refused cannot clobber the
   // followed one.
   const switchRepoRef = useRef(switchRepo)
   switchRepoRef.current = switchRepo
-  const followState = useRef<FollowState>({ sessionId, enabled: followSession, known: false, cwd: null, pending: null, refetched: null, force: false })
+  const followState = useRef<FollowState>({ sessionId, enabled: followSession, known: false, cwd: null, pending: null, refetched: null, force: false, manual: null })
   if (followState.current.sessionId !== sessionId) {
-    followState.current = { sessionId, enabled: followSession, known: false, cwd: null, pending: null, refetched: null, force: false }
+    followState.current = { sessionId, enabled: followSession, known: false, cwd: null, pending: null, refetched: null, force: false, manual: null }
   }
   useEffect(() => {
-    const state = followState.current
     if (sessionId === undefined) return
-    // The first ready answer only establishes the value. A later change is a
-    // real flip: turning the switch on re-arms the follow for the directory the
-    // session is already in, taking effect immediately.
-    if (!followSessionKnown) return
-    if (!state.known) {
-      state.known = true
-      state.enabled = followSession
-      state.force = false
-    } else if (state.enabled !== followSession) {
-      state.enabled = followSession
-      state.cwd = null
-      state.pending = null
-      state.refetched = null
-      state.force = followSession
-    }
-    if (!followSession) return
-    if (sessionDirectory === null) return
-    // Wait for this session's own list: the previous session's answer must
-    // not decide which checkout this one follows.
-    if (!repoListReady) return
-    const first = state.cwd === null
-    const changed = state.cwd !== sessionDirectory
-    if (!changed && state.pending !== sessionDirectory) return
-    if (changed) {
-      state.cwd = sessionDirectory
-      state.pending = sessionDirectory
-      state.refetched = null
-    }
-    const target = checkoutForDirectory(sessionDirectory, repos)
-    const exact = target !== undefined && atCheckoutRoot(sessionDirectory, target)
-    // A manual pick survives a mount: the user may have picked another checkout
-    // of the same repository to review, and a refresh must not silently move it
-    // back. Only a directory change (or turning the setting on) re-arms the
-    // follow. An automatic follow is not intent (`hasRepoPick` ignores it), and
-    // a pick the host can no longer resolve is not protected: the repair above
-    // drops it, and following the current directory is the right fallback.
-    const manualWins = first && !state.force && hasRepoPick(sessionId) &&
-      // An incomplete list (the worktree probe failed) cannot confirm the pick,
-      // but it must not turn a manual pick into an automatic follow either: the
-      // record is kept for the next complete list, and the snapshot still
-      // decides whether the pick is really gone.
-      (repoProbeFailed || repos.some((entry) => entry.path === repo && entry.disabled === undefined)) &&
-      (target === undefined || target.path !== repo)
-    state.force = false
-    if (manualWins) {
-      state.pending = null
-      return
-    }
-    // The covering row is only a guess for a directory the scan has not named:
-    // ask once whether a more specific checkout (the session's new worktree)
-    // exists before following the enclosing one.
-    if (!exact && state.refetched !== sessionDirectory) {
-      state.refetched = sessionDirectory
-      setRepoListEpoch((n) => n + 1)
-      return
-    }
-    if (target === undefined || (!exact && repoProbeFailed)) {
-      // Keep the directory pending: a probe that recovers, or a list refetched
-      // with the new row, re-enters this effect and can decide again.
-      state.pending = sessionDirectory
-      return
-    }
-    state.pending = null
-    if (target.path === repo) return
-    switchRepoRef.current(target.path, { persist: false, intent: false })
+    const plan = planFollow({
+      sessionDirectory,
+      repos,
+      repo,
+      followSession,
+      followSessionKnown,
+      hasRepoPick: hasRepoPick(sessionId),
+      repoListReady,
+      repoProbeFailed,
+      state: followState.current,
+    })
+    Object.assign(followState.current, plan.state)
+    if (plan.action.kind === 'refetch') setRepoListEpoch((n) => n + 1)
+    else if (plan.action.kind === 'follow') switchRepoRef.current(plan.action.path, { persist: false, intent: false })
     // `switchRepo` is read through the ref: it closes over the current view
     // and selection, and this effect must not re-run on every poll for them.
   }, [sessionDirectory, repos, repo, sessionId, followSession, followSessionKnown, repoListReady, repoProbeFailed])
@@ -673,8 +603,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   useEffect(() => {
     if (!hasSession(sessionId) || repo === '' || repoRejected === 'keep') return
     // The published view can still belong to the previous pick while a switch is
-    // in flight; only the sample of the selected repository may reject it.
-    if (controllerFor(sessionId).getRepo() !== repo) return
+    // in flight, and an automatic follow may already have replaced a refused
+    // pick: only the sample read for the selected repository may reject it.
+    if (controllerFor(sessionId).sampledRepo() !== repo) return
     dropRepo(repoRejected === 'forget')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoRejected, repo, sessionId])

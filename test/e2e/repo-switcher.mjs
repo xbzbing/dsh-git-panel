@@ -122,15 +122,30 @@ async function mount(repos, action, options = {}) {
   const snapUsed = options.foldOnPick === true ? { ...polled, collapseReposOnPick: true } : polled
   const scene = options.scene || 'scene'
   const expectedTabs = options.expectedTabs ?? 3
-  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn, sessionFollowActive, expectedTabs, projectionStart, initialRepos }) => {
+  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn, sessionFollowActive, expectedTabs, projectionStart, initialRepos, followRepos, worktrees }) => {
     const React = window.React
     const origWarn = console.warn.bind(console)
     console.warn = (...args) => origWarn('[' + scene + ']', ...args)
     const { fixture, connection } = window.createGitPanelMock(snap)
     fixture.repos = initialRepos ?? listed
+    if (worktrees !== undefined) fixture.worktrees = worktrees
     // The repository list a later refetch reads: a worktree the first scan did
     // not know about (created in this session) shows up here.
     window.__gpRepos = (rows) => { fixture.repos = rows }
+    // Park the next repository-list read so a scenario can act while the
+    // follow effect waits for its one refetch.
+    const repoListGate = { armed: false, wait: null, release: null }
+    window.__gpHoldRepoList = () => {
+      repoListGate.armed = true
+      repoListGate.wait = new Promise((resolve) => { repoListGate.release = resolve })
+    }
+    window.__gpReleaseRepoList = () => {
+      const release = repoListGate.release
+      repoListGate.armed = false
+      repoListGate.release = null
+      repoListGate.wait = null
+      if (release !== null) release()
+    }
     // The platform's `workingDirectory` projection, as the slot hands it to the
     // panel: a live value `enter_worktree` / `exit_worktree` rewrite in place.
     // The page drives it; the hook re-renders the panel like the real slot does.
@@ -201,6 +216,11 @@ async function mount(repos, action, options = {}) {
         const fails = snapshotFails === true ? tag === '' : tag !== ''
         if (fails) return { ok: true, value: { ok: false, error: { code: snapshotFails === true ? 'not-a-git-repo' : snapshotFails, cwd: '/mock/workspace' } } }
         return { ok: true, value: { ok: true, value: { ...snap, root: tag === '' ? snap.root : 'fixture-repo/' + tag } } }
+      }
+      if (repoListGate.armed && endpoint === 'dbGitPanel/query' && request && request.query && request.query.kind === 'repo-list') {
+        const wait = repoListGate.wait
+        repoListGate.armed = false
+        await wait
       }
       return mockCall(channel, endpoint, payload)
     }
@@ -574,6 +594,78 @@ async function mount(repos, action, options = {}) {
         stored: stored(),
         tags: calls.slice(mark).filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo ?? ''),
       }
+      return { observed, calls }
+    }
+    if (action === 'follow-pending-pick') {
+      if (activeTabLabel() !== 'tab.overview') {
+        clickTab('tab.overview')
+        await wait(300)
+      }
+      await expandRepos()
+      const rowStates = () => listRows().map((row) => (row.active ? '*' : '') + row.name)
+      const stored = () => sessionStorage.getItem('dbGitPanel.picks')
+      const tags = (from) => calls.slice(from).filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo ?? '')
+      const until = async (predicate, ms = 3000) => {
+        const started = Date.now()
+        while (!predicate() && Date.now() - started < ms) await wait(40)
+        return predicate()
+      }
+      observed.pendingPickBefore = { rows: rowStates(), stored: stored() }
+      const mark = calls.length
+      window.__gpHoldRepoList()
+      window.__gpProjection('fixture-repo/.agents/worktrees/feat/sidebar')
+      await until(() => calls.slice(mark).filter((call) => call.kind === 'repo-list').length > 0)
+      // The follow's one refetch is parked; pick another checkout now. The
+      // pending decision must not switch the pick away when the list lands.
+      pickRow('.gp-repolist__item', 'site')
+      await wait(500)
+      observed.pendingPickDuring = { rows: rowStates(), stored: stored(), tags: tags(mark) }
+      window.__gpRepos(followRepos)
+      window.__gpReleaseRepoList()
+      await wait(800)
+      observed.pendingPickAfter = { rows: rowStates(), stored: stored(), tags: tags(mark) }
+      return { observed, calls }
+    }
+    if (action === 'follow-failed-probe' || action === 'follow-rejected-pick') {
+      if (activeTabLabel() !== 'tab.overview') {
+        clickTab('tab.overview')
+        await wait(300)
+      }
+      await expandRepos()
+      const rowStates = () => listRows().map((row) => (row.active ? '*' : '') + row.name)
+      const stored = () => sessionStorage.getItem('dbGitPanel.picks')
+      const tags = (from) => calls.slice(from).filter((call) => call.endpoint === 'dbGitPanel/snapshot').map((call) => call.repo ?? '')
+      const until = async (predicate, ms = 4000) => {
+        const started = Date.now()
+        while (!predicate() && Date.now() - started < ms) await wait(40)
+        return predicate()
+      }
+      if (action === 'follow-failed-probe') {
+        // The list cannot see the linked worktree (the probe failed). The stored
+        // manual pick stays, nothing follows the enclosing row, and no record
+        // is rewritten.
+        await until(() => tags(0).includes('.agents/worktrees/feat/sidebar'))
+        await wait(600)
+        observed.failedProbe = { rows: rowStates(), stored: stored(), tags: tags(0), head: headInfo() }
+        // A real directory change still re-arms the follow.
+        const mark = calls.length
+        window.__gpProjection('fixture-repo')
+        await until(() => listRows().some((row) => row.name === 'fixture-repo' && row.active))
+        await until(() => !switchingNow())
+        await wait(200)
+        observed.failedProbeMove = { rows: rowStates(), stored: stored(), tags: tags(mark) }
+        return { observed, calls }
+      }
+      // The stored pick is refused without proof (unverified): the repair drops
+      // the selection and the same mount follows the session directory again.
+      await until(() => listRows().some((row) => row.name === 'site' && row.active))
+      observed.rejectedBefore = { rows: rowStates(), stored: stored() }
+      const mark = calls.length
+      fixture.snapshotError = { code: 'invalid-repo', cwd: '/mock', unverified: true }
+      await until(() => listRows().some((row) => row.name === 'sidebar' && row.active))
+      await until(() => !switchingNow())
+      await wait(200)
+      observed.rejectedAfter = { rows: rowStates(), stored: stored(), tags: tags(mark) }
       return { observed, calls }
     }
     if (action === 'switch' && observed.tabs.includes('tab.overview') && activeTabLabel() !== 'tab.overview') {
@@ -1189,7 +1281,7 @@ async function mount(repos, action, options = {}) {
       observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
     }
     return { observed, calls }
-  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip', sessionFollowActive: options.sessionFollow === 'flip', expectedTabs, projectionStart: options.projectionStart, initialRepos: options.initialRepos })
+  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip', sessionFollowActive: options.sessionFollow === 'flip', expectedTabs, projectionStart: options.projectionStart, initialRepos: options.initialRepos, followRepos: options.followRepos, worktrees: options.worktrees })
   // A row's hover tip needs a real pointer, so the probe runs after the page
   // script finished and before the page goes away; failures stay out of the
   // scene's own try/catch.
@@ -1944,6 +2036,90 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('follow-manual-mount observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 23. The session enters a worktree the scan does not know yet: the follow asks
+// for one fresh list, and a manual pick made while that read is in flight must
+// survive the list that lands afterwards (the pending window).
+{
+  const { out, errors } = await mount(MIXED_FAMILY, 'follow-pending-pick', {
+    projectionStart: 'fixture-repo',
+    initialRepos: [WT_WORKSPACE, NESTED_REPO],
+    followRepos: MIXED_FAMILY,
+    scene: 'S23',
+  })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.deepEqual(seen.pendingPickBefore.rows, ['*fixture-repo', 'site'], 'the first scan knows only the checkouts that existed')
+    assert.equal(seen.pendingPickBefore.stored, null, 'nothing was picked yet')
+    assert.deepEqual(seen.pendingPickDuring.rows, ['fixture-repo', '*site'], 'a pick made while the follow refetch is in flight lands')
+    assert.match(String(seen.pendingPickDuring.stored), /"repo":"site"/, 'and is recorded: ' + String(seen.pendingPickDuring.stored))
+    assert.ok(seen.pendingPickDuring.tags.includes('site'), 'the picked checkout is sampled: ' + JSON.stringify(seen.pendingPickDuring.tags))
+    assert.deepEqual(seen.pendingPickAfter.rows, ['fixture-repo', 'sidebar', 'spike', 'gone', '*site', 'web (apps/web)'], 'the refetched list does not switch the pick away')
+    assert.ok(!seen.pendingPickAfter.tags.includes('.agents/worktrees/feat/sidebar'), 'the follow never samples the worktree: ' + JSON.stringify(seen.pendingPickAfter.tags))
+    assert.match(String(seen.pendingPickAfter.stored), /"repo":"site"/, 'the record is untouched')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('follow-pending-pick observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 24. A stored pick of a linked worktree the list cannot see (the worktree
+// probe failed) is kept: the incomplete list neither prunes it nor follows the
+// enclosing row, the record is untouched, and a real directory change still
+// re-arms the follow (ADR-0038 / ADR-0041).
+{
+  const { out, errors } = await mount([WT_WORKSPACE, NESTED_REPO], 'follow-failed-probe', {
+    projectionStart: WT_LINKED.root,
+    storedPicks: { repo: WT_LINKED.path },
+    worktrees: 'failed',
+    scene: 'S24',
+  })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.deepEqual(seen.failedProbe.rows, ['fixture-repo', 'site'], 'the incomplete list has no worktree row')
+    assert.ok(seen.failedProbe.tags.length > 0, 'the stored pick was sampled: ' + JSON.stringify(seen.failedProbe))
+    assert.ok(seen.failedProbe.tags.every((tag) => tag === WT_LINKED.path), 'the panel stays on the stored pick instead of the enclosing row: ' + JSON.stringify(seen.failedProbe.tags))
+    assert.match(String(seen.failedProbe.stored), /"repo":"\.agents\/worktrees\/feat\/sidebar"/, 'the record is not rewritten: ' + String(seen.failedProbe.stored))
+    assert.deepEqual(seen.failedProbeMove.rows, ['*fixture-repo', 'site'], 'a real directory change re-arms the follow')
+    assert.ok(seen.failedProbeMove.tags.length > 0 && seen.failedProbeMove.tags.every((tag) => tag === ''), 'and samples the workspace checkout: ' + JSON.stringify(seen.failedProbeMove.tags))
+    assert.match(String(seen.failedProbeMove.stored), /"repo":"\.agents\/worktrees\/feat\/sidebar"/, 'the move does not rewrite the stored pick')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('follow-failed-probe observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 25. A stored manual pick refused without proof (invalid-repo unverified) is
+// dropped, and the same mount follows the session directory again: the pending
+// directory is the fallback target, not a permanent stop (ADR-0041 decision 3).
+{
+  const { out, errors } = await mount(MIXED_FAMILY, 'follow-rejected-pick', {
+    projectionStart: WT_LINKED.root,
+    storedPicks: { repo: NESTED_REPO.path },
+    pollMs: 400,
+    scene: 'S25',
+  })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.deepEqual(seen.rejectedBefore.rows, ['fixture-repo', 'sidebar', 'spike', 'gone', '*site', 'web (apps/web)'], 'the stored manual pick holds the panel')
+    assert.deepEqual(seen.rejectedAfter.rows, ['fixture-repo', '*sidebar', 'spike', 'gone', 'site', 'web (apps/web)'], 'a refused pick releases the follow for the session directory')
+    // The drop itself samples the default checkout first (that is the repair),
+    // then the same mount follows the session directory — the last sample is
+    // the worktree and nothing walks back to the default afterwards.
+    assert.equal(seen.rejectedAfter.tags.at(-1), WT_LINKED.path, 'the worktree is sampled after the refusal: ' + JSON.stringify(seen.rejectedAfter.tags))
+    assert.ok(seen.rejectedAfter.tags.includes(WT_LINKED.path), 'the refused pick releases the follow: ' + JSON.stringify(seen.rejectedAfter.tags))
+    assert.match(String(seen.rejectedAfter.stored), /"repo":"site"/, 'an unverified refusal keeps the record: ' + String(seen.rejectedAfter.stored))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('follow-rejected-pick observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }

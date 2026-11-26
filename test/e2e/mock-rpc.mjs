@@ -256,6 +256,9 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             // (ADR-0035): the switcher renders it as a hint row.
             const value = { kind: 'repo-list', cwd: '/mock', repos: fixture.repos ?? [] }
             if (fixture.repoWorkspace !== undefined) value.codeWorkspace = fixture.repoWorkspace
+            // ADR-0041 / ADR-0038: a probe that failed means the list is
+            // incomplete, which forbids pruning records or following a parent.
+            if (fixture.worktrees !== undefined) value.worktrees = fixture.worktrees
             return { ok: true, value: { ok: true, value } }
           }
         }

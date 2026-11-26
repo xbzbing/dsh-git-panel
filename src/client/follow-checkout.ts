@@ -91,3 +91,128 @@ export function checkoutForDirectory(
 export function atCheckoutRoot(directory: string | null | undefined, row: GitRepoEntry): boolean {
   return typeof directory === 'string' && directory !== '' && samePath(normalize(directory), normalize(row.root))
 }
+
+/** The follow effect's mutable bookkeeping, one record per mounted panel. */
+export interface FollowPlanState {
+  /** Whether the setting was on at the last run. */
+  enabled: boolean
+  /** Whether `enabled` was read from a ready sample for this session. */
+  known: boolean
+  /** The directory the last run observed. */
+  cwd: string | null
+  /** The directory whose follow decision is still waiting for an answer. */
+  pending: string | null
+  /** The directory that already asked for one fresh repository list. */
+  refetched: string | null
+  /** The setting was just turned on: follow even past a manual pick. */
+  force: boolean
+  /** The selection the last run protected as the user's own pick. It keeps the
+   * priority independent of `first` / `pending`, so a pick the host later
+   * refuses can release the follow in the same mount. */
+  manual: string | null
+}
+
+/** What the panel should do after one follow-effect run. */
+export type FollowAction =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'refetch' }
+  | { readonly kind: 'follow'; readonly path: string }
+
+/** Everything one follow-effect run reads. */
+export interface FollowPlanInput {
+  readonly sessionDirectory: string | null
+  readonly repos: readonly GitRepoEntry[]
+  readonly repo: string
+  readonly followSession: boolean
+  readonly followSessionKnown: boolean
+  readonly hasRepoPick: boolean
+  readonly repoListReady: boolean
+  readonly repoProbeFailed: boolean
+  readonly state: FollowPlanState
+}
+
+/** The next state and the one side effect the effect should perform. */
+export interface FollowPlan {
+  readonly state: FollowPlanState
+  readonly action: FollowAction
+}
+
+/**
+ * Decide what the follow effect does for one render. Pure: the panel copies
+ * `state` back into its ref and performs `action`; every branch that needs a
+ * user-visible delay (the one list refetch, a pending directory) is explicit
+ * here, so the rules are unit-tested without a renderer.
+ *
+ * A manual pick wins while the panel is on the same directory: on the first
+ * run of a mount, while a refetch or a failed probe is pending, and on every
+ * later run the directory does not change (`state.manual` records it). The
+ * directory stays pending behind that pick: when the host refuses it, the repair
+ * clears the selection and the next run follows the directory again. A real
+ * directory change (or turning the setting on) re-arms the follow and lets the
+ * manual pick go — that is the documented trade-off, not an accident.
+ */
+export function planFollow(input: FollowPlanInput): FollowPlan {
+  const state: FollowPlanState = { ...input.state }
+  const none: FollowPlan = { state, action: { kind: 'none' } }
+  if (!input.followSessionKnown) return none
+  if (!state.known) {
+    // The first ready sample establishes the value; it is not a flip.
+    state.known = true
+    state.enabled = input.followSession
+    state.force = false
+  } else if (state.enabled !== input.followSession) {
+    state.enabled = input.followSession
+    state.cwd = null
+    state.pending = null
+    state.refetched = null
+    state.force = input.followSession
+  }
+  if (!input.followSession) return none
+  const directory = input.sessionDirectory
+  if (directory === null) return none
+  if (!input.repoListReady) return none
+  const first = state.cwd === null
+  const changed = state.cwd !== directory
+  if (!changed && state.pending !== directory) return none
+  if (changed) {
+    state.cwd = directory
+    state.pending = directory
+    state.refetched = null
+    state.manual = null
+  }
+  const target = checkoutForDirectory(directory, input.repos)
+  const exact = target !== undefined && atCheckoutRoot(directory, target)
+  // A manual pick survives the first run of a mount, the pending window (a
+  // refetch in flight must not switch it away) and every later run on the same
+  // directory. `manual` is what carries it: the pick keeps priority even after
+  // the first run, and a host refusal releases it by clearing the selection.
+  const manualWins = !state.force && input.hasRepoPick &&
+    (first || !changed || state.manual === input.repo) &&
+    (input.repoProbeFailed || input.repos.some((entry) => entry.path === input.repo && entry.disabled === undefined)) &&
+    (target === undefined || target.path !== input.repo)
+  state.force = false
+  if (manualWins) {
+    state.manual = input.repo
+    // Keep the directory pending: it is the fallback target once the host
+    // refuses the pick and the selection returns to the default.
+    state.pending = directory
+    return none
+  }
+  state.manual = null
+  // The covering row is only a guess for a directory the scan has not named:
+  // ask once whether a more specific checkout (the session's new worktree)
+  // exists before following the enclosing one.
+  if (!exact && state.refetched !== directory) {
+    state.refetched = directory
+    return { state, action: { kind: 'refetch' } }
+  }
+  if (target === undefined || (!exact && input.repoProbeFailed)) {
+    // Keep the directory pending: a probe that recovers, or a list refetched
+    // with the new row, re-enters this effect and can decide again.
+    state.pending = directory
+    return none
+  }
+  state.pending = null
+  if (target.path === input.repo) return none
+  return { state, action: { kind: 'follow', path: target.path } }
+}

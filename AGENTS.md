@@ -17,7 +17,7 @@
 
 - `src/host/types.ts` 是 wire 类型和范围常量的唯一来源，client 直接复用；不要维护第二份模型。
 - `src/host/index.ts` 只负责服务接线和端点委托；文件系统依赖统一来自 `src/host/fs-deps.ts`。
-- Git 会话的默认根是会话创建时的 `header.cwd`；`followSessionCheckout`（默认开启）只按平台的 `workingDirectory` 投影跟随本仓库自己的检出（主工作树 / 已认证的 linked worktree，进入和退出都跟），自动选择只改内存、不写标签页记录。无关的子仓库、`.code-workspace` 认证的外部根和任意的 `working_directory` 改动仍通过仓库选择器手动切换；外部根只在选中后生效，不改变「一个请求一个根」的模型。见 ADR-0041。
+- Git 会话的默认根是会话创建时的 `header.cwd`；`followSessionCheckout`（默认开启）只按平台的 `workingDirectory` 投影跟随本仓库自己的检出（主工作树 / 已认证的 linked worktree，进入和退出都跟），自动选择只改内存、不写标签页记录，手动选择优先（挂载、重取窗口和探测失败时都不抢走）；列表不完整（worktree 探测失败）时不修剪记录，也不跟随父行。无关的子仓库、`.code-workspace` 认证的外部根和任意的 `working_directory` 改动仍通过仓库选择器手动切换；外部根只在选中后生效，不改变「一个请求一个根」的模型。见 ADR-0041。
 - host 的 Git 命令经 `git.ts` 调宿主 subprocess；client 的 RPC 统一经 `rpc.ts`，页面数据统一由每 session 一个 `GitController` 提供。
 - 新增纯逻辑放 `src/client/` 的纯函数模块并配单测，不塞进 React 组件；样式规则放对应 `css/` 模块。
 - `CSS_PARTS` 的顺序是层叠契约，不重排。跨布局覆盖放 `layout.ts`，stacked 覆盖放 `stacked.ts`。

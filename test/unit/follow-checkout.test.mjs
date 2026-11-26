@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkoutForDirectory, atCheckoutRoot } from '../../lib/testkit.mjs'
+import { checkoutForDirectory, atCheckoutRoot, planFollow } from '../../lib/testkit.mjs'
 
 /** A repository list row; only the fields the lookup reads. */
 function row(path, root, extra = {}) {
@@ -104,4 +104,162 @@ test('atCheckoutRoot separates the exact root from a subdirectory', () => {
   const windows = { path: 'C:\\Repo', root: 'C:\\Repo', name: 'repo', kind: 'workspace', role: 'main' }
   assert.equal(atCheckoutRoot('c:/repo', windows), true, 'Windows paths compare case-insensitively')
   assert.equal(atCheckoutRoot(null, row), false)
+})
+
+const SITE = row('site', '/repo/site', { role: 'repo' })
+
+const FOLLOW_READY = { enabled: true, known: true, cwd: null, pending: null, refetched: null, force: false, manual: null }
+
+function plan(overrides = {}) {
+  return planFollow({
+    sessionDirectory: LINKED.root,
+    repos: [MAIN, LINKED, SITE],
+    repo: '',
+    followSession: true,
+    followSessionKnown: true,
+    hasRepoPick: false,
+    repoListReady: true,
+    repoProbeFailed: false,
+    state: { ...FOLLOW_READY },
+    ...overrides,
+  })
+}
+
+test('planFollow follows an exact checkout on the first run', () => {
+  const decision = plan()
+  assert.deepEqual(decision.action, { kind: 'follow', path: LINKED.path })
+  assert.equal(decision.state.cwd, LINKED.root)
+  assert.equal(decision.state.pending, null)
+})
+
+test('planFollow keeps a manual pick on the first run of a mount', () => {
+  const decision = plan({ repo: SITE.path, hasRepoPick: true })
+  assert.deepEqual(decision.action, { kind: 'none' })
+  assert.equal(decision.state.manual, SITE.path, 'the pick is recorded as the protected selection')
+  assert.equal(decision.state.pending, LINKED.root, 'the directory stays pending as the fallback target')
+})
+
+test('planFollow keeps the manual pick on later runs of the same directory', () => {
+  // Without the explicit record the second run would fall through to the
+  // follow: `first` is false and the pending window alone is not a promise.
+  const state = { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root, manual: SITE.path }
+  const decision = plan({ repos: [MAIN, LINKED, SITE], repo: SITE.path, hasRepoPick: true, state })
+  assert.deepEqual(decision.action, { kind: 'none' })
+  assert.equal(decision.state.manual, SITE.path)
+})
+
+test('planFollow re-arms the follow when the host refuses the manual pick', () => {
+  // The repair cleared the selection (repo is back to '', nothing is recorded
+  // as picked). The pending directory is what lets the same mount follow it.
+  const state = { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root, manual: SITE.path }
+  const decision = plan({ repos: [MAIN, LINKED, SITE], repo: '', hasRepoPick: false, state })
+  assert.deepEqual(decision.action, { kind: 'follow', path: LINKED.path })
+  assert.equal(decision.state.manual, null, 'the released pick is no longer protected')
+  assert.equal(decision.state.pending, null)
+})
+
+test('planFollow clears the protected pick when the directory changes', () => {
+  const state = { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root, manual: SITE.path }
+  const decision = plan({
+    sessionDirectory: MAIN.root,
+    repos: [MAIN, LINKED, SITE],
+    repo: SITE.path,
+    hasRepoPick: true,
+    state,
+  })
+  assert.deepEqual(decision.action, { kind: 'follow', path: MAIN.path })
+  assert.equal(decision.state.manual, null)
+})
+
+test('planFollow lets a directory change re-arm the follow past a manual pick', () => {
+  const decision = plan({
+    sessionDirectory: MAIN.root,
+    repo: SITE.path,
+    hasRepoPick: true,
+    state: { ...FOLLOW_READY, cwd: LINKED.root, pending: null },
+  })
+  assert.deepEqual(decision.action, { kind: 'follow', path: MAIN.path })
+  assert.equal(decision.state.cwd, MAIN.root)
+})
+
+test('planFollow keeps a manual pick made while the list refetch is pending', () => {
+  // The session entered a directory no row names yet; the one refetch is in
+  // flight when the user picks another checkout. The pick must survive the
+  // list that lands afterwards.
+  const decision = plan({
+    repos: [MAIN, SITE],
+    repo: SITE.path,
+    hasRepoPick: true,
+    state: { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root, refetched: LINKED.root },
+  })
+  assert.deepEqual(decision.action, { kind: 'none' })
+  assert.equal(decision.state.manual, SITE.path)
+  assert.equal(decision.state.pending, LINKED.root, 'the directory stays pending behind the pick')
+})
+
+test('planFollow keeps a manual pick when the worktree probe failed', () => {
+  const decision = plan({
+    repos: [MAIN],
+    repo: SITE.path,
+    hasRepoPick: true,
+    repoProbeFailed: true,
+    state: { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root },
+  })
+  assert.deepEqual(decision.action, { kind: 'none' })
+  assert.equal(decision.state.manual, SITE.path)
+  assert.equal(decision.state.pending, LINKED.root, 'an incomplete list keeps the directory pending, not decided')
+})
+
+test('planFollow refetches once for a directory no row names', () => {
+  const state = { ...FOLLOW_READY }
+  const first = plan({ repos: [MAIN], state })
+  assert.deepEqual(first.action, { kind: 'refetch' })
+  assert.equal(first.state.refetched, LINKED.root)
+  const second = plan({ repos: [MAIN], state: first.state })
+  assert.deepEqual(second.action, { kind: 'none' })
+})
+
+test('planFollow waits out a failed probe and follows once the row arrives', () => {
+  const state = { ...FOLLOW_READY, cwd: LINKED.root, pending: LINKED.root, refetched: LINKED.root }
+  const failed = plan({ repos: [MAIN], repoProbeFailed: true, state })
+  assert.deepEqual(failed.action, { kind: 'none' })
+  assert.equal(failed.state.pending, LINKED.root)
+  const recovered = plan({ repos: [MAIN, LINKED], repoProbeFailed: false, state: failed.state })
+  assert.deepEqual(recovered.action, { kind: 'follow', path: LINKED.path })
+  assert.equal(recovered.state.pending, null)
+})
+
+test('planFollow treats the first ready sample as an observation, not a flip', () => {
+  const decision = plan({
+    followSessionKnown: false,
+    state: { ...FOLLOW_READY, known: false },
+  })
+  assert.deepEqual(decision.action, { kind: 'none' })
+  assert.equal(decision.state.known, false)
+  const observed = plan({ state: { ...FOLLOW_READY, known: false } })
+  assert.deepEqual(observed.action, { kind: 'follow', path: LINKED.path })
+  assert.equal(observed.state.known, true)
+  assert.equal(observed.state.force, false)
+})
+
+test('planFollow follows past a manual pick when the setting is turned on', () => {
+  const decision = plan({
+    repo: SITE.path,
+    hasRepoPick: true,
+    state: { ...FOLLOW_READY, enabled: false, force: true },
+  })
+  assert.deepEqual(decision.action, { kind: 'follow', path: LINKED.path })
+  assert.equal(decision.state.force, false)
+})
+
+test('planFollow does nothing with the setting off or the list unready', () => {
+  assert.deepEqual(plan({ followSession: false }).action, { kind: 'none' })
+  assert.deepEqual(plan({ repoListReady: false }).action, { kind: 'none' })
+  assert.deepEqual(plan({ sessionDirectory: null }).action, { kind: 'none' })
+})
+
+test('planFollow does not switch to the checkout already selected', () => {
+  const decision = plan({ sessionDirectory: MAIN.root, repo: '', repos: [MAIN] })
+  assert.deepEqual(decision.action, { kind: 'none' })
+  assert.equal(decision.state.pending, null)
 })

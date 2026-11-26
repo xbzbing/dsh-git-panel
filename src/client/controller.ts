@@ -247,6 +247,13 @@ export class GitController {
     return this.view.state === 'ready' && this.viewRepo === repo
   }
 
+  /** The checkout the published view (ready or failed) was produced for. An
+   * error belongs to the sample that failed, not to the selection that replaced
+   * it: a repair must not reject a pick by an answer read for another one. */
+  sampledRepo(): string | null {
+    return this.viewRepo
+  }
+
   /** Follow another repository and re-sample. The previous snapshot now
    * describes a different work tree, but it stays published while the new
    * sample is in flight: blanking the view here collapses the panel to a
@@ -361,6 +368,7 @@ export class GitController {
   }
 
   private setView(view: Exclude<GitView, { state: 'ready' }>): void {
+    this.viewRepo = this.repo
     this.publish(view, this.unreadySignal())
   }
 
