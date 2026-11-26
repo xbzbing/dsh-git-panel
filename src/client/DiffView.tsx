@@ -637,10 +637,11 @@ function stepGutter(from: HTMLElement, side: ReviewSide, delta: 1 | -1): void {
  * same side; the cell stays a plain grid cell so the row geometry and its
  * measurement are the same with comments on or off.
  */
-function gutterCell(key: string, no: number | null, side: ReviewSide, picking: GutterPicking | null, selected: boolean): JSX.Element {
-  if (picking === null || no === null) return h('div', { key, className: 'gp-diff-no' }, no ?? '')
+function gutterCell(key: string, no: number | null, side: ReviewSide, picking: GutterPicking | null, selected: boolean, changeClass = ''): JSX.Element {
+  const className = `gp-diff-no ${changeClass}`
+  if (picking === null || no === null) return h('div', { key, className }, no ?? '')
   return h('div', {
-    key, className: `gp-diff-no gp-diff-no--pick${selected ? ' gp-diff-no--sel' : ''}`,
+    key, className: `${className} gp-diff-no--pick${selected ? ' gp-diff-no--sel' : ''}`,
     'data-side': side, 'data-line': no,
     role: 'button', tabIndex: picking.stop === gutterKey(side, no) ? 0 : -1,
     'aria-label': gutterKey(side, no), 'aria-current': selected ? 'true' : undefined,
@@ -670,8 +671,10 @@ function renderRow(
   }
   const leftSel = reviewRangeHas(picking?.range ?? null, 'L', row.leftNo)
   const rightSel = reviewRangeHas(picking?.range ?? null, 'R', row.rightNo)
-  const leftCls = `${row.kind === 'del' || row.kind === 'mod' ? 'gp-diff-row--del' : ''}${leftSel ? ' gp-diff-cell--sel' : ''}`
-  const rightCls = `${row.kind === 'add' || row.kind === 'mod' ? 'gp-diff-row--add' : ''}${rightSel ? ' gp-diff-cell--sel' : ''}`
+  const leftChange = row.kind === 'del' || row.kind === 'mod' ? 'gp-diff-row--del' : ''
+  const rightChange = row.kind === 'add' || row.kind === 'mod' ? 'gp-diff-row--add' : ''
+  const leftCls = `${leftChange}${leftSel ? ' gp-diff-cell--sel' : ''}`
+  const rightCls = `${rightChange}${rightSel ? ' gp-diff-cell--sel' : ''}`
   const leftCell = row.leftText === null
     ? h('div', { key: `l${i}`, className: `gp-diff-cell ${leftCls}` })
     : row.kind === 'mod' && row.leftWord !== undefined
@@ -683,9 +686,9 @@ function renderRow(
       ? wordCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', hl, find, i)
       : codeCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, hl, find, i)
   return [
-    gutterCell(`ln${i}`, row.leftNo, 'L', picking, leftSel),
+    gutterCell(`ln${i}`, row.leftNo, 'L', picking, leftSel, leftChange),
     leftCell,
-    gutterCell(`rn${i}`, row.rightNo, 'R', picking, rightSel),
+    gutterCell(`rn${i}`, row.rightNo, 'R', picking, rightSel, rightChange),
     rightCell,
   ]
 }
@@ -710,7 +713,8 @@ function renderUnifiedRow(
   const isAdd = row.kind === 'add'
   const oldSel = reviewRangeHas(picking?.range ?? null, 'L', row.leftNo)
   const newSel = reviewRangeHas(picking?.range ?? null, 'R', row.rightNo)
-  const rowCls = `${isAdd ? 'gp-diff-row--add' : isDel ? 'gp-diff-row--del' : ''}${oldSel || newSel ? ' gp-diff-cell--sel' : ''}`
+  const changeClass = isAdd ? 'gp-diff-row--add' : isDel ? 'gp-diff-row--del' : ''
+  const rowCls = `${changeClass}${oldSel || newSel ? ' gp-diff-cell--sel' : ''}`
   const sign = isAdd ? '+' : isDel ? '\u2212' : '\u00a0'
   const content = row.rightText ?? row.leftText ?? ''
   const wordRange = isAdd ? row.rightWord : isDel ? row.leftWord : undefined
@@ -720,8 +724,8 @@ function renderUnifiedRow(
     ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, hl, find, i)
     : codeCell(codeCls, `c${i}`, content, hl, find, i)
   return [
-    gutterCell(`ol${i}`, row.leftNo, 'L', picking, oldSel),
-    gutterCell(`nl${i}`, row.rightNo, 'R', picking, newSel),
+    gutterCell(`ol${i}`, row.leftNo, 'L', picking, oldSel, changeClass),
+    gutterCell(`nl${i}`, row.rightNo, 'R', picking, newSel, changeClass),
     h('div', { key: `sg${i}`, className: `gp-diff-uni__sign ${rowCls}` }, sign),
     code,
   ]

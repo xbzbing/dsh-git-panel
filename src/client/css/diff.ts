@@ -90,7 +90,7 @@ export const CSS = `
  * default, wider only when a side actually reaches four. */
 .gp-diff__side{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr var(--gp-gutter-w,calc(3ch + 10px)) 1fr}
 /* unified (inline) layout: old|new line-number gutters + a sign column + one
- * shared code column; add/del tint the whole code cell, not one side. */
+ * shared code column; add/del tint the gutters, sign and code together. */
 .gp-diff__unified{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) var(--gp-gutter-w,calc(3ch + 10px)) 18px 1fr}
 /* before/after single column: one line-number gutter + code */
 .gp-diff__single{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr}
@@ -130,7 +130,7 @@ export const CSS = `
 /* Diff line comments (ADR-0039): the picked range keeps its add/del tint and
  * takes a business-colored layer above it, so a picked deletion still reads as
  * a deletion. */
-.gp-diff-no--sel,.gp-diff-no--sel:hover{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}
+.gp-diff-no.gp-diff-no--sel,.gp-diff-no.gp-diff-no--sel:hover{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}
 .gp-diff-cell--sel{background-image:linear-gradient(color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent),color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent))}
 .gp-review{flex:none;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}
 .gp-review__head{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;row-gap:2px;font-size:12px}
@@ -143,6 +143,9 @@ export const CSS = `
 .gp-review__actions{display:flex;justify-content:flex-end;gap:6px}
 .gp-diff-row--add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-success-primary) 55%,transparent)}
 .gp-diff-row--del{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent)}
+/* Gutters share the row tint, not its inset edge: repeated accents would divide
+ * the old/new number columns into colored rails. */
+.gp-diff-no.gp-diff-row--add,.gp-diff-no.gp-diff-row--del{box-shadow:none}
 .gp-diff-row--hunk{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);color:var(--dsw-alias-state-business-primary);padding:3px 8px;font-size:11px;font-weight:600;border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2)}
 /* collapsed-context band with expand controls (spans both sides). A gap is
  * always immediately followed by a hunk header (or the file end), so it omits
