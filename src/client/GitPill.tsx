@@ -168,6 +168,12 @@ const COMPACT_WIDTH = 620
 export function GitPill({ ctx, sessionId, t, useContextMenu, useProjection }: PillProps): JSX.Element | null {
   const view = useGitView(sessionId)
   const pageVisible = usePageVisibility()
+  // Page-level, like this pill's own snapshot polling: the platform gives the
+  // input slot no seat visibility, and a pill whose seat is kept mounted but
+  // hidden (an inactive sidebar chat tab) is still that session's only follow
+  // surface — it must be right when the seat comes back. The cost is one
+  // `repo-list` per mounted session, not a poll; the panel adds its own seat
+  // gate on top because its per-tab queries are heavy.
   useSessionCheckouts(sessionId, pageVisible, useProjection, false)
   // The hover lines are read when the panel opens, not captured at render:
   // the conversation can turn from hero to active without the pill re-rendering.
