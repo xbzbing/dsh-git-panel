@@ -24,16 +24,28 @@ const quote = (index, side, end, snippet, body) => [
   '```diff', snippet, '```', 'Comment:', body,
 ].join('\n')
 
+/** Unified is the resting mode and has no pressed control, so the current mode
+ * is read from whichever switch is pressed. Clicking a pressed switch returns
+ * to unified; clicking another one goes straight there. */
 async function switchMode(page, name) {
-  const control = name === 'unified'
-    ? page.locator('.gp-diff__mode[aria-pressed="true"]')
-    : page.locator(`.gp-diff__mode[data-diff-mode="${name}"]`)
-  await control.click()
+  const current = await page.evaluate(() =>
+    document.querySelector('.gp-diff__mode[aria-pressed="true"]')?.getAttribute('data-diff-mode') ?? 'unified')
+  if (current !== name) {
+    const control = page.locator(name === 'unified'
+      ? `.gp-diff__mode[data-diff-mode="${current}"]`
+      : `.gp-diff__mode[data-diff-mode="${name}"]`)
+    await control.click()
+  }
   await page.waitForSelector(name === 'unified' ? '.gp-diff__unified' : name === 'split' ? '.gp-diff__side' : '.gp-diff__single')
-  if (name !== 'unified') assert.equal(await control.getAttribute('aria-pressed'), 'true', `${name} is active`)
+  if (name === 'unified') {
+    assert.equal(await page.locator('.gp-diff__mode[aria-pressed="true"]').count(), 0, 'unified is the unpressed resting mode')
+  } else {
+    assert.equal(await page.locator(`.gp-diff__mode[data-diff-mode="${name}"]`).getAttribute('aria-pressed'), 'true', `${name} is active`)
+  }
 }
 
-/** Compare actual theme colors, including the empty half of a split row. */
+/** Compare actual theme colors and the single per-line edge bar, including the
+ * empty half of a split row and the unified sign column. */
 async function gutterBackgrounds(page, mode) {
   await page.mouse.move(0, 0)
   const rows = await page.evaluate((mode) => {
@@ -41,11 +53,15 @@ async function gutterBackgrounds(page, mode) {
     return [...body.querySelectorAll('.gp-diff-cell:not(.gp-diff-row--hunk)')].map((code) => {
       const right = mode === 'unified' ? code.previousElementSibling.previousElementSibling : code.previousElementSibling
       const gutters = mode === 'unified' ? [right.previousElementSibling, right] : [right]
+      const sign = mode === 'unified' ? code.previousElementSibling : null
+      const style = getComputedStyle(code)
       return {
         text: code.textContent,
         kind: code.classList.contains('gp-diff-row--del') ? 'del' : code.classList.contains('gp-diff-row--add') ? 'add' : 'context',
-        code: getComputedStyle(code).backgroundColor,
-        gutters: gutters.map((g) => ({ text: g.textContent, background: getComputedStyle(g).backgroundColor })),
+        code: style.backgroundColor,
+        bar: style.boxShadow,
+        gutters: gutters.map((g) => ({ text: g.textContent, background: getComputedStyle(g).backgroundColor, bar: getComputedStyle(g).boxShadow })),
+        sign: sign === null ? null : { text: sign.textContent, background: getComputedStyle(sign).backgroundColor, bar: getComputedStyle(sign).boxShadow },
       }
     })
   }, mode)
@@ -57,11 +73,25 @@ async function gutterBackgrounds(page, mode) {
   for (const row of rows) {
     if (row.kind === 'context') {
       assert.equal(row.code, neutralCode, `${mode}: context code stays neutral`)
-      assert.ok(row.gutters.every((g) => g.background === neutralGutter), `${mode}: context and empty opposite gutters stay neutral`)
+      assert.equal(row.bar, 'none', `${mode}: context code carries no edge bar`)
+      assert.ok(row.gutters.every((g) => g.background === neutralGutter && g.bar === 'none'), `${mode}: context and empty opposite gutters stay neutral without an edge bar`)
+      if (row.sign !== null) {
+        assert.equal(row.sign.background, neutralCode, 'unified: context sign stays neutral')
+        assert.equal(row.sign.bar, 'none', 'unified: context sign carries no edge bar')
+      }
     } else {
       assert.notEqual(row.code, neutralCode, `${mode}: ${row.kind} has a real background tint`)
-      assert.ok(row.gutters.every((g) => g.background === row.code), `${mode}: ${row.kind} gutter tint matches its code, including empty unified gutters`)
+      assert.notEqual(row.bar, 'none', `${mode}: ${row.kind} code cell owns the line's single edge bar`)
+      assert.ok(row.gutters.every((g) => g.background === row.code && g.bar === 'none'), `${mode}: ${row.kind} gutter tint matches its code, including empty unified gutters, without copying the edge bar`)
+      if (row.sign !== null) {
+        assert.equal(row.sign.background, row.code, `unified: ${row.kind} sign shares the row tint`)
+        assert.equal(row.sign.bar, 'none', `unified: ${row.kind} sign never repeats the code edge bar`)
+      }
     }
+  }
+  if (mode === 'unified') {
+    const glyphs = rows.filter((row) => row.kind !== 'context').map((row) => `${row.kind}${row.sign.text}`)
+    assert.deepEqual(glyphs, ['del\u2212', 'del\u2212', 'del\u2212', 'add+', 'add+', 'add+', 'add+'], 'unified signs mark every changed line')
   }
   if (mode === 'split') {
     assert.equal(rows.filter((row) => row.text === '').length, 1, 'split includes the empty old half opposite the fourth addition')
@@ -327,6 +357,7 @@ export async function run(mount) {
       assert.equal(await bare.locator('.gp-diff-no--pick').count(), 0, 'the plain-number page has no comment controls')
       for (const theme of ['light', 'dark']) {
         if (theme === 'dark') await bare.addStyleTag({ content: DARK })
+        await switchMode(bare, 'unified') // already unified: no switch is pressed, so this must be a no-op
         await gutterBackgrounds(bare, 'unified')
         await classStrings(bare)
         for (const name of ['split', 'before', 'after']) {
