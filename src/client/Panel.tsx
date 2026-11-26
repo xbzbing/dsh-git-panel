@@ -620,7 +620,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     // a pick the host can no longer resolve is not protected: the repair above
     // drops it, and following the current directory is the right fallback.
     const manualWins = first && !state.force && hasRepoPick(sessionId) &&
-      repos.some((entry) => entry.path === repo && entry.disabled === undefined) &&
+      // An incomplete list (the worktree probe failed) cannot confirm the pick,
+      // but it must not turn a manual pick into an automatic follow either: the
+      // record is kept for the next complete list, and the snapshot still
+      // decides whether the pick is really gone.
+      (repoProbeFailed || repos.some((entry) => entry.path === repo && entry.disabled === undefined)) &&
       (target === undefined || target.path !== repo)
     state.force = false
     if (manualWins) {
