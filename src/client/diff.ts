@@ -264,11 +264,52 @@ function pairDeletionsWithAdditions(rows: SideRow[]): SideRow[] {
 const isHighSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdbff
 const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff
 
+/** Suppress emphasis when the changed middle covers most of both trimmed
+ * lines. This is a display heuristic, not a semantic similarity test. */
+const WORD_EMPHASIS_MAX_SHARE = 0.6
+
+/** Code points in `s[start, end)`: an emoji weighs one character, as it reads.
+ * Counted in place — a minified line can be megabytes long. */
+function codePoints(s: string, start: number, end: number): number {
+  let n = 0
+  for (let k = start; k < end; k++) {
+    if (!(isLowSurrogate(s.charCodeAt(k)) && k > start && isHighSurrogate(s.charCodeAt(k - 1)))) n++
+  }
+  return n
+}
+
+/** JavaScript's `\s` (NBSP, full-width space, ...), shared by the blank-only
+ * and trimmed-share tests so both mean the same thing; a module constant keeps
+ * the allocation out of per-character loops over potentially huge lines. */
+const BLANK = /\s/
+
+/** True when `s[start, end)` holds a non-whitespace character. */
+function hasNonBlank(s: string, start: number, end: number): boolean {
+  for (let k = start; k < end; k++) if (!BLANK.test(s[k]!)) return true
+  return false
+}
+
+/** Share of `line`'s non-blank content (leading/trailing whitespace excluded)
+ * that `[start, end)` covers. */
+function changedShare(line: string, start: number, end: number): number {
+  let lo = 0
+  let hi = line.length
+  while (lo < hi && BLANK.test(line[lo]!)) lo++
+  while (hi > lo && BLANK.test(line[hi - 1]!)) hi--
+  const content = codePoints(line, lo, hi)
+  return content === 0 ? 0 : codePoints(line, Math.max(start, lo), Math.min(end, hi)) / content
+}
+
 /**
  * Word-level change ranges between an old and new line: the changed middle
- * after stripping the common prefix and suffix. Returns null when the whole
- * line differs (no shared prefix/suffix) — marking it would just repeat the
- * row background. Character-granular, O(n): enough to spotlight a token edit
+ * after stripping the common prefix and suffix. Returns null for low-signal
+ * pairs where emphasis would mostly repeat the row background:
+ * - the shared prefix and suffix are blank (indentation alone is not common
+ *   ground: two unrelated lines at the same depth share it);
+ * - the changed middle covers more than {@link WORD_EMPHASIS_MAX_SHARE} of the
+ *   content on both sides (one side staying mostly intact, as with an insertion,
+ *   still highlights).
+ * Character-granular, O(n): enough to spotlight a token edit
  * (`DateTime` → `DateTimeZone`) without a full LCS.
  */
 export function intraLineDiff(a: string, b: string): { left: [number, number]; right: [number, number] } | null {
@@ -282,9 +323,12 @@ export function intraLineDiff(a: string, b: string): { left: [number, number]; r
   // split across two spans and render as two replacement glyphs.
   if (p > 0 && isHighSurrogate(a.charCodeAt(p - 1))) p -= 1
   if (s > 0 && isLowSurrogate(a.charCodeAt(a.length - s))) s -= 1
-  // No shared prefix and no shared suffix → the whole line changed.
-  if (p === 0 && s === 0) return null
-  return { left: [p, a.length - s], right: [p, b.length - s] }
+  if (!hasNonBlank(a, 0, p) && !hasNonBlank(a, a.length - s, a.length)) return null
+  const left: [number, number] = [p, a.length - s]
+  const right: [number, number] = [p, b.length - s]
+  if (changedShare(a, left[0], left[1]) > WORD_EMPHASIS_MAX_SHARE
+    && changedShare(b, right[0], right[1]) > WORD_EMPHASIS_MAX_SHARE) return null
+  return { left, right }
 }
 
 /** Extract the added-side content (new-file view). */
@@ -309,14 +353,21 @@ export function contextRowsFromLines(delta: number, start: number, lines: readon
 export const GAP_STEP = 20
 
 /**
- * Flatten side-by-side rows into a single-column (unified / inline) sequence:
- * a `mod` row splits back into its deletion above its addition, so the unified
- * view shows `-old` immediately followed by `+new` (GitHub inline style). The
- * word-level ranges carry onto the split rows so intra-line emphasis survives.
- * `context` / `add` / `del` / `hunk` / `gap` rows pass through unchanged.
+ * Flatten side-by-side rows into a single-column (unified / inline) sequence.
+ * Each change block (a run of `mod` / `del` / `add` rows) comes out the way git
+ * printed it: every deletion of the block first, then every addition, so a
+ * multi-line rewrite reads as one old block above one new block instead of
+ * alternating `-` / `+` lines. Word-level ranges carry onto the split rows so
+ * intra-line emphasis survives. `context` / `hunk` / `gap` / `meta` rows end a
+ * block and pass through unchanged.
  */
 export function flattenToUnified(rows: readonly SideRow[]): SideRow[] {
   const out: SideRow[] = []
+  const adds: SideRow[] = []
+  const flushAdds = (): void => {
+    for (const row of adds) out.push(row)
+    adds.length = 0
+  }
   for (const row of rows) {
     if (row.kind === 'mod') {
       out.push({
@@ -324,15 +375,21 @@ export function flattenToUnified(rows: readonly SideRow[]): SideRow[] {
         leftText: row.leftText, rightText: null,
         ...(row.leftWord !== undefined ? { leftWord: row.leftWord } : {}),
       })
-      out.push({
+      adds.push({
         kind: 'add', leftNo: null, rightNo: row.rightNo,
         leftText: null, rightText: row.rightText,
         ...(row.rightWord !== undefined ? { rightWord: row.rightWord } : {}),
       })
+    } else if (row.kind === 'del') {
+      out.push(row)
+    } else if (row.kind === 'add') {
+      adds.push(row)
     } else {
+      flushAdds()
       out.push(row)
     }
   }
+  flushAdds()
   return out
 }
 

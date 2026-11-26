@@ -21,6 +21,7 @@ import assert from 'node:assert/strict'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
+import { run as runDiffBlock } from './diff-block-scenario.mjs'
 
 const E2E = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(E2E, 'harness.html')
@@ -53,7 +54,7 @@ const errors = []
 
 /** Mount the panel with an optional composer (whose draft may be unreadable)
  * and an optional review bundle, in a panel box of the given size. */
-async function mount({ composer, forge, draft = true, size = [960, 720] }) {
+async function mount({ composer, forge, draft = true, size = [960, 720], diff = null }) {
   const page = await browser.newPage({ viewport: { width: 1100, height: 800 } })
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
@@ -61,8 +62,12 @@ async function mount({ composer, forge, draft = true, size = [960, 720] }) {
   await page.addStyleTag({ content: THEME })
   await page.addScriptTag({ path: resolve(E2E, 'mock-rpc.mjs') })
   await page.addScriptTag({ path: resolve(E2E, 'client.js') })
-  await page.evaluate(async ({ snap, composer, forge, draft, size }) => {
+  await page.evaluate(async ({ snap, composer, forge, draft, size, diff }) => {
     const { connection, fixture } = window.createGitPanelMock(snap)
+    if (diff !== null) {
+      fixture.diffFullText = diff.text
+      fixture.diffFullNewLines = diff.newLines
+    }
     window.__fixture = fixture
     // The composer: a draft that grows by each accepted quote (blockquoted, as
     // the platform's clipboard projection writes it), and a switch to refuse.
@@ -115,7 +120,7 @@ async function mount({ composer, forge, draft = true, size = [960, 720] }) {
     await new Promise((r) => setTimeout(r, 700))
     document.querySelector('.gp-changes .gp-file-row')?.click()
     await new Promise((r) => setTimeout(r, 600))
-  }, { snap: SNAP, composer, forge, draft, size })
+  }, { snap: SNAP, composer, forge, draft, size, diff })
   return page
 }
 
@@ -480,6 +485,10 @@ await bare.locator('.gp-diff-no').first().click()
 assert.equal(await bare.locator('.gp-review').count(), 0, 'a plain number does nothing')
 await bare.close()
 
-await browser.close()
+try {
+  await runDiffBlock(mount)
+} finally {
+  await browser.close()
+}
 assert.deepEqual(errors, [], 'no console errors')
 console.log('diff-review: ok')
