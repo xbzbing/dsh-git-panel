@@ -20,7 +20,7 @@ import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } f
 import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
-import { filesRootRows, gitRepoForFilesRoot, listVerdict, repoChoices } from './repo-list.js'
+import { autoPickRepo, filesRootRows, gitRepoForFilesRoot, listVerdict, repoChoices } from './repo-list.js'
 import { CommitIcon, DiffIcon, FilesIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
@@ -282,16 +282,25 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // The body goes inert for the switch (the sample on screen belongs to the
   // previous checkout while every write is already tagged with the next one),
   // which drops focus to the document; hand it back to the control that held
-  // it once the body is live again.
+  // it once the body is live again. Only a control focused at the *end* of the
+  // panel's own focus counts: a target the user left long before (a click on the
+  // page background, a dialog, the composer) is forgotten, or a follow the user
+  // did not start would grab the keyboard.
   const switchFocus = useRef<HTMLElement | null>(null)
+  // Read by the blur handler, which runs after the inert commit has already
+  // dropped the focus: that blur belongs to the switch and must keep the target.
+  const switchingRef = useRef(false)
+  switchingRef.current = repoSwitching
   useLayoutEffect(() => {
     if (repoSwitching) return
     const el = switchFocus.current
     switchFocus.current = null
-    if (el === null || !el.isConnected) return
+    // A hidden panel (the sidebar copy of another session) is not a place to
+    // put the keyboard: its visible sibling restores instead.
+    if (el === null || !el.isConnected || visible === false) return
     if (document.activeElement !== null && document.activeElement !== document.body) return
     el.focus({ preventScroll: true })
-  }, [repoSwitching])
+  }, [repoSwitching, visible])
   // Every repository-scoped call of the panes and of the write path goes
   // through this face: the tabs stay unaware of the selection.
   const repoRemote = useMemo(() => withRepo(remote, repo), [remote, repo])
@@ -731,22 +740,24 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // when this session has never picked anything: the root itself has no git
   // view behind it. Only `not-a-git-repo` counts (git being missing would
   // reject every pick); one attempt per session keeps a pick the host then
-  // rejects from ping-ponging.
+  // rejects from ping-ponging. The choice reads the authoritative list, not the
+  // rows on screen: a scan in flight still shows the previous rows, and a pick
+  // made from them would land on a checkout the repair then drops — with the
+  // one attempt already spent.
   const autoPickedSession = useRef<string | null>(null)
   useEffect(() => {
-    if (!hasSession(sessionId) || !listAvailable || !filesOnly) return
+    if (!hasSession(sessionId) || !filesOnly) return
     if (view.state !== 'error' || view.error.code !== 'not-a-git-repo') return
     if (repo !== '' || hasRepoPick(sessionId)) return
-    if (autoPickedSession.current === sessionId) return
-    const target = repoList.find((choice) => choice.path !== '' && choice.disabled === undefined)
-    if (target === undefined) return
+    const target = autoPickRepo(repoList, listAuthoritative, autoPickedSession.current === sessionId)
+    if (target === null) return
     autoPickedSession.current = sessionId
     // A convenience pick, not the user's: it stays in memory, so a reload
     // re-derives it from the list instead of pinning it as intent.
-    chooseRepo(target.path, false)
+    chooseRepo(target, false)
     // chooseRepo only reads state this effect already guards on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, listAvailable, filesOnly, view, repo, repoList])
+  }, [sessionId, listAuthoritative, filesOnly, view, repo, repoList])
 
   // One shared list block: the overview's branch surface and the changes
   // column both dock it, so collapse state and the choice wiring stay in sync
@@ -1056,6 +1067,14 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     h('div', { key: 'body', className: 'gp-body',
       onFocusCapture: (event: { target: EventTarget | null }) => {
         if (event.target instanceof HTMLElement) switchFocus.current = event.target
+      },
+      // Focus leaving the panel is the user's choice, not a switch: forget the
+      // target, so a later switch only returns focus it actually took.
+      onBlur: (event: { relatedTarget: EventTarget | null; currentTarget: EventTarget }) => {
+        if (switchingRef.current) return
+        const next = event.relatedTarget
+        if (next instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(next)) return
+        switchFocus.current = null
       },
       ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) },
       h(PanelRootContext.Provider, { value: rootEl },

@@ -130,7 +130,9 @@ export interface FollowPlanInput {
   readonly followSession: boolean
   readonly followSessionKnown: boolean
   readonly hasRepoPick: boolean
-  /** The revision of the latest deliberate pick (`repoPickRevision`). */
+  /** The revision of this session's latest deliberate pick
+   * (`repoPickRevision`); per session, so another session's click is not seen
+   * as new intent here. */
   readonly pickRevision: number
   readonly repoListReady: boolean
   readonly repoProbeFailed: boolean

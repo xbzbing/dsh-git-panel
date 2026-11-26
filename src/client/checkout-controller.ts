@@ -227,7 +227,7 @@ export class CheckoutController {
         const plan = planFollow({
           sessionDirectory: this.directory, repos: this.snapshot.list?.repos ?? [], repo,
           followSession: this.follow, followSessionKnown: this.known,
-          hasRepoPick: hasRepoPick(this.sessionId), pickRevision: repoPickRevision(),
+          hasRepoPick: hasRepoPick(this.sessionId), pickRevision: repoPickRevision(this.sessionId),
           repoListReady: this.active && this.snapshot.ready && !this.reading,
           repoProbeFailed: this.snapshot.list?.worktrees === 'failed', state: this.state,
         })

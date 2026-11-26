@@ -35,15 +35,20 @@ const rootPicks = new Set<string>()
  * next lookup reading the record back. */
 const loaded = new Set<string>()
 
-/** How many deliberate picks this module has recorded. A value alone cannot
+/** How many deliberate picks each session has recorded. A value alone cannot
  * tell two picks of the same selector apart, so the follow logic compares this
  * number instead: a pick made after a directory move is new intent even when it
- * names the row the move released. Follows and repairs never advance it. */
-let pickRevision = 0
+ * names the row the move released. Follows and repairs never advance it.
+ *
+ * The count is per session, not per module: the follow state that remembers
+ * "the revision this move released" is per session too, and the selection
+ * listeners are one broadcast. A module-wide count would let another session's
+ * click look like new intent here and take this session's follow away. */
+const pickRevisions = new Map<string, number>()
 
-/** The revision of the latest deliberate pick. */
-export function repoPickRevision(): number {
-  return pickRevision
+/** The revision of the session's latest deliberate pick. */
+export function repoPickRevision(sessionId: string): number {
+  return pickRevisions.get(sessionId) ?? 0
 }
 
 /** Sessions whose file-root pick came back from a record made under a follow
@@ -131,7 +136,7 @@ export function hasRepoPick(sessionId: string): boolean {
 export function selectRepo(sessionId: string, repo: string, options: { readonly persist?: boolean; readonly intent?: boolean } = {}): void {
   hydrate(sessionId)
   autoSelections.delete(sessionId)
-  if (options.intent !== false) pickRevision += 1
+  if (options.intent !== false) pickRevisions.set(sessionId, repoPickRevision(sessionId) + 1)
   if (repo === '') {
     selections.delete(sessionId)
     rootPicks.add(sessionId)
