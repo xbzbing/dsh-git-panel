@@ -97,7 +97,6 @@ export const CSS = `
 .gp-diff-uni__sign{text-align:center;user-select:none;font-size:11px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
 .gp-diff-uni__sign.gp-diff-row--add{color:var(--dsw-alias-state-success-primary)}
 .gp-diff-uni__sign.gp-diff-row--del{color:var(--dsw-alias-state-error-primary)}
-.gp-diff-uni__code{box-shadow:none}
 .gp-diff-cell{padding:0 4px;white-space:pre-wrap;word-break:break-all;line-height:20px}
 .gp-diff-no{color:var(--dsw-alias-label-tertiary);text-align:right;padding:0 5px;user-select:none;font-size:11px;line-height:20px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);border-right:1px solid var(--dsw-alias-border-l2)}
 .gp-diff-no--pick{cursor:pointer;position:relative}
@@ -144,9 +143,13 @@ export const CSS = `
 /* Change rows own only the base color; hover/selection own background-image. */
 .gp-diff-row--add{background-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-success-primary) 55%,transparent)}
 .gp-diff-row--del{background-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent)}
-/* Gutters share the row tint, not its inset edge: repeated accents would divide
- * the old/new number columns into colored rails. */
-.gp-diff-no.gp-diff-row--add,.gp-diff-no.gp-diff-row--del{box-shadow:none}
+/* Only the code cell carries the line's 2px leading edge: one bar per side in
+ * split and one in unified, always at the code column's left edge. Gutters and
+ * the unified sign column share the row tint but not the inset edge — copying
+ * it would draw parallel rails a few pixels apart and divide the number and
+ * sign columns into colored strips. */
+.gp-diff-no.gp-diff-row--add,.gp-diff-no.gp-diff-row--del,
+.gp-diff-uni__sign.gp-diff-row--add,.gp-diff-uni__sign.gp-diff-row--del{box-shadow:none}
 .gp-diff-row--hunk{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);color:var(--dsw-alias-state-business-primary);padding:3px 8px;font-size:11px;font-weight:600;border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2)}
 /* collapsed-context band with expand controls (spans both sides). A gap is
  * always immediately followed by a hunk header (or the file end), so it omits
