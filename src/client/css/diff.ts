@@ -101,7 +101,7 @@ export const CSS = `
 .gp-diff-cell{padding:0 4px;white-space:pre-wrap;word-break:break-all;line-height:20px}
 .gp-diff-no{color:var(--dsw-alias-label-tertiary);text-align:right;padding:0 5px;user-select:none;font-size:11px;line-height:20px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);border-right:1px solid var(--dsw-alias-border-l2)}
 .gp-diff-no--pick{cursor:pointer;position:relative}
-.gp-diff-no--pick:hover{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
+.gp-diff-no--pick:hover{color:var(--dsw-alias-state-business-primary);background-image:linear-gradient(color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent),color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent))}
 /* The "+" that says a line can be picked, shown while the pointer is anywhere
  * on the line (the platform's review tab does the same). The rows are flat grid
  * cells with no row element, so the code cell's hover reaches back to its
@@ -127,10 +127,10 @@ export const CSS = `
 }
 .gp-diff-no--pick:focus{outline:none}
 .gp-diff-no--pick:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-/* Diff line comments (ADR-0039): the picked range keeps its add/del tint and
- * takes a business-colored layer above it, so a picked deletion still reads as
- * a deletion. */
-.gp-diff-no.gp-diff-no--sel,.gp-diff-no.gp-diff-no--sel:hover{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}
+/* Diff line comments (ADR-0039): gutters and code keep their add/del base color
+ * under a business-colored image layer. The selected gutter layer wins over
+ * hover, so a picked deletion still reads as a deletion. */
+.gp-diff-no.gp-diff-no--sel,.gp-diff-no.gp-diff-no--sel:hover{color:var(--dsw-alias-state-business-primary);background-image:linear-gradient(color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent),color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent))}
 .gp-diff-cell--sel{background-image:linear-gradient(color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent),color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent))}
 .gp-review{flex:none;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}
 .gp-review__head{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;row-gap:2px;font-size:12px}
@@ -141,8 +141,9 @@ export const CSS = `
 .gp-review__input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
 .gp-review__error{font-size:12px;color:var(--dsw-alias-state-error-primary)}
 .gp-review__actions{display:flex;justify-content:flex-end;gap:6px}
-.gp-diff-row--add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-success-primary) 55%,transparent)}
-.gp-diff-row--del{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent)}
+/* Change rows own only the base color; hover/selection own background-image. */
+.gp-diff-row--add{background-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-success-primary) 55%,transparent)}
+.gp-diff-row--del{background-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 15%,transparent);box-shadow:inset 2px 0 0 color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent)}
 /* Gutters share the row tint, not its inset edge: repeated accents would divide
  * the old/new number columns into colored rails. */
 .gp-diff-no.gp-diff-row--add,.gp-diff-no.gp-diff-row--del{box-shadow:none}

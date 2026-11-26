@@ -353,8 +353,8 @@ export const GAP_STEP = 20
  * printed it: every deletion of the block first, then every addition, so a
  * multi-line rewrite reads as one old block above one new block instead of
  * alternating `-` / `+` lines. Word-level ranges carry onto the split rows so
- * intra-line emphasis survives. `context` / `hunk` / `gap` rows end a block and
- * pass through unchanged.
+ * intra-line emphasis survives. `context` / `hunk` / `gap` / `meta` rows end a
+ * block and pass through unchanged.
  */
 export function flattenToUnified(rows: readonly SideRow[]): SideRow[] {
   const out: SideRow[] = []
