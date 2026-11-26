@@ -57,7 +57,8 @@
 | [ADR-0039](0039-diff-review-quotes.md) | 差异行内评论以引用写入输入框，格式对齐平台「本地变更」页签 | UI |
 | [ADR-0040](0040-commit-and-push-composition.md) | 提交并推送 = 提交 + 普通 push，不折入需要确认的远程写 | 安全 |
 | [ADR-0041](0041-follow-session-worktree.md) | 跟随会话的实时工作目录，只在同一仓库的检出之间切换 | 数据流 |
-| [ADR-0042](0042-unified-change-blocks.md) | 统一差异按连续变更块先删后增，词级强调采用保守启发式 | UI |
+| [ADR-0042](0042-unified-change-blocks.md) | 统一差异按连续变更块先删后增，增删底色覆盖整块 | UI |
+| [ADR-0043](0043-word-emphasis-heuristic.md) | 词级强调采用保守的 60% 启发式 | UI |
 
 ## 有效期
 
