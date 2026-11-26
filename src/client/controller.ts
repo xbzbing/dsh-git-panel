@@ -241,12 +241,6 @@ export class GitController {
     return Date.now() - cached.receivedAt <= this.pollMs ? cached.snapshot : undefined
   }
 
-  /** Whether the published view was read from this checkout — after setRepo(),
-   * true exactly when the switch replayed a remembered sample. */
-  showsRepo(repo: string): boolean {
-    return this.view.state === 'ready' && this.viewRepo === repo
-  }
-
   /** The checkout the published view (ready or failed) was produced for. An
    * error belongs to the sample that failed, not to the selection that replaced
    * it: a repair must not reject a pick by an answer read for another one. */
