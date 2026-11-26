@@ -92,7 +92,7 @@ export function atCheckoutRoot(directory: string | null | undefined, row: GitRep
   return typeof directory === 'string' && directory !== '' && samePath(normalize(directory), normalize(row.root))
 }
 
-/** The follow effect's mutable bookkeeping, one record per mounted panel. */
+/** Mutable follow bookkeeping, one record per session's checkout lifecycle. */
 export interface FollowPlanState {
   /** Whether the setting was on at the last run. */
   enabled: boolean
@@ -110,6 +110,9 @@ export interface FollowPlanState {
    * priority independent of `first` / `pending`, so a pick the host later
    * refuses can release the follow in the same mount. */
   manual: string | null
+  /** The older manual selection released by a directory move. A new pick made
+   * while discovery waits must not be confused with this pre-move intent. */
+  released: string | null
 }
 
 /** What the panel should do after one follow-effect run. */
@@ -138,8 +141,8 @@ export interface FollowPlan {
 }
 
 /**
- * Decide what the follow effect does for one render. Pure: the panel copies
- * `state` back into its ref and performs `action`; every branch that needs a
+ * Decide one follow step. Pure: the checkout lifecycle keeps the returned
+ * `state` and performs `action`; every branch that needs a
  * user-visible delay (the one list refetch, a pending directory) is explicit
  * here, so the rules are unit-tested without a renderer.
  *
@@ -166,11 +169,11 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
     state.pending = null
     state.refetched = null
     state.force = input.followSession
+    state.released = null
   }
   if (!input.followSession) return none
   const directory = input.sessionDirectory
   if (directory === null) return none
-  if (!input.repoListReady) return none
   const first = state.cwd === null
   const changed = state.cwd !== directory
   if (!changed && state.pending !== directory) return none
@@ -179,6 +182,17 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
     state.pending = directory
     state.refetched = null
     state.manual = null
+    state.released = !first && input.hasRepoPick ? input.repo : null
+  }
+  // A different post-move pick is new intent, even if a subsequent click
+  // returns to the selector released by the move.
+  if (input.hasRepoPick && state.released !== null && state.released !== input.repo) state.released = null
+  // Directory and manual-pick bookkeeping stays live during discovery. Only
+  // row evidence/actions wait, so a later scan cannot replay an older move
+  // over a pick made after the most recent directory change.
+  if (!input.repoListReady) {
+    if (!state.force && input.hasRepoPick && state.released !== input.repo && (first || !changed)) state.manual = input.repo
+    return none
   }
   const target = checkoutForDirectory(directory, input.repos)
   const exact = target !== undefined && atCheckoutRoot(directory, target)
@@ -186,7 +200,7 @@ export function planFollow(input: FollowPlanInput): FollowPlan {
   // refetch in flight must not switch it away) and every later run on the same
   // directory. `manual` is what carries it: the pick keeps priority even after
   // the first run, and a host refusal releases it by clearing the selection.
-  const manualWins = !state.force && input.hasRepoPick &&
+  const manualWins = !state.force && input.hasRepoPick && state.released !== input.repo &&
     (first || !changed || state.manual === input.repo) &&
     (input.repoProbeFailed || input.repos.some((entry) => entry.path === input.repo && entry.disabled === undefined)) &&
     (target === undefined || target.path !== input.repo)

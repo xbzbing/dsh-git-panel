@@ -3,12 +3,14 @@
  * The registry is module-level so the pill and both panel tabs share one
  * controller (and therefore one snapshot) per session.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { CheckoutController, type CheckoutState } from './checkout-controller.js'
 import { GitController, type GitView } from './controller.js'
 import { useControllerQueryGate, type GitQueryGate } from './use-git-query-signal.js'
 import { gitPanelRemoteOf, type ClientCtx, type GitPanelRemote } from './rpc.js'
 
 const controllers = new Map<string, GitController>()
+const checkouts = new Map<string, CheckoutController>()
 let sharedRemote: GitPanelRemote | undefined
 let sharedCtx: ClientCtx | undefined
 
@@ -50,6 +52,8 @@ function release(sessionId: string, controller: GitController): void {
     if (controllers.get(sessionId) !== controller) return
     idleTimers.delete(sessionId)
     if ((refCounts.get(sessionId) ?? 0) > 0) return
+    checkouts.get(sessionId)?.dispose()
+    checkouts.delete(sessionId)
     controller.dispose()
     controllers.delete(sessionId)
   }, IDLE_DISPOSE_MS)
@@ -60,11 +64,14 @@ const refCounts = new Map<string, number>()
 
 /** Refresh every live controller (connection reset). */
 export function resyncAll(): void {
+  for (const c of checkouts.values()) c.invalidate()
   for (const c of controllers.values()) c.resync()
 }
 
 /** Dispose every controller (plugin teardown). */
 export function disposeAll(): void {
+  for (const c of checkouts.values()) c.dispose()
+  checkouts.clear()
   for (const c of controllers.values()) c.dispose()
   controllers.clear()
   for (const timer of idleTimers.values()) clearTimeout(timer)
@@ -79,6 +86,36 @@ export function disposeAll(): void {
 function failingRemote(): GitPanelRemote {
   const fail = async () => ({ ok: false as const, error: { code: 'transport' as const } })
   return { snapshot: fail as never, run: fail as never, query: fail as never, suggest: fail as never, version: fail as never, openFile: fail as never, writeFile: fail as never }
+}
+
+const EMPTY_CHECKOUT: CheckoutState = { list: null, ready: false }
+const NO_LIST = (): CheckoutState => EMPTY_CHECKOUT
+const NO_SUBSCRIPTION = (): (() => void) => () => {}
+const NO_REFETCH = (): void => {}
+
+/** Shared discovery/follow lifetime. Updating a directory does not release and
+ * reacquire the observer: that would turn each move into another initial scan. */
+export function useCheckouts(sessionId: string | undefined, active: boolean, directory: string | null, discover: boolean): CheckoutState & {
+  readonly refetch: () => void
+} {
+  const owner = useRef(Symbol('gp-checkout-observer'))
+  const git = sessionId ? controllerFor(sessionId) : undefined
+  let checkout = sessionId ? checkouts.get(sessionId) : undefined
+  if (checkout === undefined && sessionId !== undefined && git !== undefined) {
+    checkout = new CheckoutController(sharedRemote ?? failingRemote(), sessionId, git)
+    checkouts.set(sessionId, checkout)
+  }
+  const state = useSyncExternalStore(checkout?.subscribe ?? NO_SUBSCRIPTION, checkout?.getSnapshot ?? NO_LIST)
+  useEffect(() => {
+    if (sessionId === undefined || git === undefined || checkout === undefined) return
+    retain(sessionId)
+    const token = owner.current
+    return () => { checkout.release(token); release(sessionId, git) }
+  }, [sessionId, git, checkout])
+  useEffect(() => {
+    checkout?.observe(owner.current, active, directory, discover)
+  }, [checkout, active, directory, discover])
+  return { ...state, refetch: checkout?.refetch ?? NO_REFETCH }
 }
 
 /** Query ticks rerender only visible leaf surfaces, never the Panel or pill. */

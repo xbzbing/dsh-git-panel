@@ -11,6 +11,9 @@ import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { useGitView } from './registry.js'
+import { useSessionCheckouts } from './use-session-checkouts.js'
+import { usePageVisibility } from './use-page-visibility.js'
+import type { UseProjection } from './follow-checkout.js'
 import { hasSession } from './rpc.js'
 import { activateGitTab, isGitTabActive, requestSubTab, returnToConversation } from './jump.js'
 import { setGitTabDot, clearGitTabDot, type GitTabDotStatus } from './tab-dot.js'
@@ -28,6 +31,7 @@ interface PillProps {
   /** The platform's injected menu factory; absent on hosts without the
    * context-menu package, where the pill keeps its native menu only. */
   readonly useContextMenu?: UseContextMenu
+  readonly useProjection?: UseProjection
 }
 
 function basename(path: string): string {
@@ -161,8 +165,10 @@ function useCompactMarker(anchor: HTMLElement | null): boolean {
 /** Workspace width (px) below which the marker collapses to a status dot. */
 const COMPACT_WIDTH = 620
 
-export function GitPill({ ctx, sessionId, t, useContextMenu }: PillProps): JSX.Element | null {
+export function GitPill({ ctx, sessionId, t, useContextMenu, useProjection }: PillProps): JSX.Element | null {
   const view = useGitView(sessionId)
+  const pageVisible = usePageVisibility()
+  useSessionCheckouts(sessionId, pageVisible, useProjection, false)
   // The hover lines are read when the panel opens, not captured at render:
   // the conversation can turn from hero to active without the pill re-rendering.
   const tipLines = useRef<() => readonly string[]>(() => [])
