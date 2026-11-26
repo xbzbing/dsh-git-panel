@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, repoRowTip, filesRootRows, gitRepoForFilesRoot } from '../../lib/testkit.mjs'
+import { autoPickRepo, repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, repoRowTip, filesRootRows, gitRepoForFilesRoot } from '../../lib/testkit.mjs'
 
 /** A scan entry; only the fields the list reads. */
 function entry(path, name, kind) {
@@ -238,4 +238,26 @@ test('the hover tip falls back to the label when the checkout reports no root', 
   const lines = repoRowTip(ws, 'main', { detached: 'HEAD is detached', disabled: null })
   assert.equal(tipText(lines), 'main\nws')
   assert.deepEqual(tipKinds(lines), ['branch', 'path'], 'the label sits on the path line')
+})
+
+// A files-only session opens its first sub-repository on its own. The rows are
+// only evidence while the list is the current successful read: a scan in
+// flight still shows the previous rows, and the one attempt per session is not
+// repeated, so a pick made from stale rows would strand the session at its
+// project root.
+test('the automatic first pick reads a ready list and spends one attempt', () => {
+  const rows = repoChoices([entry('', 'workspace', 'workspace'), entry('site', 'site', 'nested'), entry('api', 'api', 'nested')])
+  assert.equal(autoPickRepo(rows, true, false), 'site', 'the first selectable sub-repository')
+  assert.equal(autoPickRepo(rows, false, false), null, 'rows of a scan in flight are not evidence')
+  assert.equal(autoPickRepo(rows, true, true), null, 'a spent attempt is not retried from the same rows')
+  assert.equal(autoPickRepo(repoChoices([entry('', 'workspace', 'workspace')]), true, false), null, 'a root with no sub-repository has nothing to open')
+})
+
+test('the automatic first pick skips rows it cannot choose', () => {
+  const rows = repoChoices([
+    entry('', 'workspace', 'workspace'),
+    { ...entry('gone', 'gone', 'nested'), disabled: 'stale' },
+    entry('site', 'site', 'nested'),
+  ])
+  assert.equal(autoPickRepo(rows, true, false), 'site', 'a stale row is not a landing spot')
 })

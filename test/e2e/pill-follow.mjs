@@ -264,6 +264,25 @@ try {
     assert.equal(lists(out), 1, 'no duplicate or remount repository list')
     assert.equal(await page.locator('.gp-repolist__item--active .gp-repolist__name').first().textContent(), 'site')
   })
+  await phase('a follow switch returns only the focus it took', { panel: true, secondPanel: true }, async (page) => {
+    await pill(page, 'main', 'project')
+    await listed(page)
+    const head = page.locator('#panel .gp-body .gp-repolist__head').first()
+    await head.waitFor()
+    await stable(page)
+    await head.focus()
+    // The user leaves the panel with the keyboard. A click on the page
+    // background ends in the same place: focus on the document. The switch that
+    // follows must not pull the keyboard back to a control left behind.
+    await page.evaluate(() => { document.body.setAttribute('tabindex', '-1'); document.body.focus() })
+    assert.equal(await page.evaluate(() => document.activeElement === document.body), true, 'the document holds the focus before the switch')
+    await page.evaluate((wt) => { window.__ctl.holdSnapshot(wt); window.__ctl.directory('/mock/project/' + wt) }, WT)
+    await page.waitForFunction(() => [...document.querySelectorAll('.gp-panel')].every((el) => el.dataset.repoSwitching === 'true'))
+    await page.evaluate(() => window.__ctl.releaseSnapshot())
+    await pill(page, 'feat/pill-follow', 'pill-follow')
+    await page.waitForFunction(() => [...document.querySelectorAll('.gp-panel')].every((el) => el.dataset.repoSwitching !== 'true'))
+    assert.equal(await page.evaluate(() => document.activeElement === document.body), true, 'a switch whose focus was already on the document revives no old target')
+  })
   await phase('switched session ignores an old delayed repository list', {
     rows: [rows[0], rows[2]], seed: { 'sess-2': { repo: 'site', at: 1 } },
   }, async (page) => {

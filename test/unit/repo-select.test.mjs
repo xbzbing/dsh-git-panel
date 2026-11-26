@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { subscribeRepoSelection, selectedRepo, selectRepo, followRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, pinnedFilesRoot, clearFilesRootPin, withRepo } from '../../lib/testkit.mjs'
+import { repoPickRevision, subscribeRepoSelection, selectedRepo, selectRepo, followRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, pinnedFilesRoot, clearFilesRootPin, withRepo } from '../../lib/testkit.mjs'
 
 /** A remote that records what reached it, keyed by method. */
 function recordingRemote() {
@@ -235,4 +235,21 @@ test('an automatic follow is a selection but not a pick', () => {
   assert.equal(hasRepoPick('auto-1'), false, 'the follow is not the user\'s intent')
   selectRepo('auto-1', 'web')
   assert.equal(hasRepoPick('auto-1'), true, 'a manual pick after it is intent')
+})
+
+// The revision is per session. The follow state that remembers "the revision a
+// directory move released" is per session too, while selection changes are one
+// broadcast to every controller, so a module-wide count would let another
+// session's click look like new intent here and stop this session following.
+test("one session's pick does not advance another session's revision", () => {
+  assert.equal(repoPickRevision('rev-a'), 0, 'a session that never picked has no revision')
+  selectRepo('rev-a', 'site')
+  const released = repoPickRevision('rev-a')
+  selectRepo('rev-b', 'other')
+  assert.equal(repoPickRevision('rev-a'), released, "another session's click is not this session's new intent")
+  assert.equal(repoPickRevision('rev-b'), 1, 'the count starts at zero for the clicking session')
+  selectRepo('rev-a', 'site')
+  assert.equal(repoPickRevision('rev-a'), released + 1, 're-picking the same row is still a later revision')
+  selectRepo('rev-a', 'site', { intent: false })
+  assert.equal(repoPickRevision('rev-a'), released + 1, 'a convenience pick records no intent')
 })

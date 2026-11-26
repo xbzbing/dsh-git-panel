@@ -588,3 +588,25 @@ test('an error sampled for a previous selector cannot repair the current manual 
   assert.equal(f.selected, SITE.path, 'a current transport failure is not selector refusal either')
   assert.equal(f.record.repo, SITE.path)
 })
+
+test("another session's pick cannot revive the selection a directory move released", async (t) => {
+  const f = setup(t), pill = Symbol('pill')
+  f.observe(pill, MAIN.root, true, false)
+  await f.answer(0)
+  f.pick(SITE.path)
+  await drain()
+  assert.equal(f.git.getRepo(), SITE.path, 'the manual pick is applied')
+  // The directory moves into a worktree the current list does not name yet: the
+  // decision asks for one fresh list and keeps the pick meanwhile.
+  f.observe(pill, C.root, true, false)
+  await drain()
+  assert.equal(f.requests.length, 2, 'the unknown directory asks for one fresh list')
+  assert.equal(f.selected, SITE.path, 'the pick stays until the new list lands')
+  // Another session clicks a row while this scan is in flight. The broadcast
+  // reaches this controller, the intent does not.
+  selectRepo('checkout-controller-other', 'other')
+  await drain()
+  await f.answer(1, [MAIN, A, B, C, SITE])
+  assert.equal(f.selected, C.path, "another session's pick cannot keep this session on the released row")
+  assert.equal(f.git.getRepo(), C.path, 'the follow reaches the controller')
+})
