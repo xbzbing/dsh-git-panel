@@ -93,6 +93,8 @@ const RUNNERS = [
   // The tab bar's repository switcher: a workspace with nested checkouts must
   // route every request through the picked one (issue #83).
   'repo-switcher',
+  // Live checkout follow must work with only the composer pill mounted.
+  'pill-follow',
   // The pick survives a reload of the page (and so a hot reload of the bundle):
   // the first sample is already tagged, and only a definitive refusal deletes
   // the tab's record (ADR-0038).

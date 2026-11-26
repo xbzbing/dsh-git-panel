@@ -108,7 +108,7 @@ test('atCheckoutRoot separates the exact root from a subdirectory', () => {
 
 const SITE = row('site', '/repo/site', { role: 'repo' })
 
-const FOLLOW_READY = { enabled: true, known: true, cwd: null, pending: null, refetched: null, force: false, manual: null }
+const FOLLOW_READY = { enabled: true, known: true, cwd: null, pending: null, refetched: null, force: false, manual: null, released: null }
 
 function plan(overrides = {}) {
   return planFollow({
