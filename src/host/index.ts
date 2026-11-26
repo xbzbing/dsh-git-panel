@@ -100,7 +100,7 @@ export class GitPanelService extends TypertRemoteService {
   /**
    * Config schema surfaced on the plugin detail page. `showInputPill`,
    * `defaultDiffView`, `changesView`, `graphStyle`, `detectCheckouts`, `repoLimit`,
-   * `filesFollowRepo`,
+   * `followSessionCheckout`, `filesFollowRepo`,
    * `collapseReposOnPick`, `allowFileEdit`, `compactPackages` and the suggest fields are `.volatile()`, so the settings host renders them as
    * live-editable controls; the operational limits stay profile-only and out
    * of the UI form.

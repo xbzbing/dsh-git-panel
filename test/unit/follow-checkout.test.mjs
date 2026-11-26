@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkoutForDirectory } from '../../lib/testkit.mjs'
+import { checkoutForDirectory, atCheckoutRoot } from '../../lib/testkit.mjs'
 
 /** A repository list row; only the fields the lookup reads. */
 function row(path, root, extra = {}) {
@@ -94,4 +94,14 @@ test('an empty or missing directory follows nothing', () => {
   assert.equal(checkoutForDirectory(undefined, [MAIN]), undefined)
   assert.equal(checkoutForDirectory('', [MAIN]), undefined)
   assert.equal(checkoutForDirectory('/repo', []), undefined)
+})
+
+test('atCheckoutRoot separates the exact root from a subdirectory', () => {
+  const row = { path: '', root: '/repo', name: 'repo', kind: 'workspace', role: 'main' }
+  assert.equal(atCheckoutRoot('/repo', row), true)
+  assert.equal(atCheckoutRoot('/repo/', row), true, 'a trailing separator still names the root')
+  assert.equal(atCheckoutRoot('/repo/sub', row), false, 'a subdirectory is not the root')
+  const windows = { path: 'C:\\Repo', root: 'C:\\Repo', name: 'repo', kind: 'workspace', role: 'main' }
+  assert.equal(atCheckoutRoot('c:/repo', windows), true, 'Windows paths compare case-insensitively')
+  assert.equal(atCheckoutRoot(null, row), false)
 })

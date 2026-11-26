@@ -125,9 +125,15 @@ interface FollowState {
   /** Whether the setting was on at the last run: a flip re-arms the follow for
    * the directory the session is already in. */
   enabled: boolean
+  /** Whether `enabled` was read from a ready sample for this session. The first
+   * sample of a mount is not a flip: a manual pick still wins it. */
+  known: boolean
   cwd: string | null
   pending: string | null
   refetched: string | null
+  /** The setting was just turned on: follow the current directory even when a
+   * manual pick would otherwise win a mount. */
+  force: boolean
 }
 
 export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useContextMenu, useProjection }: PanelProps): JSX.Element {
@@ -448,9 +454,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // Whether the panel follows the session into another checkout of its own
   // repository. Sticky at the last ready answer; an older host omits the field
   // → off, which is the manual behaviour those hosts shipped with.
-  const followSessionRef = useRef(false)
+  const followSessionRef = useRef<boolean | undefined>(undefined)
   if (view.state === 'ready') followSessionRef.current = view.snapshot.followSessionCheckout === true
-  const followSession = followSessionRef.current
+  const followSession = followSessionRef.current === true
+  // No ready sample yet is not "off": the first answer establishes the value
+  // without counting as a flip, so a manual pick can still win the mount.
+  const followSessionKnown = followSessionRef.current !== undefined
 
   // The browser's follow switch rides the snapshot the same way, sticky at the
   // last ready answer (a view dip must not flip it); an older host omits the
@@ -567,25 +576,34 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // followed one.
   const switchRepoRef = useRef(switchRepo)
   switchRepoRef.current = switchRepo
-  const followState = useRef<FollowState>({ sessionId, enabled: followSession, cwd: null, pending: null, refetched: null })
+  const followState = useRef<FollowState>({ sessionId, enabled: followSession, known: false, cwd: null, pending: null, refetched: null, force: false })
   if (followState.current.sessionId !== sessionId) {
-    followState.current = { sessionId, enabled: followSession, cwd: null, pending: null, refetched: null }
+    followState.current = { sessionId, enabled: followSession, known: false, cwd: null, pending: null, refetched: null, force: false }
   }
   useEffect(() => {
     const state = followState.current
-    if (sessionId === undefined || sessionDirectory === null) return
-    // Wait for this session's own list: the previous session's answer must
-    // not decide which checkout this one follows.
-    if (!repoListReady) return
-    // Turning the switch on re-arms the follow for the directory the session
-    // is already in: the setting is documented as taking effect immediately.
-    if (state.enabled !== followSession) {
+    if (sessionId === undefined) return
+    // The first ready answer only establishes the value. A later change is a
+    // real flip: turning the switch on re-arms the follow for the directory the
+    // session is already in, taking effect immediately.
+    if (!followSessionKnown) return
+    if (!state.known) {
+      state.known = true
+      state.enabled = followSession
+      state.force = false
+    } else if (state.enabled !== followSession) {
       state.enabled = followSession
       state.cwd = null
       state.pending = null
       state.refetched = null
+      state.force = followSession
     }
     if (!followSession) return
+    if (sessionDirectory === null) return
+    // Wait for this session's own list: the previous session's answer must
+    // not decide which checkout this one follows.
+    if (!repoListReady) return
+    const first = state.cwd === null
     const changed = state.cwd !== sessionDirectory
     if (!changed && state.pending !== sessionDirectory) return
     if (changed) {
@@ -595,6 +613,20 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     }
     const target = checkoutForDirectory(sessionDirectory, repos)
     const exact = target !== undefined && atCheckoutRoot(sessionDirectory, target)
+    // A manual pick survives a mount: the user may have picked another checkout
+    // of the same repository to review, and a refresh must not silently move it
+    // back. Only a directory change (or turning the setting on) re-arms the
+    // follow. An automatic follow is not intent (`hasRepoPick` ignores it), and
+    // a pick the host can no longer resolve is not protected: the repair above
+    // drops it, and following the current directory is the right fallback.
+    const manualWins = first && !state.force && hasRepoPick(sessionId) &&
+      repos.some((entry) => entry.path === repo && entry.disabled === undefined) &&
+      (target === undefined || target.path !== repo)
+    state.force = false
+    if (manualWins) {
+      state.pending = null
+      return
+    }
     // The covering row is only a guess for a directory the scan has not named:
     // ask once whether a more specific checkout (the session's new worktree)
     // exists before following the enclosing one.
@@ -604,7 +636,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       return
     }
     if (target === undefined || (!exact && repoProbeFailed)) {
-      state.pending = null
+      // Keep the directory pending: a probe that recovers, or a list refetched
+      // with the new row, re-enters this effect and can decide again.
+      state.pending = sessionDirectory
       return
     }
     state.pending = null
@@ -612,7 +646,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     switchRepoRef.current(target.path, { persist: false, intent: false })
     // `switchRepo` is read through the ref: it closes over the current view
     // and selection, and this effect must not re-run on every poll for them.
-  }, [sessionDirectory, repos, repo, sessionId, followSession, repoListReady, repoProbeFailed])
+  }, [sessionDirectory, repos, repo, sessionId, followSession, followSessionKnown, repoListReady, repoProbeFailed])
 
   // The browser's own pin gets the same repair: a pinned checkout that left the
   // list (probe switched off, directory gone) or can no longer be chosen

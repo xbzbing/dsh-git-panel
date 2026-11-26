@@ -19,6 +19,12 @@ import { readPick, updatePicks, type FilesPick, type PickRecord } from './pick-s
 
 const selections = new Map<string, string>()
 
+/** Sessions whose current selection came from the automatic follow, not the
+ * user. It is still a selection (the panel is pointed at that checkout), but it
+ * must not read as intent: `hasRepoPick` ignores it, and a repair of a followed
+ * row must not rewrite the tab record over the user's earlier manual pick. */
+const autoSelections = new Set<string>()
+
 /** Sessions whose explicit pick was `''` (the cwd's own repository): `''`
  * resets the selection map, so intent has to live outside it or "never
  * picked" and "picked `''` on purpose" would be the same state. */
@@ -77,6 +83,9 @@ function withoutFiles(record: PickRecord | undefined): Omit<PickRecord, 'at'> | 
 
 /** Write the session's repository pick (memory is the source) into its record. */
 function persistRepo(sessionId: string): void {
+  // An automatic follow never owns the record: a repair that runs while it is
+  // selected must leave the user's earlier pick in the tab store untouched.
+  if (autoSelections.has(sessionId)) return
   updatePicks([sessionId], (record) => {
     const { repo: _repo, rootPick: _rootPick, at: _at, ...rest } = record ?? { at: 0 }
     const repo = selections.get(sessionId)
@@ -97,6 +106,7 @@ export function selectedRepo(sessionId: string): string {
  * to the workspace root. A repair (dropRepo) is not a choice. */
 export function hasRepoPick(sessionId: string): boolean {
   hydrate(sessionId)
+  if (autoSelections.has(sessionId)) return false
   return selections.has(sessionId) || rootPicks.has(sessionId)
 }
 
@@ -107,6 +117,7 @@ export function hasRepoPick(sessionId: string): boolean {
  * writing it would pin every later load to a choice nobody made. */
 export function selectRepo(sessionId: string, repo: string, options: { readonly persist?: boolean } = {}): void {
   hydrate(sessionId)
+  autoSelections.delete(sessionId)
   if (repo === '') {
     selections.delete(sessionId)
     rootPicks.add(sessionId)
@@ -128,6 +139,10 @@ export function selectRepo(sessionId: string, repo: string, options: { readonly 
  */
 export function followRepo(sessionId: string, repo: string): void {
   hydrate(sessionId)
+  autoSelections.add(sessionId)
+  // The followed checkout replaces any in-memory root intent too: the panel is
+  // on that checkout now, and `hasRepoPick` must not call it the user's choice.
+  rootPicks.delete(sessionId)
   if (repo === '') selections.delete(sessionId)
   else selections.set(sessionId, repo)
   notifySelection()
@@ -139,9 +154,13 @@ export function followRepo(sessionId: string, repo: string): void {
  * pick, for a refusal the host gave as definitive. */
 export function clearRepoPick(sessionId: string, options: { readonly forget?: boolean } = {}): void {
   hydrate(sessionId)
+  const followed = autoSelections.has(sessionId)
+  autoSelections.delete(sessionId)
   selections.delete(sessionId)
   rootPicks.delete(sessionId)
-  if (options.forget === true) persistRepo(sessionId)
+  // A followed selection never owned the record: clearing it must not rewrite
+  // the user's earlier manual pick out of the tab store.
+  if (options.forget === true && !followed) persistRepo(sessionId)
   notifySelection()
 }
 

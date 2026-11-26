@@ -323,3 +323,15 @@ test('a pick made with persist: false holds in memory only', async () => {
   assert.equal(after.selectedRepo('auto'), '', 'nothing was written for the next load')
   assert.equal(after.hasRepoPick('auto'), false)
 })
+
+test('a followed selection never rewrites the stored manual pick', async () => {
+  const first = await fresh()
+  first.selectRepo('follow', 'site')
+  first.followRepo('follow', 'web')
+  assert.equal(first.selectedRepo('follow'), 'web')
+  assert.equal(first.hasRepoPick('follow'), false, 'the automatic selection is not intent')
+  first.clearRepoPick('follow', { forget: true })
+  const second = await fresh()
+  assert.equal(second.selectedRepo('follow'), 'site', 'the earlier manual pick survives the automatic repair')
+  assert.equal(second.hasRepoPick('follow'), true)
+})
