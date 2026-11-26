@@ -69,18 +69,118 @@ async function gutterBackgrounds(page, mode) {
   return rows
 }
 
+const DARK = 'body{--dsw-alias-bg-base:#111827;--dsw-alias-bg-layer-1:#111827;--dsw-alias-bg-layer-2:#1f2937;--dsw-alias-label-primary:#e5e7eb;--dsw-alias-label-tertiary:#9ca3af;--dsw-alias-state-business-primary:#60a5fa;--dsw-alias-state-success-primary:#4ade80;--dsw-alias-state-error-primary:#f87171}'
+
+async function layerReferences(page) {
+  return page.evaluate(() => {
+    const probe = document.createElement('span')
+    document.body.appendChild(probe)
+    const color = (variable, share) => {
+      probe.style.backgroundColor = `color-mix(in srgb,var(${variable}) ${share}%,transparent)`
+      return getComputedStyle(probe).backgroundColor
+    }
+    const image = (share) => {
+      const mix = `color-mix(in srgb,var(--dsw-alias-state-business-primary) ${share}%,transparent)`
+      probe.style.backgroundImage = `linear-gradient(${mix},${mix})`
+      return getComputedStyle(probe).backgroundImage
+    }
+    probe.style.color = 'var(--dsw-alias-state-business-primary)'
+    const business = getComputedStyle(probe).color
+    const result = { business, color: business, del: color('--dsw-alias-state-error-primary', 15), add: color('--dsw-alias-state-success-primary', 15), hover: image(12), selected: image(20), codeSelected: image(14) }
+    probe.remove()
+    return result
+  })
+}
+
+const gutterState = (page, selector) => page.locator(selector).evaluate((g) => {
+  let code = g.nextElementSibling
+  while (!code.classList.contains('gp-diff-cell')) code = code.nextElementSibling
+  const style = getComputedStyle(g)
+  const codeStyle = getComputedStyle(code)
+  return { base: style.backgroundColor, image: style.backgroundImage, codeBase: codeStyle.backgroundColor, codeImage: codeStyle.backgroundImage, badge: getComputedStyle(g, '::after').content, hovered: g.matches(':hover'), focused: g === document.activeElement && g.matches(':focus-visible'), outline: style.outlineStyle, width: parseFloat(style.outlineWidth), color: style.outlineColor }
+})
+
+async function dynamicLayers(page, layers, capture = false) {
+  for (const mode of ['unified', 'split']) {
+    if (mode === 'split') await switchMode(page, mode)
+    for (const side of ['L', 'R']) {
+      const target = page.locator(gutter(side, 4))
+      const base = side === 'L' ? layers.del : layers.add
+      await page.mouse.move(0, 0)
+      const rest = await gutterState(page, gutter(side, 4))
+      assert.equal(rest.base, base, `${mode}/${side}: gutter starts with the theme's 15% add/del base`)
+      assert.equal(rest.image, 'none', `${mode}/${side}: idle gutter has no business overlay`)
+      await target.hover()
+      const hover = await gutterState(page, gutter(side, 4))
+      assert.equal(hover.hovered, true, 'the pointer really hovers the gutter')
+      assert.equal(hover.base, base, `${mode}/${side}: hover preserves the 15% add/del backgroundColor`)
+      assert.equal(hover.image, layers.hover, `${mode}/${side}: hover paints the business 12% backgroundImage`)
+      assert.notEqual(hover.image, 'none')
+      assert.equal(hover.codeBase, base, 'hover keeps the neighboring code base')
+      assert.equal(hover.badge, '"+"', 'hover still displays the comment badge')
+      await target.click()
+      await page.mouse.move(0, 0)
+      const selected = await gutterState(page, gutter(side, 4))
+      assert.equal(selected.base, base, `${mode}/${side}: selection preserves the 15% gutter base`)
+      assert.equal(selected.image, layers.selected, 'selection adds a business 20% gutter image')
+      assert.equal(selected.codeBase, base, 'selection preserves the 15% code base')
+      assert.equal(selected.codeImage, layers.codeSelected, 'selection adds a business 14% code image')
+      assert.notEqual(selected.image, 'none')
+      assert.notEqual(selected.codeImage, 'none')
+      await target.hover()
+      const selectedHover = await gutterState(page, gutter(side, 4))
+      assert.equal(selectedHover.hovered, true)
+      assert.equal(selectedHover.base, base, 'selected + hovered gutter retains the add/del base')
+      assert.equal(selectedHover.image, layers.selected, 'selected + hover keeps 20%, never downgrades to the 12% hover image')
+      assert.equal(selectedHover.codeBase, base)
+      assert.equal(selectedHover.codeImage, layers.codeSelected)
+      assert.equal(selectedHover.badge, '"+"')
+      if (capture && mode === 'unified' && side === 'R' && process.env.E2E_DIFF_BLOCK_SCREENSHOT === '1') {
+        const path = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs/local/issue156-layers-after.png')
+        await mkdir(dirname(path), { recursive: true })
+        await page.locator('.gp-panel').screenshot({ path })
+      }
+      await page.locator(gutter(side, 5)).focus()
+      await page.keyboard.press('ArrowUp')
+      const focus = await gutterState(page, gutter(side, 4))
+      assert.equal(focus.focused, true, 'keyboard focus-visible survives selection and hover')
+      assert.ok(focus.width > 0 && focus.outline !== 'none', 'the keyboard outline is visible')
+      assert.equal(focus.color, layers.business)
+      await page.locator('.gp-review__input').press('Escape')
+      await page.mouse.move(0, 0)
+      const cleared = await gutterState(page, gutter(side, 4))
+      assert.equal(cleared.base, base)
+      assert.equal(cleared.image, 'none', 'clearing selection removes its gutter overlay')
+      assert.equal(cleared.codeImage, 'none', 'clearing selection removes its code overlay')
+    }
+  }
+  await switchMode(page, 'unified')
+}
+
+async function classStrings(page) {
+  const classes = await page.locator('.gp-diff-no, .gp-diff-cell, .gp-diff-uni__sign').evaluateAll((els) => els.map((el) => el.getAttribute('class')))
+  assert.ok(classes.length > 0, 'there are rendered diff class strings to check')
+  for (const value of classes) {
+    assert.equal(value, value.trim(), 'diff classes have no leading or trailing spaces')
+    assert.ok(!/\s{2,}/.test(value), 'diff classes have no consecutive whitespace')
+  }
+}
+
 async function selectedBackgrounds(page, blue, baseline) {
   await page.mouse.move(0, 0)
   const selected = await page.locator('.gp-diff-no--sel').evaluateAll((gutters) => gutters.map((g) => {
     let code = g.nextElementSibling
     while (!code.classList.contains('gp-diff-cell')) code = code.nextElementSibling
-    return { background: getComputedStyle(g).backgroundColor, color: getComputedStyle(g).color, text: code.textContent, code: getComputedStyle(code).backgroundColor }
+    return { background: getComputedStyle(g).backgroundColor, image: getComputedStyle(g).backgroundImage, color: getComputedStyle(g).color, text: code.textContent, code: getComputedStyle(code).backgroundColor, codeImage: getComputedStyle(code).backgroundImage }
   }))
   assert.ok(selected.length > 0, 'selected gutters are mounted')
   for (const row of selected) {
-    assert.equal(row.background, blue.background, 'comment selection wins over the add/del gutter tint')
+    const base = baseline.find((b) => b.text === row.text).code
+    assert.equal(row.background, base, 'selected gutter retains its original add/del backgroundColor')
+    assert.equal(row.image, blue.selected, 'comment selection adds the business 20% gutter layer')
     assert.equal(row.color, blue.color, 'selected numbers use the business color')
-    assert.equal(row.code, baseline.find((b) => b.text === row.text).code, 'selected code retains its original add/del background')
+    assert.equal(row.code, base, 'selected code retains its original add/del backgroundColor')
+    assert.equal(row.codeImage, blue.codeSelected, 'selected code keeps its business 14% layer')
   }
 }
 
@@ -108,17 +208,17 @@ export async function run(mount) {
     ], 'unified emits all deletions before all additions, with original numbers and only the token edit emphasized')
 
     const baseline = await gutterBackgrounds(page, 'unified')
+    const blue = await layerReferences(page)
+    // Dynamic layers run before class formatting so the old fixture fails on
+    // the actual hover regression, not merely on incidental class whitespace.
+    await dynamicLayers(page, blue, true)
+    await classStrings(page)
     for (const name of ['split', 'before', 'after']) {
       await switchMode(page, name)
       await gutterBackgrounds(page, name)
+      await classStrings(page)
     }
     await switchMode(page, 'unified')
-
-    if (process.env.E2E_DIFF_BLOCK_SCREENSHOT === '1') {
-      const path = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs/local/issue156-after.png')
-      await mkdir(dirname(path), { recursive: true })
-      await page.locator('.gp-panel').screenshot({ path })
-    }
 
     const mode = (name) => switchMode(page, name)
     const selected = () => page.locator('.gp-diff-no--sel').evaluateAll((els) => els.map((el) => `${el.dataset.side}${el.dataset.line}`))
@@ -131,20 +231,6 @@ export async function run(mount) {
       await page.locator('.gp-review__input').fill(body)
     }
     const add = () => page.locator('.gp-review__actions .gp-btn--primary').click()
-
-    // A selected context gutter is the theme's business-colored reference.
-    await page.locator(gutter('L', 1)).click()
-    const blue = await page.locator('.gp-diff-no--sel').evaluate((g) => {
-      const probe = document.createElement('span')
-      probe.style.color = 'var(--dsw-alias-state-business-primary)'
-      document.body.appendChild(probe)
-      const business = getComputedStyle(probe).color
-      probe.remove()
-      return { background: getComputedStyle(g).backgroundColor, color: getComputedStyle(g).color, business }
-    })
-    assert.equal(blue.color, blue.business, 'selection uses the current business color, not an add/del color')
-    assert.notEqual(blue.background, baseline[0].gutters[0].background, 'selection differs from the neutral gutter')
-    await page.locator('.gp-review__input').press('Escape')
 
     await pick('L', 4, 'Old replacement block.')
     assert.deepEqual(await selected(), ['L2', 'L3', 'L4'])
@@ -221,17 +307,32 @@ export async function run(mount) {
     const last = await page.evaluate(() => window.__review.quotes[2].text)
     assert.match(last, /\nSide: R\nLines: 4\n/)
     assert.ok(last.includes('-const count = 1;\n') && last.includes('+const count = 2;\n'), 'the post-switch comment quotes the original token edit')
+    const dark = await mount({ composer: true, forge: false, diff: { text: TEXT, newLines: 6 } })
+    try {
+      await dark.addStyleTag({ content: DARK })
+      await dynamicLayers(dark, await layerReferences(dark))
+      await classStrings(dark)
+      for (const name of ['before', 'after']) {
+        await switchMode(dark, name)
+        await gutterBackgrounds(dark, name)
+        await classStrings(dark)
+      }
+    } finally {
+      await dark.close()
+    }
     // Plain, non-interactive numbers must be tinted too. Reuse the same small
     // fixture in a separate page and compare computed colors in both themes.
     const bare = await mount({ composer: false, forge: false, diff: { text: TEXT, newLines: 6 } })
     try {
       assert.equal(await bare.locator('.gp-diff-no--pick').count(), 0, 'the plain-number page has no comment controls')
       for (const theme of ['light', 'dark']) {
-        if (theme === 'dark') await bare.addStyleTag({ content: 'body{--dsw-alias-bg-base:#111827;--dsw-alias-bg-layer-1:#111827;--dsw-alias-bg-layer-2:#1f2937;--dsw-alias-label-primary:#e5e7eb;--dsw-alias-label-tertiary:#9ca3af;--dsw-alias-state-business-primary:#60a5fa;--dsw-alias-state-success-primary:#4ade80;--dsw-alias-state-error-primary:#f87171}' })
+        if (theme === 'dark') await bare.addStyleTag({ content: DARK })
         await gutterBackgrounds(bare, 'unified')
+        await classStrings(bare)
         for (const name of ['split', 'before', 'after']) {
           await switchMode(bare, name)
           await gutterBackgrounds(bare, name)
+          await classStrings(bare)
         }
         await switchMode(bare, 'unified')
       }
