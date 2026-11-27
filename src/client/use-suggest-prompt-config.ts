@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { resyncAfterWrite } from './config-write.js'
-import { gitPanelRemoteOf } from './rpc.js'
+import { gitPanelRemoteOf, SESSION_PLACEHOLDER } from './rpc.js'
 import type { ClientCtx, ConfigFormFace, ConfigFormSnapshot, GitPanelRemote } from './rpc.js'
 import type { GitSuggestPromptPreview, GitSuggestPromptView } from './types.js'
 import { SUGGEST_PROMPT_MAX_BYTES } from './types.js'
@@ -42,7 +42,7 @@ export function usePromptPreview(remote: GitPanelRemote, view: GitSuggestPromptV
       if (!current()) return
       setStatus('loading')
       try {
-        const response = await remote.query({ sessionId: '', query: { kind: 'suggest-prompt', view } }, controller.signal)
+        const response = await remote.query({ sessionId: SESSION_PLACEHOLDER, query: { kind: 'suggest-prompt', view } }, controller.signal)
         if (!current()) return
         const preview = parsePromptPreview(response, view)
         if (preview === null) {

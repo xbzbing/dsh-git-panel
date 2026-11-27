@@ -25,7 +25,7 @@ function PromptText({ label, text, t }: { readonly label: string; readonly text:
 }
 
 function PromptVariants({ value, both, t }: { readonly value: GitSuggestPromptPreview; readonly both: boolean; readonly t: PromptT }): JSX.Element {
-  const [picked, setPicked] = useState<ResolvedLanguage>('zh')
+  const [picked, setPicked] = useState<ResolvedLanguage>(value.languageSetting === 'en' ? 'en' : 'zh')
   const language = both || value.languageSetting === 'auto' ? picked : value.languageSetting
   const variant = value.variants[language]
   return h('div', { className: 'gp-cfg__prompt-variants' }, [
@@ -121,12 +121,12 @@ export function SuggestPromptConfig(props: SuggestPromptConfigInput & { readonly
         h('span', { key: 'bytes', id: `${id}-bytes`, className: 'gp-cfg__rangehint gp-cfg__prompt-bytes' }, t('cfg.suggestPromptBytes', { bytes: state.bytes, max: SUGGEST_PROMPT_MAX_BYTES / 1024 })),
       ]),
     ]),
-    state.overLimit ? h('p', { key: 'limit', className: 'gp-cfg__err', role: 'alert' }, t('cfg.suggestPromptTooLong')) : null,
+    state.overLimit ? h('p', { key: 'limit', className: 'gp-cfg__err', role: 'alert' }, t('cfg.suggestPromptTooLong', { max: SUGGEST_PROMPT_MAX_BYTES / 1024 })) : null,
     !state.supported ? h('p', { key: 'unsupported', className: 'gp-cfg__hint' }, t('cfg.suggestPromptUnsupported'))
       : !state.writable ? h('p', { key: 'readonly', className: 'gp-cfg__hint' }, t('cfg.suggestPromptReadOnly')) : null,
     editor.saved === null ? h('p', { key: 'invalid', className: 'gp-cfg__err' }, t('cfg.suggestPromptInvalidConfig')) : null,
     editor.result === 'failed' ? h('p', { key: 'failed', className: 'gp-cfg__err', role: 'alert' }, t('cfg.saveFailed')) : null,
-    state.dirty ? h('p', { key: 'dirty', className: 'gp-cfg__hint' }, t('cfg.suggestPromptDirty')) : null,
+    state.dirty && editor.saved !== null ? h('p', { key: 'dirty', className: 'gp-cfg__hint' }, t('cfg.suggestPromptDirty')) : null,
     editor.conflict || state.syncPending ? h('div', { key: 'conflict', className: 'gp-cfg__prompt-error', role: 'status' }, [
       h('p', { key: 'hint', className: 'gp-cfg__hint' }, t(editor.conflict ? 'cfg.suggestPromptConflict' : 'cfg.suggestPromptSyncMirror')),
       h('button', { key: 'reload', type: 'button', className: 'gp-cfg__prompt-button gp-cfg__prompt-reload', disabled: editor.saving, onClick: state.reload }, t('cfg.suggestPromptReload')),
@@ -138,7 +138,7 @@ export function SuggestPromptConfig(props: SuggestPromptConfigInput & { readonly
       variant: `gp-cfg__prompt-modal gp-cfg__prompt-modal--${state.previewView}`, trapFocus: true, restoreFocusRef, t,
       body: [
         h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.suggestPromptPreviewHint')),
-        state.previewView === 'effective' && state.dirty ? h('p', { key: 'dirty', className: 'gp-cfg__hint' }, t('cfg.suggestPromptDirty')) : null,
+        state.previewView === 'effective' && state.dirty && editor.saved !== null ? h('p', { key: 'dirty', className: 'gp-cfg__hint' }, t('cfg.suggestPromptDirty')) : null,
         h(PromptRead, { key: state.previewView, ...(state.previewView === 'default' ? state.defaults : state.effective), saved: state.previewView === 'effective' && editor.result === 'saved', both: state.previewView === 'default', t }),
       ],
       footer: h('div', { className: 'gp-modal__footer' }, h('button', { ref: footerClose, type: 'button', className: 'gp-btn', onClick: state.closePreview }, t('common.close'))),

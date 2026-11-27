@@ -13,6 +13,7 @@ import { useCopyFeedback } from './copy-feedback.js'
 import { pageVisibility } from './visibility.js'
 import { useGitQuerySignal } from './registry.js'
 import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types.js'
+import { SUGGEST_PROMPT_MAX_BYTES } from './types.js'
 import type { GitKey } from './locales.js'
 import { ChangeStats } from './ChangeStats.js'
 import { diffSummary, type DiffMode } from './DiffView.js'
@@ -676,7 +677,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
       case 'empty-diff': return t('error.emptyDiff')
       case 'llm-unavailable': return t('error.llmUnavailable')
       case 'suggest-disabled': return t('error.suggestDisabled')
-      case 'suggest-prompt-invalid': return t('error.suggestPromptInvalid')
+      case 'suggest-prompt-invalid': return t('error.suggestPromptInvalid', { max: SUGGEST_PROMPT_MAX_BYTES / 1024 })
       case 'llm-error':
       case 'llm-output': return detail === undefined ? t('error.llmFailed') : `${t('error.llmFailed')}: ${detail}`
       default: return detail ?? t('error.generic')

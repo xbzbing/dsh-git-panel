@@ -17,6 +17,12 @@ import { NS } from './namespace.js'
 
 const API_CHANNEL = '/api'
 
+/**
+ * Host-level queries (model catalog, prompt previews) still carry a sessionId;
+ * the host answers before resolving it, so this placeholder stays empty.
+ */
+export const SESSION_PLACEHOLDER = ''
+
 interface ConnectionFace {
   rpc?: {
     call?(channel: string, endpoint: string, payload: unknown, signal?: AbortSignal): Promise<unknown>
