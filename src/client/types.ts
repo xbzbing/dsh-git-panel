@@ -10,11 +10,11 @@ export type {
   GitVersionRequest, GitVersionInfo, DiffViewMode, ChangesViewMode, GraphStyle, FontDelta, DirEntry, ResetMode, GitPanelPlacement,
   GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList, WorkspaceInvalidReason,
   GitWriteFileRequest, GitWriteFileResult, FileEditInfo, FileEditBlock,
-  GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, TruncationReason,
+  GitSuggestRequest, GitSuggestResult, GitSuggestPromptView, GitSuggestPromptInstructions, GitSuggestPromptPreview, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage, TruncationReason,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure, RemoteMethod,
 } from '../host/types.js'
 
-export { imageMimeFor, isEditablePath, EDIT_MAX_BYTES, EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, isHistoryFiltered, HISTORY_PATH_SEARCH_MAX_LENGTH, REPO_LIMITS, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, FLOW_KINDS } from '../host/types.js'
+export { imageMimeFor, isEditablePath, EDIT_MAX_BYTES, EDITABLE_EXTENSIONS, EDITABLE_FILENAMES, isHistoryFiltered, HISTORY_PATH_SEARCH_MAX_LENGTH, REPO_LIMITS, SUGGEST_LIMITS, SUGGEST_PROMPT_MAX_BYTES, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, FLOW_KINDS } from '../host/types.js'
 import type { GitQueryResult } from '../host/types.js'
 
 /**

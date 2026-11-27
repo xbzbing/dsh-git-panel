@@ -676,6 +676,7 @@ export function ChangesTab({ panelMenu, menuCommandsRef, menuFactsRef, menuPickR
       case 'empty-diff': return t('error.emptyDiff')
       case 'llm-unavailable': return t('error.llmUnavailable')
       case 'suggest-disabled': return t('error.suggestDisabled')
+      case 'suggest-prompt-invalid': return t('error.suggestPromptInvalid')
       case 'llm-error':
       case 'llm-output': return detail === undefined ? t('error.llmFailed') : `${t('error.llmFailed')}: ${detail}`
       default: return detail ?? t('error.generic')

@@ -116,6 +116,32 @@ export const CSS = `
 .gp-cfg__retry{margin-left:6px;padding:0 8px;height:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
 .gp-cfg__retry:hover{background:var(--dsw-alias-interactive-bg-hover)}
 
+/* Explicit-save writing rules and prompt originals share the form's hierarchy,
+ * but own their input/read surfaces so generic text fields cannot clip them. */
+.gp-cfg__prompt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0}
+.gp-cfg__prompt-head .gp-cfg__title{flex:1;min-width:0;overflow-wrap:anywhere}
+.gp-cfg__prompt-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;max-width:100%;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.5;cursor:pointer;white-space:normal;overflow-wrap:anywhere}
+.gp-cfg__prompt-button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-cfg__prompt-button:disabled{opacity:.5;cursor:default}
+.gp-cfg__prompt-button:focus-visible,.gp-cfg__prompt-preview-toggle:focus-visible,.gp-cfg__prompt-original:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-cfg__prompt-save{color:var(--dsw-alias-state-business-primary)}
+.gp-cfg__prompt-input{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:100%;min-height:120px;resize:vertical;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.gp-cfg__prompt-input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.gp-cfg__prompt-input[aria-invalid=true]{border-color:var(--dsw-alias-state-error-primary)}
+.gp-cfg__prompt-input:disabled{opacity:.5}
+.gp-cfg__prompt-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.gp-cfg__prompt-bytes{overflow-wrap:anywhere}
+.gp-cfg__prompt .gp-cfg__hint,.gp-cfg__prompt .gp-cfg__err,.gp-cfg__prompt-modal .gp-cfg__hint,.gp-cfg__prompt-modal .gp-cfg__err{overflow-wrap:anywhere}
+.gp-cfg__prompt-preview-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;max-width:100%;padding:6px 0;border:0;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.gp-cfg__prompt-preview-toggle svg{flex:none}
+.gp-cfg__prompt-preview,.gp-cfg__prompt-read,.gp-cfg__prompt-variants,.gp-cfg__prompt-text,.gp-cfg__prompt-error{display:flex;flex-direction:column;gap:8px;min-width:0}
+.gp-cfg__prompt-preview[hidden]{display:none}
+.gp-cfg__prompt-loading{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.gp-cfg__prompt-label{margin:0;min-width:0;font-size:12px;font-weight:500;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.gp-cfg__prompt-original{box-sizing:border-box;width:100%;min-width:0;max-width:100%;max-height:360px;margin:0;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto}
+.gp-modal.gp-cfg__prompt-modal{width:680px;max-width:calc(100vw - 24px)}
+.gp-cfg__prompt-modal .gp-modal__form{min-width:0}
+
 /* status dot appended to the shell's Git view-tab button — shown only when the
  * input-bar marker is hidden; colour mirrors the pill branch (synced/dirty). */
 .gp-tab-dot{display:inline-block;width:7px;height:7px;margin-left:6px;border-radius:999px;vertical-align:middle;flex:none}

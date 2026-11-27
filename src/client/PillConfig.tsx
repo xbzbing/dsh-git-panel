@@ -11,6 +11,7 @@ import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { findNamespace, resyncAfterWrite } from './config-write.js'
+import { SuggestPromptConfig } from './SuggestPromptConfig.js'
 import { ChevronIcon, RepoIcon, ScreenIcon, SlidersIcon, SparkleIcon } from './icons.js'
 import { normalizePlacement } from './placement.js'
 import { segButtons } from './seg.js'
@@ -734,6 +735,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           (v) => t(v === 'auto' ? 'cfg.suggestLangAuto' : v === 'zh' ? 'cfg.suggestLangZh' : 'cfg.suggestLangEn'), busy || snap?.writable === false)),
       h('p', { key: 'sglanghint', className: 'gp-cfg__rangehint' }, t('cfg.suggestLangHint')),
     ]),
+    h(SuggestPromptConfig, {
+      key: `suggest-prompt-${ns ?? ''}`, ctx, form, snapshot: snap,
+      schema: view?.namespaces.find((row) => row.ns === ns)?.schema,
+      visible: openSections.suggest, disabled: busy, t,
+    }),
     field('numax', [
       h('div', { key: 'numax', className: 'gp-cfg__numrow' }, [
         h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-maxkib' }, t('cfg.suggestMaxBytesLabel')),
