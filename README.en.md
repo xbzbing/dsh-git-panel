@@ -40,7 +40,7 @@ New versions can be installed directly through dsh's plugin update mechanism; fo
 
 Edit **Custom commit writing rules** under **AI suggestion** on the plugin detail page, then press **Save rules**. Clear the draft and save to restore the built-in default. The setting applies to every repository in this plugin: custom rules take precedence over historical style, while the language setting still controls the output language. Rules are limited to 16 KiB of UTF-8 text and describe format and detail; commands in them are not executed.
 
-**View defaults** shows the built-in prompt instructions verbatim. **Final prompt for saved settings** expands after a save and shows the assembled system instructions and trailing user reminder. Unsaved edits do not change the preview. `auto` offers Chinese and English variants, with repository history choosing the variant at generation time; file lists, diffs and history samples are dynamic data added during generation and are not included in this preview.
+**View defaults** and **View saved prompt** open dialogs showing the built-in instructions and the assembled system instructions / trailing user reminder for saved settings. A successful save opens the final preview automatically; closing it returns focus to the view button. Unsaved edits do not change the preview. `auto` offers Chinese and English variants, with repository history choosing the variant at generation time; file lists, diffs and history samples are dynamic data added during generation and are not included in this preview.
 
 ## Git Flow
 

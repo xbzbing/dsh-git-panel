@@ -29,7 +29,7 @@
 | [ADR-0011](0011-merge-commits-first-parent.md) | 合并提交按 first-parent 三处同源 | 正确性 |
 | [ADR-0012](0012-large-repository-limits.md) | 大仓库限流与有界展开 | 性能 |
 | [ADR-0013](0013-incomplete-data-is-never-silent.md) | 不完整数据不静默 | 正确性 |
-| [ADR-0014](0014-suggest-language-and-budget.md) | AI 生成提交信息的语言与预算 | AI |
+| [ADR-0014](0014-suggest-language-and-budget.md) | AI 提交生成的语言、预算、自定义规范与提示词预览 | AI |
 | [ADR-0015](0015-rendering-security-boundary.md) | 渲染安全边界：HTML / Markdown 图片 / mermaid | 安全 |
 | [ADR-0016](0016-client-rendering-performance.md) | 客户端渲染性能约定 | 性能 |
 | [ADR-0017](0017-test-and-gate-strategy.md) | 测试与门禁策略 | 工程 |
