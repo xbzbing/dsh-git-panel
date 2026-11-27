@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { GitPanelService } from '../../lib/host/index.js'
 import {
   supportsSuggestPrompt, promptUtf8Bytes, normalizePrompt, savedPrompt, savedPromptLanguage,
-  samePromptIdentity, parsePromptPreview, promptEditorInitial, promptEditorDirty, promptEditorReduce,
+  samePromptIdentity, parsePromptPreview, promptPreviewErrorStatus, promptEditorInitial, promptEditorDirty, promptEditorReduce,
 } from '../../lib/testkit.mjs'
 
 const MAX = 16 * 1024
@@ -96,6 +96,20 @@ test('strict preview validation accepts both complete variants and correct view/
   assert.equal(parsePromptPreview({ ok: false, error: { code: 'transport' } }, 'effective'), null)
   assert.equal(parsePromptPreview({ ok: true, value: { ok: true, value: preview().value } }, 'effective'), null, 'transport envelope cannot masquerade as the business result')
   for (const data of [null, undefined, true, [], {}, { ok: true }, { ok: true, value: [] }]) assert.equal(parsePromptPreview(data, 'effective'), null)
+})
+
+test('preview business errors distinguish invalid saved config from retryable failures and malformed wire data', () => {
+  assert.equal(promptPreviewErrorStatus({ ok: false, error: { code: 'suggest-prompt-invalid' } }, 'effective'), 'config-invalid')
+  assert.equal(promptPreviewErrorStatus({ ok: false, error: { code: 'suggest-prompt-invalid' } }, 'default'), 'failed', 'custom config rejection cannot make the default reader non-retryable')
+  for (const code of ['transport', 'unsupported-query', '', null, 17]) {
+    assert.equal(promptPreviewErrorStatus({ ok: false, error: { code } }, 'effective'), 'failed')
+  }
+  for (const error of [undefined, null, [], 'suggest-prompt-invalid']) {
+    assert.equal(promptPreviewErrorStatus({ ok: false, error }, 'effective'), 'failed')
+  }
+  for (const data of [null, undefined, [], {}, preview(), { ok: true, error: { code: 'suggest-prompt-invalid' } }, { ok: false, value: { ok: false, error: { code: 'suggest-prompt-invalid' } } }]) {
+    assert.equal(promptPreviewErrorStatus(data, 'effective'), data?.ok === false ? 'failed' : 'invalid', 'only the direct business error code changes the failure class')
+  }
 })
 
 test('every wire discriminator, field, type and bound is checked, including the hidden variant', () => {

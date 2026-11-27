@@ -40,7 +40,8 @@ async function mount(browser, context, options = {}) {
       writes: [], queries: [], copies: [], copyOk: true, echo: options.echo ?? true,
       failSet: false, holdSet: false, holdView: null, releaseSet: null, releasePreview: null,
       answers: [], hostPrompt: Object.hasOwn(options, 'prompt') ? options.prompt : 'old rules', language: options.language ?? 'auto',
-      aborted: 0, previewDelivered: 0, setReleased: false,
+      aborted: 0, previewDelivered: 0, setReleased: false, hostDelayMs: options.hostDelayMs ?? 0,
+      hostAcceptedAt: 0, hostPublishedAt: 0,
     }
     const baseCall = connection.rpc.call.bind(connection.rpc)
     const preview = (view) => {
@@ -61,11 +62,12 @@ async function mount(browser, context, options = {}) {
       const request = payload?.args?.request
       if (endpoint !== 'dbGitPanel/query' || request?.query?.kind !== 'suggest-prompt') return baseCall(channel, endpoint, payload, signal)
       const view = request.query.view
-      fixture.queries.push({ sessionId: request.sessionId, repo: request.repo, view })
+      fixture.queries.push({ sessionId: request.sessionId, repo: request.repo, view, at: performance.now(), hostPrompt: fixture.hostPrompt, language: fixture.language })
       signal?.addEventListener('abort', () => { fixture.aborted++ }, { once: true })
       let answer = options.oldHost ? { ok: false, error: { code: 'unsupported-query' } } : preview(view)
       const mode = fixture.answers.shift()
       if (mode === 'fail') answer = { ok: false, error: { code: 'transport', message: 'fixture read failure' } }
+      if (mode === 'config-invalid') answer = { ok: false, error: { code: 'suggest-prompt-invalid' } }
       if (mode === 'invalid') answer.value.variants.en.userReminder = 17
       if (fixture.holdView === view) {
         fixture.holdView = null
@@ -98,7 +100,14 @@ async function mount(browser, context, options = {}) {
             if (!accepted) return false
           }
           if (fixture.value === value) {
-            fixture.hostPrompt = text
+            fixture.hostAcceptedAt = performance.now()
+            const publish = () => {
+              if (fixture.value !== value) return
+              fixture.hostPrompt = text
+              fixture.hostPublishedAt = performance.now()
+            }
+            if (fixture.hostDelayMs > 0) setTimeout(publish, fixture.hostDelayMs)
+            else publish()
             if (fixture.echo) { value[field] = text; fixture.notify() }
           }
           return true
@@ -125,8 +134,8 @@ async function mount(browser, context, options = {}) {
     const services = { connection, sidebarRightTabs: { register: () => () => {} }, sidebarRight: { openTab: () => {} } }
     const dictionaries = {}
     const translate = (key, parameters = {}) => {
-      let text = options.translated ? dictionaries.zh?.[key] ?? key : key
-      if (key === 'cfg.suggestPromptBytes' && !options.translated) text = '{bytes} / {max} bytes (UTF-8)'
+      let text = options.translated ? dictionaries[options.locale ?? 'zh']?.[key] ?? key : key
+      if (key === 'cfg.suggestPromptBytes' && !options.translated) text = '{bytes} B / {max} KiB (UTF-8)'
       for (const [name, value] of Object.entries(parameters)) text = text.replaceAll(`{${name}}`, String(value))
       return text
     }
@@ -192,6 +201,48 @@ async function releasePreview(page) {
   await afterDelivery(page)
 }
 
+async function setPromptWidth(page, width) {
+  await page.setViewportSize({ width, height: 1000 })
+  await page.addStyleTag({ content: '#panel{box-sizing:border-box;width:100%!important;padding:12px!important}' })
+  await afterDelivery(page)
+}
+
+async function assertPromptToolbar(page, width, { chinese = false, busy = false, wrapped = false } = {}) {
+  const boxes = await page.evaluate(() => {
+    const selectors = {
+      prompt: '.gp-cfg__prompt', head: '.gp-cfg__prompt > .gp-cfg__prompt-head', defaults: '.gp-cfg__prompt-default',
+      footer: '.gp-cfg__prompt-footer', actions: '.gp-cfg__prompt-actions', start: '.gp-cfg__prompt-actions-start',
+      meta: '.gp-cfg__prompt-meta', bytes: '.gp-cfg__prompt-bytes',
+      save: '.gp-cfg__prompt-save', clear: '.gp-cfg__prompt-clear', effective: '.gp-cfg__prompt-effective',
+    }
+    return Object.fromEntries(Object.entries(selectors).map(([name, selector]) => {
+      const element = document.querySelector(selector)
+      const rect = element.getBoundingClientRect()
+      return [name, { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, height: rect.height, centerY: rect.top + rect.height / 2, scroll: element.scrollWidth, width: element.clientWidth }]
+    }))
+  })
+  for (const [name, box] of Object.entries(boxes)) {
+    assert.ok(box.scroll <= box.width + 1, `${width}px ${busy ? 'busy' : 'idle'} ${name} has no horizontal overflow: ${JSON.stringify(box)}`)
+    assert.ok(box.left >= 0 && box.right <= width, `${width}px ${name} stays inside the viewport`)
+  }
+  assert.ok(Math.abs(boxes.effective.right - boxes.actions.right) <= 1, `${width}px final viewer aligns to the action row's right edge`)
+  assert.ok(Math.abs(boxes.defaults.right - boxes.head.right) <= 1, `${width}px default viewer aligns to its heading's right edge`)
+  assert.ok(boxes.meta.top >= boxes.actions.bottom, 'byte accounting and save status have their own line, not the button flex group')
+  assert.ok(boxes.save.right <= boxes.clear.left, 'save and clear keep their field-action order')
+  if (chinese && !busy) {
+    assert.ok(Math.abs(boxes.save.centerY - boxes.clear.centerY) <= 1 && Math.abs(boxes.save.centerY - boxes.effective.centerY) <= 1, `${width}px Chinese idle save/clear/final viewer stay on the same row: ${JSON.stringify(boxes)}`)
+    assert.ok(boxes.clear.right <= boxes.effective.left, `${width}px Chinese buttons do not overlap`)
+  }
+  if (wrapped) {
+    assert.ok(boxes.effective.top >= boxes.start.bottom, `${width}px long-language trailing action wraps as a whole item`)
+    // Compare like elements instead of a font-metric pixel floor: both buttons
+    // share one line box, so a wrapped label would make the final viewer taller.
+    assert.ok(Math.abs(boxes.effective.height - boxes.save.height) <= 1, `${width}px trailing action text stays on one line after whole-item wrapping: ${JSON.stringify({ effective: boxes.effective.height, save: boxes.save.height })}`)
+  }
+  assert.equal(await page.locator(`${save} svg[data-state="ongoing"]`).count(), busy ? 1 : 0, 'busy fixture includes the real-sized platform loading mark')
+  return boxes
+}
+
 /** Isolated pages; no runtime profile, shared server, or extra model calls. */
 export async function runPromptConfigScenario(browser, context) {
   const outputRoot = resolve(DIR, '../../test-results')
@@ -221,23 +272,57 @@ export async function runPromptConfigScenario(browser, context) {
         assert.equal(await race.page.evaluate((selector) => document.querySelector(selector)?.contains(document.activeElement), modal), true, 'held save leaves reader controls focusable')
         await race.page.evaluate(() => window.__promptFixture.releaseSet(true))
         await race.page.waitForFunction(() => window.__promptFixture.setReleased)
-        await assertSingleModal(race.page)
-        await checkOriginal(race.page, text)
+        await assertSingleModal(race.page, view)
+        if (view === 'effective') await checkOriginal(race.page, text)
+        else {
+          const defaultText = await race.page.textContent(`${defaultModal} .gp-cfg__prompt-original`)
+          assert.ok(defaultText.includes('<user-rules>'), 'the default reader keeps the built-in preview after a slow save')
+          assert.equal(defaultText.includes(text), false, 'a save never repaints the default reader with saved rules')
+        }
+        await race.page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-meta')?.textContent.includes('cfg.suggestPromptSaved'))
         await afterDelivery(race.page)
         const focusInside = await race.page.evaluate((selector) => document.querySelector(selector)?.contains(document.activeElement), modal)
         const sameShell = await shell.evaluate((element) => element.isConnected)
         await race.page.keyboard.press('Escape')
         await race.page.waitForFunction((selector) => document.querySelector(selector) === null, modal)
-        const restoreEffective = await race.page.evaluate((selector) => document.activeElement === document.querySelector(selector), effectiveButton)
-        assert.equal(await race.page.isDisabled(effectiveButton), false)
+        const restoreTarget = await race.page.evaluate(({ effective, fallback }) => document.activeElement === document.querySelector(effective) ? 'effective' : document.activeElement === document.querySelector(fallback) ? 'default' : 'other', { effective: effectiveButton, fallback: defaultButton })
+        assert.equal(await race.page.isDisabled(view === 'default' ? defaultButton : effectiveButton), false)
         assert.deepEqual(race.errors, [])
-        focusRaces.push({ view, focus, focusInside, sameShell, restoreEffective })
+        focusRaces.push({ view, focus, focusInside, sameShell, restoreTarget })
       } finally {
         await race.page.close()
       }
     }
   }
-  assert.deepEqual(focusRaces, ['default', 'effective'].flatMap((view) => ['seg', 'copy'].map((focus) => ({ view, focus, focusInside: true, sameShell: true, restoreEffective: true }))), 'slow save completion stays inside an existing reader and restores the effective entry')
+  assert.deepEqual(focusRaces, ['default', 'effective'].flatMap((view) => ['seg', 'copy'].map((focus) => ({ view, focus, focusInside: true, sameShell: true, restoreTarget: view }))), 'slow save completion stays inside the reader the user opened and restores its entry')
+
+  // The settings mirror already acknowledges the write; host volatile config
+  // remains old for 1.1s. Acknowledgment does not change the accepted identity.
+  const propagation = await mount(browser, context, { hostDelayMs: 1100 })
+  try {
+    const text = 'saved before host propagation'
+    await propagation.page.fill(draft, text)
+    await propagation.page.click(save)
+    await propagation.page.waitForFunction((text) => window.__promptFixture.value.suggestPrompt === text, text)
+    await afterDelivery(propagation.page)
+    assert.equal(await propagation.page.locator(modal).count(), 0, 'a successful save reports status without opening the final reader')
+    await propagation.page.click(effectiveButton)
+    await assertSingleModal(propagation.page)
+    await checkOriginal(propagation.page, text)
+    assert.equal(await propagation.page.inputValue(draft), text, 'accepted identity is already mirrored before host propagation')
+    assert.equal(await propagation.page.locator('.gp-cfg__prompt-reload').count(), 0, 'mirror acknowledgment clears pending without a manual retry')
+    const reads = await propagation.page.evaluate(() => ({ queries: window.__promptFixture.queries, accepted: window.__promptFixture.hostAcceptedAt, published: window.__promptFixture.hostPublishedAt }))
+    assert.equal(reads.queries.length, 3, '1s-level propagation succeeds with initial read and only two extra reads')
+    assert.deepEqual(reads.queries.map((query) => query.hostPrompt), ['old rules', 'old rules', text])
+    assert.ok(reads.published - reads.accepted >= 1000, 'fake host does not publish the write within the old 900ms retry window')
+    assert.ok(reads.queries[2].at - reads.queries[0].at >= 1000, 'last read is beyond the settings 1s follow-up pull')
+    assert.equal(await propagation.page.locator(`${effectiveModal} .gp-cfg__prompt-error`).count(), 0, 'bounded reads succeed without pressing Retry')
+    assert.equal(await propagation.page.evaluate(() => window.__promptFixture.writes.length), 1)
+    await closePrompt(propagation.page)
+    assert.deepEqual(propagation.errors, [])
+  } finally {
+    await propagation.page.close()
+  }
 
   const { page, errors } = await mount(browser, context, { echo: false })
   try {
@@ -252,12 +337,15 @@ export async function runPromptConfigScenario(browser, context) {
     await page.click(save)
     await page.waitForSelector('.gp-cfg__prompt .gp-cfg__err')
     assert.equal(await page.inputValue(draft), typed, 'failed save retains the entire draft')
-    assert.equal(await page.locator(modal).count(), 0, 'failed save never opens an automatic preview')
+    assert.equal(await page.locator(modal).count(), 0, 'failed save never opens a preview')
     assert.equal(await page.evaluate(() => window.__promptFixture.queries.length), 0, 'failed save starts no preview read')
     await page.click(save)
+    await page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-meta')?.textContent.includes('cfg.suggestPromptSaved'))
+    assert.equal(await page.locator(modal).count(), 0, 'a successful save reports status without opening a reader')
+    await page.click(effectiveButton)
     await assertSingleModal(page)
     await checkOriginal(page, typed)
-    assert.equal(await page.locator(`${effectiveModal} .gp-seg__btn`).count(), 2, 'auto exposes both effective language variants')
+    assert.equal(await page.locator(`${effectiveModal} .gp-seg__btn`).count(), 2, 'the opened reader exposes both effective language variants')
     await page.locator(`${effectiveModal} .gp-seg__btn`).nth(1).click()
     await checkOriginal(page, 'English system')
     await page.locator(`${effectiveModal} .gp-seg__btn`).nth(0).click()
@@ -290,6 +378,9 @@ export async function runPromptConfigScenario(browser, context) {
     assert.ok((await page.textContent(effectiveModal)).includes('cfg.suggestPromptDirty'), 'dirty viewing explicitly describes saved settings')
     await closePrompt(page)
     await page.click(save)
+    await page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-meta')?.textContent.includes('cfg.suggestPromptSaved'))
+    assert.equal(await page.locator(modal).count(), 0, 'saving the cleared draft keeps the settings page free of overlays')
+    await page.click(effectiveButton)
     await assertSingleModal(page)
     await checkOriginal(page, '<user-rules>\n结束')
     await closePrompt(page)
@@ -356,13 +447,20 @@ export async function runPromptConfigScenario(browser, context) {
     assert.equal(await page.locator(`${modal} user-rules`).count(), 0, 'original text is escaped, not rendered as HTML')
     await page.locator(`${defaultModal} .gp-seg__btn`).nth(1).click()
     await checkOriginal(page, 'English system', `${defaultModal} .gp-cfg__prompt-original`)
+    const systemCopy = page.getByRole('button', { name: 'cfg.suggestPromptSystem: cfg.suggestPromptCopy', exact: true })
+    const reminderCopy = page.getByRole('button', { name: 'cfg.suggestPromptUserReminder: cfg.suggestPromptCopy', exact: true })
+    assert.equal(await systemCopy.count(), 1, 'system copy has a unique field-specific accessible name')
+    assert.equal(await reminderCopy.count(), 1, 'reminder copy has a different field-specific accessible name')
+    assert.equal(await systemCopy.textContent(), 'cfg.suggestPromptCopy', 'visible copy label stays short')
     await page.evaluate(() => { window.__promptFixture.copyOk = false })
-    await page.locator(`${defaultModal} .gp-cfg__prompt-text button`).first().click()
+    await systemCopy.click()
     await page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptCopyFailed'), defaultModal)
     await page.evaluate(() => { window.__promptFixture.copyOk = true })
-    await page.locator(`${defaultModal} .gp-cfg__prompt-text button`).first().click()
+    await systemCopy.click()
     await page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptCopied'), defaultModal)
-    assert.equal(await page.evaluate(() => window.__promptFixture.copies.at(-1)), 'English system\n<user-rules>\nEnd', 'copy uses the full original string')
+    assert.equal(await page.evaluate(() => window.__promptFixture.copies.at(-1)), 'English system\n<user-rules>\nEnd', 'system action copies its full original string')
+    await reminderCopy.click()
+    assert.equal(await page.evaluate(() => window.__promptFixture.copies.at(-1)), 'English ending reminder\nOriginal', 'reminder action copies the corresponding complete string')
     await closePrompt(page, defaultButton)
     await page.click(effectiveButton)
     await assertSingleModal(page)
@@ -380,17 +478,19 @@ export async function runPromptConfigScenario(browser, context) {
   try {
     await limits.page.fill(draft, ' '.repeat(17000))
     await limits.page.waitForFunction(() => [...document.querySelectorAll('.gp-cfg__prompt p')].some((element) => element.textContent === 'cfg.suggestPromptDirty'))
-    assert.equal(await limits.page.textContent('.gp-cfg__prompt-bytes'), '0 / 16384 bytes (UTF-8)', 'arbitrary whitespace displays the same zero-byte default that save writes')
+    assert.equal(await limits.page.textContent('.gp-cfg__prompt-bytes'), '0 B / 16 KiB (UTF-8)', 'arbitrary whitespace displays the same zero-byte default that save writes')
     assert.equal(await limits.page.getAttribute(draft, 'aria-invalid'), null)
     assert.equal(await limits.page.isDisabled(save), false, 'arbitrary whitespace is the default, not an over-limit custom prompt')
     await limits.page.click(save)
+    await limits.page.waitForFunction(() => window.__promptFixture.writes.at(-1)?.[1] === '' && document.querySelector('.gp-cfg__prompt-input')?.value === '')
+    assert.equal(await limits.page.locator(modal).count(), 0, 'saving whitespace only reports status')
+    await limits.page.click(effectiveButton)
     await assertSingleModal(limits.page)
     await checkOriginal(limits.page, '<user-rules>\n结束')
-    await limits.page.waitForFunction(() => window.__promptFixture.writes.at(-1)?.[1] === '' && document.querySelector('.gp-cfg__prompt-input')?.value === '')
     await closePrompt(limits.page)
     await limits.page.fill(draft, '😀'.repeat(4097))
     await limits.page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-input')?.getAttribute('aria-invalid') === 'true')
-    assert.equal(await limits.page.textContent('.gp-cfg__prompt-bytes'), '16388 / 16384 bytes (UTF-8)')
+    assert.equal(await limits.page.textContent('.gp-cfg__prompt-bytes'), '16388 B / 16 KiB (UTF-8)')
     assert.equal(await limits.page.isDisabled(save), true, 'UTF-8 bytes, not UTF-16 length, guard the limit')
     assert.equal(await limits.page.getAttribute(draft, 'maxlength'), null, 'textarea maxLength is not a byte limit')
     assert.deepEqual(limits.errors, [])
@@ -401,7 +501,7 @@ export async function runPromptConfigScenario(browser, context) {
   const blank = await mount(browser, context, { prompt: '', absent: true, serialized: true })
   try {
     await blank.page.fill(draft, ' \t\n')
-    assert.equal(await blank.page.textContent('.gp-cfg__prompt-bytes'), '0 / 16384 bytes (UTF-8)')
+    assert.equal(await blank.page.textContent('.gp-cfg__prompt-bytes'), '0 B / 16 KiB (UTF-8)')
     assert.equal(await blank.page.isDisabled(save), true, 'blank default is not dirty and cannot repeat-save')
     await blank.page.locator(save).evaluate((button) => button.click())
     await afterDelivery(blank.page)
@@ -416,20 +516,30 @@ export async function runPromptConfigScenario(browser, context) {
   }
 
   for (const invalidPrompt of [17, null]) {
-    const repair = await mount(browser, context, { prompt: invalidPrompt })
+    const repair = await mount(browser, context, { prompt: invalidPrompt, hostDelayMs: 1100 })
     try {
       assert.equal(await repair.page.inputValue(draft), '')
       assert.equal(await repair.page.isDisabled(save), false, 'invalid saved values can be repaired by an explicit empty-string save')
       await repair.page.click(effectiveButton)
-      await repair.page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptPreviewFailed'), effectiveModal)
+      await repair.page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptInvalidConfig'), effectiveModal)
+      assert.equal(await repair.page.locator(`${effectiveModal} .gp-cfg__prompt-error button`).count(), 0, 'invalid saved config explains repair inside the modal instead of offering an inevitably failed Retry')
+      assert.equal(await repair.page.evaluate(() => window.__promptFixture.queries.length), 1, 'known invalid saved config is terminal without propagation polling')
       assert.equal(await repair.page.locator(original).count(), 0, 'invalid config never presents an invented saved preview')
       await closePrompt(repair.page)
+      await repair.page.evaluate(() => { window.__promptFixture.answers.push('config-invalid') })
       await repair.page.click(defaultButton)
+      await repair.page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptPreviewFailed'), defaultModal)
+      await repair.page.locator(`${defaultModal} .gp-cfg__prompt-error button`).click()
       await checkOriginal(repair.page, '中文系统指令', `${defaultModal} .gp-cfg__prompt-original`)
       await closePrompt(repair.page, defaultButton)
+      const beforeRepair = await repair.page.evaluate(() => window.__promptFixture.queries.length)
       await repair.page.click(save)
+      await repair.page.waitForFunction(() => window.__promptFixture.value.suggestPrompt === '')
+      await repair.page.click(effectiveButton)
       await assertSingleModal(repair.page)
       await checkOriginal(repair.page, '<user-rules>\n结束')
+      assert.equal((await repair.page.evaluate(() => window.__promptFixture.queries.length)) - beforeRepair, 3, 'valid repair waits through the old invalid host response with only two extra reads')
+      assert.equal(await repair.page.locator(`${effectiveModal} .gp-cfg__prompt-error`).count(), 0, 'mirror acknowledgment does not pin the repaired preview to config-invalid')
       assert.deepEqual(await repair.page.evaluate(() => window.__promptFixture.writes), [['suggestPrompt', '']])
       assert.equal(await repair.page.locator('.gp-cfg__prompt .gp-cfg__err').count(), 0)
       await closePrompt(repair.page)
@@ -437,6 +547,61 @@ export async function runPromptConfigScenario(browser, context) {
     } finally {
       await repair.page.close()
     }
+  }
+
+  const invalidHost = await mount(browser, context)
+  try {
+    await invalidHost.page.click(effectiveButton)
+    await checkOriginal(invalidHost.page, 'old rules')
+    await closePrompt(invalidHost.page)
+    const beforeInvalid = await invalidHost.page.evaluate(() => window.__promptFixture.queries.length)
+    await invalidHost.page.evaluate(() => { window.__promptFixture.hostPrompt = 17 })
+    await invalidHost.page.click(effectiveButton)
+    await invalidHost.page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptInvalidConfig'), effectiveModal)
+    assert.equal((await invalidHost.page.evaluate(() => window.__promptFixture.queries.length)) - beforeInvalid, 3, 'unexpected invalid host config has the same finite propagation bound')
+    assert.equal(await invalidHost.page.locator(original).count(), 0, 'config-invalid terminal state cannot present a matching cached old final prompt')
+    assert.equal(await invalidHost.page.locator(`${effectiveModal} .gp-cfg__prompt-error button`).count(), 0, 'exhausted config-invalid has no dead-end Retry')
+    // Change only prompt here: language is read directly from the snapshot,
+    // while saved prompt follows the mirror reducer effect. A joint update can
+    // briefly query old prompt + new language; the late-read case above covers
+    // dropping that obsolete response, not an exact one-read count.
+    await invalidHost.page.evaluate(() => window.__promptFixture.external('repaired identity'))
+    await checkOriginal(invalidHost.page, '中文系统指令\n<user-rules>repaired identity')
+    assert.equal(await invalidHost.page.locator(`${effectiveModal} .gp-cfg__prompt-error`).count(), 0, 'new saved identity automatically rereads after a config-invalid terminal state')
+    const repaired = await invalidHost.page.evaluate(() => ({ queries: window.__promptFixture.queries.length, aborted: window.__promptFixture.aborted }))
+    assert.equal(repaired.queries - beforeInvalid, 4, `identity change starts one new read, not a poll loop: ${JSON.stringify(repaired)}`)
+    await closePrompt(invalidHost.page)
+    assert.deepEqual(invalidHost.errors, [])
+  } finally {
+    await invalidHost.page.close()
+  }
+
+  // A save accepted under a valid identity, then a host that reports invalid:
+  // the terminal explanation must stand alone, not promise a Retry it hides.
+  const savedThenInvalid = await mount(browser, context)
+  try {
+    const page = savedThenInvalid.page
+    await page.fill(draft, 'saved rules')
+    await page.click(save)
+    await page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-meta')?.textContent.includes('cfg.suggestPromptSaved'))
+    assert.equal(await page.locator(modal).count(), 0, 'saved rules stay in the settings form until the reader is opened')
+    await page.click(effectiveButton)
+    await checkOriginal(page, 'saved rules')
+    await assertSingleModal(page, 'effective')
+    await closePrompt(page)
+    const beforeSavedInvalid = await page.evaluate(() => window.__promptFixture.queries.length)
+    await page.evaluate(() => { window.__promptFixture.hostPrompt = 17 })
+    await page.click(effectiveButton)
+    await page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptInvalidConfig'), effectiveModal)
+    assert.equal((await page.evaluate(() => window.__promptFixture.queries.length)) - beforeSavedInvalid, 3, 'saved-then-invalid host keeps the same finite propagation bound')
+    const errorText = await page.locator(`${effectiveModal} .gp-cfg__prompt-error`).textContent()
+    assert.equal(errorText.includes('cfg.suggestPromptSavedPreviewFailed'), false, 'config-invalid does not also claim the saved prompt can be retried')
+    assert.equal(await page.locator(`${effectiveModal} .gp-cfg__prompt-error button`).count(), 0, 'saved-then-invalid still has no dead-end Retry')
+    assert.equal(await page.locator(original).count(), 0, 'saved-then-invalid presents no stale final prompt')
+    await closePrompt(page)
+    assert.deepEqual(savedThenInvalid.errors, [])
+  } finally {
+    await savedThenInvalid.page.close()
   }
 
   for (const options of [{ supported: false }, { writable: false, aiEnabled: false }, { supported: false, absent: true, prompt: '', aiEnabled: false }]) {
@@ -503,6 +668,9 @@ export async function runPromptConfigScenario(browser, context) {
     await final.page.evaluate(() => { window.__promptFixture.answers.push('fail') })
     await final.page.fill(draft, 'saved but unread')
     await final.page.click(save)
+    await final.page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-meta')?.textContent.includes('cfg.suggestPromptSaved'))
+    assert.equal(await final.page.locator(modal).count(), 0, 'a save whose preview would fail still opens no reader by itself')
+    await final.page.click(effectiveButton)
     await assertSingleModal(final.page)
     await final.page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptSavedPreviewFailed'), effectiveModal)
     const savedWrites = await final.page.evaluate(() => window.__promptFixture.writes.length)
@@ -527,6 +695,8 @@ export async function runPromptConfigScenario(browser, context) {
     await final.page.fill(draft, 'new form draft')
     assert.equal(await final.page.isDisabled(save), false)
     await final.page.click(save)
+    await final.page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-meta')?.textContent.includes('cfg.suggestPromptSaved'))
+    await final.page.click(effectiveButton)
     await assertSingleModal(final.page)
     await checkOriginal(final.page, 'new form draft')
     assert.equal(await final.page.locator('.gp-cfg__prompt .gp-cfg__err').count(), 0)
@@ -535,6 +705,8 @@ export async function runPromptConfigScenario(browser, context) {
     const long = '非常长的规范😀'.repeat(400)
     await final.page.fill(draft, long)
     await final.page.click(save)
+    await final.page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-meta')?.textContent.includes('cfg.suggestPromptSaved'))
+    await final.page.click(effectiveButton)
     await assertSingleModal(final.page)
     await checkOriginal(final.page, long)
     await final.page.setViewportSize({ width: 320, height: 880 })
@@ -578,11 +750,26 @@ export async function runPromptConfigScenario(browser, context) {
     assert.equal(await visual.page.textContent(effectiveButton), '查看最终提示词', 'final-version entry uses the Chinese modal action label')
     await visual.page.fill(draft, realRules)
     const expectedBytes = Buffer.byteLength(realRules, 'utf8')
-    await visual.page.waitForFunction((bytes) => document.querySelector('.gp-cfg__prompt-bytes')?.textContent === `${bytes} / 16384 字节（UTF-8）`, expectedBytes)
+    await visual.page.waitForFunction((bytes) => document.querySelector('.gp-cfg__prompt-bytes')?.textContent === `${bytes} B / 16 KiB（UTF-8）`, expectedBytes)
     assert.equal(await visual.page.isDisabled(save), false, 'actual Chinese UTF-8 byte count and save gate agree')
+    for (const width of [760, 404, 320]) {
+      await setPromptWidth(visual.page, width)
+      await assertPromptToolbar(visual.page, width, { chinese: true })
+    }
+    await visual.page.evaluate(() => { window.__promptFixture.holdSet = true })
     await visual.page.click(save)
+    await visual.page.waitForFunction(() => typeof window.__promptFixture.releaseSet === 'function')
+    for (const width of [760, 404, 320]) {
+      await setPromptWidth(visual.page, width)
+      await assertPromptToolbar(visual.page, width, { chinese: true, busy: true })
+    }
+    await visual.page.evaluate(() => window.__promptFixture.releaseSet(true))
+    await visual.page.waitForFunction(() => window.__promptFixture.setReleased)
+    assert.equal(await visual.page.locator(modal).count(), 0, 'a successful save keeps the settings page free of overlays')
+    await visual.page.click(effectiveButton)
     await assertSingleModal(visual.page)
     await checkOriginal(visual.page, realRules)
+    await setPromptWidth(visual.page, 760)
     const strings = await visual.page.locator(original).allTextContents()
     assert.deepEqual(strings, [realPrompts.custom.zh.system, realPrompts.custom.zh.userReminder], 'effective modal shows complete strings from the real host prompt builder')
     await visual.page.screenshot({ path: resolve(screenshots, 'saved-effective-modal-wide.png'), fullPage: true })
@@ -599,9 +786,40 @@ export async function runPromptConfigScenario(browser, context) {
     await assertSingleModal(visual.page, 'default')
     await checkOriginal(visual.page, realPrompts.defaults.zh.system, `${defaultModal} .gp-cfg__prompt-original`)
     await closePrompt(visual.page, defaultButton)
+    for (const width of [760, 404, 320]) {
+      await setPromptWidth(visual.page, width)
+      await assertPromptToolbar(visual.page, width, { chinese: true })
+      assert.equal(await visual.page.textContent('.gp-cfg__prompt-bytes'), `${expectedBytes} B / 16 KiB（UTF-8）`, 'real Chinese counter keeps its exact byte count and 16 KiB limit')
+      await visual.page.locator('.gp-cfg__prompt-footer').screenshot({ path: resolve(screenshots, `prompt-toolbar-${width}px.png`) })
+    }
     assert.deepEqual(visual.errors, [])
   } finally {
     await visual.page.close()
+  }
+  const longLocale = await mount(browser, context, { translated: true, locale: 'de' })
+  try {
+    assert.equal(await longLocale.page.textContent(effectiveButton), 'Gespeicherten Prompt ansehen', 'long-language fixture uses the real German dictionary')
+    await longLocale.page.fill(draft, 'German toolbar busy sample')
+    for (const width of [404, 320]) {
+      await setPromptWidth(longLocale.page, width)
+      await assertPromptToolbar(longLocale.page, width, { wrapped: true })
+    }
+    await longLocale.page.evaluate(() => { window.__promptFixture.holdSet = true })
+    await longLocale.page.click(save)
+    await longLocale.page.waitForFunction(() => typeof window.__promptFixture.releaseSet === 'function')
+    for (const width of [404, 320]) {
+      await setPromptWidth(longLocale.page, width)
+      await assertPromptToolbar(longLocale.page, width, { wrapped: true, busy: true })
+    }
+    await longLocale.page.evaluate(() => window.__promptFixture.releaseSet(true))
+    await longLocale.page.waitForFunction(() => window.__promptFixture.setReleased)
+    await longLocale.page.click(effectiveButton)
+    await assertSingleModal(longLocale.page)
+    await checkOriginal(longLocale.page, 'German toolbar busy sample')
+    await closePrompt(longLocale.page)
+    assert.deepEqual(longLocale.errors, [])
+  } finally {
+    await longLocale.page.close()
   }
   console.log(`e2e/config-sections issue159: all assertions passed; screenshots: ${screenshots}`)
 }
