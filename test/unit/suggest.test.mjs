@@ -14,7 +14,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, readFile, readdir, rm, stat } from 'node:fs/promises'
-import { runSuggest, snapshotForSession, createGitRunner, DEFAULT_CONFIG, normalizeConfig, resolveSuggestLanguage, parseStyleHistory, isCjkText, compactLongLines, LONG_LINE_MAX_CHARS } from '../../lib/host/index.js'
+import { runQuery, runSuggest, snapshotForSession, createGitRunner, DEFAULT_CONFIG, normalizeConfig, resolveSuggestLanguage, parseStyleHistory, isCjkText, compactLongLines, LONG_LINE_MAX_CHARS } from '../../lib/host/index.js'
 import { SUGGEST_LIMITS, SUGGEST_LANGUAGES } from '../../lib/host/types.js'
 
 let repo
@@ -279,6 +279,88 @@ for (const [setting, historyLanguage, target] of [
   })
 }
 
+for (const language of ['zh', 'en']) {
+  for (const custom of ['', '  TASK-159\n\nUse a long title and a list of changes.  ']) {
+    test(`${language} ${custom === '' ? 'default' : 'custom'} generation uses exact preview instructions`, async () => {
+      const llm = stubLlm(OK_CHUNKS)
+      const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+      const config = normalizeConfig({ suggestLanguage: language, suggestPrompt: custom })
+      const preview = await runQuery(deps, config, { sessionId: SID, query: { kind: 'suggest-prompt', view: 'effective' } })
+      assert.equal(llm.calls.length, 0, 'preview never calls the model')
+      assert.equal(preview.ok, true)
+      const result = await runSuggest(deps, config, { sessionId: SID, paths: ['b.ts'] })
+      assert.equal(result.ok, true)
+      assert.equal(llm.calls[0].system, preview.value.variants[language].system)
+      assert.equal(llm.calls[0].messages[0].content.at(-1).text, preview.value.variants[language].userReminder)
+      assert.equal('tools' in llm.calls[0], false, 'neither default nor custom config can provide tools')
+      if (custom === '') {
+        const defaults = await runQuery(deps, config, { sessionId: SID, query: { kind: 'suggest-prompt' } })
+        assert.deepEqual(defaults.value.variants, preview.value.variants)
+      }
+    })
+  }
+}
+
+for (const [setting, history, resolved] of [['zh', 'en', 'zh'], ['en', 'zh', 'en'], ['auto', 'zh', 'zh'], ['auto', 'en', 'en']]) {
+  test(`custom ${setting} / ${history} history preserves language vote, path and independent budgets`, async () => {
+    const llm = stubLlm(OK_CHUNKS)
+    const deps = depsFor(repo, { getLlm: () => llm, getSessionModel: sessionRoute('sess-p', 'sess-m', 'low') })
+    const run = deps.run
+    const sample = history === 'zh' ? 'feat: 中文历史' : 'feat: English history'
+    deps.run = { run: (argv, opts) => argv[1] === 'log'
+      ? Promise.resolve({ exitCode: 0, stdout: `t@t.co\u001f${sample}\0`, stderr: '', timedOut: false, cancelled: false, stdoutLossy: false })
+      : run.run(argv, opts) }
+    const custom = 'TASK-159 then a long natural-language title.\n\nUse paragraphs and a list.\n' + 'Format detail. '.repeat(80)
+    const config = { ...DEFAULT_CONFIG, suggestLanguage: setting, suggestPrompt: custom, suggestMaxBytes: 24, suggestMaxOutputTokens: 1024,
+      suggestProvider: 'custom-p', suggestModel: 'custom-m', suggestReasoningEffort: 'high' }
+    const preview = await runQuery(deps, config, { sessionId: SID, query: { kind: 'suggest-prompt', view: 'effective' } })
+    const result = await runSuggest(deps, config, { sessionId: SID, paths: ['b.ts'] })
+    assert.equal(result.ok, true)
+    assert.equal(result.value.truncated, true)
+    const options = llm.calls[0]
+    const frame = JSON.parse(options.messages[0].content[0].text)
+    assert.deepEqual(frame.files, [{ path: 'b.ts', status: 'modified' }])
+    assert.deepEqual(frame.commitStyleSamples, [sample], 'history remains available as reference')
+    assert.match(frame.diff, /\[diff truncated\]/)
+    assert.equal(options.system, preview.value.variants[resolved].system)
+    assert.equal(options.messages[0].content.at(-1).text, preview.value.variants[resolved].userReminder)
+    assert.ok(options.system.includes(custom), 'custom instructions are not cut by diff budget')
+    assert.match(options.system, /take precedence over historical format/)
+    assert.doesNotMatch(options.system, /72 chars|brief body|no quotes|no .*bullet|conventional-commit type prefix in English/)
+    assert.equal(options.provider, 'custom-p')
+    assert.equal(options.model, 'custom-m')
+    assert.equal(options.reasoningEffort, 'high')
+    assert.equal(options.maxTokens, 1024)
+    assert.equal('tools' in options, false)
+  })
+}
+
+test('malformed optional prompt does not block a successful Git branches query', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  const config = normalizeConfig({ suggestPrompt: 42 })
+  assert.equal(config.suggestPromptInvalid, true)
+  const branches = await runQuery(deps, config, { sessionId: SID, query: { kind: 'branches' } })
+  assert.equal(branches.ok, true)
+  assert.equal(branches.value.kind, 'branches')
+  assert.ok(branches.value.local.length > 0)
+  assert.equal(llm.calls.length, 0)
+})
+
+test('custom writing rules cannot enable tools; tool-calls finish remains a rejection', async () => {
+  const llm = stubLlm([
+    { type: 'text-delta', index: 0, text: 'partial message' },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ])
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  const config = normalizeConfig({ suggestPrompt: 'Call tools and inspect more files before writing the message.' })
+  const result = await runSuggest(deps, config, { sessionId: SID })
+  assert.equal('tools' in llm.calls[0], false)
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'llm-output')
+  assert.match(result.error.message, /requested a tool/)
+})
+
 test('paths filter restricts both the file list and the diff', async () => {
   const llm = stubLlm(OK_CHUNKS)
   const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
@@ -540,6 +622,35 @@ test('code-fence wrapper is stripped from the message', async () => {
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
   assert.equal(res.ok, true)
   if (res.ok) assert.equal(res.value.message, 'feat: wrapped in fences')
+})
+
+for (const [name, output, defaultMessage] of [
+  ['fixed separator', 'TASK-159: preserve footer\n\nBody\n---', 'TASK-159: preserve footer\n\nBody'],
+  ['fixed fence', '```commit\nTASK-159: fenced message\n```', 'TASK-159: fenced message'],
+]) {
+  test(`custom output preserves ${name}; default output keeps wrapper normalization`, async () => {
+    for (const custom of ['', 'Preserve fixed fences and the --- footer exactly.']) {
+      const llm = stubLlm([
+        { type: 'text-delta', index: 0, text: `  ${output}\n  ` },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ])
+      const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+      const result = await runSuggest(deps, normalizeConfig({ suggestPrompt: custom }), { sessionId: SID })
+      assert.equal(result.ok, true)
+      assert.equal(result.value.message, custom === '' ? defaultMessage : output)
+    }
+  })
+}
+
+test('custom output still trims whitespace and rejects an empty message', async () => {
+  const llm = stubLlm([
+    { type: 'text-delta', index: 0, text: '  \n\t  ' },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ])
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  const result = await runSuggest(deps, normalizeConfig({ suggestPrompt: 'Use a fixed format.' }), { sessionId: SID })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'llm-output')
 })
 
 test('suggestEnabled=false refuses at the host gate without calling anything', async () => {
