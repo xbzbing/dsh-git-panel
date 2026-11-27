@@ -84,8 +84,7 @@ export function useSuggestPromptConfig({ ctx, form, snapshot, schema, visible, d
   const owner = useRef(form)
   const bound = owner.current === form
   const editor = bound ? storedEditor : promptEditorInitial(mirrorPrompt)
-  const [expanded, setExpanded] = useState(false)
-  const [defaultOpen, setDefaultOpen] = useState(false)
+  const [previewView, setPreviewView] = useState<GitSuggestPromptView | null>(null)
   const [refresh, setRefresh] = useState(0)
   const [syncPending, setSyncPending] = useState(false)
   const lifetime = useRef({ generation: 0 }).current
@@ -94,14 +93,14 @@ export function useSuggestPromptConfig({ ctx, form, snapshot, schema, visible, d
   latest.current = { form, snapshot, schema, disabled, mirrorPrompt }
   const supported = supportsSuggestPrompt(schema)
   const writable = supported && snapshot?.status === 'ready' && snapshot.writable === true && form !== undefined
-  const bytes = promptUtf8Bytes(editor.draft)
+  const bytes = promptUtf8Bytes(normalizePrompt(editor.draft))
   const dirty = promptEditorDirty(editor)
-  const overLimit = promptUtf8Bytes(normalizePrompt(editor.draft)) > SUGGEST_PROMPT_MAX_BYTES
+  const overLimit = bytes > SUGGEST_PROMPT_MAX_BYTES
   const canSave = bound && writable && !disabled && !editor.saving && editor.pending === null && !editor.conflict && dirty && !overLimit
   const remote = gitPanelRemoteOf(ctx)
   const identity: PromptIdentity | null = editor.saved === null ? null : { configuredPrompt: editor.saved, languageSetting: language }
-  const effective = usePromptPreview(remote, 'effective', bound && visible && expanded, identity)
-  const defaults = usePromptPreview(remote, 'default', bound && visible && defaultOpen, null)
+  const effective = usePromptPreview(remote, 'effective', bound && visible && previewView === 'effective', identity)
+  const defaults = usePromptPreview(remote, 'default', bound && visible && previewView === 'default', null)
 
   useEffect(() => {
     dispatch({ type: 'mirror', value: mirrorPrompt })
@@ -112,8 +111,7 @@ export function useSuggestPromptConfig({ ctx, form, snapshot, schema, visible, d
     owner.current = form
     saving.current = false
     dispatch({ type: 'reload', value: latest.current.mirrorPrompt })
-    setExpanded(false)
-    setDefaultOpen(false)
+    setPreviewView(null)
     setSyncPending(false)
     return () => { ++lifetime.generation }
   }, [form, lifetime])
@@ -130,51 +128,52 @@ export function useSuggestPromptConfig({ ctx, form, snapshot, schema, visible, d
     return () => { clearTimeout(timer) }
   }, [editor.pending, editor.saving, mirrorPrompt, refresh])
 
-  const save = useCallback(async (): Promise<void> => {
-    if (!canSave || saving.current) return
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!canSave || saving.current) return false
     const now = latest.current
-    if (now.form !== form || !supportsSuggestPrompt(now.schema) || now.snapshot?.status !== 'ready' || now.snapshot.writable !== true || now.disabled) return
+    if (now.form !== form || !supportsSuggestPrompt(now.schema) || now.snapshot?.status !== 'ready' || now.snapshot.writable !== true || now.disabled) return false
     if (now.mirrorPrompt !== editor.saved) {
       dispatch({ type: 'mirror', value: now.mirrorPrompt })
-      return
+      return false
     }
     saving.current = true
     const seq = lifetime.generation
     dispatch({ type: 'start' })
     try {
       const ok = await form!.set('suggestPrompt', normalizePrompt(editor.draft))
-      if (seq !== lifetime.generation) return
+      if (seq !== lifetime.generation || latest.current.form !== form) return false
       dispatch({ type: ok ? 'success' : 'failure' })
       if (ok) {
         resyncAfterWrite()
-        setExpanded(true)
         // Also refresh when a successful save keeps the same identity (e.g. clearing whitespace).
         effective.retry()
         setRefresh((n) => n + 1)
       }
+      return ok
     } catch {
-      if (seq === lifetime.generation) dispatch({ type: 'failure' })
+      if (seq === lifetime.generation && latest.current.form === form) dispatch({ type: 'failure' })
+      return false
     } finally {
       if (seq === lifetime.generation) saving.current = false
     }
   }, [canSave, form, editor.draft, editor.saved, effective, lifetime])
 
   const retryEffective = (): void => {
-    setExpanded(true)
+    setPreviewView('effective')
     effective.retry()
   }
 
   return {
-    editor, bytes, overLimit, dirty, canSave, supported, writable, syncPending: bound && syncPending, expanded, defaultOpen,
+    editor, bytes, overLimit, dirty, canSave, supported, writable, syncPending: bound && syncPending, previewView: bound ? previewView : null,
     effective: { ...effective, retry: retryEffective }, defaults,
     edit: (text: string): void => { dispatch({ type: 'edit', text }) },
     reload: (): void => {
       dispatch({ type: 'reload', value: latest.current.mirrorPrompt })
       effective.retry()
     },
-    toggleExpanded: (): void => { setExpanded((open) => !open) },
-    openDefault: (): void => { setDefaultOpen(true) },
-    closeDefault: (): void => { setDefaultOpen(false) },
+    openEffective: (): void => { setPreviewView('effective') },
+    openDefault: (): void => { setPreviewView('default') },
+    closePreview: (): void => { setPreviewView(null) },
     save,
   }
 }

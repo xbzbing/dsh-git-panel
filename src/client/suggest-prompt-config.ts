@@ -1,5 +1,5 @@
 import type { GitSuggestPromptPreview, GitSuggestPromptView, SuggestLanguage } from './types.js'
-import { SUGGEST_PROMPT_MAX_BYTES } from './types.js'
+import { SUGGEST_PROMPT_MAX_BYTES, SUGGEST_PROMPT_PREVIEW_MAX_BYTES } from './types.js'
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -71,7 +71,7 @@ export function parsePromptPreview(response: unknown, view: GitSuggestPromptView
     for (const field of ['system', 'userReminder']) {
       const text = variant[field]
       // Includes the bounded custom rules plus the host-owned task/language wrapper.
-      if (typeof text !== 'string' || text.length === 0 || promptUtf8Bytes(text) > SUGGEST_PROMPT_MAX_BYTES * 2) return null
+      if (typeof text !== 'string' || text.length === 0 || promptUtf8Bytes(text) > SUGGEST_PROMPT_PREVIEW_MAX_BYTES) return null
     }
   }
   return value as unknown as GitSuggestPromptPreview

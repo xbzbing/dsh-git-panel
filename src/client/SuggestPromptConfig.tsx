@@ -1,13 +1,12 @@
-import { createElement as h, useId, useState } from 'react'
+import { createElement as h, useId, useRef, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCopyFeedback } from './copy-feedback.js'
-import { ChevronIcon } from './icons.js'
 import type { GitKey } from './locales.js'
 import { renderModalShell } from './ops-modals.js'
 import { segButtons } from './seg.js'
 import { SUGGEST_PROMPT_MAX_BYTES } from './types.js'
-import type { GitSuggestPromptPreview, ResolvedLanguage } from './types.js'
+import type { GitSuggestPromptPreview, GitSuggestPromptView, ResolvedLanguage } from './types.js'
 import { useSuggestPromptConfig } from './use-suggest-prompt-config.js'
 import type { PromptReadStatus, SuggestPromptConfigInput } from './use-suggest-prompt-config.js'
 
@@ -68,12 +67,28 @@ export function SuggestPromptConfig(props: SuggestPromptConfigInput & { readonly
   const { t } = props
   const state = useSuggestPromptConfig(props)
   const id = useId()
+  const defaultButton = useRef<HTMLButtonElement | null>(null)
+  const effectiveButton = useRef<HTMLButtonElement | null>(null)
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const footerClose = useRef<HTMLButtonElement | null>(null)
   const { editor } = state
   const editDisabled = !state.writable || props.disabled || editor.saving
+  const openPreview = (view: GitSuggestPromptView, reread = false): void => {
+    restoreFocusRef.current = view === 'default' ? defaultButton.current : effectiveButton.current
+    // A save may finish after the user opens a reader. Keep its focus inside the
+    // current shell; only a first open focuses the stable external return target.
+    ;(footerClose.current ?? restoreFocusRef.current)?.focus()
+    if (view === 'default') state.openDefault()
+    else if (reread) state.effective.retry()
+    else state.openEffective()
+  }
+  const save = async (): Promise<void> => {
+    if (await state.save()) openPreview('effective')
+  }
   return h('div', { className: 'gp-cfg__field gp-cfg__prompt' }, [
     h('div', { key: 'title', className: 'gp-cfg__prompt-head' }, [
       h('h3', { key: 'label', className: 'gp-cfg__title' }, h('label', { htmlFor: `${id}-draft` }, t('cfg.suggestPromptTitle'))),
-      h('button', { key: 'default', type: 'button', className: 'gp-cfg__prompt-button gp-cfg__prompt-default', onClick: state.openDefault }, t('cfg.suggestPromptDefault')),
+      h('button', { key: 'default', ref: defaultButton, type: 'button', className: 'gp-cfg__prompt-button gp-cfg__prompt-default', 'aria-haspopup': 'dialog', onClick: () => { openPreview('default') } }, t('cfg.suggestPromptDefault')),
     ]),
     h('p', { key: 'hint', id: `${id}-hint`, className: 'gp-cfg__hint' }, t('cfg.suggestPromptHint')),
     h('textarea', {
@@ -83,7 +98,7 @@ export function SuggestPromptConfig(props: SuggestPromptConfigInput & { readonly
       onChange: (event: ChangeEvent<HTMLTextAreaElement>) => { state.edit(event.currentTarget.value) },
     }),
     h('div', { key: 'actions', className: 'gp-cfg__prompt-actions' }, [
-      h('button', { key: 'save', type: 'button', className: 'gp-cfg__prompt-button gp-cfg__prompt-save', disabled: !state.canSave, onClick: () => { void state.save() } }, [
+      h('button', { key: 'save', type: 'button', className: 'gp-cfg__prompt-button gp-cfg__prompt-save', disabled: !state.canSave, onClick: () => { void save() } }, [
         editor.saving ? h(StateDot, { key: 'dot', state: 'ongoing', size: 14 }) : null,
         t('cfg.suggestPromptSave'),
       ]),
@@ -100,24 +115,22 @@ export function SuggestPromptConfig(props: SuggestPromptConfigInput & { readonly
     editor.conflict || state.syncPending ? h('div', { key: 'conflict', className: 'gp-cfg__prompt-error', role: 'status' }, [
       h('p', { key: 'hint', className: 'gp-cfg__hint' }, t(editor.conflict ? 'cfg.suggestPromptConflict' : 'cfg.suggestPromptSyncMirror')),
       h('button', { key: 'reload', type: 'button', className: 'gp-cfg__prompt-button gp-cfg__prompt-reload', disabled: editor.saving, onClick: state.reload }, t('cfg.suggestPromptReload')),
-      state.syncPending ? h('button', { key: 'retry', type: 'button', className: 'gp-cfg__prompt-button', onClick: state.effective.retry }, t('cfg.suggestPromptRetry')) : null,
+      state.syncPending ? h('button', { key: 'retry', type: 'button', className: 'gp-cfg__prompt-button', onClick: () => { openPreview('effective', true) } }, t('cfg.suggestPromptRetry')) : null,
     ]) : null,
     h('button', {
-      key: 'preview-toggle', type: 'button', className: 'gp-cfg__prompt-preview-toggle',
-      'aria-expanded': state.expanded, 'aria-controls': `${id}-preview`, onClick: state.toggleExpanded,
-    }, [t('cfg.suggestPromptPreview'), h(ChevronIcon, { key: 'chevron', open: state.expanded, size: 14 })]),
-    h('div', { key: 'preview', id: `${id}-preview`, className: 'gp-cfg__prompt-preview', hidden: !state.expanded }, [
-      h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.suggestPromptPreviewHint')),
-      h(PromptRead, { key: 'read', ...state.effective, saved: editor.result === 'saved', both: false, t }),
-    ]),
-    props.visible && state.defaultOpen ? renderModalShell({
-      title: t('cfg.suggestPromptDefaultTitle'), onClose: state.closeDefault, portalKey: 'suggest-prompt-default',
-      variant: 'gp-cfg__prompt-modal', trapFocus: true, t,
+      key: 'effective', ref: effectiveButton, type: 'button', className: 'gp-cfg__prompt-button gp-cfg__prompt-effective',
+      'aria-haspopup': 'dialog', onClick: () => { openPreview('effective') },
+    }, t('cfg.suggestPromptEffective')),
+    props.visible && state.previewView !== null ? renderModalShell({
+      title: t(state.previewView === 'default' ? 'cfg.suggestPromptDefaultTitle' : 'cfg.suggestPromptPreview'),
+      onClose: state.closePreview, portalKey: 'suggest-prompt-preview',
+      variant: `gp-cfg__prompt-modal gp-cfg__prompt-modal--${state.previewView}`, trapFocus: true, restoreFocusRef, t,
       body: [
         h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.suggestPromptPreviewHint')),
-        h(PromptRead, { key: 'read', ...state.defaults, saved: false, both: true, t }),
+        state.previewView === 'effective' && state.dirty ? h('p', { key: 'dirty', className: 'gp-cfg__hint' }, t('cfg.suggestPromptDirty')) : null,
+        h(PromptRead, { key: state.previewView, ...(state.previewView === 'default' ? state.defaults : state.effective), saved: state.previewView === 'effective' && editor.result === 'saved', both: state.previewView === 'default', t }),
       ],
-      footer: h('div', { className: 'gp-modal__footer' }, h('button', { type: 'button', className: 'gp-btn', onClick: state.closeDefault }, t('common.close'))),
+      footer: h('div', { className: 'gp-modal__footer' }, h('button', { ref: footerClose, type: 'button', className: 'gp-btn', onClick: state.closePreview }, t('common.close'))),
     }) : null,
   ])
 }
