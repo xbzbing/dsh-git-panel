@@ -11,6 +11,7 @@ docs/local/
 
 # graphify knowledge-graph output (generated, local-only)
 graphify-out/
+.graphifyignore
 
 # Editor / OS
 .DS_Store
