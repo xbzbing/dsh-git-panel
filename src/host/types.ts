@@ -1252,6 +1252,12 @@ export interface GitQueryRequest {
 /** Independent UTF-8 ceiling for user-owned writing rules, outside the diff budget. */
 export const SUGGEST_PROMPT_MAX_BYTES = 16 * 1024
 
+/** Reserved UTF-8 budget for the fixed task/language instructions; builder tests guard it. */
+export const SUGGEST_PROMPT_WRAPPER_MAX_BYTES = 4 * 1024
+
+/** One complete preview instruction string, excluding dynamic repository data. */
+export const SUGGEST_PROMPT_PREVIEW_MAX_BYTES = SUGGEST_PROMPT_MAX_BYTES + SUGGEST_PROMPT_WRAPPER_MAX_BYTES
+
 export type GitSuggestPromptView = 'default' | 'effective'
 
 /** The exact instruction strings used in one model request; repository data is separate. */
