@@ -14,10 +14,15 @@ function languageName(language: ResolvedLanguage): string {
 
 function defaultSystem(language: ResolvedLanguage): string {
   const name = languageName(language)
+  // The house style keeps the conventional-commit type prefix in English and
+  // writes the description (and any body) in Chinese.
   const languageRule = language === 'zh'
     ? 'Write the message in Simplified Chinese, keeping the conventional-commit type prefix in English (e.g. "feat(scope): 中文描述").'
     : 'Write the message in English.'
   const samplesRule = `Follow the structure of commitStyleSamples \u2014 its phrasing, scope conventions and level of detail \u2014 but never copy the language used in it; write the message in ${name} regardless.`
+  // The final, loudest instruction repeats the prefix exception: "the entire
+  // message in Simplified Chinese" alone reads as "translate everything",
+  // including the type prefix \u2014 the failure mode this block exists to fix.
   const override = language === 'zh'
     ? 'IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the subject description and body in Simplified Chinese, whatever language the input uses \u2014 keeping the conventional-commit type prefix in English.'
     : `IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the entire message \u2014 subject line and body alike \u2014 in ${name}, whatever language the input uses.`
@@ -33,6 +38,7 @@ function defaultSystem(language: ResolvedLanguage): string {
   ].join('\n')
 }
 
+/** The reminder repeats the language and prefix rules: it is the last text the model reads. */
 function defaultReminder(language: ResolvedLanguage): string {
   const name = languageName(language)
   const prefix = language === 'zh' ? ' Keep the conventional-commit type prefix in English.' : ''

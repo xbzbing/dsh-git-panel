@@ -18,6 +18,7 @@ import { isSafePath } from './validate.js'
 import { parseStatus } from './parser.js'
 import { buildSuggestPrompt } from './suggest-prompt.js'
 import type { AgentDefaultModelFace, SessionModelSelection } from './llm-face.js'
+import { SUGGEST_PROMPT_MAX_BYTES } from './types.js'
 import type { GitChange, GitSuggestRequest, GitSuggestResult, ResolvedLanguage, SuggestLanguage } from './types.js'
 
 /** One endpoint failure (the inner envelope of GitSuggestResult). */
@@ -358,7 +359,7 @@ export async function runSuggest(
     return { ok: false, error: { code: 'suggest-disabled', message: 'AI suggest is turned off in the plugin config' } }
   }
   if (config.suggestPromptInvalid) {
-    return { ok: false, error: { code: 'suggest-prompt-invalid', message: 'custom commit writing rules must be a string within the 16 KiB UTF-8 limit' } }
+    return { ok: false, error: { code: 'suggest-prompt-invalid', message: `custom commit writing rules must be a string within the ${SUGGEST_PROMPT_MAX_BYTES / 1024} KiB UTF-8 limit` } }
   }
   const workspace = await resolveWorkspace(deps, request.sessionId, request.repo, config.codeWorkspace)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }

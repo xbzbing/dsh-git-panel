@@ -10,7 +10,7 @@ import { exactPathspec, historyPathspec, isGitInternalPath, isSafePath, isSafeRe
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
-import { imageMimeFor, isEditablePath, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, EDIT_MAX_BYTES, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, SVG_MIME } from './types.js'
+import { imageMimeFor, isEditablePath, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, EDIT_MAX_BYTES, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, SUGGEST_PROMPT_MAX_BYTES, SVG_MIME } from './types.js'
 import type { FileEditInfo } from './types.js'
 import { editInfo, sha256Hex } from './edit-info.js'
 import { buildSuggestPrompt } from './suggest-prompt.js'
@@ -54,7 +54,7 @@ export async function runQuery(
       return { ok: false, error: { code: 'invalid-name', message: 'unknown suggest prompt view' } }
     }
     if (view === 'effective' && config.suggestPromptInvalid) {
-      return { ok: false, error: { code: 'suggest-prompt-invalid', message: 'custom commit writing rules must be a string within the 16 KiB UTF-8 limit' } }
+      return { ok: false, error: { code: 'suggest-prompt-invalid', message: `custom commit writing rules must be a string within the ${SUGGEST_PROMPT_MAX_BYTES / 1024} KiB UTF-8 limit` } }
     }
     const configuredPrompt = view === 'default' ? '' : config.suggestPrompt
     return {
