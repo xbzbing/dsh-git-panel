@@ -443,8 +443,11 @@ export async function runPromptConfigScenario(browser, context) {
     await assertSingleModal(page, 'default')
     await page.waitForFunction((selector) => document.querySelector(selector)?.textContent.includes('cfg.suggestPromptPreviewInvalid'), defaultModal)
     await page.locator(`${defaultModal} .gp-cfg__prompt-error button`).click()
-    await checkOriginal(page, '中文系统指令', `${defaultModal} .gp-cfg__prompt-original`)
+    await checkOriginal(page, 'English system', `${defaultModal} .gp-cfg__prompt-original`)
+    assert.equal(await page.locator(`${defaultModal} .gp-seg__btn[aria-pressed="true"]`).textContent(), 'cfg.suggestLangEn', 'default reader follows the saved language, not always Chinese')
     assert.equal(await page.locator(`${modal} user-rules`).count(), 0, 'original text is escaped, not rendered as HTML')
+    await page.locator(`${defaultModal} .gp-seg__btn`).nth(0).click()
+    await checkOriginal(page, '中文系统指令', `${defaultModal} .gp-cfg__prompt-original`)
     await page.locator(`${defaultModal} .gp-seg__btn`).nth(1).click()
     await checkOriginal(page, 'English system', `${defaultModal} .gp-cfg__prompt-original`)
     const systemCopy = page.getByRole('button', { name: 'cfg.suggestPromptSystem: cfg.suggestPromptCopy', exact: true })
@@ -498,6 +501,16 @@ export async function runPromptConfigScenario(browser, context) {
     await limits.page.close()
   }
 
+  const localizedLimit = await mount(browser, context, { translated: true, locale: 'zh' })
+  try {
+    await localizedLimit.page.fill(draft, '😀'.repeat(4097))
+    await localizedLimit.page.waitForFunction(() => document.querySelector('.gp-cfg__prompt-input')?.getAttribute('aria-invalid') === 'true')
+    assert.equal(await localizedLimit.page.textContent('.gp-cfg__prompt > .gp-cfg__err'), '超过 16 KiB UTF-8 上限，请缩短后保存。', 'the over-limit message derives its budget from the shared constant')
+    assert.deepEqual(localizedLimit.errors, [])
+  } finally {
+    await localizedLimit.page.close()
+  }
+
   const blank = await mount(browser, context, { prompt: '', absent: true, serialized: true })
   try {
     await blank.page.fill(draft, ' \t\n')
@@ -525,6 +538,8 @@ export async function runPromptConfigScenario(browser, context) {
       assert.equal(await repair.page.locator(`${effectiveModal} .gp-cfg__prompt-error button`).count(), 0, 'invalid saved config explains repair inside the modal instead of offering an inevitably failed Retry')
       assert.equal(await repair.page.evaluate(() => window.__promptFixture.queries.length), 1, 'known invalid saved config is terminal without propagation polling')
       assert.equal(await repair.page.locator(original).count(), 0, 'invalid config never presents an invented saved preview')
+      assert.equal((await repair.page.textContent('.gp-cfg__prompt')).includes('cfg.suggestPromptDirty'), false, 'an untouched invalid config is not accused of an unsaved draft')
+      assert.equal((await repair.page.textContent(effectiveModal)).includes('cfg.suggestPromptDirty'), false, 'the reader repeats no dirty warning for an untouched invalid config')
       await closePrompt(repair.page)
       await repair.page.evaluate(() => { window.__promptFixture.answers.push('config-invalid') })
       await repair.page.click(defaultButton)
@@ -602,6 +617,18 @@ export async function runPromptConfigScenario(browser, context) {
     assert.deepEqual(savedThenInvalid.errors, [])
   } finally {
     await savedThenInvalid.page.close()
+  }
+
+  const englishDefault = await mount(browser, context, { language: 'en' })
+  try {
+    await englishDefault.page.click(defaultButton)
+    await assertSingleModal(englishDefault.page, 'default')
+    await checkOriginal(englishDefault.page, 'English system', `${defaultModal} .gp-cfg__prompt-original`)
+    assert.equal(await englishDefault.page.locator(`${defaultModal} .gp-seg__btn[aria-pressed="true"]`).textContent(), 'cfg.suggestLangEn', 'default reader opens on the configured language, not always Chinese')
+    await closePrompt(englishDefault.page, defaultButton)
+    assert.deepEqual(englishDefault.errors, [])
+  } finally {
+    await englishDefault.page.close()
   }
 
   for (const options of [{ supported: false }, { writable: false, aiEnabled: false }, { supported: false, absent: true, prompt: '', aiEnabled: false }]) {
