@@ -24,6 +24,7 @@ export { normalizeWheel, wheelZoomFactor, clampScale, anchoredScroll, isDragGest
 export { activateGitTab, isGitTabActive, returnToConversation, stashSubTab, recentSubTab } from './jump.js'
 export { splitRemoteRef, buildBranchOptions, isSelectable } from './branch-options.js'
 export { modelForProvider, effortForModel } from './model-route.js'
+export { supportsSuggestPrompt, promptUtf8Bytes, normalizePrompt, savedPrompt, savedPromptLanguage, samePromptIdentity, parsePromptPreview, promptPreviewErrorStatus, promptEditorInitial, promptEditorDirty, promptEditorReduce } from './suggest-prompt-config.js'
 export { changeKey, sideOf, pathOfKey, commitTargets, pickDiscardTargets, pickStageTargets, pickUnstageTargets, groupPickState, toggleGroupKeys } from './selection-keys.js'
 export { formatBytes } from './bytes.js'
 export { langLabel } from './lang-label.js'

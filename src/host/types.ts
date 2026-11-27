@@ -646,6 +646,7 @@ export type GitErrorCode =
   | 'llm-error'
   | 'llm-output'
   | 'suggest-disabled'
+  | 'suggest-prompt-invalid'
   // File-browser edit endpoint. `file-changed`: the bytes on disk no longer
   // match the version the edit started from (someone else wrote the file), so
   // nothing was written. `not-editable`: the file fails the edit rules (type
@@ -867,6 +868,8 @@ export type GitQuery =
   | { readonly kind: 'push-preview' }
   // Model catalog for the config form. No workspace required — reads ctx.llm only.
   | { readonly kind: 'model-catalog' }
+  // Prompt instructions only: no session, repository data, or model call.
+  | { readonly kind: 'suggest-prompt'; readonly view?: GitSuggestPromptView }
   // Nested-repository discovery for the panel's repository switcher. Does not
   // take a repo (it is what populates the selector), and works outside a
   // repository too: a workspace that holds several projects is the whole point.
@@ -1105,6 +1108,7 @@ export type GitQueryResult =
     readonly groups: readonly ModelCatalogGroup[]
     readonly failures: readonly ModelCatalogFailure[]
   }
+  | GitSuggestPromptPreview
   // Repository discovery (see GitRepoList).
   | ({ readonly kind: 'repo-list'; readonly cwd: string; readonly repos: readonly GitRepoEntry[] } & Pick<GitRepoList, 'codeWorkspace' | 'worktrees'>)
   // File-browser directory listing (one level). `truncated` is set when the
@@ -1244,6 +1248,37 @@ export interface GitQueryRequest {
 }
 
 // ── AI commit-message suggestion ─────────────────────────────────────────
+
+/** Independent UTF-8 ceiling for user-owned writing rules, outside the diff budget. */
+export const SUGGEST_PROMPT_MAX_BYTES = 16 * 1024
+
+/** Reserved UTF-8 budget for the fixed task/language instructions; builder tests guard it. */
+export const SUGGEST_PROMPT_WRAPPER_MAX_BYTES = 4 * 1024
+
+/** One complete preview instruction string, excluding dynamic repository data. */
+export const SUGGEST_PROMPT_PREVIEW_MAX_BYTES = SUGGEST_PROMPT_MAX_BYTES + SUGGEST_PROMPT_WRAPPER_MAX_BYTES
+
+export type GitSuggestPromptView = 'default' | 'effective'
+
+/** The exact instruction strings used in one model request; repository data is separate. */
+export interface GitSuggestPromptInstructions {
+  readonly system: string
+  readonly userReminder: string
+}
+
+export interface GitSuggestPromptPreview {
+  readonly kind: 'suggest-prompt'
+  readonly view: GitSuggestPromptView
+  readonly source: 'default' | 'custom'
+  readonly languageSetting: SuggestLanguage
+  /** The saved writing rules used to compose this preview (empty for the default view).
+   * Together with languageSetting this identifies the configuration read by the host. */
+  readonly configuredPrompt: string
+  readonly variants: {
+    readonly zh: GitSuggestPromptInstructions
+    readonly en: GitSuggestPromptInstructions
+  }
+}
 
 /**
  * Suggest-limit ranges and defaults, in host storage units (bytes / tokens /

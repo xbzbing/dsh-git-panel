@@ -6,7 +6,7 @@
  */
 import { createElement as h, useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import type { JSX } from 'react'
+import type { JSX, RefObject } from 'react'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon } from './icons.js'
 import { isTopOverlay, OVERLAY_ATTR, useDialogFocus } from './dialog-focus.js'
@@ -172,6 +172,8 @@ export interface ModalShellProps {
   /** Take focus on open, keep Tab inside, restore it on close
    * (`useDialogFocus`): for a dialog raised over another focus-trapping one. */
   trapFocus?: boolean
+  /** Stable return target, read on close when an async completion changes the opener. */
+  restoreFocusRef?: RefObject<HTMLElement | null>
   /** A modifier class for the frame (`gp-modal--sm` stays): a dialog whose body
    * is a list rather than a form sizes and pads itself through it. */
   variant?: string
@@ -194,7 +196,7 @@ export function renderModalShell(props: ModalShellProps): JSX.Element | null {
   return h(ModalShell, props)
 }
 
-function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, busyLabel, overlay, portalKey, container, trapFocus, variant, contained = false, t }: ModalShellProps): JSX.Element {
+function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, busyLabel, overlay, portalKey, container, trapFocus, restoreFocusRef, variant, contained = false, t }: ModalShellProps): JSX.Element {
   // Busy is declared, never inferred: an overlay only exists for dialogs that
   // also pass a label, and inferring from it left reset/revert/tag-delete
   // dismissible mid-flight (their error line then had no dialog to render in).
@@ -206,7 +208,7 @@ function ModalShell({ onClose, title, icon, hash, body, footer, busy: busyProp, 
   // Escape stays with this shell (it knows about `busy`) unless it traps focus:
   // then the shared hook owns Tab, focus restore and the key, starting on the
   // safe button.
-  useDialogFocus(frameRef, onClose, trapFocus === true ? closeRef : undefined, undefined, trapFocus === true)
+  useDialogFocus(frameRef, onClose, trapFocus === true ? closeRef : undefined, restoreFocusRef, trapFocus === true)
   useLayoutEffect(() => {
     // A dialog that opens with focus still on the page leaves a keyboard user
     // tabbing through the content behind it (and screen readers announce nothing

@@ -10,9 +10,10 @@ import { exactPathspec, historyPathspec, isGitInternalPath, isSafePath, isSafeRe
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
-import { imageMimeFor, isEditablePath, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, EDIT_MAX_BYTES, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, SVG_MIME } from './types.js'
+import { imageMimeFor, isEditablePath, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, EDIT_MAX_BYTES, FILE_COPY_MAX_BYTES, FILE_LINES_MAX_LINES, FILE_LINES_READ_MAX, SUGGEST_PROMPT_MAX_BYTES, SVG_MIME } from './types.js'
 import type { FileEditInfo } from './types.js'
 import { editInfo, sha256Hex } from './edit-info.js'
+import { buildSuggestPrompt } from './suggest-prompt.js'
 import { isPackageSegment, projectSourceRoots, sourceRootOf, MAX_PACKAGE_READS, MAX_PACKAGE_SEGMENTS, PACKAGE_DEADLINE_MS, SOURCE_SETS } from './package-tree.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
@@ -46,6 +47,30 @@ export async function runQuery(
   request: GitQueryRequest,
 ): Promise<GitQueryResponse> {
   const q = request.query
+  // Static configuration preview: never resolve a session, repository or model.
+  if (q.kind === 'suggest-prompt') {
+    const view = q.view === undefined ? 'default' : q.view
+    if (view !== 'default' && view !== 'effective') {
+      return { ok: false, error: { code: 'invalid-name', message: 'unknown suggest prompt view' } }
+    }
+    if (view === 'effective' && config.suggestPromptInvalid) {
+      return { ok: false, error: { code: 'suggest-prompt-invalid', message: `custom commit writing rules must be a string within the ${SUGGEST_PROMPT_MAX_BYTES / 1024} KiB UTF-8 limit` } }
+    }
+    const configuredPrompt = view === 'default' ? '' : config.suggestPrompt
+    return {
+      ok: true,
+      value: {
+        kind: 'suggest-prompt', view,
+        source: configuredPrompt === '' ? 'default' : 'custom',
+        languageSetting: config.suggestLanguage,
+        configuredPrompt,
+        variants: {
+          zh: buildSuggestPrompt('zh', configuredPrompt),
+          en: buildSuggestPrompt('en', configuredPrompt),
+        },
+      },
+    }
+  }
   // Model catalog for the config form: reads ctx.llm only, no workspace.
   if (q.kind === 'model-catalog') {
     try {

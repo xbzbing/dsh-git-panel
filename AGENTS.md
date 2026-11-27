@@ -42,6 +42,7 @@
 - 工作区文件的识别状态（`repo-list` 的 `codeWorkspace`）只提示、不生效：`off` 时 cwd 里有候选才下发 `available`，切换器与（cwd 不是仓库时的）文件浏览通知条各渲染一处，用户点一次才写 `codeWorkspace`。写的是插件级设置，写后必须重取 `repo-list`（ADR-0035）。
 - 业务摘要和刷新信号分离：`stateFingerprint` 相同也不能阻止 query tick；查询 key 使用结构化 tuple，只在请求入口序列化，不以 snapshot 对象引用或 `checkedAt` 触发 effect。
 - 查询按需、可见性门控且防竞态；旧数据保留到新数据成功，隐藏页签不启动自动查询或后续分页。
+- AI 生成与默认 / 生效提示词预览共用 host 的 `buildSuggestPrompt`；输入、固定指令与预览预算只从 `types.ts` 的具名常量取，client 不以倍数猜测。自定义输出不猜测剥除围栏或分隔符，固定格式保真及其代价见 ADR-0014。
 - RPC 有传输层 `{ ok, value }` 和业务层 `{ ok, value|error }` 两层信封，必须分别判断。
 - 写操作经 `onAction` 回灌快照；标签操作用本地失效信号。切换仓库时旧视图可回放，请求必须带新仓库标签，`.gp-body` 在途时 inert。
 - 新快照到达后修剪已消失的选择项；选择键只能经 `selection-keys.ts` 构造和解析。

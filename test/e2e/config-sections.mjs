@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
+import { runPromptConfigScenario } from './suggest-prompt-config-scenario.mjs'
 
 const E2E = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(E2E, 'harness.html')
@@ -150,7 +151,7 @@ try {
   const titled = m.filter((s) => s.fieldTitle !== null)
   assert.ok(titled.length >= 2)
   for (const s of titled) assert.deepEqual(s.fieldTitle, { size: 14, weight: 500 }, 'field titles are 14px/500, below the section title')
-  assert.deepEqual(m.map((s) => s.fieldCount), [4, 5, 6, 6], 'field groups per section (basic carries the Git Flow switch, repositories the session-follow, workspace-file and list-ceiling rows)')
+  assert.deepEqual(m.map((s) => s.fieldCount), [4, 5, 7, 6], 'field groups per section (basic carries the Git Flow switch, repositories the session-follow, workspace-file and list-ceiling rows)')
 
   // The package-folding row is a real setting, not just a count. This harness
   // binds the locale to the raw key on purpose (the CSS assertions below must
@@ -338,6 +339,7 @@ try {
   assert.equal(accepted.box, 'hub.code-workspace', 'the box keeps the committed name')
 
   assert.deepEqual(errors, [], 'no page errors')
+  await runPromptConfigScenario(browser, { harness, theme: THEME, snap: SNAP })
   console.log('e2e/config-sections: all assertions passed')
 } finally {
   await browser.close()

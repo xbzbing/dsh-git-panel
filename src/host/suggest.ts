@@ -16,7 +16,9 @@ import type { GitPanelConfig, SnapshotDeps } from './core.js'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand } from './core.js'
 import { isSafePath } from './validate.js'
 import { parseStatus } from './parser.js'
+import { buildSuggestPrompt } from './suggest-prompt.js'
 import type { AgentDefaultModelFace, SessionModelSelection } from './llm-face.js'
+import { SUGGEST_PROMPT_MAX_BYTES } from './types.js'
 import type { GitChange, GitSuggestRequest, GitSuggestResult, ResolvedLanguage, SuggestLanguage } from './types.js'
 
 /** One endpoint failure (the inner envelope of GitSuggestResult). */
@@ -109,39 +111,6 @@ export function resolveSuggestLanguage(setting: SuggestLanguage, samples: readon
     else en += weight
   })
   return zh > en ? 'zh' : 'en'
-}
-
-/** The target language named in prose, for the explicit rules below. */
-function languageName(language: ResolvedLanguage): string {
-  return language === 'zh' ? 'Simplified Chinese' : 'English'
-}
-
-/** Keep repository style subordinate to the resolved output language. */
-function systemPrompt(language: ResolvedLanguage): string {
-  const name = languageName(language)
-  const languageRule = language === 'zh'
-    // The house style keeps the conventional-commit type prefix in English
-    // and writes the description (and any body) in Chinese.
-    ? 'Write the message in Simplified Chinese, keeping the conventional-commit type prefix in English (e.g. "feat(scope): 中文描述").'
-    : 'Write the message in English.'
-  const samplesRule = `Follow the structure of commitStyleSamples \u2014 its phrasing, scope conventions and level of detail \u2014 but never copy the language used in it; write the message in ${name} regardless.`
-  // The final, loudest instruction carries the same prefix exception as the
-  // rules above: "the entire message in Simplified Chinese" alone reads as
-  // "translate everything", including the type prefix — the exact failure
-  // mode this prompt block exists to fix.
-  const override = language === 'zh'
-    ? 'IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the subject description and body in Simplified Chinese, whatever language the input uses \u2014 keeping the conventional-commit type prefix in English.'
-    : `IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the entire message \u2014 subject line and body alike \u2014 in ${name}, whatever language the input uses.`
-  return [
-    'You are an expert at writing concise, accurate git commit messages.',
-    'Given a repository\u2019s uncommitted changes, write ONE commit message for them.',
-    'The message must start with a short imperative subject line (72 chars max), optionally followed by a blank line and a brief body explaining what changed and why.',
-    'Return only the message text: no quotes, code fences, prefixes, bullet lists, or explanations.',
-    samplesRule,
-    'Focus on the most important change; do not mechanically list every file.',
-    languageRule,
-    override,
-  ].join('\n')
 }
 
 /** Untracked files whose contents are folded in before the budget runs out. */
@@ -278,13 +247,6 @@ function frameChanges(
   })
 }
 
-/** Repeat the output language after the repository data, outside its truncation budget. */
-function languageReminder(language: ResolvedLanguage): string {
-  const name = languageName(language)
-  const prefix = language === 'zh' ? ' Keep the conventional-commit type prefix in English.' : ''
-  return `Write the commit message in ${name}. The subject line and body must be ${name}.${prefix}`
-}
-
 /** Strip a code-fence / trailing-separator wrapper a model may add. */
 function normalizeMessage(raw: string): string {
   let m = raw.trim()
@@ -396,6 +358,9 @@ export async function runSuggest(
   if (!config.suggestEnabled) {
     return { ok: false, error: { code: 'suggest-disabled', message: 'AI suggest is turned off in the plugin config' } }
   }
+  if (config.suggestPromptInvalid) {
+    return { ok: false, error: { code: 'suggest-prompt-invalid', message: `custom commit writing rules must be a string within the ${SUGGEST_PROMPT_MAX_BYTES / 1024} KiB UTF-8 limit` } }
+  }
   const workspace = await resolveWorkspace(deps, request.sessionId, request.repo, config.codeWorkspace)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
@@ -496,6 +461,7 @@ export async function runSuggest(
     diff,
     styleSamples,
   )
+  const prompt = buildSuggestPrompt(language, config.suggestPrompt)
   const deadline = withDeadline(config.suggestTimeoutMs, deps.signal)
   // A hand-built one-shot request (never persisted): `messages` must satisfy
   // the durable Message contract across dsh-llm versions (id + source are
@@ -508,13 +474,13 @@ export async function runSuggest(
     // accepts; the brand is compile-time only (the runtime factory lives in
     // @deepseek-ai/dsh-llm, which is externalized), so a cast is the boundary.
     ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort as ReasoningEffortId } : {}),
-    system: systemPrompt(language),
+    system: prompt.system,
     messages: [{
       id: 'git-panel-suggest' as MessageId,
       role: 'user',
       content: [
         { type: 'text', text: frame },
-        { type: 'text', text: languageReminder(language) },
+        { type: 'text', text: prompt.userReminder },
       ],
       source: { kind: 'user' },
     }],
@@ -546,7 +512,8 @@ export async function runSuggest(
   const terminal = finishError(finish)
   if (terminal !== undefined) return terminal
 
-  const message = normalizeMessage(output)
+  // Custom formats may deliberately include fences or trailing separators.
+  const message = config.suggestPrompt ? output.trim() : normalizeMessage(output)
   if (message === '') return { ok: false, error: { code: 'llm-output', message: 'model produced no message text' } }
 
   return {

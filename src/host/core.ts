@@ -13,7 +13,7 @@ import { listWorkspaceFiles, scanCodeWorkspace } from './code-workspace.js'
 import type { CodeWorkspaceCacheEntry, CodeWorkspaceScan } from './code-workspace.js'
 import { checkoutGitDir, isOwnCheckout, parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
 import type { WorktreeCheckout, WorktreeInfo } from './worktrees.js'
-import { MAX_BYTES_LIMITS, REPO_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
+import { MAX_BYTES_LIMITS, REPO_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, SUGGEST_PROMPT_MAX_BYTES, FULL_CHANGES_MAX } from './types.js'
 import type { ChangesViewMode, DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitRepoEntry, GitRepoList, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
@@ -70,6 +70,10 @@ export interface GitPanelConfig {
   readonly suggestEnabled: boolean
   /** Language the generated message is written in; `auto` follows repo history. */
   readonly suggestLanguage: SuggestLanguage
+  /** Custom writing rules; empty selects the built-in instructions. */
+  readonly suggestPrompt: string
+  /** Invalid custom configuration blocks suggest only, not other Git queries. */
+  readonly suggestPromptInvalid?: true
   /** Max diff bytes sent to the model; beyond this the diff is truncated. Range 16–512 KiB. */
   readonly suggestMaxBytes: number
   /** Model output token budget (reasoning tokens count against it on thinking models). Range 256–16384. */
@@ -106,6 +110,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   fontDelta: 0,
   suggestEnabled: true,
   suggestLanguage: SUGGEST_LANGUAGE_DEFAULT,
+  suggestPrompt: '',
   suggestMaxBytes: SUGGEST_LIMITS.maxBytes.default,
   suggestMaxOutputTokens: SUGGEST_LIMITS.maxOutputTokens.default,
   suggestTimeoutMs: SUGGEST_LIMITS.timeoutMs.default,
@@ -165,6 +170,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     fontDelta: readFontDelta(c.fontDelta),
     suggestEnabled: readBool(c.suggestEnabled, DEFAULT_CONFIG.suggestEnabled),
     suggestLanguage: readSuggestLanguage(c.suggestLanguage, DEFAULT_CONFIG.suggestLanguage),
+    ...readSuggestPrompt(c.suggestPrompt),
     suggestMaxBytes: clampLimit(c.suggestMaxBytes, SUGGEST_LIMITS.maxBytes),
     suggestMaxOutputTokens: clampLimit(c.suggestMaxOutputTokens, SUGGEST_LIMITS.maxOutputTokens),
     suggestTimeoutMs: clampLimit(c.suggestTimeoutMs, SUGGEST_LIMITS.timeoutMs),
@@ -225,6 +231,21 @@ export function readSuggestLanguage(value: unknown, fallback: SuggestLanguage): 
   return typeof raw === 'string' && (SUGGEST_LANGUAGES as readonly string[]).includes(raw)
     ? raw as SuggestLanguage
     : fallback
+}
+
+/** Normalize custom rules without making unrelated endpoints fail on bad config. */
+export function readSuggestPrompt(value: unknown): Pick<GitPanelConfig, 'suggestPrompt' | 'suggestPromptInvalid'> {
+  try {
+    const raw = unwrapVolatile(value)
+    if (raw === undefined) return { suggestPrompt: '' }
+    if (typeof raw === 'string') {
+      if (raw.trim() === '') return { suggestPrompt: '' }
+      if (Buffer.byteLength(raw, 'utf8') <= SUGGEST_PROMPT_MAX_BYTES) return { suggestPrompt: raw }
+    }
+  } catch {
+    // A failing volatile getter is invalid only for this optional AI feature.
+  }
+  return { suggestPrompt: '', suggestPromptInvalid: true }
 }
 
 /**
