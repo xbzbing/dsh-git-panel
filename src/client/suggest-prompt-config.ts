@@ -55,6 +55,14 @@ export function samePromptIdentity(preview: PromptIdentity, expected: PromptIden
   return preview.configuredPrompt === expected.configuredPrompt && preview.languageSetting === expected.languageSetting
 }
 
+export type PromptPreviewErrorStatus = 'config-invalid' | 'failed' | 'invalid'
+
+/** Business rejection is distinct from malformed wire data and transport failure. */
+export function promptPreviewErrorStatus(response: unknown, view: GitSuggestPromptView): PromptPreviewErrorStatus {
+  if (!record(response) || response.ok !== false) return 'invalid'
+  return view === 'effective' && record(response.error) && response.error.code === 'suggest-prompt-invalid' ? 'config-invalid' : 'failed'
+}
+
 /** Both variants are checked, even when a fixed language renders only one. */
 export function parsePromptPreview(response: unknown, view: GitSuggestPromptView): GitSuggestPromptPreview | null {
   if (!record(response) || response.ok !== true || !record(response.value)) return null

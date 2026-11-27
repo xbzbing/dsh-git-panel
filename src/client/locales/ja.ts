@@ -684,7 +684,7 @@ export const ja: Record<GitKey, string> = {
   'cfg.suggestPromptPlaceholder': '例：タイトルに種別の接頭辞を付けず、本文は変更内容と検証を箇条書きにする。',
   'cfg.suggestPromptSave': '規則を保存',
   'cfg.suggestPromptClear': '下書きを空にする',
-  'cfg.suggestPromptBytes': '{bytes} / {max} バイト（UTF-8）',
+  'cfg.suggestPromptBytes': '{bytes} B / {max} KiB（UTF-8）',
   'cfg.suggestPromptTooLong': 'UTF-8 の上限 16 KiB を超えています。短くしてから保存してください。',
   'cfg.suggestPromptUnsupported': 'ホストがこの設定項目を宣言していないため、編集できるか確認できません。ホストを更新して再試行してください。既定のプロンプトは読み取れます。',
   'cfg.suggestPromptReadOnly': '現在の設定は読み取り専用のため保存できません。プロンプトは表示できます。',

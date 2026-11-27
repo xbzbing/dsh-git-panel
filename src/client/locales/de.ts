@@ -685,7 +685,7 @@ export const de: Record<GitKey, string> = {
   'cfg.suggestPromptPlaceholder': 'Zum Beispiel: kein Typpräfix im Titel; Änderungen und Prüfungen als Liste im Nachrichtentext.',
   'cfg.suggestPromptSave': 'Regeln speichern',
   'cfg.suggestPromptClear': 'Entwurf leeren',
-  'cfg.suggestPromptBytes': '{bytes} / {max} Bytes (UTF-8)',
+  'cfg.suggestPromptBytes': '{bytes} B / {max} KiB (UTF-8)',
   'cfg.suggestPromptTooLong': 'Das UTF-8-Limit von 16 KiB ist überschritten. Kürze die Regeln vor dem Speichern.',
   'cfg.suggestPromptUnsupported': 'Der Host deklariert dieses Einstellungsfeld nicht; die Bearbeitbarkeit ist daher unbestätigt. Aktualisiere den Host und versuche es erneut. Standard-Prompts bleiben lesbar.',
   'cfg.suggestPromptReadOnly': 'Diese Einstellungen sind schreibgeschützt. Speichern ist nicht möglich, Prompts bleiben einsehbar.',

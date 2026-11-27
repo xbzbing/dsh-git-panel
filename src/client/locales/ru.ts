@@ -685,7 +685,7 @@ export const ru: Record<GitKey, string> = {
   'cfg.suggestPromptPlaceholder': 'Например: заголовок без префикса типа; изменения и проверки списком в теле сообщения.',
   'cfg.suggestPromptSave': 'Сохранить правила',
   'cfg.suggestPromptClear': 'Очистить черновик',
-  'cfg.suggestPromptBytes': '{bytes} / {max} байт (UTF-8)',
+  'cfg.suggestPromptBytes': '{bytes} B / {max} KiB (UTF-8)',
   'cfg.suggestPromptTooLong': 'Превышен лимит 16 KiB в UTF-8. Сократите правила перед сохранением.',
   'cfg.suggestPromptUnsupported': 'Хост не объявляет это поле настройки; поддержка редактирования не подтверждена. Обновите хост и повторите попытку. Стандартные промпты по-прежнему доступны для чтения.',
   'cfg.suggestPromptReadOnly': 'Настройки доступны только для чтения. Сохранение недоступно, но промпты можно просматривать.',

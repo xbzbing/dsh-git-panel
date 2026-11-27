@@ -685,7 +685,7 @@ export const pt: Record<GitKey, string> = {
   'cfg.suggestPromptPlaceholder': 'Exemplo: título sem prefixo de tipo; corpo com lista de alterações e verificações.',
   'cfg.suggestPromptSave': 'Salvar regras',
   'cfg.suggestPromptClear': 'Limpar rascunho',
-  'cfg.suggestPromptBytes': '{bytes} / {max} bytes (UTF-8)',
+  'cfg.suggestPromptBytes': '{bytes} B / {max} KiB (UTF-8)',
   'cfg.suggestPromptTooLong': 'Excede o limite de 16 KiB em UTF-8. Encurte as regras antes de salvar.',
   'cfg.suggestPromptUnsupported': 'O host não declara este campo de configuração; não é possível confirmar o suporte à edição. Atualize o host e tente novamente. Os prompts padrão ainda podem ser lidos.',
   'cfg.suggestPromptReadOnly': 'A configuração é somente leitura. Não é possível salvar, mas os prompts ainda podem ser vistos.',

@@ -5,12 +5,12 @@ import type { ClientCtx, ConfigFormFace, ConfigFormSnapshot, GitPanelRemote } fr
 import type { GitSuggestPromptPreview, GitSuggestPromptView } from './types.js'
 import { SUGGEST_PROMPT_MAX_BYTES } from './types.js'
 import {
-  normalizePrompt, parsePromptPreview, promptEditorDirty, promptEditorInitial, promptEditorReduce,
+  normalizePrompt, parsePromptPreview, promptPreviewErrorStatus, promptEditorDirty, promptEditorInitial, promptEditorReduce,
   promptUtf8Bytes, samePromptIdentity, savedPrompt, savedPromptLanguage, supportsSuggestPrompt,
 } from './suggest-prompt-config.js'
 import type { PromptIdentity } from './suggest-prompt-config.js'
 
-export type PromptReadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'invalid' | 'sync'
+export type PromptReadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'invalid' | 'config-invalid' | 'sync'
 
 /** On-demand query, with at most two re-reads while volatile config propagates. */
 export function usePromptPreview(remote: GitPanelRemote, view: GitSuggestPromptView, active: boolean, expected: PromptIdentity | null) {
@@ -33,6 +33,11 @@ export function usePromptPreview(remote: GitPanelRemote, view: GitSuggestPromptV
       return seq === generation.current && !controller.signal.aborted && now.active && now.remote === remote
         && now.view === view && now.retry === retry && now.expected?.configuredPrompt === prompt && now.expected?.languageSetting === language
     }
+    const retryPropagation = (attempt: number, finalStatus: PromptReadStatus): void => {
+      // The final read is beyond the settings service's 1s follow-up pull.
+      if (attempt < 2) timer = setTimeout(() => { void run(attempt + 1) }, attempt === 0 ? 250 : 1000)
+      else setStatus(finalStatus)
+    }
     const run = async (attempt: number): Promise<void> => {
       if (!current()) return
       setStatus('loading')
@@ -41,13 +46,15 @@ export function usePromptPreview(remote: GitPanelRemote, view: GitSuggestPromptV
         if (!current()) return
         const preview = parsePromptPreview(response, view)
         if (preview === null) {
-          setStatus(response !== null && typeof response === 'object' && response.ok === false ? 'failed' : 'invalid')
+          const errorStatus = promptPreviewErrorStatus(response, view)
+          // A valid accepted identity may precede the host leaving its old invalid config.
+          if (errorStatus === 'config-invalid' && prompt !== undefined && language !== undefined) retryPropagation(attempt, errorStatus)
+          else setStatus(errorStatus)
           return
         }
         const expectedIdentity = prompt === undefined || language === undefined ? null : { configuredPrompt: prompt, languageSetting: language }
         if (view === 'effective' && (expectedIdentity === null || !samePromptIdentity(preview, expectedIdentity))) {
-          if (attempt < 2) timer = setTimeout(() => { void run(attempt + 1) }, attempt === 0 ? 250 : 650)
-          else setStatus('sync')
+          retryPropagation(attempt, 'sync')
           return
         }
         setValue(preview)
@@ -65,7 +72,7 @@ export function usePromptPreview(remote: GitPanelRemote, view: GitSuggestPromptV
   }, [remote, view, active, prompt, language, retry])
 
   const matching = value !== null && (view === 'default' || (expected !== null && samePromptIdentity(value, expected)))
-  return { value: matching ? value : null, status, retry: (): void => { setRetry((n) => n + 1) } }
+  return { value: matching && status !== 'config-invalid' ? value : null, status, retry: (): void => { setRetry((n) => n + 1) } }
 }
 
 export interface SuggestPromptConfigInput {

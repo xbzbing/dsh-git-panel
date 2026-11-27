@@ -684,7 +684,7 @@ export const en: Record<GitKey, string> = {
   'cfg.suggestPromptPlaceholder': 'For example: no type prefix in the title; use body bullets for changes and verification.',
   'cfg.suggestPromptSave': 'Save rules',
   'cfg.suggestPromptClear': 'Clear draft',
-  'cfg.suggestPromptBytes': '{bytes} / {max} bytes (UTF-8)',
+  'cfg.suggestPromptBytes': '{bytes} B / {max} KiB (UTF-8)',
   'cfg.suggestPromptTooLong': 'Exceeds the 16 KiB UTF-8 limit. Shorten the rules before saving.',
   'cfg.suggestPromptUnsupported': 'The host schema does not declare this field, so editing support cannot be confirmed. Upgrade the host and retry. Default prompts can still be read.',
   'cfg.suggestPromptReadOnly': 'These settings are read-only. Saving is unavailable, but prompts can still be viewed.',

@@ -685,7 +685,7 @@ export const fr: Record<GitKey, string> = {
   'cfg.suggestPromptPlaceholder': 'Exemple : titre sans préfixe de type ; liste des modifications et vérifications dans le corps.',
   'cfg.suggestPromptSave': 'Enregistrer les règles',
   'cfg.suggestPromptClear': 'Vider le brouillon',
-  'cfg.suggestPromptBytes': '{bytes} / {max} octets (UTF-8)',
+  'cfg.suggestPromptBytes': '{bytes} B / {max} KiB (UTF-8)',
   'cfg.suggestPromptTooLong': 'La limite de 16 KiB en UTF-8 est dépassée. Raccourcissez les règles avant de les enregistrer.',
   'cfg.suggestPromptUnsupported': 'L’hôte ne déclare pas ce champ de configuration ; sa modification ne peut pas être confirmée. Mettez l’hôte à jour puis réessayez. Les prompts par défaut restent consultables.',
   'cfg.suggestPromptReadOnly': 'La configuration est en lecture seule. L’enregistrement est indisponible, mais les prompts restent consultables.',

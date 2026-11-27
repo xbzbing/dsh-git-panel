@@ -125,13 +125,19 @@ export const CSS = `
 .gp-cfg__prompt-button:disabled{opacity:.5;cursor:default}
 .gp-cfg__prompt-button:focus-visible,.gp-cfg__prompt-original:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-cfg__prompt-save{color:var(--dsw-alias-state-business-primary)}
-.gp-cfg__prompt-effective{align-self:flex-start}
+.gp-cfg__prompt-effective{margin-inline-start:auto;flex:none}
 .gp-cfg__prompt-input{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:100%;min-height:120px;resize:vertical;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
 .gp-cfg__prompt-input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 .gp-cfg__prompt-input[aria-invalid=true]{border-color:var(--dsw-alias-state-error-primary)}
 .gp-cfg__prompt-input:disabled{opacity:.5}
-.gp-cfg__prompt-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.gp-cfg__prompt-bytes{overflow-wrap:anywhere}
+/* Actions stay grouped; a cramped translated trailing action wraps as one item,
+ * still aligned to the right. Status and byte accounting do not compete with buttons. */
+.gp-cfg__prompt-footer{display:flex;flex-direction:column;gap:4px;min-width:0}
+.gp-cfg__prompt-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0}
+.gp-cfg__prompt-actions-start{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%}
+.gp-cfg__prompt-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0;font-size:12px;min-height:1.5em}
+.gp-cfg__prompt-meta .gp-cfg__hint{font-size:12px}
+.gp-cfg__prompt-bytes{margin-inline-start:auto;overflow-wrap:anywhere}
 .gp-cfg__prompt .gp-cfg__hint,.gp-cfg__prompt .gp-cfg__err,.gp-cfg__prompt-modal .gp-cfg__hint,.gp-cfg__prompt-modal .gp-cfg__err{overflow-wrap:anywhere}
 .gp-cfg__prompt-read,.gp-cfg__prompt-variants,.gp-cfg__prompt-text,.gp-cfg__prompt-error{display:flex;flex-direction:column;gap:8px;min-width:0}
 .gp-cfg__prompt-loading{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dsw-alias-label-secondary)}

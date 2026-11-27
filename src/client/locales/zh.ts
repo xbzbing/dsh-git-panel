@@ -710,7 +710,7 @@ export const zh = {
   'cfg.suggestPromptPlaceholder': '例如：标题不加类型前缀，正文用列表说明变更与验证。',
   'cfg.suggestPromptSave': '保存规范',
   'cfg.suggestPromptClear': '清空草稿',
-  'cfg.suggestPromptBytes': '{bytes} / {max} 字节（UTF-8）',
+  'cfg.suggestPromptBytes': '{bytes} B / {max} KiB（UTF-8）',
   'cfg.suggestPromptTooLong': '超过 16 KiB UTF-8 上限，请缩短后保存。',
   'cfg.suggestPromptUnsupported': '宿主未声明此配置字段，无法确认编辑能力；请升级宿主后重试。默认提示词仍可读取。',
   'cfg.suggestPromptReadOnly': '当前配置只读，不能保存；仍可查看提示词。',
