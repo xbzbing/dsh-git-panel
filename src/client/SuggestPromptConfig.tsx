@@ -84,12 +84,16 @@ export function SuggestPromptConfig(props: SuggestPromptConfigInput & { readonly
     else state.openEffective()
   }
   const readStatus = state.previewView === 'effective' ? state.effective.status : state.defaults.status
+  const readValue = state.previewView === 'effective' ? state.effective.value : state.defaults.value
   useEffect(() => {
-    // A re-read unmounts the reader body; an open dialog must not drop focus to <body>.
-    if (state.previewView === null || readStatus !== 'loading') return
+    // A re-read drops the focused reader control before the next value arrives;
+    // keep keyboard focus inside the open dialog instead of letting it fall to <body>.
+    if (state.previewView === null) return
     const close = footerClose.current
-    if (close !== null && document.activeElement !== close) close.focus()
-  }, [state.previewView, readStatus])
+    const dialog = close?.closest('[role="dialog"]') ?? null
+    if (close === null || dialog === null || dialog.contains(document.activeElement)) return
+    close.focus()
+  }, [state.previewView, readStatus, readValue])
   return h('div', { className: 'gp-cfg__field gp-cfg__prompt' }, [
     h('div', { key: 'title', className: 'gp-cfg__prompt-head' }, [
       h('h3', { key: 'label', className: 'gp-cfg__title' }, h('label', { htmlFor: `${id}-draft` }, t('cfg.suggestPromptTitle'))),
