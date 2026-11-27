@@ -6,7 +6,7 @@ import { GitPanelService } from '../../lib/host/index.js'
 import { buildSuggestPrompt } from '../../lib/host/suggest-prompt.js'
 import { runQuery } from '../../lib/host/queries.js'
 import { runSuggest } from '../../lib/host/suggest.js'
-import { SUGGEST_PROMPT_MAX_BYTES } from '../../lib/host/types.js'
+import { SUGGEST_PROMPT_MAX_BYTES, SUGGEST_PROMPT_WRAPPER_MAX_BYTES, SUGGEST_PROMPT_PREVIEW_MAX_BYTES } from '../../lib/host/types.js'
 
 // Independent literal oracle: protects the pre-customization instruction bytes.
 const DEFAULT_COMMON = [
@@ -102,6 +102,32 @@ test('custom policy replaces hidden default writing restrictions, keeps task/dat
     assert.match(userReminder, /Preserve fixed markers, IDs, type and scope/)
     assert.match(userReminder, /do not translate them or add any prefix the custom format does not require/)
     assert.ok(system.endsWith(userReminder), 'same language policy is last in system and after user data')
+  }
+})
+
+test('custom rules conditionally suppress extra wrappers without deleting requested fixed syntax', () => {
+  const rule = 'Do not add wrapping code fences, quotes or trailing separators unless the custom writing rules explicitly require them.'
+  for (const language of ['zh', 'en']) {
+    for (const custom of ['No type prefix.', 'Wrap the message in ```commit and end with --- exactly.']) {
+      const built = buildSuggestPrompt(language, custom)
+      assert.ok(built.system.includes(rule))
+      assert.ok(built.system.includes(custom), 'the custom format remains verbatim')
+      assert.ok(built.system.indexOf(rule) < built.system.indexOf('Custom writing rules:'))
+    }
+  }
+})
+
+test('fixed prompt instructions fit their named reserved UTF-8 budget', () => {
+  assert.equal(SUGGEST_PROMPT_PREVIEW_MAX_BYTES, SUGGEST_PROMPT_MAX_BYTES + SUGGEST_PROMPT_WRAPPER_MAX_BYTES)
+  const rules = '😀'.repeat(SUGGEST_PROMPT_MAX_BYTES / 4)
+  for (const language of ['zh', 'en']) {
+    for (const custom of ['', rules]) {
+      const built = buildSuggestPrompt(language, custom)
+      const systemBytes = Buffer.byteLength(built.system, 'utf8')
+      assert.ok(systemBytes - Buffer.byteLength(custom, 'utf8') <= SUGGEST_PROMPT_WRAPPER_MAX_BYTES, 'host fixed instructions exceed the reserved wrapper budget')
+      assert.ok(Buffer.byteLength(built.userReminder, 'utf8') <= SUGGEST_PROMPT_WRAPPER_MAX_BYTES, 'language reminder exceeds the reserved wrapper budget')
+      assert.ok(systemBytes <= SUGGEST_PROMPT_PREVIEW_MAX_BYTES, 'a valid full-size rule must produce a valid bounded preview')
+    }
   }
 })
 

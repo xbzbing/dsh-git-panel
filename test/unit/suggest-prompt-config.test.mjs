@@ -7,6 +7,8 @@ import {
 } from '../../lib/testkit.mjs'
 
 const MAX = 16 * 1024
+// Independent wire contract oracle: 16 KiB rules plus a 4 KiB host wrapper.
+const PREVIEW_MAX = 20 * 1024
 const preview = (prompt = '', languageSetting = 'auto', view = 'effective') => ({
   ok: true,
   value: {
@@ -72,7 +74,8 @@ test('blank defaults normalize while non-empty rules preserve every original cha
   assert.equal(normalizePrompt(' \t\n\r\u3000'), '')
   assert.equal(savedPrompt(' \t\n\r\u3000'), '')
   assert.equal(savedPrompt(' '.repeat(MAX + 1)), '', 'arbitrary whitespace is always the default')
-  assert.equal(normalizePrompt('  title\n\tbody  '), '  title\n\tbody  ')
+  assert.equal(promptUtf8Bytes(normalizePrompt(' '.repeat(MAX + 1))), 0, 'display/save ceiling treats blank as default')
+  assert.equal(normalizePrompt('  title\r\n\tbody\r  '), '  title\r\n\tbody\r  ', 'non-empty indentation and line endings are never normalized')
   assert.equal(savedPromptLanguage('zh'), 'zh')
   assert.equal(savedPromptLanguage('en'), 'en')
   assert.equal(savedPromptLanguage('unknown'), 'auto')
@@ -104,12 +107,28 @@ test('every wire discriminator, field, type and bound is checked, including the 
     (v) => { delete v.variants }, (v) => { v.variants = [] }, (v) => { delete v.variants.en },
     (v) => { v.variants.zh = null }, (v) => { v.variants.en.userReminder = 1 },
     (v) => { v.variants.en.system = '' }, (v) => { delete v.variants.zh.userReminder },
-    (v) => { v.variants.zh.system = '😀'.repeat(MAX / 2 + 1) },
+    (v) => { v.variants.zh.system = '😀'.repeat(PREVIEW_MAX / 4 + 1) },
   ]
   for (const mutate of mutations) {
     const response = clone(preview('', 'zh'))
     mutate(response.value)
     assert.equal(parsePromptPreview(response, 'effective'), null, mutate.toString())
+  }
+})
+
+test('preview bound is exactly 20 KiB UTF-8 for every field, including non-rendered variants', () => {
+  const boundaryTexts = ['a'.repeat(PREVIEW_MAX), '😀'.repeat(PREVIEW_MAX / 4), '中'.repeat(Math.floor(PREVIEW_MAX / 3)) + 'aa']
+  for (const language of ['zh', 'en']) {
+    for (const field of ['system', 'userReminder']) {
+      for (const text of boundaryTexts) {
+        const response = preview('', language === 'zh' ? 'en' : 'zh')
+        response.value.variants[language][field] = text
+        assert.equal(Buffer.byteLength(text, 'utf8'), PREVIEW_MAX)
+        assert.deepEqual(parsePromptPreview(response, 'effective'), response.value, `${language}.${field} accepts exactly the ceiling`)
+        response.value.variants[language][field] += 'a'
+        assert.equal(parsePromptPreview(response, 'effective'), null, `${language}.${field} rejects one extra UTF-8 byte`)
+      }
+    }
   }
 })
 
