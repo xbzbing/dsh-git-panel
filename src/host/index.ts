@@ -30,7 +30,7 @@ export type {
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, FlowKind, FlowStrategy,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode, GitPanelPlacement,
-  GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
+  GitSuggestRequest, GitSuggestResult, GitSuggestPromptView, GitSuggestPromptInstructions, GitSuggestPromptPreview, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
   GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList,
   GitWriteFileRequest, GitWriteFileResult, FileEditInfo, FileEditBlock,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure, RemoteMethod,
@@ -50,6 +50,7 @@ export { writeWorkspaceFile } from './write-file.js'
 export { editInfo, encodeEdit, eolStyle, sha256Hex } from './edit-info.js'
 export { runQuery } from './queries.js'
 export { runSuggest, resolveSuggestLanguage, parseStyleHistory, isCjkText, compactLongLines, LONG_LINE_MAX_CHARS } from './suggest.js'
+export { buildSuggestPrompt } from './suggest-prompt.js'
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.js'
 
 /**
@@ -144,6 +145,10 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const('zh').description('中文'),
       Schema.const('en').description('English'),
     ]).default(DEFAULT_CONFIG.suggestLanguage).volatile().description('AI 生成提交信息的语言'),
+    // Preserve malformed optional AI config until readSuggestPrompt rejects it;
+    // schema-level string rejection would disable every Git endpoint at startup.
+    // No schema default: explicit null must stay invalid, not become an empty rule.
+    suggestPrompt: Schema.any().volatile().description('AI 生成提交信息的自定义写作规范（仅执行字符串；留空使用默认；非空替换默认规范，最多 16 KiB UTF-8）'),
     // Defaults come from DEFAULT_CONFIG (which itself reads SUGGEST_LIMITS) —
     // a literal here could silently drift from what normalizeConfig enforces.
     suggestMaxBytes: Schema.number().default(DEFAULT_CONFIG.suggestMaxBytes).volatile().description('AI 生成输入预算（diff 字节上限，16–512 KiB）'),
