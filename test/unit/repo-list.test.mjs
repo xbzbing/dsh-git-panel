@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { autoPickRepo, repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, repoRowTip, filesRootRows, gitRepoForFilesRoot } from '../../lib/testkit.mjs'
+import { autoPickRepo, repoChoices, repoLabel, repoDetail, repoBranchChip, repoGroups, repoDisabledKey, repoRowTip, filesRootRows, gitRepoForFilesRoot } from '../../lib/testkit.mjs'
 
 /** A scan entry; only the fields the list reads. */
 function entry(path, name, kind) {
@@ -86,6 +86,14 @@ test('a worktree label is the name alone and its detail drops the repeated direc
   const wt = { path: '.agents/worktrees/review/pr-85', name: 'pr-85', kind: 'worktree', root: '/r' }
   assert.equal(repoLabel(wt), 'pr-85', 'the path lives on the detail line only')
   assert.equal(repoDetail(wt), '.agents/worktrees/review', 'repeating pr-85 under pr-85 only adds noise')
+})
+
+test('the branch chip claims only a branch the label does not already state', () => {
+  assert.equal(repoBranchChip('feat-issue161-repo-search', 'feat-issue161-repo-search'), null, 'a directory that is its own branch prints the name once')
+  assert.equal(repoBranchChip('sidebar', 'feat/sidebar'), 'feat/sidebar', 'a branch the name cannot guess still earns the chip')
+  assert.equal(repoBranchChip('fixture-repo', 'main'), 'main', 'so does a workspace checkout whose HEAD differs from its name')
+  assert.equal(repoBranchChip('anything', undefined), null, 'an unknown branch claims nothing')
+  assert.equal(repoBranchChip('anything', null), null, 'a detached HEAD is stated by its own chip, never this one')
 })
 
 test('groups split the family from the workspace; a single group stays alone', () => {

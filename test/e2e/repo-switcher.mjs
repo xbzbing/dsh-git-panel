@@ -63,6 +63,10 @@ const WORKSPACE_REPO = { path: '', root: 'fixture-repo', name: 'fixture-repo', k
 const NESTED_REPO = { path: 'site', root: 'fixture-repo/site', name: 'site', kind: 'nested', role: 'repo' }
 // A checkout whose folder name does not identify it: the row needs the path.
 const DEEP_REPO = { path: 'apps/web', root: 'fixture-repo/apps/web', name: 'web', kind: 'nested', role: 'repo' }
+// A linked worktree the certification gate refused (ADR-0035): listed, never
+// choosable, and the first row the search's ↓ walk has to step over. Its name
+// carries an `e`, so the walk's query keeps it in the filtered list.
+const LOST_REPO = { path: '.agents/worktrees/feat/lost', root: 'fixture-repo/.agents/worktrees/feat/lost', name: 'lost-tree', kind: 'nested', role: 'linked', branch: 'feat/lost', disabled: 'uncertified' }
 
 // Scenario B/C: a repository family (the main work tree plus its worktrees)
 // next to unrelated repositories of the workspace. The two disabled worktrees
@@ -132,6 +136,9 @@ async function mount(repos, action, options = {}) {
     // The repository list a later refetch reads: a worktree the first scan did
     // not know about (created in this session) shows up here.
     window.__gpRepos = (rows) => { fixture.repos = rows }
+    // The config a later polled sample carries: a changed list cap is what makes
+    // the controller read the workspace again (ADR-0041's config flip).
+    window.__gpSnapshot = (patch) => { fixture.snapshot = { ...fixture.snapshot, ...patch } }
     // Park the next repository-list read so a scenario can act while the
     // follow effect waits for its one refetch.
     const repoListGate = { armed: false, wait: null, release: null }
@@ -244,8 +251,11 @@ async function mount(repos, action, options = {}) {
     if (!view) return { error: 'conversation.view was not registered' }
     // `component(props)` returns the mounted element; wrapping it in another
     // createElement would hand React the element object as a component type.
-    window.ReactDOM.createRoot(document.getElementById('panel'))
-      .render(view.component({ sessionId: 'sess-1', ...(projectionStart === undefined ? {} : { useProjection }) }))
+    // The root is kept so a scenario can re-render the same tree with new props
+    // (a session change) instead of mounting a fresh one that would lose state.
+    const panelRoot = window.ReactDOM.createRoot(document.getElementById('panel'))
+    panelRoot.render(view.component({ sessionId: 'sess-1', ...(projectionStart === undefined ? {} : { useProjection }) }))
+    window.__gpPanelRoot = panelRoot
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     // Wait for the shell to commit its expected tabs instead of sleeping a
     // fixed half second per scenario; the short settle afterwards covers the
@@ -353,6 +363,8 @@ async function mount(repos, action, options = {}) {
       }
     }
     // The head line: toggle state and, while collapsed, the checkout it names.
+    // The badge rides along: it is the list total (selectable/total when some
+    // rows are disabled), the one number a query must never narrow.
     const headInfo = () => {
       const list = visibleList() ?? document.querySelector('.gp-panel .gp-repolist')
       const btn = list === null ? null : list.querySelector('.gp-repolist__head')
@@ -361,6 +373,7 @@ async function mount(repos, action, options = {}) {
         present: btn !== null,
         expanded: btn === null ? null : btn.getAttribute('aria-expanded') === 'true',
         selected: chip === null ? '' : chip.textContent.trim(),
+        badge: list === null ? '' : textOf(list, '.gp-repolist__badge'),
       }
     }
     // The body dims and the tab bar shows a badge while the next sample is in
@@ -965,6 +978,316 @@ async function mount(repos, action, options = {}) {
       if (head !== null) head.click()
       await wait(400)
       observed.afterLongPick = headMark()
+      return { observed, calls }
+    }
+    if (action === 'search') {
+      // Issue #161: the switcher searches the rows the host already listed.
+      // The query narrows what is shown and nothing else — no re-scan, no
+      // auto-pick — and the head badge keeps the list total throughout.
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      // Everything is scoped to the pane on screen: the changes column docks a
+      // second copy of the block, and a hidden one must not answer.
+      const searchInput = () => visibleList()?.querySelector('.gp-repolist__search-input') ?? null
+      const searchText = (selector) => textOf(visibleList() ?? document.body, selector)
+      const rowsNow = () => listRows().map((row) => (row.active ? '*' : '') + row.name)
+      // Boot state, read before the toggle: collapsed, the head names the
+      // checkout in use (the selected chip only exists while collapsed).
+      observed.atBoot = { head: headInfo(), rows: rowsNow() }
+      const type = async (value) => {
+        const input = searchInput()
+        if (input === null) throw new Error('no repository search input')
+        // React controls the input: the native setter plus an input event is
+        // what the platform's own typing does.
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+        setter.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(150)
+      }
+      await expandRepos()
+      observed.opened = {
+        hasInput: searchInput() !== null,
+        head: headInfo(),
+        // A pasted wall of text is capped before it reaches the row scans.
+        maxLength: searchInput()?.getAttribute('maxlength') ?? null,
+        // The live region is mounted with the row, not with its first value: a
+        // region inserted together with its text is usually not announced.
+        livePresent: visibleList()?.querySelector('.gp-repolist__search .gp-copy-live') !== null,
+      }
+      const mark = calls.length
+      // The workspace's own checkout and a nested repository share no letters
+      // in this fixture beyond the path, so `site` keeps one row.
+      await type('site')
+      observed.filtered = {
+        rows: rowsNow(),
+        count: searchText('.gp-repolist__search-count'),
+        // The badge is a picture of the number; the sentence a screen reader
+        // hears rides the block's hidden live span.
+        live: searchText('.gp-repolist__search .gp-copy-live'),
+        badgeLabel: visibleList()?.querySelector('.gp-repolist__search-count')?.getAttribute('aria-label') ?? null,
+        head: headInfo(),
+        // The checked row may be filtered out: its absolute path line stays,
+        // so the panes' checkout is still stated while the rows are narrowed.
+        rootLine: searchText('.gp-repolist__root-body'),
+        hits: [...(visibleList()?.querySelectorAll('.gp-repolist__hit') ?? [])].map((node) => node.textContent),
+        calls: calls.slice(mark),
+      }
+      // A match through the absolute root alone: the fixture's rows live under
+      // `fixture-repo/…`, and `worksp` names no row's own text.
+      await type('fixture-repo')
+      observed.rootOnly = {
+        rows: rowsNow(),
+        detail: listRows().map((row) => ({ meta: row.meta, disabled: row.disabled })),
+      }
+      // No match at all: the empty state appears with its clear entry, the
+      // head badge still reports the full list, and no row is chosen for the
+      // user.
+      await type('zzz-no-such-repo')
+      observed.empty = {
+        rows: rowsNow(),
+        emptyText: searchText('.gp-repolist__empty-msg'),
+        clearLabel: visibleList()?.querySelector('.gp-repolist__empty-clear')?.textContent ?? null,
+        head: headInfo(),
+        rootLine: searchText('.gp-repolist__root-body'),
+      }
+      // Escape clears the query in place (it must not fall through to the
+      // sheet/drawer Escape listener) and hands focus back to the input.
+      const input = searchInput()
+      input.focus()
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await wait(150)
+      observed.escapeClears = {
+        value: searchInput()?.value ?? null,
+        rows: rowsNow(),
+        focused: document.activeElement === searchInput(),
+      }
+      // ↓ from the input steps into the results; the walk skips disabled rows.
+      await type('e')
+      const afterDown = () => document.activeElement?.classList.contains('gp-repolist__item') === true
+      searchInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await wait(80)
+      observed.arrowDown = {
+        onRow: afterDown(),
+        rowName: afterDown() ? textOf(document.activeElement, '.gp-repolist__name') : null,
+        // The disabled row leads the filtered list under this query: landing on
+        // the row after it is what "skips disabled rows" means.
+        firstRow: rowsNow()[0],
+      }
+      // A disabled row keeps its reason and earns no highlight: the terms
+      // matched its identity, never the sentence saying it cannot be chosen.
+      const lostRow = [...(visibleList()?.querySelectorAll('.gp-repolist__row') ?? [])]
+        .find((node) => textOf(node, '.gp-repolist__name') === 'lost-tree')
+      observed.disabledRow = {
+        present: lostRow !== undefined,
+        meta: lostRow === undefined ? '' : textOf(lostRow, '.gp-repolist__meta'),
+        hits: lostRow === undefined ? null : lostRow.querySelectorAll('.gp-repolist__hit').length,
+        disabled: lostRow === undefined ? null : lostRow.querySelector('.gp-repolist__item').disabled === true,
+      }
+      // Picking from a filtered list switches like any other pick, and the
+      // query survives it — a second switch stays one search away.
+      await type('site')
+      const mark2 = calls.length
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      observed.afterPick = {
+        activeTab: activeTabLabel(),
+        rows: rowsNow(),
+        value: searchInput()?.value ?? null,
+        expanded: headInfo().expanded,
+        calls: calls.slice(mark2),
+      }
+      // One query, two docked copies: the changes column reads the same value
+      // the overview typed, and coming back keeps it.
+      clickTab('tab.changes')
+      await wait(400)
+      const changesValue = searchInput()?.value ?? null
+      clickTab('tab.overview')
+      await wait(400)
+      observed.tabRoundTrip = { changesValue, backValue: searchInput()?.value ?? null, backRows: rowsNow() }
+      // The clear button empties the query and returns focus to the input.
+      await type('site')
+      const clearButton = visibleList()?.querySelector('.gp-repolist__search-clear')
+      const clearTitle = clearButton?.getAttribute('title') ?? null
+      clearButton?.click()
+      await wait(150)
+      observed.cleared = {
+        value: searchInput()?.value ?? null,
+        rows: rowsNow(),
+        focused: document.activeElement === searchInput(),
+        title: clearTitle,
+      }
+      // Folding the block ends the search; re-expanding starts clean. The query
+      // has to be live right before the fold, or the assertion would pass with
+      // the panel's clear-on-fold deleted.
+      await type('site')
+      const beforeFold = { value: searchInput()?.value ?? null, rows: rowsNow() }
+      visibleList()?.querySelector('.gp-repolist__head')?.click()
+      await wait(300)
+      visibleList()?.querySelector('.gp-repolist__head')?.click()
+      await wait(300)
+      observed.afterRefold = { before: beforeFold, value: searchInput()?.value ?? null, rows: rowsNow() }
+      // A new session is not the old one's: the query dies with the session it
+      // was typed in (Panel's sessionId effect), re-rendered on the same root
+      // so the component state — not a remount — is what has to clear it.
+      await type('site')
+      window.__gpPanelRoot.render(view.component({ sessionId: 'sess-2' }))
+      await wait(800)
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      observed.afterSession = { value: searchInput()?.value ?? null, hasInput: searchInput() !== null }
+      return { observed, calls }
+    }
+    if (action === 'search-sheet') {
+      // The compact layout docks the same block inside the branch-filter sheet,
+      // whose Escape listener is on the document. A live query must clear
+      // without dismissing that sheet; an empty one must let the sheet close —
+      // otherwise the input swallows the first Escape and the key reads dead.
+      const sheetOpen = () => document.querySelector('.gp-sheet') !== null
+      const input = () => document.querySelector('.gp-sheet .gp-repolist__search-input')
+      const rows = () => [...document.querySelectorAll('.gp-sheet .gp-repolist__item')].map((node) => textOf(node, '.gp-repolist__name'))
+      const type = async (value) => {
+        const node = input()
+        if (node === null) throw new Error('no sheet search input')
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+        setter.call(node, value)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(150)
+      }
+      await openSheet()
+      await expandSheetRepos()
+      observed.opened = { open: sheetOpen(), hasInput: input() !== null, rows: rows() }
+      await type('site')
+      observed.filtered = { open: sheetOpen(), value: input()?.value ?? null, rows: rows() }
+      // An IME composition owns Escape: it cancels the candidate list, so the
+      // query stays and the sheet must stay too.
+      const composing = input()
+      composing.focus()
+      composing.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, isComposing: true }))
+      await wait(200)
+      observed.escapedComposing = { open: sheetOpen(), value: input()?.value ?? null }
+      const esc = () => {
+        const node = input()
+        node.focus()
+        node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      }
+      esc()
+      await wait(200)
+      observed.escapedLive = { open: sheetOpen(), value: input()?.value ?? null, rows: rows(), focused: document.activeElement === input() }
+      esc()
+      await wait(250)
+      observed.escapedEmpty = { open: sheetOpen() }
+      // Whitespace is no query: it filters nothing, so it must not swallow the
+      // key that closes the sheet either.
+      await openSheet()
+      await expandSheetRepos()
+      await type('   ')
+      esc()
+      await wait(250)
+      observed.escapedSpaces = { open: sheetOpen() }
+      return { observed, calls }
+    }
+    if (action === 'search-shrink') {
+      // A live query outlives the box's own threshold: when a refetched list
+      // drops below four rows the input stays (its word still filters), and
+      // clearing it takes the input away — focus must land on the block head,
+      // not on <body>.
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      await expandRepos()
+      const input = () => visibleList()?.querySelector('.gp-repolist__search-input') ?? null
+      const type = async (value) => {
+        const node = input()
+        if (node === null) throw new Error('no repository search input')
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+        setter.call(node, value)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(150)
+      }
+      // The refetch rides a polled snapshot and a config flip, so its latency
+      // belongs to the harness: poll for the state instead of guessing a delay.
+      const until = async (probe, label) => {
+        const started = Date.now()
+        while (Date.now() - started < 6000) {
+          if (probe()) return
+          await wait(80)
+        }
+        throw new Error('timed out waiting for ' + label)
+      }
+      await type('site')
+      observed.beforeShrink = { rows: listRows().map((row) => row.name), badge: headInfo().badge, value: input()?.value ?? null }
+      // The scan finds one checkout fewer, and a changed list cap is what makes
+      // the controller read the workspace again (ADR-0041's config flip).
+      window.__gpRepos(listed.filter((repo) => repo.name !== 'lost-tree'))
+      window.__gpSnapshot({ repoLimit: 40 })
+      await until(() => headInfo().badge === '3', 'the refetched list')
+      observed.shrunk = {
+        rows: listRows().map((row) => row.name),
+        badge: headInfo().badge,
+        hasInput: input() !== null,
+        value: input()?.value ?? null,
+      }
+      const node = input()
+      if (node === null) throw new Error('the box vanished while its query was still filtering')
+      node.focus()
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await wait(250)
+      observed.afterClear = {
+        hasInput: input() !== null,
+        rows: listRows().map((row) => row.name),
+        focus: document.activeElement?.className ?? '',
+        inPanel: document.querySelector('.gp-panel')?.contains(document.activeElement) === true,
+      }
+      // Growing back to four rows brings the box back empty…
+      window.__gpRepos(listed)
+      window.__gpSnapshot({ repoLimit: 41 })
+      await until(() => input() !== null, 'the box at four rows')
+      await expandRepos()
+      observed.regrown = { hasInput: input() !== null, value: input()?.value ?? null }
+      // Deleting the term with the keyboard takes the same exit as the clear
+      // button: the box unmounts under the caret, so the head has to take it.
+      await type('site')
+      window.__gpRepos(listed.filter((repo) => repo.name !== 'lost-tree'))
+      window.__gpSnapshot({ repoLimit: 42 })
+      await until(() => headInfo().badge === '3', 'the second shrink')
+      const typing = input()
+      typing.focus()
+      typing.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }))
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(typing, '')
+      typing.dispatchEvent(new Event('input', { bubbles: true }))
+      await wait(250)
+      observed.typedClear = {
+        hasInput: input() !== null,
+        focus: document.activeElement?.className ?? '',
+        inPanel: document.querySelector('.gp-panel')?.contains(document.activeElement) === true,
+      }
+      // …and a query typed here dies with the block: a list below two rows is
+      // no chooser, so the panel drops the query instead of keeping it to
+      // filter rows the user never typed it against when a worktree returns.
+      window.__gpRepos(listed)
+      window.__gpSnapshot({ repoLimit: 43 })
+      await until(() => input() !== null, 'the box before the block hides')
+      await type('site')
+      window.__gpRepos(listed.filter((repo) => repo.name === 'fixture-repo'))
+      window.__gpSnapshot({ repoLimit: 44 })
+      await until(() => document.querySelector('.gp-panel .gp-repolist') === null, 'the block to disappear')
+      observed.hidden = { block: document.querySelector('.gp-panel .gp-repolist') !== null }
+      window.__gpRepos(listed)
+      window.__gpSnapshot({ repoLimit: 45 })
+      await until(() => document.querySelector('.gp-panel .gp-repolist') !== null, 'the block to return')
+      await expandRepos()
+      observed.restored = {
+        hasInput: input() !== null,
+        value: input()?.value ?? null,
+        rows: listRows().map((row) => row.name),
+      }
+      return { observed, calls }
+    }
+    if (action === 'search-threshold') {
+      // Issue #161 follow-up: the box pays for itself only in a list the eye
+      // cannot hold at once — three rows read whole, four start to scroll —
+      // so below four rows the block renders no input at all.
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      const hasInput = () => visibleList()?.querySelector('.gp-repolist__search-input') !== null
+      await expandRepos()
+      observed.opened = { hasInput: hasInput(), rows: listRows().map((row) => row.name) }
       return { observed, calls }
     }
     if (action === 'changes-bar') {
@@ -1587,7 +1910,7 @@ const failures = []
     assert.deepEqual(seen.groups.labels, ['repos.group.own', 'repos.group.foreign'], 'each group names itself')
     assert.deepEqual(seen.groups.counts, ['2/4', '2'], 'the family header shows choosable/total, the flat one just the total')
     assert.deepEqual(seen.rows.map((row) => row.name), ['fixture-repo', 'sidebar', 'spike', 'gone', 'site', 'web (apps/web)'], 'family rows lead, the workspace follows')
-    assert.deepEqual(seen.rows.map((row) => row.branch), ['main', 'feat/sidebar', 'spike', 'old', '', ''], 'every family row prints the branch git reported; foreign rows claim none')
+    assert.deepEqual(seen.rows.map((row) => row.branch), ['main', 'feat/sidebar', '', 'old', '', ''], 'the chip adds what the name cannot guess: `spike` IS its own branch, printed once; foreign rows claim none')
     assert.deepEqual(seen.rows.map((row) => row.disabled), [false, false, true, true, false, false], 'outside and lost directories are visible but unchoosable')
     assert.equal(seen.rows.length, 6, 'four family rows and two foreign rows')
     assert.equal(seen.rows[0].meta, 'repos.mainTag', 'the main work tree declares itself with its badge')
@@ -1904,6 +2227,171 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('head-icon observation: ' + JSON.stringify({ observed: out.observed, errors }))
+    failures.push(error)
+  }
+}
+
+// 17b. The repository search (issue #161): it narrows the listed rows in
+// place, keeps the head badge at the list total, states a root-only match on
+// the row's grey line, offers a clear from the empty state, clears on Escape
+// without falling through to the drawer listener, walks the rows with ↓, and
+// survives a pick — with no repository-list refetch and no auto-pick at any
+// point. Four rows carry the box (the threshold's lower bound).
+{
+  const { out, errors } = await mount([LOST_REPO, WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search', { scene: 'S17b' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    // Boot: collapsed, the head names the checkout in use; expanding reveals
+    // the search input (the selected chip exists only while collapsed).
+    assert.equal(seen.atBoot.head.expanded, false, 'the block boots collapsed')
+    assert.equal(seen.atBoot.head.selected, 'fixture-repo', 'and names the checkout in use')
+    assert.equal(seen.atBoot.head.badge, '3/4', 'the badge counts the list: three choosable of four rows')
+    assert.equal(seen.opened.hasInput, true, 'the expanded block carries a search input')
+    assert.equal(seen.opened.maxLength, '256', 'the query is capped before it reaches the row scans: ' + JSON.stringify(seen.opened))
+    assert.equal(seen.opened.livePresent, true, 'the live region is mounted before it has anything to say')
+    assert.equal(seen.opened.head.expanded, true, 'the toggle expands the block')
+    // A term only one row carries narrows to it; the badge keeps the total.
+    assert.deepEqual(seen.filtered.rows, ['site'], 'one row matches `site`: ' + JSON.stringify(seen.filtered.rows))
+    assert.equal(seen.filtered.count, '1', 'the search box reports the match count')
+    assert.equal(seen.filtered.live, 'repos.searchCount', 'the match count is announced by a hidden live span: ' + JSON.stringify(seen.filtered))
+    assert.equal(seen.filtered.badgeLabel, 'repos.searchCount', 'the badge keeps its own label for the picture it draws')
+    assert.equal(seen.filtered.head.badge, '3/4', 'and the head badge never narrows with the query')
+    assert.ok(seen.filtered.rootLine.includes('fixture-repo'), 'the checked row is hidden but its absolute path line stays: ' + seen.filtered.rootLine)
+    assert.ok(seen.filtered.hits.includes('site'), 'the matched run is highlighted: ' + JSON.stringify(seen.filtered.hits))
+    assert.deepEqual(seen.filtered.calls, [], 'typing never asks the host for anything: ' + JSON.stringify(seen.filtered.calls))
+    // A root-only match must still show where it matched.
+    assert.deepEqual(seen.rootOnly.rows, ['lost-tree', '*fixture-repo', 'site', 'web (apps/web)'], 'every row lives under the workspace root: ' + JSON.stringify(seen.rootOnly.rows))
+    seen.rootOnly.detail.forEach((cell, index) => {
+      if (cell.disabled) assert.equal(cell.meta, 'repos.disabled.uncertified', 'the refused row keeps its reason, not a root fragment')
+      else assert.ok(cell.meta === '' || cell.meta.includes('fixture-repo'), `row ${index} carries the root fragment: ${cell.meta}`)
+    })
+    // No match: the empty state, the unchanged checkout, and no silent pick.
+    assert.deepEqual(seen.empty.rows, [], 'no row matches')
+    assert.ok(seen.empty.emptyText.length > 0, 'the empty state says so: ' + seen.empty.emptyText)
+    assert.notEqual(seen.empty.clearLabel, null, 'and offers the clear entry')
+    assert.ok(seen.empty.rootLine.includes('fixture-repo'), 'the checkout is still named: ' + seen.empty.rootLine)
+    assert.equal(seen.empty.head.badge, '3/4', 'even with nothing matching, the badge still reports the list')
+    // Escape clears the query, not the panel.
+    assert.equal(seen.escapeClears.value, '', 'Escape empties the input')
+    assert.deepEqual(seen.escapeClears.rows, ['lost-tree', '*fixture-repo', 'site', 'web (apps/web)'], 'and the full list returns: ' + JSON.stringify(seen.escapeClears.rows))
+    assert.equal(seen.escapeClears.focused, true, 'focus stays in the input')
+    // ↓ steps into the results, over the row that cannot be chosen.
+    assert.equal(seen.arrowDown.onRow, true, 'ArrowDown from the input focuses a row')
+    assert.equal(seen.arrowDown.firstRow, 'lost-tree', 'the first visible row is the unchoosable one: ' + JSON.stringify(seen.arrowDown))
+    assert.equal(seen.arrowDown.rowName, 'fixture-repo', 'and the walk steps over it to the next choosable row: ' + JSON.stringify(seen.arrowDown))
+    // A disabled row survives the filter stating its reason, unhighlighted.
+    assert.equal(seen.disabledRow.present, true, 'the refused worktree stays in the filtered list')
+    assert.equal(seen.disabledRow.disabled, true, 'and stays unchoosable')
+    assert.equal(seen.disabledRow.meta, 'repos.disabled.uncertified', 'stating its reason on the grey line')
+    assert.equal(seen.disabledRow.hits, 0, 'with no highlight on that sentence: ' + JSON.stringify(seen.disabledRow))
+    // A pick from a filtered list behaves like any other pick.
+    assert.equal(seen.afterPick.activeTab, 'tab.overview', 'picking stays on the overview')
+    assert.deepEqual(seen.afterPick.rows, ['*site'], 'the query survives the pick: ' + JSON.stringify(seen.afterPick.rows))
+    assert.equal(seen.afterPick.value, 'site', 'the input keeps the term')
+    assert.equal(seen.afterPick.expanded, true, 'the block stays open: the next switch is one click away')
+    assert.ok(seen.afterPick.calls.some((call) => call.endpoint === 'dbGitPanel/snapshot'), 'the pick sampled the new checkout')
+    assert.equal(seen.afterPick.calls.filter((call) => call.kind === 'repo-list').length, 0, 'but never re-scanned the workspace')
+    // One query, both docked copies: the changes column reads the same value.
+    assert.equal(seen.tabRoundTrip.changesValue, 'site', 'the changes column carries the query too')
+    assert.equal(seen.tabRoundTrip.backValue, 'site', 'and coming back keeps it')
+    assert.deepEqual(seen.tabRoundTrip.backRows, ['*site'], 'still filtered to the picked row: ' + JSON.stringify(seen.tabRoundTrip.backRows))
+    // The clear button empties the query and hands focus back.
+    assert.equal(seen.cleared.value, '', 'clear empties the input')
+    assert.deepEqual(seen.cleared.rows, ['lost-tree', 'fixture-repo', '*site', 'web (apps/web)'], 'the whole list returns, still on the picked checkout: ' + JSON.stringify(seen.cleared.rows))
+    assert.equal(seen.cleared.focused, true, 'focus returns to the input')
+    assert.equal(seen.cleared.title, 'repos.searchClear', 'the icon-only clear carries a hover title like every other icon button')
+    // Folding ends the search; re-expanding starts clean. The query is live
+    // right before the fold, so deleting the panel's clear-on-fold turns this
+    // red instead of leaving the assertion to pass on an already-empty box.
+    assert.equal(seen.afterRefold.before.value, 'site', 'a query is live when the block folds')
+    assert.deepEqual(seen.afterRefold.before.rows, ['*site'], 'and it filters the rows: ' + JSON.stringify(seen.afterRefold.before.rows))
+    assert.equal(seen.afterRefold.value, '', 'a fold clears the query')
+    assert.deepEqual(seen.afterRefold.rows, ['lost-tree', 'fixture-repo', '*site', 'web (apps/web)'], 'and the list comes back whole: ' + JSON.stringify(seen.afterRefold.rows))
+    // A new session starts with no query of the old one's.
+    assert.equal(seen.afterSession.hasInput, true, 'the next session still offers the search box')
+    assert.equal(seen.afterSession.value, '', 'and starts it empty')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('search observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 17c. The box is earned, not defaulted: three rows read at a glance, so the
+// block renders no search input for them — scene 17b's four rows are the
+// boundary where it appears.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search-threshold', { scene: 'S17c' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.opened.rows.length, 3, 'three rows: the size the threshold is about')
+    assert.equal(seen.opened.hasInput, false, 'a short list earns no search box: ' + JSON.stringify(seen.opened))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('search-threshold observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 17d. Escape inside the compact sheet: the block rides a surface that closes
+// on Escape, so a live query must clear without dismissing the sheet, while an
+// empty query has nothing to clear and lets that listener take the key.
+{
+  const { out, errors } = await mount([LOST_REPO, WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search-sheet', { panelWidth: 360, viewportWidth: 360, scene: 'S17d' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.opened.open, true, 'the compact branch filter opens as a sheet')
+    assert.equal(seen.opened.hasInput, true, 'four rows carry the search box in the sheet too')
+    assert.equal(seen.escapedComposing.value, 'site', 'an IME composition keeps its Escape: the query survives')
+    assert.equal(seen.escapedComposing.open, true, 'and the sheet stays open')
+    assert.deepEqual(seen.filtered.rows, ['site'], 'typing narrows the sheet rows: ' + JSON.stringify(seen.filtered.rows))
+    assert.equal(seen.escapedLive.open, true, 'a live query clears without dismissing the sheet')
+    assert.equal(seen.escapedLive.value, '', 'Escape empties the input')
+    assert.deepEqual(seen.escapedLive.rows, ['lost-tree', 'fixture-repo', 'site', 'web (apps/web)'], 'and the sheet list returns whole: ' + JSON.stringify(seen.escapedLive.rows))
+    assert.equal(seen.escapedLive.focused, true, 'focus stays in the input')
+    assert.equal(seen.escapedEmpty.open, false, 'with nothing to clear, the same key closes the sheet')
+    assert.equal(seen.escapedSpaces.open, false, 'whitespace is no query: it closes the sheet like an empty box: ' + JSON.stringify(seen.escapedSpaces))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('search-sheet observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 17e. The box exists from four rows up, but a live query keeps it while the
+// list shrinks underneath: a refetch that drops the list to three rows must not
+// leave the clear handing focus to a node that unmounts with the query.
+{
+  const { out, errors } = await mount([LOST_REPO, WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search-shrink', { pollMs: 400, scene: 'S17e' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.beforeShrink.value, 'site', 'a query is live before the list shrinks')
+    assert.deepEqual(seen.beforeShrink.rows, ['site'], 'and it filters: ' + JSON.stringify(seen.beforeShrink.rows))
+    assert.equal(seen.beforeShrink.badge, '3/4', 'four rows, one of them unchoosable')
+    assert.deepEqual(seen.shrunk.rows, ['site'], 'the refetched list still answers the query: ' + JSON.stringify(seen.shrunk.rows))
+    assert.equal(seen.shrunk.badge, '3', 'three rows now')
+    assert.equal(seen.shrunk.hasInput, true, 'the box stays while its query filters')
+    assert.equal(seen.shrunk.value, 'site', 'with the term intact')
+    assert.equal(seen.afterClear.hasInput, false, 'clearing under the threshold removes the box')
+    assert.deepEqual(seen.afterClear.rows, ['fixture-repo', 'site', 'web (apps/web)'], 'and the whole list returns: ' + JSON.stringify(seen.afterClear.rows))
+    assert.match(seen.afterClear.focus, /gp-repolist__head/, 'focus lands on the block head, not <body>: ' + JSON.stringify(seen.afterClear))
+    assert.equal(seen.afterClear.inPanel, true, 'the caret stays inside the panel')
+    assert.equal(seen.typedClear.hasInput, false, 'deleting the term with the keyboard removes the box too')
+    assert.match(seen.typedClear.focus, /gp-repolist__head/, 'and the caret lands on the head, not <body>: ' + JSON.stringify(seen.typedClear))
+    assert.equal(seen.typedClear.inPanel, true, 'still inside the panel')
+    assert.equal(seen.regrown.hasInput, true, 'a list back at four rows carries the box again')
+    assert.equal(seen.regrown.value, '', 'and starts it empty')
+    assert.equal(seen.hidden.block, false, 'one row is no chooser: the block disappears')
+    assert.equal(seen.restored.hasInput, true, 'the block returns with the box')
+    assert.equal(seen.restored.value, '', 'a query typed before the block vanished does not come back with it')
+    assert.deepEqual(seen.restored.rows, ['lost-tree', 'fixture-repo', 'site', 'web (apps/web)'], 'and the list is whole: ' + JSON.stringify(seen.restored.rows))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('search-shrink observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }

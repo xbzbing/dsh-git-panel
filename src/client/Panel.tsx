@@ -272,12 +272,24 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // The list block's collapsed state belongs to the panel, not the overview, so
   // it survives navigating between panes. It boots collapsed.
   const [reposCollapsed, setReposCollapsed] = useState(true)
+  // The repository search (issue #161) lives here for the same reason: both
+  // docked copies read one value, so switching panes keeps the query. It is a
+  // display filter only — it never reaches the host.
+  const [repoQuery, setRepoQuery] = useState('')
+  // Folding the block ends the search: a query would otherwise reappear on the
+  // next expand, filtering rows the user never typed this session.
+  useEffect(() => {
+    if (reposCollapsed) setRepoQuery('')
+  }, [reposCollapsed])
   // File-root picks live in the same store and are broadcast the same way: a
   // repair or a config flip one panel applies re-renders the other copy too.
   useSyncExternalStore(subscribeRepoSelection, filesRootVersion)
   useEffect(() => {
     setRepoWorkspaceEnabling(false)
     setRepoWorkspaceFailed(false)
+    // A new session's list is not the old one's: a surviving query would
+    // filter rows the user never asked about here.
+    setRepoQuery('')
   }, [sessionId])
   // The body goes inert for the switch (the sample on screen belongs to the
   // previous checkout while every write is already tagged with the next one),
@@ -488,7 +500,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     changes: h(DiffIcon, { size: 14 }),
     files: h(FilesIcon, { size: 14 }),
   }
-  const repoList = repoChoices(repos)
+  // Derived once per list: the search filter and the row slider both key off
+  // this array, and a fresh one on every render would re-run both for a panel
+  // re-render that did not touch the workspace.
+  const repoList = useMemo(() => repoChoices(repos), [repos])
+  // A list below two rows is no chooser at all: the block renders nothing, and
+  // a query left behind in the panel would come back filtering rows the user
+  // never typed it against the moment a worktree reappears.
+  useEffect(() => {
+    if (repoList.length < 2) setRepoQuery('')
+  }, [repoList.length])
   // The browser's displayed root follows its own selector, not the sample: the
   // project root (the cwd's own checkout when it has one, else the scan's cwd),
   // a picked checkout's listed root, the snapshot's realpath for the followed
@@ -836,6 +857,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       onEnableWorkspace: hasConfigForms(ctx) ? enableWorkspace : undefined,
       workspaceEnabling: repoWorkspaceEnabling,
       workspaceFailed: repoWorkspaceFailed,
+      query: repoQuery,
+      onQueryChange: setRepoQuery,
     }
     : undefined
 

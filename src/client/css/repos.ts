@@ -126,4 +126,30 @@ export const CSS = `
 /* Head collapse indicator: a chevron inside the head button, with no hit area
  * or focus ring of its own. */
 .gp-repolist__collapse{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:var(--dsw-alias-label-tertiary)}
+/* Search row (issue #161): between the checkout's path line and the rows,
+ * inside the fold so it never scrolls away with the results it filters. One
+ * line — icon, input, match count, clear — that wraps nothing: the column is
+ * narrow, and the input takes what is left. */
+.gp-repolist__search{display:flex;align-items:center;gap:6px;flex:none;min-width:0;margin:0 6px 4px;padding:2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1)}
+.gp-repolist__search:focus-within{border-color:var(--dsw-alias-state-business-primary)}
+.gp-repolist__search>svg{flex:none;color:var(--dsw-alias-label-tertiary)}
+/* The input owns the row's width; the native search decoration (WebKit's own
+ * ✕) is replaced by the clear button beside the count, so it stays hidden —
+ * two clears would be the confusion this row exists to remove. */
+.gp-repolist__search-input{flex:1 1 auto;min-width:0;height:20px;padding:0;border:0;outline:none;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px}
+.gp-repolist__search-input::placeholder{color:var(--dsw-alias-label-tertiary)}
+.gp-repolist__search-input::-webkit-search-cancel-button{display:none}
+.gp-repolist__search-count{flex:none;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);font-size:10px;line-height:16px;text-align:center;box-sizing:border-box;color:var(--dsw-alias-label-secondary)}
+.gp-repolist__search-clear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.gp-repolist__search-clear:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-repolist__search-clear:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+/* Matched runs inside a row's name and path. A tint, not a solid block: the
+ * row's own state (hover, the travelling fill) must stay readable under it. */
+.gp-repolist__hit{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary)) 35%,transparent);color:inherit;border-radius:2px}
+/* No match: the message and the way out, in place of the rows. */
+.gp-repolist__empty{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:10px 10px 12px;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+.gp-repolist__empty-msg{overflow-wrap:anywhere}
+.gp-repolist__empty-clear{padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;line-height:1.4;cursor:pointer}
+.gp-repolist__empty-clear:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-repolist__empty-clear:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 `;
