@@ -111,6 +111,9 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // listed (issue #161). No RPC, no rescan — a query that re-scanned the
   // workspace could offer repositories this list never certified.
   const searchRef = useRef<HTMLInputElement | null>(null)
+  // Where focus goes when clearing the query takes the input away with it: the
+  // block's head line is the one control that always outlives the box.
+  const headRef = useRef<HTMLButtonElement | null>(null)
   // Memoised on the query alone: the filtered list rides `useRowSlider`'s deps,
   // and a fresh array on every render would re-measure the travelling fill on
   // each tip or copy re-render while a query is typed (row-slider.ts asks for
@@ -123,9 +126,17 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // path with it — the line is what says which checkout the panes act on.
   const currentChoice = choices.find((choice) => choice.path === current)
   const visible = useMemo(() => filterRepoChoices(choices, tokens), [choices, tokens])
-  // One clear for both exits (the button and the empty state): empties the
-  // query and hands focus back to the input that filters.
-  const clearQuery = (): void => { onQueryChange?.(''); searchRef.current?.focus() }
+  // One clear for both exits (the button, the empty state, and Escape): empties
+  // the query and hands focus back to the input that filters — unless the box
+  // itself is what the clear removes. A list that shrank under a live query
+  // (a refetch dropped it below four rows) keeps the input only while the query
+  // is non-empty, so focusing it here would land the caret on a node about to
+  // unmount and leave the user on <body>; the head line takes over instead.
+  const clearQuery = (): void => {
+    onQueryChange?.('')
+    if (choices.length < 4) headRef.current?.focus()
+    else searchRef.current?.focus()
+  }
   // The checked row's fill is one block that travels from the old row to the
   // new one instead of two rows swapping colours in a single frame: the block
   // is measured from the checked row after every render that can move it, and
@@ -391,6 +402,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
     : h('button', {
       key: 'head',
       type: 'button',
+      ref: headRef,
       className: 'gp-repolist__head',
       'aria-expanded': collapsed ? 'false' : 'true',
       'aria-controls': listId,
@@ -448,13 +460,17 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
           // Escape during IME composition cancels the candidate list, not the
           // query — and must not reach the sheet/drawer listener beneath.
           if (event.nativeEvent?.isComposing === true) { event.stopPropagation(); return }
-          // The input owns Escape while it has focus and claims it even with an
-          // empty query (the comment form's precedent): an unhandled keystroke
-          // would fall through to the sheet/drawer document listeners.
+          // An empty query has nothing to clear, so the keystroke belongs to the
+          // surface holding the list: the compact sheet and the tight drawer
+          // close on Escape, and swallowing it here would read as a dead key.
+          if (event.key === 'Escape' && query === '') return
+          // A live query does own Escape — it clears the filter and stops there,
+          // so the same keystroke cannot also dismiss the sheet the user is
+          // still working in.
           if (event.key === 'Escape') {
             event.preventDefault()
             event.stopPropagation()
-            if (query !== '') onQueryChange('')
+            clearQuery()
             return
           }
           // ↓ steps into the results; Enter types, it never picks — a query

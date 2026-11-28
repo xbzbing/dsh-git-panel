@@ -136,6 +136,9 @@ async function mount(repos, action, options = {}) {
     // The repository list a later refetch reads: a worktree the first scan did
     // not know about (created in this session) shows up here.
     window.__gpRepos = (rows) => { fixture.repos = rows }
+    // The config a later polled sample carries: a changed list cap is what makes
+    // the controller read the workspace again (ADR-0041's config flip).
+    window.__gpSnapshot = (patch) => { fixture.snapshot = { ...fixture.snapshot, ...patch } }
     // Park the next repository-list read so a scenario can act while the
     // follow effect waits for its one refetch.
     const repoListGate = { armed: false, wait: null, release: null }
@@ -1097,12 +1100,16 @@ async function mount(repos, action, options = {}) {
         rows: rowsNow(),
         focused: document.activeElement === searchInput(),
       }
-      // Folding the block ends the search; re-expanding starts clean.
+      // Folding the block ends the search; re-expanding starts clean. The query
+      // has to be live right before the fold, or the assertion would pass with
+      // the panel's clear-on-fold deleted.
+      await type('site')
+      const beforeFold = { value: searchInput()?.value ?? null, rows: rowsNow() }
       visibleList()?.querySelector('.gp-repolist__head')?.click()
       await wait(300)
       visibleList()?.querySelector('.gp-repolist__head')?.click()
       await wait(300)
-      observed.afterRefold = { value: searchInput()?.value ?? null, rows: rowsNow() }
+      observed.afterRefold = { before: beforeFold, value: searchInput()?.value ?? null, rows: rowsNow() }
       // A new session is not the old one's: the query dies with the session it
       // was typed in (Panel's sessionId effect), re-rendered on the same root
       // so the component state — not a remount — is what has to clear it.
@@ -1111,6 +1118,82 @@ async function mount(repos, action, options = {}) {
       await wait(800)
       if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
       observed.afterSession = { value: searchInput()?.value ?? null, hasInput: searchInput() !== null }
+      return { observed, calls }
+    }
+    if (action === 'search-sheet') {
+      // The compact layout docks the same block inside the branch-filter sheet,
+      // whose Escape listener is on the document. A live query must clear
+      // without dismissing that sheet; an empty one must let the sheet close —
+      // otherwise the input swallows the first Escape and the key reads dead.
+      const sheetOpen = () => document.querySelector('.gp-sheet') !== null
+      const input = () => document.querySelector('.gp-sheet .gp-repolist__search-input')
+      const rows = () => [...document.querySelectorAll('.gp-sheet .gp-repolist__item')].map((node) => textOf(node, '.gp-repolist__name'))
+      const type = async (value) => {
+        const node = input()
+        if (node === null) throw new Error('no sheet search input')
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+        setter.call(node, value)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(150)
+      }
+      await openSheet()
+      await expandSheetRepos()
+      observed.opened = { open: sheetOpen(), hasInput: input() !== null, rows: rows() }
+      await type('site')
+      observed.filtered = { open: sheetOpen(), value: input()?.value ?? null, rows: rows() }
+      const esc = () => {
+        const node = input()
+        node.focus()
+        node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      }
+      esc()
+      await wait(200)
+      observed.escapedLive = { open: sheetOpen(), value: input()?.value ?? null, rows: rows(), focused: document.activeElement === input() }
+      esc()
+      await wait(250)
+      observed.escapedEmpty = { open: sheetOpen() }
+      return { observed, calls }
+    }
+    if (action === 'search-shrink') {
+      // A live query outlives the box's own threshold: when a refetched list
+      // drops below four rows the input stays (its word still filters), and
+      // clearing it takes the input away — focus must land on the block head,
+      // not on <body>.
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      await expandRepos()
+      const input = () => visibleList()?.querySelector('.gp-repolist__search-input') ?? null
+      const type = async (value) => {
+        const node = input()
+        if (node === null) throw new Error('no repository search input')
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+        setter.call(node, value)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(150)
+      }
+      await type('site')
+      observed.beforeShrink = { rows: listRows().map((row) => row.name), badge: headInfo().badge, value: input()?.value ?? null }
+      // The scan finds one checkout fewer, and a changed list cap is what makes
+      // the controller read the workspace again (ADR-0041's config flip).
+      window.__gpRepos(listed.filter((repo) => repo.name !== 'lost-tree'))
+      window.__gpSnapshot({ repoLimit: 40 })
+      await wait(1600)
+      observed.shrunk = {
+        rows: listRows().map((row) => row.name),
+        badge: headInfo().badge,
+        hasInput: input() !== null,
+        value: input()?.value ?? null,
+      }
+      const node = input()
+      if (node === null) throw new Error('the box vanished while its query was still filtering')
+      node.focus()
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await wait(250)
+      observed.afterClear = {
+        hasInput: input() !== null,
+        rows: listRows().map((row) => row.name),
+        focus: document.activeElement?.className ?? '',
+        inPanel: document.querySelector('.gp-panel')?.contains(document.activeElement) === true,
+      }
       return { observed, calls }
     }
     if (action === 'search-threshold') {
@@ -2129,7 +2212,11 @@ const failures = []
     assert.equal(seen.cleared.value, '', 'clear empties the input')
     assert.deepEqual(seen.cleared.rows, ['lost-tree', 'fixture-repo', '*site', 'web (apps/web)'], 'the whole list returns, still on the picked checkout: ' + JSON.stringify(seen.cleared.rows))
     assert.equal(seen.cleared.focused, true, 'focus returns to the input')
-    // Folding ends the search; re-expanding starts clean.
+    // Folding ends the search; re-expanding starts clean. The query is live
+    // right before the fold, so deleting the panel's clear-on-fold turns this
+    // red instead of leaving the assertion to pass on an already-empty box.
+    assert.equal(seen.afterRefold.before.value, 'site', 'a query is live when the block folds')
+    assert.deepEqual(seen.afterRefold.before.rows, ['*site'], 'and it filters the rows: ' + JSON.stringify(seen.afterRefold.before.rows))
     assert.equal(seen.afterRefold.value, '', 'a fold clears the query')
     assert.deepEqual(seen.afterRefold.rows, ['lost-tree', 'fixture-repo', '*site', 'web (apps/web)'], 'and the list comes back whole: ' + JSON.stringify(seen.afterRefold.rows))
     // A new session starts with no query of the old one's.
@@ -2155,6 +2242,55 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('search-threshold observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 17d. Escape inside the compact sheet: the block rides a surface that closes
+// on Escape, so a live query must clear without dismissing the sheet, while an
+// empty query has nothing to clear and lets that listener take the key.
+{
+  const { out, errors } = await mount([LOST_REPO, WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search-sheet', { panelWidth: 360, viewportWidth: 360, scene: 'S17d' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.opened.open, true, 'the compact branch filter opens as a sheet')
+    assert.equal(seen.opened.hasInput, true, 'four rows carry the search box in the sheet too')
+    assert.deepEqual(seen.filtered.rows, ['site'], 'typing narrows the sheet rows: ' + JSON.stringify(seen.filtered.rows))
+    assert.equal(seen.escapedLive.open, true, 'a live query clears without dismissing the sheet')
+    assert.equal(seen.escapedLive.value, '', 'Escape empties the input')
+    assert.deepEqual(seen.escapedLive.rows, ['lost-tree', 'fixture-repo', 'site', 'web (apps/web)'], 'and the sheet list returns whole: ' + JSON.stringify(seen.escapedLive.rows))
+    assert.equal(seen.escapedLive.focused, true, 'focus stays in the input')
+    assert.equal(seen.escapedEmpty.open, false, 'with nothing to clear, the same key closes the sheet')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('search-sheet observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 17e. The box exists from four rows up, but a live query keeps it while the
+// list shrinks underneath: a refetch that drops the list to three rows must not
+// leave the clear handing focus to a node that unmounts with the query.
+{
+  const { out, errors } = await mount([LOST_REPO, WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search-shrink', { pollMs: 400, scene: 'S17e' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.beforeShrink.value, 'site', 'a query is live before the list shrinks')
+    assert.deepEqual(seen.beforeShrink.rows, ['site'], 'and it filters: ' + JSON.stringify(seen.beforeShrink.rows))
+    assert.equal(seen.beforeShrink.badge, '3/4', 'four rows, one of them unchoosable')
+    assert.deepEqual(seen.shrunk.rows, ['site'], 'the refetched list still answers the query: ' + JSON.stringify(seen.shrunk.rows))
+    assert.equal(seen.shrunk.badge, '3', 'three rows now')
+    assert.equal(seen.shrunk.hasInput, true, 'the box stays while its query filters')
+    assert.equal(seen.shrunk.value, 'site', 'with the term intact')
+    assert.equal(seen.afterClear.hasInput, false, 'clearing under the threshold removes the box')
+    assert.deepEqual(seen.afterClear.rows, ['fixture-repo', 'site', 'web (apps/web)'], 'and the whole list returns: ' + JSON.stringify(seen.afterClear.rows))
+    assert.match(seen.afterClear.focus, /gp-repolist__head/, 'focus lands on the block head, not <body>: ' + JSON.stringify(seen.afterClear))
+    assert.equal(seen.afterClear.inPanel, true, 'the caret stays inside the panel')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('search-shrink observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }
