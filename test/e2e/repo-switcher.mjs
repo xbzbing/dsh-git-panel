@@ -63,6 +63,10 @@ const WORKSPACE_REPO = { path: '', root: 'fixture-repo', name: 'fixture-repo', k
 const NESTED_REPO = { path: 'site', root: 'fixture-repo/site', name: 'site', kind: 'nested', role: 'repo' }
 // A checkout whose folder name does not identify it: the row needs the path.
 const DEEP_REPO = { path: 'apps/web', root: 'fixture-repo/apps/web', name: 'web', kind: 'nested', role: 'repo' }
+// A linked worktree the certification gate refused (ADR-0035): listed, never
+// choosable, and the first row the search's ↓ walk has to step over. Its name
+// carries an `e`, so the walk's query keeps it in the filtered list.
+const LOST_REPO = { path: '.agents/worktrees/feat/lost', root: 'fixture-repo/.agents/worktrees/feat/lost', name: 'lost-tree', kind: 'nested', role: 'linked', branch: 'feat/lost', disabled: 'uncertified' }
 
 // Scenario B/C: a repository family (the main work tree plus its worktrees)
 // next to unrelated repositories of the workspace. The two disabled worktrees
@@ -244,8 +248,11 @@ async function mount(repos, action, options = {}) {
     if (!view) return { error: 'conversation.view was not registered' }
     // `component(props)` returns the mounted element; wrapping it in another
     // createElement would hand React the element object as a component type.
-    window.ReactDOM.createRoot(document.getElementById('panel'))
-      .render(view.component({ sessionId: 'sess-1', ...(projectionStart === undefined ? {} : { useProjection }) }))
+    // The root is kept so a scenario can re-render the same tree with new props
+    // (a session change) instead of mounting a fresh one that would lose state.
+    const panelRoot = window.ReactDOM.createRoot(document.getElementById('panel'))
+    panelRoot.render(view.component({ sessionId: 'sess-1', ...(projectionStart === undefined ? {} : { useProjection }) }))
+    window.__gpPanelRoot = panelRoot
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     // Wait for the shell to commit its expected tabs instead of sleeping a
     // fixed half second per scenario; the short settle afterwards covers the
@@ -353,6 +360,8 @@ async function mount(repos, action, options = {}) {
       }
     }
     // The head line: toggle state and, while collapsed, the checkout it names.
+    // The badge rides along: it is the list total (selectable/total when some
+    // rows are disabled), the one number a query must never narrow.
     const headInfo = () => {
       const list = visibleList() ?? document.querySelector('.gp-panel .gp-repolist')
       const btn = list === null ? null : list.querySelector('.gp-repolist__head')
@@ -361,6 +370,7 @@ async function mount(repos, action, options = {}) {
         present: btn !== null,
         expanded: btn === null ? null : btn.getAttribute('aria-expanded') === 'true',
         selected: chip === null ? '' : chip.textContent.trim(),
+        badge: list === null ? '' : textOf(list, '.gp-repolist__badge'),
       }
     }
     // The body dims and the tab bar shows a badge while the next sample is in
@@ -965,6 +975,142 @@ async function mount(repos, action, options = {}) {
       if (head !== null) head.click()
       await wait(400)
       observed.afterLongPick = headMark()
+      return { observed, calls }
+    }
+    if (action === 'search') {
+      // Issue #161: the switcher searches the rows the host already listed.
+      // The query narrows what is shown and nothing else — no re-scan, no
+      // auto-pick — and the head badge keeps the list total throughout.
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      // Everything is scoped to the pane on screen: the changes column docks a
+      // second copy of the block, and a hidden one must not answer.
+      const searchInput = () => visibleList()?.querySelector('.gp-repolist__search-input') ?? null
+      const searchText = (selector) => textOf(visibleList() ?? document.body, selector)
+      const rowsNow = () => listRows().map((row) => (row.active ? '*' : '') + row.name)
+      // Boot state, read before the toggle: collapsed, the head names the
+      // checkout in use (the selected chip only exists while collapsed).
+      observed.atBoot = { head: headInfo(), rows: rowsNow() }
+      const type = async (value) => {
+        const input = searchInput()
+        if (input === null) throw new Error('no repository search input')
+        // React controls the input: the native setter plus an input event is
+        // what the platform's own typing does.
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+        setter.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(150)
+      }
+      await expandRepos()
+      observed.opened = { hasInput: searchInput() !== null, head: headInfo() }
+      const mark = calls.length
+      // The workspace's own checkout and a nested repository share no letters
+      // in this fixture beyond the path, so `site` keeps one row.
+      await type('site')
+      observed.filtered = {
+        rows: rowsNow(),
+        count: searchText('.gp-repolist__search-count'),
+        head: headInfo(),
+        // The checked row may be filtered out: its absolute path line stays,
+        // so the panes' checkout is still stated while the rows are narrowed.
+        rootLine: searchText('.gp-repolist__root-body'),
+        hits: [...(visibleList()?.querySelectorAll('.gp-repolist__hit') ?? [])].map((node) => node.textContent),
+        calls: calls.slice(mark),
+      }
+      // A match through the absolute root alone: the fixture's rows live under
+      // `fixture-repo/…`, and `worksp` names no row's own text.
+      await type('fixture-repo')
+      observed.rootOnly = {
+        rows: rowsNow(),
+        detail: listRows().map((row) => ({ meta: row.meta, disabled: row.disabled })),
+      }
+      // No match at all: the empty state appears with its clear entry, the
+      // head badge still reports the full list, and no row is chosen for the
+      // user.
+      await type('zzz-no-such-repo')
+      observed.empty = {
+        rows: rowsNow(),
+        emptyText: searchText('.gp-repolist__empty-msg'),
+        clearLabel: visibleList()?.querySelector('.gp-repolist__empty-clear')?.textContent ?? null,
+        head: headInfo(),
+        rootLine: searchText('.gp-repolist__root-body'),
+      }
+      // Escape clears the query in place (it must not fall through to the
+      // sheet/drawer Escape listener) and hands focus back to the input.
+      const input = searchInput()
+      input.focus()
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await wait(150)
+      observed.escapeClears = {
+        value: searchInput()?.value ?? null,
+        rows: rowsNow(),
+        focused: document.activeElement === searchInput(),
+      }
+      // ↓ from the input steps into the results; the walk skips disabled rows.
+      await type('e')
+      const afterDown = () => document.activeElement?.classList.contains('gp-repolist__item') === true
+      searchInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await wait(80)
+      observed.arrowDown = {
+        onRow: afterDown(),
+        rowName: afterDown() ? textOf(document.activeElement, '.gp-repolist__name') : null,
+        // The disabled row leads the filtered list under this query: landing on
+        // the row after it is what "skips disabled rows" means.
+        firstRow: rowsNow()[0],
+      }
+      // A disabled row keeps its reason and earns no highlight: the terms
+      // matched its identity, never the sentence saying it cannot be chosen.
+      const lostRow = [...(visibleList()?.querySelectorAll('.gp-repolist__row') ?? [])]
+        .find((node) => textOf(node, '.gp-repolist__name') === 'lost-tree')
+      observed.disabledRow = {
+        present: lostRow !== undefined,
+        meta: lostRow === undefined ? '' : textOf(lostRow, '.gp-repolist__meta'),
+        hits: lostRow === undefined ? null : lostRow.querySelectorAll('.gp-repolist__hit').length,
+        disabled: lostRow === undefined ? null : lostRow.querySelector('.gp-repolist__item').disabled === true,
+      }
+      // Picking from a filtered list switches like any other pick, and the
+      // query survives it — a second switch stays one search away.
+      await type('site')
+      const mark2 = calls.length
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      observed.afterPick = {
+        activeTab: activeTabLabel(),
+        rows: rowsNow(),
+        value: searchInput()?.value ?? null,
+        expanded: headInfo().expanded,
+        calls: calls.slice(mark2),
+      }
+      // One query, two docked copies: the changes column reads the same value
+      // the overview typed, and coming back keeps it.
+      clickTab('tab.changes')
+      await wait(400)
+      const changesValue = searchInput()?.value ?? null
+      clickTab('tab.overview')
+      await wait(400)
+      observed.tabRoundTrip = { changesValue, backValue: searchInput()?.value ?? null, backRows: rowsNow() }
+      // The clear button empties the query and returns focus to the input.
+      await type('site')
+      visibleList()?.querySelector('.gp-repolist__search-clear')?.click()
+      await wait(150)
+      observed.cleared = {
+        value: searchInput()?.value ?? null,
+        rows: rowsNow(),
+        focused: document.activeElement === searchInput(),
+      }
+      // Folding the block ends the search; re-expanding starts clean.
+      visibleList()?.querySelector('.gp-repolist__head')?.click()
+      await wait(300)
+      visibleList()?.querySelector('.gp-repolist__head')?.click()
+      await wait(300)
+      observed.afterRefold = { value: searchInput()?.value ?? null, rows: rowsNow() }
+      // A new session is not the old one's: the query dies with the session it
+      // was typed in (Panel's sessionId effect), re-rendered on the same root
+      // so the component state — not a remount — is what has to clear it.
+      await type('site')
+      window.__gpPanelRoot.render(view.component({ sessionId: 'sess-2' }))
+      await wait(800)
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      observed.afterSession = { value: searchInput()?.value ?? null, hasInput: searchInput() !== null }
       return { observed, calls }
     }
     if (action === 'changes-bar') {
@@ -1904,6 +2050,84 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('head-icon observation: ' + JSON.stringify({ observed: out.observed, errors }))
+    failures.push(error)
+  }
+}
+
+// 17b. The repository search (issue #161): it narrows the listed rows in
+// place, keeps the head badge at the list total, states a root-only match on
+// the row's grey line, offers a clear from the empty state, clears on Escape
+// without falling through to the drawer listener, walks the rows with ↓, and
+// survives a pick — with no repository-list refetch and no auto-pick at any
+// point.
+{
+  const { out, errors } = await mount([LOST_REPO, WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search', { scene: 'S17b' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    // Boot: collapsed, the head names the checkout in use; expanding reveals
+    // the search input (the selected chip exists only while collapsed).
+    assert.equal(seen.atBoot.head.expanded, false, 'the block boots collapsed')
+    assert.equal(seen.atBoot.head.selected, 'fixture-repo', 'and names the checkout in use')
+    assert.equal(seen.atBoot.head.badge, '3/4', 'the badge counts the list: three choosable of four rows')
+    assert.equal(seen.opened.hasInput, true, 'the expanded block carries a search input')
+    assert.equal(seen.opened.head.expanded, true, 'the toggle expands the block')
+    // A term only one row carries narrows to it; the badge keeps the total.
+    assert.deepEqual(seen.filtered.rows, ['site'], 'one row matches `site`: ' + JSON.stringify(seen.filtered.rows))
+    assert.equal(seen.filtered.count, '1', 'the search box reports the match count')
+    assert.equal(seen.filtered.head.badge, '3/4', 'and the head badge never narrows with the query')
+    assert.ok(seen.filtered.rootLine.includes('fixture-repo'), 'the checked row is hidden but its absolute path line stays: ' + seen.filtered.rootLine)
+    assert.ok(seen.filtered.hits.includes('site'), 'the matched run is highlighted: ' + JSON.stringify(seen.filtered.hits))
+    assert.deepEqual(seen.filtered.calls, [], 'typing never asks the host for anything: ' + JSON.stringify(seen.filtered.calls))
+    // A root-only match must still show where it matched.
+    assert.deepEqual(seen.rootOnly.rows, ['lost-tree', '*fixture-repo', 'site', 'web (apps/web)'], 'every row lives under the workspace root: ' + JSON.stringify(seen.rootOnly.rows))
+    seen.rootOnly.detail.forEach((cell, index) => {
+      if (cell.disabled) assert.equal(cell.meta, 'repos.disabled.uncertified', 'the refused row keeps its reason, not a root fragment')
+      else assert.ok(cell.meta === '' || cell.meta.includes('fixture-repo'), `row ${index} carries the root fragment: ${cell.meta}`)
+    })
+    // No match: the empty state, the unchanged checkout, and no silent pick.
+    assert.deepEqual(seen.empty.rows, [], 'no row matches')
+    assert.ok(seen.empty.emptyText.length > 0, 'the empty state says so: ' + seen.empty.emptyText)
+    assert.notEqual(seen.empty.clearLabel, null, 'and offers the clear entry')
+    assert.ok(seen.empty.rootLine.includes('fixture-repo'), 'the checkout is still named: ' + seen.empty.rootLine)
+    assert.equal(seen.empty.head.badge, '3/4', 'even with nothing matching, the badge still reports the list')
+    // Escape clears the query, not the panel.
+    assert.equal(seen.escapeClears.value, '', 'Escape empties the input')
+    assert.deepEqual(seen.escapeClears.rows, ['lost-tree', '*fixture-repo', 'site', 'web (apps/web)'], 'and the full list returns: ' + JSON.stringify(seen.escapeClears.rows))
+    assert.equal(seen.escapeClears.focused, true, 'focus stays in the input')
+    // ↓ steps into the results, over the row that cannot be chosen.
+    assert.equal(seen.arrowDown.onRow, true, 'ArrowDown from the input focuses a row')
+    assert.equal(seen.arrowDown.firstRow, 'lost-tree', 'the first visible row is the unchoosable one: ' + JSON.stringify(seen.arrowDown))
+    assert.equal(seen.arrowDown.rowName, 'fixture-repo', 'and the walk steps over it to the next choosable row: ' + JSON.stringify(seen.arrowDown))
+    // A disabled row survives the filter stating its reason, unhighlighted.
+    assert.equal(seen.disabledRow.present, true, 'the refused worktree stays in the filtered list')
+    assert.equal(seen.disabledRow.disabled, true, 'and stays unchoosable')
+    assert.equal(seen.disabledRow.meta, 'repos.disabled.uncertified', 'stating its reason on the grey line')
+    assert.equal(seen.disabledRow.hits, 0, 'with no highlight on that sentence: ' + JSON.stringify(seen.disabledRow))
+    // A pick from a filtered list behaves like any other pick.
+    assert.equal(seen.afterPick.activeTab, 'tab.overview', 'picking stays on the overview')
+    assert.deepEqual(seen.afterPick.rows, ['*site'], 'the query survives the pick: ' + JSON.stringify(seen.afterPick.rows))
+    assert.equal(seen.afterPick.value, 'site', 'the input keeps the term')
+    assert.equal(seen.afterPick.expanded, true, 'the block stays open: the next switch is one click away')
+    assert.ok(seen.afterPick.calls.some((call) => call.endpoint === 'dbGitPanel/snapshot'), 'the pick sampled the new checkout')
+    assert.equal(seen.afterPick.calls.filter((call) => call.kind === 'repo-list').length, 0, 'but never re-scanned the workspace')
+    // One query, both docked copies: the changes column reads the same value.
+    assert.equal(seen.tabRoundTrip.changesValue, 'site', 'the changes column carries the query too')
+    assert.equal(seen.tabRoundTrip.backValue, 'site', 'and coming back keeps it')
+    assert.deepEqual(seen.tabRoundTrip.backRows, ['*site'], 'still filtered to the picked row: ' + JSON.stringify(seen.tabRoundTrip.backRows))
+    // The clear button empties the query and hands focus back.
+    assert.equal(seen.cleared.value, '', 'clear empties the input')
+    assert.deepEqual(seen.cleared.rows, ['lost-tree', 'fixture-repo', '*site', 'web (apps/web)'], 'the whole list returns, still on the picked checkout: ' + JSON.stringify(seen.cleared.rows))
+    assert.equal(seen.cleared.focused, true, 'focus returns to the input')
+    // Folding ends the search; re-expanding starts clean.
+    assert.equal(seen.afterRefold.value, '', 'a fold clears the query')
+    assert.deepEqual(seen.afterRefold.rows, ['lost-tree', 'fixture-repo', '*site', 'web (apps/web)'], 'and the list comes back whole: ' + JSON.stringify(seen.afterRefold.rows))
+    // A new session starts with no query of the old one's.
+    assert.equal(seen.afterSession.hasInput, true, 'the next session still offers the search box')
+    assert.equal(seen.afterSession.value, '', 'and starts it empty')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('search observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }
