@@ -83,6 +83,19 @@ export function repoSearchHighlight(text: string, tokens: readonly string[]): re
 }
 
 /**
+ * Whether cutting `text` at `i` would split one surrogate pair. A fragment
+ * window is computed in UTF-16 units, and a cut between the halves of an emoji
+ * prints the lone half as a replacement character; the panel never splits a
+ * pair (ADR-0043 takes the same line for word emphasis).
+ */
+function splitsPair(text: string, i: number): boolean {
+  if (i <= 0 || i >= text.length) return false
+  const before = text.charCodeAt(i - 1)
+  const at = text.charCodeAt(i)
+  return before >= 0xd800 && before <= 0xdbff && at >= 0xdc00 && at <= 0xdfff
+}
+
+/**
  * The row's grey line under a query: the detail the row already prints when
  * its terms are visible there, otherwise a fragment of the absolute root that
  * carries the first term the visible text hides — a match can come from the
@@ -101,8 +114,12 @@ export function repoSearchDetail(choice: RepoChoice, tokens: readonly string[]):
   for (const token of hidden) {
     const at = lowerRoot.indexOf(token)
     if (at === -1) continue
-    const from = Math.max(0, at - 16)
-    const to = Math.min(root.length, at + token.length + 24)
+    let from = Math.max(0, at - 16)
+    let to = Math.min(root.length, at + token.length + 24)
+    // Widen rather than cut a pair: the leading half joins the fragment, the
+    // trailing one is left out.
+    if (splitsPair(root, from)) from -= 1
+    if (splitsPair(root, to)) to -= 1
     return `${from > 0 ? '…' : ''}${root.slice(from, to)}${to < root.length ? '…' : ''}`
   }
   return detail

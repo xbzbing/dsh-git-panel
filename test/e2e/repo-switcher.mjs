@@ -1012,6 +1012,10 @@ async function mount(repos, action, options = {}) {
       observed.filtered = {
         rows: rowsNow(),
         count: searchText('.gp-repolist__search-count'),
+        // The badge is a picture of the number; the sentence a screen reader
+        // hears rides the block's hidden live span.
+        live: searchText('.gp-repolist__search .gp-copy-live'),
+        badgeLabel: visibleList()?.querySelector('.gp-repolist__search-count')?.getAttribute('aria-label') ?? null,
         head: headInfo(),
         // The checked row may be filtered out: its absolute path line stays,
         // so the panes' checkout is still stated while the rows are narrowed.
@@ -1093,12 +1097,15 @@ async function mount(repos, action, options = {}) {
       observed.tabRoundTrip = { changesValue, backValue: searchInput()?.value ?? null, backRows: rowsNow() }
       // The clear button empties the query and returns focus to the input.
       await type('site')
-      visibleList()?.querySelector('.gp-repolist__search-clear')?.click()
+      const clearButton = visibleList()?.querySelector('.gp-repolist__search-clear')
+      const clearTitle = clearButton?.getAttribute('title') ?? null
+      clearButton?.click()
       await wait(150)
       observed.cleared = {
         value: searchInput()?.value ?? null,
         rows: rowsNow(),
         focused: document.activeElement === searchInput(),
+        title: clearTitle,
       }
       // Folding the block ends the search; re-expanding starts clean. The query
       // has to be live right before the fold, or the assertion would pass with
@@ -1193,6 +1200,29 @@ async function mount(repos, action, options = {}) {
         rows: listRows().map((row) => row.name),
         focus: document.activeElement?.className ?? '',
         inPanel: document.querySelector('.gp-panel')?.contains(document.activeElement) === true,
+      }
+      // Growing back to four rows brings the box back empty…
+      window.__gpRepos(listed)
+      window.__gpSnapshot({ repoLimit: 41 })
+      await wait(1600)
+      await expandRepos()
+      observed.regrown = { hasInput: input() !== null, value: input()?.value ?? null }
+      // …and a query typed here dies with the block: a list below two rows is
+      // no chooser, so the panel drops the query instead of keeping it to
+      // filter rows the user never typed it against when a worktree returns.
+      await type('site')
+      window.__gpRepos(listed.filter((repo) => repo.name === 'fixture-repo'))
+      window.__gpSnapshot({ repoLimit: 42 })
+      await wait(1600)
+      observed.hidden = { block: document.querySelector('.gp-panel .gp-repolist') !== null }
+      window.__gpRepos(listed)
+      window.__gpSnapshot({ repoLimit: 43 })
+      await wait(1600)
+      await expandRepos()
+      observed.restored = {
+        hasInput: input() !== null,
+        value: input()?.value ?? null,
+        rows: listRows().map((row) => row.name),
       }
       return { observed, calls }
     }
@@ -2168,6 +2198,8 @@ const failures = []
     // A term only one row carries narrows to it; the badge keeps the total.
     assert.deepEqual(seen.filtered.rows, ['site'], 'one row matches `site`: ' + JSON.stringify(seen.filtered.rows))
     assert.equal(seen.filtered.count, '1', 'the search box reports the match count')
+    assert.equal(seen.filtered.live, 'repos.searchCount', 'the match count is announced by a hidden live span: ' + JSON.stringify(seen.filtered))
+    assert.equal(seen.filtered.badgeLabel, 'repos.searchCount', 'the badge keeps its own label for the picture it draws')
     assert.equal(seen.filtered.head.badge, '3/4', 'and the head badge never narrows with the query')
     assert.ok(seen.filtered.rootLine.includes('fixture-repo'), 'the checked row is hidden but its absolute path line stays: ' + seen.filtered.rootLine)
     assert.ok(seen.filtered.hits.includes('site'), 'the matched run is highlighted: ' + JSON.stringify(seen.filtered.hits))
@@ -2212,6 +2244,7 @@ const failures = []
     assert.equal(seen.cleared.value, '', 'clear empties the input')
     assert.deepEqual(seen.cleared.rows, ['lost-tree', 'fixture-repo', '*site', 'web (apps/web)'], 'the whole list returns, still on the picked checkout: ' + JSON.stringify(seen.cleared.rows))
     assert.equal(seen.cleared.focused, true, 'focus returns to the input')
+    assert.equal(seen.cleared.title, 'repos.searchClear', 'the icon-only clear carries a hover title like every other icon button')
     // Folding ends the search; re-expanding starts clean. The query is live
     // right before the fold, so deleting the panel's clear-on-fold turns this
     // red instead of leaving the assertion to pass on an already-empty box.
@@ -2288,6 +2321,12 @@ const failures = []
     assert.deepEqual(seen.afterClear.rows, ['fixture-repo', 'site', 'web (apps/web)'], 'and the whole list returns: ' + JSON.stringify(seen.afterClear.rows))
     assert.match(seen.afterClear.focus, /gp-repolist__head/, 'focus lands on the block head, not <body>: ' + JSON.stringify(seen.afterClear))
     assert.equal(seen.afterClear.inPanel, true, 'the caret stays inside the panel')
+    assert.equal(seen.regrown.hasInput, true, 'a list back at four rows carries the box again')
+    assert.equal(seen.regrown.value, '', 'and starts it empty')
+    assert.equal(seen.hidden.block, false, 'one row is no chooser: the block disappears')
+    assert.equal(seen.restored.hasInput, true, 'the block returns with the box')
+    assert.equal(seen.restored.value, '', 'a query typed before the block vanished does not come back with it')
+    assert.deepEqual(seen.restored.rows, ['lost-tree', 'fixture-repo', 'site', 'web (apps/web)'], 'and the list is whole: ' + JSON.stringify(seen.restored.rows))
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('search-shrink observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))

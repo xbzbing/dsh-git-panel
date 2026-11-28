@@ -501,6 +501,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     files: h(FilesIcon, { size: 14 }),
   }
   const repoList = repoChoices(repos)
+  // A list below two rows is no chooser at all: the block renders nothing, and
+  // a query left behind in the panel would come back filtering rows the user
+  // never typed it against the moment a worktree reappears.
+  useEffect(() => {
+    if (repoList.length < 2) setRepoQuery('')
+  }, [repoList.length])
   // The browser's displayed root follows its own selector, not the sample: the
   // project root (the cwd's own checkout when it has one, else the scan's cwd),
   // a picked checkout's listed root, the snapshot's realpath for the followed

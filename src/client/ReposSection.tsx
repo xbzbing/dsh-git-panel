@@ -483,13 +483,20 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
         },
       }),
       searching
-        ? h('span', { key: 'n', className: 'gp-repolist__search-count', role: 'img', 'aria-live': 'polite', 'aria-label': t('repos.searchCount', { n: visible.length }) }, String(visible.length))
+        ? h('span', { key: 'n', className: 'gp-repolist__search-count', role: 'img', 'aria-label': t('repos.searchCount', { n: visible.length }) }, String(visible.length))
+        : null,
+      // The badge is an image of a number: a live region inside role="img" is
+      // presentational and announces nothing. The sentence rides its own hidden
+      // live span — the pattern the copy feedback in this block already uses.
+      searching
+        ? h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, t('repos.searchCount', { n: visible.length }))
         : null,
       query === ''
         ? null
         : h('button', {
           key: 'clear', type: 'button', className: 'gp-repolist__search-clear',
           'aria-label': t('repos.searchClear'),
+          title: t('repos.searchClear'),
           onClick: clearQuery,
         }, h(CloseIcon, { size: 11 })),
     ])

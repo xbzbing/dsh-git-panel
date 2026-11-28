@@ -118,3 +118,17 @@ test('a root fragment keeps the matched term whole', () => {
   assert.ok(fragment.includes('keeps'), 'the term survives the cut: ' + fragment)
   assert.ok(fragment.length < row.root.length, 'the fragment is shorter than the full root')
 })
+
+test('a root fragment never cuts a surrogate pair in half', () => {
+  // The window is computed in UTF-16 units; an emoji sitting on either edge
+  // would otherwise print half a pair as a replacement character.
+  const lone = (text) => /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/.test(text)
+  const lead = repoChoices([{ path: 'x', name: 'x', kind: 'nested', root: '😀' + 'y'.repeat(15) + 'needle' }])[0]
+  const head = repoSearchDetail(lead, repoSearchTokens('needle'))
+  assert.equal(head, '😀' + 'y'.repeat(15) + 'needle', 'the window widens to keep the pair whole: ' + head)
+  assert.equal(lone(head), false, 'no lone surrogate: ' + head)
+  const tail = repoChoices([{ path: 'x', name: 'x', kind: 'nested', root: 'needle' + 'x'.repeat(23) + '😀' + 'tail' }])[0]
+  const cut = repoSearchDetail(tail, repoSearchTokens('needle'))
+  assert.equal(lone(cut), false, 'no lone surrogate at the tail: ' + cut)
+  assert.ok(cut.endsWith('…'), 'the cut is still stated')
+})
