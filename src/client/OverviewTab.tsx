@@ -1523,7 +1523,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // sheet — so every layout switches checkouts from the same place.
   const reposBlock = repositories === undefined
     ? null
-    : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, rowMenu: repositories.rowMenu, workspaceHint: repositories.workspaceHint, onEnableWorkspace: repositories.onEnableWorkspace, workspaceEnabling: repositories.workspaceEnabling, workspaceFailed: repositories.workspaceFailed, t })
+    : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, rowMenu: repositories.rowMenu, workspaceHint: repositories.workspaceHint, onEnableWorkspace: repositories.onEnableWorkspace, workspaceEnabling: repositories.workspaceEnabling, workspaceFailed: repositories.workspaceFailed, query: repositories.query ?? '', onQueryChange: repositories.onQueryChange, t })
 
   if (stacked) {
     const branchList = h(BranchScroll, { key: 'scroll', tree, treeError, activeRef: filter.ref, closed: closedSections, cbs: {

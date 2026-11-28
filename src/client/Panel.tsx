@@ -272,12 +272,24 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
   // The list block's collapsed state belongs to the panel, not the overview, so
   // it survives navigating between panes. It boots collapsed.
   const [reposCollapsed, setReposCollapsed] = useState(true)
+  // The repository search (issue #161) lives here for the same reason: both
+  // docked copies read one value, so switching panes keeps the query. It is a
+  // display filter only — it never reaches the host.
+  const [repoQuery, setRepoQuery] = useState('')
+  // Folding the block ends the search: a query would otherwise reappear on the
+  // next expand, filtering rows the user never typed this session.
+  useEffect(() => {
+    if (reposCollapsed) setRepoQuery('')
+  }, [reposCollapsed])
   // File-root picks live in the same store and are broadcast the same way: a
   // repair or a config flip one panel applies re-renders the other copy too.
   useSyncExternalStore(subscribeRepoSelection, filesRootVersion)
   useEffect(() => {
     setRepoWorkspaceEnabling(false)
     setRepoWorkspaceFailed(false)
+    // A new session's list is not the old one's: a surviving query would
+    // filter rows the user never asked about here.
+    setRepoQuery('')
   }, [sessionId])
   // The body goes inert for the switch (the sample on screen belongs to the
   // previous checkout while every write is already tagged with the next one),
@@ -836,6 +848,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
       onEnableWorkspace: hasConfigForms(ctx) ? enableWorkspace : undefined,
       workspaceEnabling: repoWorkspaceEnabling,
       workspaceFailed: repoWorkspaceFailed,
+      query: repoQuery,
+      onQueryChange: setRepoQuery,
     }
     : undefined
 

@@ -18,11 +18,13 @@
  * carries for it — for a worktree that includes its branch (git reports it for
  * free), for a scanned foreign repository nothing until it is checked.
  */
-import { createElement as h, useId } from 'react'
+import { createElement as h, useId, useMemo, useRef } from 'react'
 import type { JSX } from 'react'
-import { BranchIcon, CheckIcon, ChevronIcon, CopyIcon, RepoIcon, SparkleIcon, WorktreeIcon } from './icons.js'
+import { BranchIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, RepoIcon, SearchIcon, SparkleIcon, WorktreeIcon } from './icons.js'
 import type { RepoChoice, RepoGroup } from './repo-list.js'
 import { repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from './repo-list.js'
+import { filterRepoChoices, repoSearchDetail, repoSearchHighlight, repoSearchTokens } from './repo-search.js'
+import type { RepoSearchSegment } from './repo-search.js'
 import { repoTipContent } from './repo-tip.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { useRowSlider } from './row-slider.js'
@@ -33,6 +35,15 @@ import { useHoverTip } from './tip.js'
 import { rtlPathText } from './rtl-path.js'
 import type { GitRepoList, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
+
+/** One line as hit / plain runs; without a query the plain string, so the
+ * unfiltered rows keep their exact markup. */
+function renderRuns(text: string, segments: readonly RepoSearchSegment[] | null): (string | JSX.Element)[] | string {
+  if (segments === null) return text
+  return segments.map((segment, index) => segment.hit
+    ? h('mark', { key: index, className: 'gp-repolist__hit' }, segment.text)
+    : segment.text)
+}
 
 /** The docked list block as the panel hands it to a pane — the overview's left
  * column and the changes column share one, so the collapse state and the
@@ -62,6 +73,10 @@ export interface RepositoriesHost {
    * and states the failure: a click that changes nothing reads as a dead
    * control otherwise. */
   readonly workspaceFailed?: boolean
+  /** Live search text over the listed rows (issue #161). Owned by the panel so
+   * it survives switching panes; an empty string shows the whole list. */
+  readonly query?: string
+  readonly onQueryChange?: (query: string) => void
 }
 
 interface ReposSectionProps {
@@ -84,12 +99,33 @@ interface ReposSectionProps {
   readonly onEnableWorkspace?: () => void
   readonly workspaceEnabling?: boolean
   readonly workspaceFailed?: boolean
+  readonly query?: string
+  readonly onQueryChange?: (query: string) => void
 }
 
-export function ReposSection({ choices, current, snapshot, onChoose, t, collapsed = false, onToggleCollapse, rowMenu, workspaceHint, onEnableWorkspace, workspaceEnabling = false, workspaceFailed = false }: ReposSectionProps): JSX.Element | null {
+export function ReposSection({ choices, current, snapshot, onChoose, t, collapsed = false, onToggleCollapse, rowMenu, workspaceHint, onEnableWorkspace, workspaceEnabling = false, workspaceFailed = false, query = '', onQueryChange }: ReposSectionProps): JSX.Element | null {
   // One checkout is not a choice: a single row would only repeat the pill, and
   // the branch tree below already names it.
   const listId = useId()
+  // The search box: a display-only filter over the rows the host already
+  // listed (issue #161). No RPC, no rescan — a query that re-scanned the
+  // workspace could offer repositories this list never certified.
+  const searchRef = useRef<HTMLInputElement | null>(null)
+  // Memoised on the query alone: the filtered list rides `useRowSlider`'s deps,
+  // and a fresh array on every render would re-measure the travelling fill on
+  // each tip or copy re-render while a query is typed (row-slider.ts asks for
+  // a stable value there).
+  const tokens = useMemo(() => repoSearchTokens(query), [query])
+  const searching = tokens.length > 0
+  // The block's path line: the absolute root of the checkout the panes act on,
+  // click-to-copy with the shared 1.6 s feedback. Read off the full list, not
+  // the filtered one: a query that hides the checked row must not take its
+  // path with it — the line is what says which checkout the panes act on.
+  const currentChoice = choices.find((choice) => choice.path === current)
+  const visible = useMemo(() => filterRepoChoices(choices, tokens), [choices, tokens])
+  // One clear for both exits (the button and the empty state): empties the
+  // query and hands focus back to the input that filters.
+  const clearQuery = (): void => { onQueryChange?.(''); searchRef.current?.focus() }
   // The checked row's fill is one block that travels from the old row to the
   // new one instead of two rows swapping colours in a single frame: the block
   // is measured from the checked row after every render that can move it, and
@@ -98,12 +134,11 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // stale position.
   const { ref: listBox, slider } = useRowSlider({
     activeSelector: '.gp-repolist__item--active',
-    deps: [current, choices, collapsed],
+    // `visible` rides along: filtering moves the checked row (or hides it),
+    // and the fill must re-measure instead of pointing at empty space.
+    deps: [current, choices, visible, collapsed],
     collapsed,
   })
-  // The block's path line: the absolute root of the checkout the panes act on,
-  // click-to-copy with the shared 1.6 s feedback.
-  const currentChoice = choices.find((choice) => choice.path === current)
   const rootPath = currentChoice !== undefined && currentChoice.root !== '' ? currentChoice.root : null
   const rootCopy = useCopyFeedback(rootPath)
   // One tip serves the collapsed head's chip and the root path line; hover or
@@ -159,8 +194,13 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   if (choices.length < 2 && hintRow === null) return null
   const branch = snapshot === null ? undefined : snapshot.branch
   const changed = snapshot === null ? 0 : snapshot.staged + snapshot.modified + snapshot.untracked
-  const groups = repoGroups(choices)
+  // The groups are cut from the filtered rows: a family with no match earns no
+  // header, and each header counts what the query left. Without a query
+  // `visible` IS `choices`, so the unfiltered block is byte-for-byte today's.
+  const groups = repoGroups(visible)
   const grouped = groups.length > 1
+  // The head badge stays the list's total — a query narrows what you see, not
+  // what the workspace holds, and the count is how you notice a scan cap.
   const disabledCount = choices.filter((c) => c.disabled !== undefined).length
   const groupTitle = (group: RepoGroup): string => (group.key === 'own' ? t('repos.group.own') : t('repos.group.foreign'))
 
@@ -168,7 +208,16 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
     const active = choice.path === current
     const label = repoLabel(choice)
     const disabledKey = repoDisabledKey(choice)
-    const detail = disabledKey === null ? repoDetail(choice) : t(disabledKey)
+    // A query may have matched through the absolute root, which the ordinary
+    // detail line does not print — the row then states a fragment of it, so
+    // every surviving row shows where its match came from.
+    const detail = disabledKey === null
+      ? (searching ? repoSearchDetail(choice, tokens) : repoDetail(choice))
+      : t(disabledKey)
+    // Disabled rows keep their reason unhighlighted: the terms matched the row's
+    // identity, not the translated sentence explaining why it cannot be chosen.
+    const nameRuns = disabledKey === null && searching ? repoSearchHighlight(label, tokens) : null
+    const detailRuns = disabledKey === null && searching ? repoSearchHighlight(detail, tokens) : null
     const isOwn = choice.kind === 'workspace' || choice.kind === 'worktree'
     // The checked row reports what its snapshot says (the freshest truth); any
     // other row may only repeat what the list itself carries — the worktree's
@@ -206,7 +255,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
         h('span', { key: 'icon', className: 'gp-repolist__icon' }, icon),
         h('span', { key: 'text', className: 'gp-repolist__text' }, [
           h('span', { key: 'line', className: 'gp-repolist__line' }, [
-            h('span', { key: 'name', className: 'gp-repolist__name' }, label),
+            h('span', { key: 'name', className: 'gp-repolist__name' }, renderRuns(label, nameRuns)),
             // Detached is a real reported state (null), not an absence: the
             // chip distinguishes "HEAD is detached" from "nothing sampled".
             knownBranch !== undefined && knownBranch !== null
@@ -225,7 +274,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
             ? null
             : h('span', { key: 'meta', className: 'gp-repolist__meta' }, [
               ...tags.map((tag) => h('span', { key: tag, className: 'gp-repolist__tag' }, tag)),
-              detail === '' ? null : h('span', { key: 'path', className: 'gp-repolist__path' }, detail),
+              detail === '' ? null : h('span', { key: 'path', className: 'gp-repolist__path' }, renderRuns(detail, detailRuns)),
             ]),
         ]),
       ]))
@@ -247,12 +296,41 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
         ]),
         h('ul', { key: 'rows', className: 'gp-repolist__rows', role: 'list', 'aria-label': groupTitle(group) }, group.items.map(row)),
       ])))
-    : h('ul', { key: 'rows', className: 'gp-repolist__rows', role: 'list', 'aria-label': t('tab.repos') }, choices.map(row))
+    : h('ul', { key: 'rows', className: 'gp-repolist__rows', role: 'list', 'aria-label': t('tab.repos') }, visible.map(row))
+
+  // A query with no match says so in place, with the way out: an empty scroller
+  // would read as a broken list, and the row count in the head still says the
+  // workspace holds repositories.
+  const emptyState = searching && visible.length === 0
+    ? h('div', { key: 'empty', className: 'gp-repolist__empty' }, [
+      // A live region: typing into zero results announces the state instead of
+      // leaving a screen reader on a list that silently stopped.
+      h('span', { key: 'msg', className: 'gp-repolist__empty-msg', role: 'status' }, t('repos.searchEmpty')),
+      h('button', {
+        key: 'clear', type: 'button', className: 'gp-repolist__empty-clear',
+        onClick: clearQuery,
+      }, t('repos.searchClear')),
+    ])
+    : null
 
   // The scroll container also anchors the travelling fill: the slider is its
   // first child, absolutely placed, so it scrolls with the rows and its
-  // bounds always sit in the scrolled content.
-  const list = h('div', { key: 'list', id: listId, className: 'gp-repolist__list', ref: listBox }, [slider, rowGroups])
+  // bounds always sit in the scrolled content. Arrow keys walk the rows so a
+  // keyboard user can traverse a filtered list without Tab'ing every entry;
+  // disabled rows are skipped — they cannot be chosen, so they are not stops.
+  const onListKeyDown = (event: { key: string; target: EventTarget | null; preventDefault: () => void }): void => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    const target = event.target
+    if (!(target instanceof HTMLElement) || !target.classList.contains('gp-repolist__item')) return
+    const rows = [...(listBox.current?.querySelectorAll<HTMLButtonElement>('.gp-repolist__item:not([disabled])') ?? [])]
+    const at = rows.indexOf(target as HTMLButtonElement)
+    if (at === -1) return
+    const next = rows[at + (event.key === 'ArrowDown' ? 1 : -1)]
+    if (next === undefined) return
+    event.preventDefault()
+    next.focus()
+  }
+  const list = h('div', { key: 'list', id: listId, className: 'gp-repolist__list', ref: listBox, onKeyDown: onListKeyDown }, [slider, emptyState ?? rowGroups])
 
   // While collapsed the head names the checkout the panes act on: its label
   // shrinks to the repository icon so the selected chip keeps the width, with
@@ -340,12 +418,68 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
           rootCopy.feedback === 'copied' ? t('repos.rootCopied') : ''),
       ])
 
+  // The search row sits between the path line and the rows, inside the fold:
+  // it must not scroll away with the results it filters. The count beside it
+  // is the match count, never the list total — the head badge keeps that.
+  // A list of one is not a choice, so the box goes with it — unless a query is
+  // live: hiding the box while its word still filters would leave a narrowed
+  // list with no visible way back (the empty state's clear cannot appear for a
+  // query that still matches that one row).
+  const searchRow = onQueryChange === undefined || (choices.length < 2 && query === '')
+    ? null
+    : h('div', { key: 'search', className: 'gp-repolist__search' }, [
+      h(SearchIcon, { key: 'ic', size: 13 }),
+      h('input', {
+        key: 'input',
+        ref: searchRef,
+        className: 'gp-repolist__search-input',
+        type: 'search',
+        placeholder: t('repos.searchPlaceholder'),
+        'aria-label': t('repos.searchPlaceholder'),
+        value: query,
+        // The native widget clears with its own ✕; ours is the single clear
+        // with the count, so the built-in one is hidden in CSS.
+        onChange: (event: { target: { value: string } }) => onQueryChange(event.target.value),
+        onKeyDown: (event: { key: string; preventDefault: () => void; stopPropagation: () => void; nativeEvent?: { isComposing?: boolean } }) => {
+          // Escape during IME composition cancels the candidate list, not the
+          // query — and must not reach the sheet/drawer listener beneath.
+          if (event.nativeEvent?.isComposing === true) { event.stopPropagation(); return }
+          // The input owns Escape while it has focus and claims it even with an
+          // empty query (the comment form's precedent): an unhandled keystroke
+          // would fall through to the sheet/drawer document listeners.
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            if (query !== '') onQueryChange('')
+            return
+          }
+          // ↓ steps into the results; Enter types, it never picks — a query
+          // must not switch the checkout the user is still editing.
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            const first = listBox.current?.querySelector<HTMLButtonElement>('.gp-repolist__item:not([disabled])')
+            first?.focus()
+          }
+        },
+      }),
+      searching
+        ? h('span', { key: 'n', className: 'gp-repolist__search-count', role: 'img', 'aria-live': 'polite', 'aria-label': t('repos.searchCount', { n: visible.length }) }, String(visible.length))
+        : null,
+      query === ''
+        ? null
+        : h('button', {
+          key: 'clear', type: 'button', className: 'gp-repolist__search-clear',
+          'aria-label': t('repos.searchClear'),
+          onClick: clearQuery,
+        }, h(CloseIcon, { size: 11 })),
+    ])
+
   // The path line and the rows share one folding track: animating the track's
   // size unfolds downwards and folds upwards, where toggling [hidden] snapped
   // the block in a single frame. The rows stay mounted while folded — the
   // transition needs their real height — so the folded body also leaves the
   // tab order and the accessibility tree.
-  const fold = h('div', { key: 'fold', className: 'gp-repolist__fold' }, [rootLine, list])
+  const fold = h('div', { key: 'fold', className: 'gp-repolist__fold' }, [rootLine, searchRow, list])
   return h('div', { className: 'gp-repolist' }, [
     head,
     // Outside the fold on purpose: the block boots collapsed, and an offer
