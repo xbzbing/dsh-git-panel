@@ -27,6 +27,17 @@ export interface RepoSearchSegment {
   readonly hit: boolean
 }
 
+/**
+ * Rows from which the block offers a search box. Three rows read at a glance,
+ * so the box would cost a line and buy nothing; both the renderer and the
+ * clear path branch on this one number.
+ */
+export const REPO_SEARCH_MIN_ROWS = 4
+
+/** Longest query the box accepts. A path fragment is never this long, and the
+ * bound keeps a pasted wall of text out of every row's match scan. */
+export const REPO_SEARCH_MAX_QUERY = 256
+
 /** Split a query into lowercase terms; blank input yields none. */
 export function repoSearchTokens(query: string): string[] {
   return query.trim().toLowerCase().split(/\s+/).filter((token) => token !== '')
@@ -116,8 +127,8 @@ export function repoSearchDetail(choice: RepoChoice, tokens: readonly string[]):
     if (at === -1) continue
     let from = Math.max(0, at - 16)
     let to = Math.min(root.length, at + token.length + 24)
-    // Widen rather than cut a pair: the leading half joins the fragment, the
-    // trailing one is left out.
+    // Widen rather than cut a pair: a pair straddling the leading edge joins
+    // the fragment whole, one straddling the trailing edge is dropped whole.
     if (splitsPair(root, from)) from -= 1
     if (splitsPair(root, to)) to -= 1
     return `${from > 0 ? '…' : ''}${root.slice(from, to)}${to < root.length ? '…' : ''}`

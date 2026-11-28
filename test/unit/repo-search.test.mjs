@@ -32,6 +32,10 @@ test('the query splits on whitespace into lowercase terms', () => {
   assert.deepEqual(repoSearchTokens(''), [])
   // A term keeps its punctuation: paths are full of dots and dashes.
   assert.deepEqual(repoSearchTokens('api-php-login'), ['api-php-login'])
+  // A CJK input method inserts an ideographic space (U+3000), and a pasted
+  // query may carry a no-break space: both separate terms like any space.
+  assert.deepEqual(repoSearchTokens('仓库\u3000搜索'), ['仓库', '搜索'])
+  assert.deepEqual(repoSearchTokens('a\u00a0b'), ['a', 'b'])
 })
 
 test('every term must land somewhere in the row', () => {

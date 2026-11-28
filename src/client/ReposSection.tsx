@@ -23,7 +23,7 @@ import type { JSX } from 'react'
 import { BranchIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, RepoIcon, SearchIcon, SparkleIcon, WorktreeIcon } from './icons.js'
 import type { RepoChoice, RepoGroup } from './repo-list.js'
 import { repoBranchChip, repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from './repo-list.js'
-import { filterRepoChoices, repoSearchDetail, repoSearchHighlight, repoSearchTokens } from './repo-search.js'
+import { REPO_SEARCH_MAX_QUERY, REPO_SEARCH_MIN_ROWS, filterRepoChoices, repoSearchDetail, repoSearchHighlight, repoSearchTokens } from './repo-search.js'
 import type { RepoSearchSegment } from './repo-search.js'
 import { repoTipContent } from './repo-tip.js'
 import { useCopyFeedback } from './copy-feedback.js'
@@ -112,8 +112,11 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // workspace could offer repositories this list never certified.
   const searchRef = useRef<HTMLInputElement | null>(null)
   // Where focus goes when clearing the query takes the input away with it: the
-  // block's head line is the one control that always outlives the box.
-  const headRef = useRef<HTMLButtonElement | null>(null)
+  // block's head line is the one control that always outlives the box. A
+  // callback ref because the head is a button when it toggles and a static div
+  // otherwise, and both have to be able to take the focus.
+  const headRef = useRef<HTMLElement | null>(null)
+  const setHeadRef = (node: HTMLElement | null): void => { headRef.current = node }
   // Memoised on the query alone: the filtered list rides `useRowSlider`'s deps,
   // and a fresh array on every render would re-measure the travelling fill on
   // each tip or copy re-render while a query is typed (row-slider.ts asks for
@@ -134,7 +137,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // unmount and leave the user on <body>; the head line takes over instead.
   const clearQuery = (): void => {
     onQueryChange?.('')
-    if (choices.length < 4) headRef.current?.focus()
+    if (choices.length < REPO_SEARCH_MIN_ROWS) headRef.current?.focus()
     else searchRef.current?.focus()
   }
   // The checked row's fill is one block that travels from the old row to the
@@ -398,11 +401,13 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
       : h('span', { key: 'chevron', className: 'gp-repolist__collapse' }, h(ChevronIcon, { size: 14, open: !collapsed })),
   ]
   const head = onToggleCollapse === undefined
-    ? h('div', { key: 'head', className: 'gp-repolist__head gp-repolist__head--static', ...headTip }, headChildren)
+    // Static head: no toggle to press, but it still takes the focus the search
+    // box hands over when clearing takes the box away.
+    ? h('div', { key: 'head', ref: setHeadRef, tabIndex: -1, className: 'gp-repolist__head gp-repolist__head--static', ...headTip }, headChildren)
     : h('button', {
       key: 'head',
       type: 'button',
-      ref: headRef,
+      ref: setHeadRef,
       className: 'gp-repolist__head',
       'aria-expanded': collapsed ? 'false' : 'true',
       'aria-controls': listId,
@@ -441,7 +446,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // rows up; a query left live still keeps its input visible, or a narrowed
   // list would have no way back (the empty state's clear cannot appear for a
   // query that still matches that one row).
-  const searchRow = onQueryChange === undefined || (choices.length < 4 && query === '')
+  const searchRow = onQueryChange === undefined || (choices.length < REPO_SEARCH_MIN_ROWS && !searching)
     ? null
     : h('div', { key: 'search', className: 'gp-repolist__search' }, [
       h(SearchIcon, { key: 'ic', size: 13 }),
@@ -453,17 +458,28 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
         placeholder: t('repos.searchPlaceholder'),
         'aria-label': t('repos.searchPlaceholder'),
         value: query,
+        // A pasted wall of text would be scanned against every row on every
+        // keystroke; a repository path is never this long.
+        maxLength: REPO_SEARCH_MAX_QUERY,
         // The native widget clears with its own ✕; ours is the single clear
         // with the count, so the built-in one is hidden in CSS.
-        onChange: (event: { target: { value: string } }) => onQueryChange(event.target.value),
+        onChange: (event: { target: { value: string } }) => {
+          const next = event.target.value
+          onQueryChange(next)
+          // Typing the query away removes the box when the list is short (the
+          // same failure the clear button has to dodge): move the caret to the
+          // head before the input unmounts under it.
+          if (next === '' && choices.length < REPO_SEARCH_MIN_ROWS) headRef.current?.focus()
+        },
         onKeyDown: (event: { key: string; preventDefault: () => void; stopPropagation: () => void; nativeEvent?: { isComposing?: boolean } }) => {
           // Escape during IME composition cancels the candidate list, not the
           // query — and must not reach the sheet/drawer listener beneath.
           if (event.nativeEvent?.isComposing === true) { event.stopPropagation(); return }
-          // An empty query has nothing to clear, so the keystroke belongs to the
-          // surface holding the list: the compact sheet and the tight drawer
-          // close on Escape, and swallowing it here would read as a dead key.
-          if (event.key === 'Escape' && query === '') return
+          // A query with no terms has nothing to clear, so the keystroke belongs
+          // to the surface holding the list: the compact sheet and the tight
+          // drawer close on Escape, and swallowing it here would read as a dead
+          // key. (Whitespace only counts as no terms — it filters nothing.)
+          if (event.key === 'Escape' && !searching) return
           // A live query does own Escape — it clears the filter and stops there,
           // so the same keystroke cannot also dismiss the sheet the user is
           // still working in.
@@ -488,9 +504,11 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
       // The badge is an image of a number: a live region inside role="img" is
       // presentational and announces nothing. The sentence rides its own hidden
       // live span — the pattern the copy feedback in this block already uses.
-      searching
-        ? h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, t('repos.searchCount', { n: visible.length }))
-        : null,
+      // It stays mounted while the row does: a region inserted together with
+      // its first value is usually not announced, so the first query's count
+      // would go silent.
+      h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
+        searching ? t('repos.searchCount', { n: visible.length }) : ''),
       query === ''
         ? null
         : h('button', {

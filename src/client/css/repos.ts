@@ -145,7 +145,7 @@ export const CSS = `
 .gp-repolist__search-clear:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 /* Matched runs inside a row's name and path. A tint, not a solid block: the
  * row's own state (hover, the travelling fill) must stay readable under it. */
-.gp-repolist__hit{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent);color:inherit;border-radius:2px}
+.gp-repolist__hit{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary)) 35%,transparent);color:inherit;border-radius:2px}
 /* No match: the message and the way out, in place of the rows. */
 .gp-repolist__empty{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:10px 10px 12px;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
 .gp-repolist__empty-msg{overflow-wrap:anywhere}

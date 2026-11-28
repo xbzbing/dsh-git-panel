@@ -500,7 +500,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible, useCo
     changes: h(DiffIcon, { size: 14 }),
     files: h(FilesIcon, { size: 14 }),
   }
-  const repoList = repoChoices(repos)
+  // Derived once per list: the search filter and the row slider both key off
+  // this array, and a fresh one on every render would re-run both for a panel
+  // re-render that did not touch the workspace.
+  const repoList = useMemo(() => repoChoices(repos), [repos])
   // A list below two rows is no chooser at all: the block renders nothing, and
   // a query left behind in the panel would come back filtering rows the user
   // never typed it against the moment a worktree reappears.
