@@ -22,7 +22,7 @@ import { createElement as h, useId, useMemo, useRef } from 'react'
 import type { JSX } from 'react'
 import { BranchIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, RepoIcon, SearchIcon, SparkleIcon, WorktreeIcon } from './icons.js'
 import type { RepoChoice, RepoGroup } from './repo-list.js'
-import { repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from './repo-list.js'
+import { repoBranchChip, repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from './repo-list.js'
 import { filterRepoChoices, repoSearchDetail, repoSearchHighlight, repoSearchTokens } from './repo-search.js'
 import type { RepoSearchSegment } from './repo-search.js'
 import { repoTipContent } from './repo-tip.js'
@@ -224,6 +224,10 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
     // branch, which git reported for free, or nothing at all for a scanned
     // repository nobody has sampled.
     const knownBranch = active ? (snapshot !== null ? branch : choice.branch) : isOwn ? choice.branch : undefined
+    // The chip beside the name: it earns its line only when the branch says
+    // something the label does not already (a directory that is its own branch
+    // would otherwise print the same word twice).
+    const branchChip = repoBranchChip(label, knownBranch)
     const tags: string[] = []
     if (choice.role === 'main') tags.push(t('repos.mainTag'))
     if (choice.locked === true) tags.push(t('repos.lockedTag'))
@@ -258,8 +262,8 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
             h('span', { key: 'name', className: 'gp-repolist__name' }, renderRuns(label, nameRuns)),
             // Detached is a real reported state (null), not an absence: the
             // chip distinguishes "HEAD is detached" from "nothing sampled".
-            knownBranch !== undefined && knownBranch !== null
-              ? h('span', { key: 'branch', className: 'gp-repolist__branch' }, [h(BranchIcon, { key: 'i', size: 11 }), knownBranch])
+            branchChip !== null
+              ? h('span', { key: 'branch', className: 'gp-repolist__branch' }, [h(BranchIcon, { key: 'i', size: 11 }), branchChip])
               : null,
             knownBranch === null
               ? h('span', { key: 'branch', className: 'gp-repolist__branch gp-repolist__branch--detached' }, t('pill.detached'))
@@ -421,11 +425,11 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // The search row sits between the path line and the rows, inside the fold:
   // it must not scroll away with the results it filters. The count beside it
   // is the match count, never the list total — the head badge keeps that.
-  // A list of one is not a choice, so the box goes with it — unless a query is
-  // live: hiding the box while its word still filters would leave a narrowed
-  // list with no visible way back (the empty state's clear cannot appear for a
+  // A short list reads at a glance, so the box only earns its line from four
+  // rows up; a query left live still keeps its input visible, or a narrowed
+  // list would have no way back (the empty state's clear cannot appear for a
   // query that still matches that one row).
-  const searchRow = onQueryChange === undefined || (choices.length < 2 && query === '')
+  const searchRow = onQueryChange === undefined || (choices.length < 4 && query === '')
     ? null
     : h('div', { key: 'search', className: 'gp-repolist__search' }, [
       h(SearchIcon, { key: 'ic', size: 13 }),

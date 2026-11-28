@@ -1113,6 +1113,16 @@ async function mount(repos, action, options = {}) {
       observed.afterSession = { value: searchInput()?.value ?? null, hasInput: searchInput() !== null }
       return { observed, calls }
     }
+    if (action === 'search-threshold') {
+      // Issue #161 follow-up: the box pays for itself only in a list the eye
+      // cannot hold at once — three rows read whole, four start to scroll —
+      // so below four rows the block renders no input at all.
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      const hasInput = () => visibleList()?.querySelector('.gp-repolist__search-input') !== null
+      await expandRepos()
+      observed.opened = { hasInput: hasInput(), rows: listRows().map((row) => row.name) }
+      return { observed, calls }
+    }
     if (action === 'changes-bar') {
       // The changes column docks the same list as the overview: same rows, one
       // collapse state read from either side.
@@ -1733,7 +1743,7 @@ const failures = []
     assert.deepEqual(seen.groups.labels, ['repos.group.own', 'repos.group.foreign'], 'each group names itself')
     assert.deepEqual(seen.groups.counts, ['2/4', '2'], 'the family header shows choosable/total, the flat one just the total')
     assert.deepEqual(seen.rows.map((row) => row.name), ['fixture-repo', 'sidebar', 'spike', 'gone', 'site', 'web (apps/web)'], 'family rows lead, the workspace follows')
-    assert.deepEqual(seen.rows.map((row) => row.branch), ['main', 'feat/sidebar', 'spike', 'old', '', ''], 'every family row prints the branch git reported; foreign rows claim none')
+    assert.deepEqual(seen.rows.map((row) => row.branch), ['main', 'feat/sidebar', '', 'old', '', ''], 'the chip adds what the name cannot guess: `spike` IS its own branch, printed once; foreign rows claim none')
     assert.deepEqual(seen.rows.map((row) => row.disabled), [false, false, true, true, false, false], 'outside and lost directories are visible but unchoosable')
     assert.equal(seen.rows.length, 6, 'four family rows and two foreign rows')
     assert.equal(seen.rows[0].meta, 'repos.mainTag', 'the main work tree declares itself with its badge')
@@ -2059,7 +2069,7 @@ const failures = []
 // the row's grey line, offers a clear from the empty state, clears on Escape
 // without falling through to the drawer listener, walks the rows with ↓, and
 // survives a pick — with no repository-list refetch and no auto-pick at any
-// point.
+// point. Four rows carry the box (the threshold's lower bound).
 {
   const { out, errors } = await mount([LOST_REPO, WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search', { scene: 'S17b' })
   try {
@@ -2128,6 +2138,23 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('search observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 17c. The box is earned, not defaulted: three rows read at a glance, so the
+// block renders no search input for them — scene 17b's four rows are the
+// boundary where it appears.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'search-threshold', { scene: 'S17c' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.opened.rows.length, 3, 'three rows: the size the threshold is about')
+    assert.equal(seen.opened.hasInput, false, 'a short list earns no search box: ' + JSON.stringify(seen.opened))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('search-threshold observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }

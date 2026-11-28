@@ -148,6 +148,20 @@ export function repoDetail(choice: RepoChoice): string {
   return choice.path === '' ? '' : choice.path
 }
 
+/**
+ * The text the row's branch chip prints beside the label, or null when the
+ * chip has nothing to add. A worktree's directory usually *is* its branch
+ * (`.agents/worktrees/feat/x` checked out as `feat/x`), and printing the same
+ * word twice on one line reads as a rendering glitch rather than as
+ * information — the chip claims only a branch the label does not already
+ * state. The hover tip always carries the branch, and a detached HEAD
+ * (`null`) is reported by the chip's own detached variant.
+ */
+export function repoBranchChip(label: string, branch: string | null | undefined): string | null {
+  if (branch === undefined || branch === null || branch === label) return null
+  return branch
+}
+
 /** i18n key explaining why a row cannot be chosen; null when it can. */
 export function repoDisabledKey(choice: RepoChoice): 'repos.disabled.outside' | 'repos.disabled.uncertified' | 'repos.disabled.stale' | null {
   if (choice.disabled === 'outside') return 'repos.disabled.outside'
